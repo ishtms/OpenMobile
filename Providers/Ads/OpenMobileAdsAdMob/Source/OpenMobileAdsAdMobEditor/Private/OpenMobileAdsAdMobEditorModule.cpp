@@ -1,6 +1,5 @@
 #include "Editor.h"
 #include "Logging/MessageLog.h"
-#include "MessageLogModule.h"
 #include "Modules/ModuleManager.h"
 #include "OpenMobileAdsAdMobSettings.h"
 #include "OpenMobileAdsAdMobSettingsValidator.h"
@@ -17,12 +16,7 @@ class FOpenMobileAdsAdMobEditorModule final : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
-		FMessageLogModule& MessageLogModule =
-			FModuleManager::LoadModuleChecked<FMessageLogModule>(TEXT("MessageLog"));
-		MessageLogModule.RegisterLogListing(
-			OpenMobileAdsAdMobEditorPrivate::MessageLogName,
-			LOCTEXT("MessageLogLabel", "OpenMobile Ads")
-		);
+		FModuleManager::Get().LoadModuleChecked(TEXT("OpenMobileAdsEditor"));
 		PreBeginPIEHandle = FEditorDelegates::PreBeginPIE.AddRaw(
 			this,
 			&FOpenMobileAdsAdMobEditorModule::HandlePreBeginPIE
@@ -32,13 +26,6 @@ public:
 	virtual void ShutdownModule() override
 	{
 		FEditorDelegates::PreBeginPIE.Remove(PreBeginPIEHandle);
-		if (FMessageLogModule* MessageLogModule =
-			FModuleManager::GetModulePtr<FMessageLogModule>(TEXT("MessageLog")))
-		{
-			MessageLogModule->UnregisterLogListing(
-				OpenMobileAdsAdMobEditorPrivate::MessageLogName
-			);
-		}
 	}
 
 private:

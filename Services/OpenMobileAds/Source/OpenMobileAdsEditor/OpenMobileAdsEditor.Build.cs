@@ -1,8 +1,8 @@
 using UnrealBuildTool;
 
-public class OpenMobileAdsAdMobEditor : ModuleRules
+public class OpenMobileAdsEditor : ModuleRules
 {
-	public OpenMobileAdsAdMobEditor(ReadOnlyTargetRules Target) : base(Target)
+	public OpenMobileAdsEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
@@ -11,8 +11,7 @@ public class OpenMobileAdsAdMobEditor : ModuleRules
 			"Core",
 			"CoreUObject",
 			"MessageLog",
-			"OpenMobileAdsEditor",
-			"OpenMobileAdsAdMob",
+			"OpenMobileAds",
 			"UnrealEd"
 		});
 	}

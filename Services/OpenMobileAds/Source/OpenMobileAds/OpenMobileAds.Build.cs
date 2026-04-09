@@ -10,6 +10,7 @@ public class OpenMobileAds : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"OpenMobileCore"
 		});

@@ -1,0 +1,207 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DeveloperSettings.h"
+#include "OpenMobileAdsTypes.h"
+#include "OpenMobileAdsConfiguration.generated.h"
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	int32 MaxImpressions = 0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	double WindowSeconds = 0.0;
+
+	bool IsEnabled() const
+	{
+		return MaxImpressions > 0 && WindowSeconds > 0.0;
+	}
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FString AdUnitId;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideEnabled = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideEnabled"))
+	bool bEnabled = true;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverridePreload = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverridePreload"))
+	bool bPreload = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideRefreshInterval = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideRefreshInterval", ClampMin = "0.0"))
+	double RefreshIntervalSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideFrequencyCap = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideFrequencyCap"))
+	FOpenMobileAdsFrequencyCap FrequencyCap;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideCooldown = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideCooldown", ClampMin = "0.0"))
+	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	TMap<FName, FString> ProviderOptions;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Placement;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString AdUnitId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bEnabled = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bPreload = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	double RefreshIntervalSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsFrequencyCap FrequencyCap;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	double CooldownSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	TMap<FName, FString> ProviderOptions;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FName Placement;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bEnabled = true;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bPreload = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	double RefreshIntervalSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsFrequencyCap FrequencyCap;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	TMap<FName, FString> ProviderOptions;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsPlatformPlacementOverride Android;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsPlatformPlacementOverride IOS;
+
+	FOpenMobileAdsResolvedPlacement Resolve(EOpenMobileAdsPlatform Platform) const;
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConfigurationIssueSeverity : uint8
+{
+	Warning,
+	Error
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConfigurationIssueCode : uint8
+{
+	EmptyPlacement,
+	DuplicatePlacement,
+	CaseConflict,
+	MissingAndroidAdUnitId,
+	MissingIOSAdUnitId,
+	DuplicateAndroidAdUnitId,
+	DuplicateIOSAdUnitId,
+	InvalidRefreshInterval,
+	RefreshNotSupported,
+	InvalidFrequencyCap,
+	InvalidCooldown,
+	EmptyProviderOption
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsConfigurationIssue
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConfigurationIssueSeverity Severity = EOpenMobileAdsConfigurationIssueSeverity::Error;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConfigurationIssueCode Code = EOpenMobileAdsConfigurationIssueCode::EmptyPlacement;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Placement;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName ConflictingPlacement;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString Message;
+};
+
+class OPENMOBILEADS_API FOpenMobileAdsConfigurationValidator
+{
+public:
+	static TArray<FOpenMobileAdsConfigurationIssue> Validate(
+		const TArray<FOpenMobileAdsPlacementSettings>& Placements
+	);
+};
+
+UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "OpenMobile Ads"))
+class OPENMOBILEADS_API UOpenMobileAdsSettings : public UDeveloperSettings
+{
+	GENERATED_BODY()
+
+public:
+	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
+	virtual FName GetSectionName() const override { return TEXT("OpenMobile Ads"); }
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Providers")
+	FName PreferredProvider;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Placements")
+	TArray<FOpenMobileAdsPlacementSettings> Placements;
+
+	const FOpenMobileAdsPlacementSettings* FindPlacement(FName Placement) const;
+};

@@ -39,6 +39,16 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertTrue((module_root / "OpenMobileAdsAdMobEditor.Build.cs").is_file())
 		self.assertTrue((module_root / "Private" / "OpenMobileAdsAdMobEditorModule.cpp").is_file())
 
+	def test_service_editor_validation_is_not_runtime_eligible(self) -> None:
+		descriptor = load_descriptor(ADS_PLUGIN)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+
+		self.assertEqual("Runtime", modules["OpenMobileAds"]["Type"])
+		self.assertEqual("Editor", modules["OpenMobileAdsEditor"]["Type"])
+		module_root = ADS_PLUGIN / "Source" / "OpenMobileAdsEditor"
+		self.assertTrue((module_root / "OpenMobileAdsEditor.Build.cs").is_file())
+		self.assertTrue((module_root / "Private" / "OpenMobileAdsEditorModule.cpp").is_file())
+
 	def test_admob_declares_service_dependency_without_reverse_dependency(self) -> None:
 		service_dependencies = {
 			plugin["Name"] for plugin in load_descriptor(ADS_PLUGIN).get("Plugins", [])
