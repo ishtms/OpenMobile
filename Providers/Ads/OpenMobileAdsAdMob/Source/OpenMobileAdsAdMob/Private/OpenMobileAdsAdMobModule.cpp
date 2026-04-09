@@ -12,6 +12,18 @@ namespace OpenMobileAdsAdMobPrivate
 	public:
 		virtual FName GetProviderName() const override { return TEXT("AdMob"); }
 		virtual bool IsSupported() const override { return FOpenMobileAdsAdMobPlatform::IsSupported(); }
+		virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const override
+		{
+			FOpenMobileAdFormatCapabilities Rewarded;
+			Rewarded.Format = EOpenMobileAdFormat::Rewarded;
+			Rewarded.bReportsDismiss = true;
+			Rewarded.bReportsReward = true;
+
+			FOpenMobileAdsProviderCapabilities Capabilities;
+			Capabilities.Provider = GetProviderName();
+			Capabilities.Formats.Add(Rewarded);
+			return Capabilities;
+		}
 
 		virtual bool RequestAndShowRewardedAd(
 			FOpenMobileRewardedAdCallbacks&& Callbacks,

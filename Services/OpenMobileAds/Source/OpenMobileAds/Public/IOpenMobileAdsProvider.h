@@ -2,6 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
+#include "OpenMobileAdsCapabilities.h"
+#include "OpenMobileAdsErrors.h"
+#include "OpenMobileAdsEvents.h"
+#include "OpenMobileAdsOperations.h"
 #include "OpenMobileCoreTypes.h"
 
 DECLARE_DELEGATE(FOpenMobileRewardedAdLoadedCallback);
@@ -19,6 +23,13 @@ struct OPENMOBILEADS_API FOpenMobileRewardedAdCallbacks
 	FOpenMobileRewardedAdFailedCallback OnFailed;
 };
 
+class OPENMOBILEADS_API IOpenMobileAdsProviderEventSink
+{
+public:
+	virtual ~IOpenMobileAdsProviderEventSink() = default;
+	virtual void Submit(FOpenMobileAdsEvent Event) = 0;
+};
+
 /** Public, versioned SPI implemented by independently enabled ad-provider plugins. */
 class OPENMOBILEADS_API IOpenMobileAdsProvider : public IModularFeature
 {
@@ -34,9 +45,45 @@ public:
 	virtual FName GetProviderName() const = 0;
 	virtual int32 GetPriority() const { return 0; }
 	virtual bool IsSupported() const = 0;
+	virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const;
+
+	virtual bool Load(
+		const FOpenMobileAdsLoadRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FOpenMobileAdsError& OutError
+	);
+
+	virtual bool Show(
+		const FOpenMobileAdsShowRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FOpenMobileAdsError& OutError
+	);
+
+	virtual bool Destroy(
+		const FOpenMobileAdsDestroyRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FOpenMobileAdsError& OutError
+	);
+
+	virtual void Cancel(FGuid RequestId) {}
 
 	virtual bool RequestAndShowRewardedAd(
 		FOpenMobileRewardedAdCallbacks&& Callbacks,
 		FOpenMobileError& OutError
 	) = 0;
+};
+
+struct OPENMOBILEADS_API FOpenMobileAdsProviderSelection
+{
+	IOpenMobileAdsProvider* Provider = nullptr;
+	FOpenMobileAdsError Error;
+};
+
+class OPENMOBILEADS_API FOpenMobileAdsProviderResolver
+{
+public:
+	static FOpenMobileAdsProviderSelection Resolve(
+		const TArray<IOpenMobileAdsProvider*>& Providers,
+		FName PreferredProvider
+	);
 };
