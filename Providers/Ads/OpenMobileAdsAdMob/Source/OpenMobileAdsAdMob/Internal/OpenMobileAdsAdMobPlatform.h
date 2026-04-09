@@ -1,0 +1,32 @@
+#pragma once
+
+#include "CoreMinimal.h"
+
+DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
+DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
+DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobRewardedEarned, int32, FString);
+DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedClosed);
+DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobRewardedFailed, FString);
+
+class OPENMOBILEADSADMOB_API FOpenMobileAdsAdMobPlatform
+{
+public:
+	static bool IsSupported();
+	static void Shutdown();
+
+	static bool BeginRequest(
+		const FString& AdUnitId,
+		FOnOpenMobileAdMobRewardedLoaded&& OnLoaded,
+		FOnOpenMobileAdMobRewardedShown&& OnShown,
+		FOnOpenMobileAdMobRewardedEarned&& OnEarned,
+		FOnOpenMobileAdMobRewardedClosed&& OnClosed,
+		FOnOpenMobileAdMobRewardedFailed&& OnFailed,
+		FString& OutError
+	);
+
+	static void NativeLoaded(int64 RequestId);
+	static void NativeShown(int64 RequestId);
+	static void NativeEarned(int64 RequestId, int32 NetworkAmount, FString NetworkRewardType);
+	static void NativeClosed(int64 RequestId);
+	static void NativeFailed(int64 RequestId, FString ErrorMessage);
+};

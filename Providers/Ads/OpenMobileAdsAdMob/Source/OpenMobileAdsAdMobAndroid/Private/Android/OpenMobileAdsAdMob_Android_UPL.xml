@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+    <init>
+        <log text="OpenMobileAdsAdMob Android bridge enabled"/>
+        <setStringFromProperty
+            result="OpenMobileAdsAdMobAndroidAppId"
+            ini="Engine"
+            section="/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings"
+            property="AndroidAppId"
+            default="ca-app-pub-3940256099942544~3347511713"/>
+    </init>
+
+    <buildGradleAdditions>
+        <insert>
+dependencies {
+    implementation('com.google.android.gms:play-services-ads:25.4.0')
+}
+        </insert>
+    </buildGradleAdditions>
+
+    <androidManifestUpdates>
+        <addPermission android:name="android.permission.INTERNET"/>
+        <addPermission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+        <setElement result="OpenMobileAdsAdMobAppIdMetaData" value="meta-data"/>
+        <addAttribute
+            tag="$OpenMobileAdsAdMobAppIdMetaData"
+            name="android:name"
+            value="com.google.android.gms.ads.APPLICATION_ID"/>
+        <addAttribute
+            tag="$OpenMobileAdsAdMobAppIdMetaData"
+            name="android:value"
+            value="$S(OpenMobileAdsAdMobAndroidAppId)"/>
+        <addElement tag="application" name="OpenMobileAdsAdMobAppIdMetaData"/>
+    </androidManifestUpdates>
+
+    <gameActivityImportAdditions>
+        <insert>
+import com.google.android.gms.ads.AdError;
+import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.FullScreenContentCallback;
+import com.google.android.gms.ads.LoadAdError;
+import com.google.android.gms.ads.MobileAds;
+import com.google.android.gms.ads.OnUserEarnedRewardListener;
+import com.google.android.gms.ads.initialization.InitializationStatus;
+import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
+import com.google.android.gms.ads.rewarded.RewardItem;
+import com.google.android.gms.ads.rewarded.RewardedAd;
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
+        </insert>
+    </gameActivityImportAdditions>
+
+    <gameActivityClassAdditions>
+        <insert>
+    private RewardedAd openMobileRewardedAd = null;
+    private boolean openMobileRewardedAdLoading = false;
+    private boolean openMobileRewardedAdsInitialized = false;
+
+    public native void nativeOpenMobileRewardedAdLoaded(long requestId);
+    public native void nativeOpenMobileRewardedAdShown(long requestId);
+    public native void nativeOpenMobileRewardedAdEarned(
+        long requestId,
+        int networkAmount,
+        String networkRewardType
+    );
+    public native void nativeOpenMobileRewardedAdClosed(long requestId);
+    public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
+
+    public void AndroidThunkJava_InitializeOpenMobileRewardedAds()
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                if (openMobileRewardedAdsInitialized)
+                {
+                    return;
+                }
+
+                openMobileRewardedAdsInitialized = true;
+                MobileAds.initialize(activityContext, new OnInitializationCompleteListener()
+                {
+                    @Override
+                    public void onInitializationComplete(InitializationStatus initializationStatus)
+                    {
+                        Log.debug("OpenMobile rewarded Google ads initialized");
+                    }
+                });
+            }
+        });
+    }
+
+    public void AndroidThunkJava_ShutdownOpenMobileRewardedAds()
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                openMobileRewardedAd = null;
+                openMobileRewardedAdLoading = false;
+            }
+        });
+    }
+
+    public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
+        final String adUnitId,
+        final long requestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (openMobileRewardedAdLoading || openMobileRewardedAd != null)
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            requestId,
+                            "A rewarded ad is already loading or showing."
+                        );
+                        return;
+                    }
+
+                    if (adUnitId == null || adUnitId.trim().length() == 0)
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            requestId,
+                            "The Android rewarded ad unit ID is empty."
+                        );
+                        return;
+                    }
+
+                    openMobileRewardedAdLoading = true;
+                    RewardedAd.load(
+                        activityContext,
+                        adUnitId,
+                        new AdRequest.Builder().build(),
+                        new RewardedAdLoadCallback()
+                        {
+                            @Override
+                            public void onAdLoaded(RewardedAd rewardedAd)
+                            {
+                                openMobileRewardedAdLoading = false;
+                                openMobileRewardedAd = rewardedAd;
+                                nativeOpenMobileRewardedAdLoaded(requestId);
+
+                                rewardedAd.setFullScreenContentCallback(
+                                    new FullScreenContentCallback()
+                                    {
+                                        @Override
+                                        public void onAdShowedFullScreenContent()
+                                        {
+                                            nativeOpenMobileRewardedAdShown(requestId);
+                                        }
+
+                                        @Override
+                                        public void onAdDismissedFullScreenContent()
+                                        {
+                                            openMobileRewardedAd = null;
+                                            nativeOpenMobileRewardedAdClosed(requestId);
+                                        }
+
+                                        @Override
+                                        public void onAdFailedToShowFullScreenContent(AdError adError)
+                                        {
+                                            openMobileRewardedAd = null;
+                                            nativeOpenMobileRewardedAdFailed(
+                                                requestId,
+                                                "Rewarded ad failed to show: " + adError.getMessage()
+                                            );
+                                        }
+                                    }
+                                );
+
+                                try
+                                {
+                                    rewardedAd.show(
+                                        GameActivity.this,
+                                        new OnUserEarnedRewardListener()
+                                        {
+                                            @Override
+                                            public void onUserEarnedReward(RewardItem rewardItem)
+                                            {
+                                                nativeOpenMobileRewardedAdEarned(
+                                                    requestId,
+                                                    rewardItem.getAmount(),
+                                                    rewardItem.getType()
+                                                );
+                                            }
+                                        }
+                                    );
+                                }
+                                catch (Exception exception)
+                                {
+                                    openMobileRewardedAd = null;
+                                    nativeOpenMobileRewardedAdFailed(
+                                        requestId,
+                                        "Rewarded ad could not be presented: " + exception.getMessage()
+                                    );
+                                }
+                            }
+
+                            @Override
+                            public void onAdFailedToLoad(LoadAdError loadAdError)
+                            {
+                                openMobileRewardedAdLoading = false;
+                                openMobileRewardedAd = null;
+                                nativeOpenMobileRewardedAdFailed(
+                                    requestId,
+                                    "Rewarded ad failed to load: " + loadAdError.getMessage()
+                                );
+                            }
+                        }
+                    );
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile rewarded ad request failed: " + exception.getMessage());
+            return false;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+
+    <proguardAdditions>
+        <insert>
+-keepclassmembers class com.epicgames.unreal.GameActivity {
+    public native void nativeOpenMobileRewardedAdLoaded(long);
+    public native void nativeOpenMobileRewardedAdShown(long);
+    public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);
+    public native void nativeOpenMobileRewardedAdClosed(long);
+    public native void nativeOpenMobileRewardedAdFailed(long, java.lang.String);
+}
+        </insert>
+    </proguardAdditions>
+</root>

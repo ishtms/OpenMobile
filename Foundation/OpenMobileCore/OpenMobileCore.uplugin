@@ -1,0 +1,20 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Core",
+	"Description": "Shared errors, capability types, async helpers, logging, and diagnostics for the OpenMobile plugin family.",
+	"Category": "OpenMobile",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenMobileCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
