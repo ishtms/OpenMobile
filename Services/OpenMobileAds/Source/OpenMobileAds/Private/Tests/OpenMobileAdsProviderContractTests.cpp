@@ -76,6 +76,11 @@ namespace OpenMobileAdsProviderContractTests
 			return false;
 		}
 
+		virtual void Cancel(FGuid RequestId) override
+		{
+			CancelledRequests.Add(RequestId);
+		}
+
 		FName Name;
 		bool bSupported = true;
 		FOpenMobileAdsProviderCapabilities Capabilities;
@@ -85,6 +90,7 @@ namespace OpenMobileAdsProviderContractTests
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
+		TArray<FGuid> CancelledRequests;
 	};
 
 	class FScopedProviderRegistration
@@ -416,6 +422,86 @@ bool FOpenMobileAdsProviderUnregistrationContractTest::RunTest(const FString& Pa
 	}
 	TestFalse(TEXT("Late load does not recover an unregistered provider"), Subsystem->IsReady(TEXT("ContinueReward")));
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRequestCancellationContractTest,
+	"OpenMobile.Ads.ProviderContract.Cancellation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRequestCancellationContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("CancelableReward");
+	Placement.Android.AdUnitId = TEXT("android-mock-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-mock-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	const FOpenMobileAdsOperationResult LoadResult =
+		Subsystem->LoadAd(TEXT("CancelableReward"));
+	TestTrue(TEXT("Load begins before cancellation"), LoadResult.bAccepted);
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsOperationResult CancelResult =
+		Subsystem->CancelRequest(LoadResult.RequestId);
+	TestTrue(TEXT("Active request cancellation is accepted"), CancelResult.bAccepted);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Provider cancellation runs once"), Provider.CancelledRequests.Num(), 1);
+	if (Provider.CancelledRequests.Num() == 1)
+	{
+		TestEqual(TEXT("Provider receives the active request ID"), Provider.CancelledRequests[0], LoadResult.RequestId);
+	}
+	TestEqual(TEXT("Cancellation emits one terminal event"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		TestEqual(TEXT("Cancellation uses the failed terminal event"), Events[1].Type, EOpenMobileAdsEventType::Failed);
+		TestEqual(TEXT("Cancellation has a typed error"), Events[1].Error.Code, EOpenMobileAdsErrorCode::Cancelled);
+	}
+	TestEqual(
+		TEXT("Cancelled load returns placement to idle"),
+		Subsystem->GetPlacementStatus(TEXT("CancelableReward")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+
+	FOpenMobileAdsEvent LateLoaded;
+	LateLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	Provider.LoadSink->Submit(LateLoaded);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Late callback after cancellation is ignored"), Events.Num(), 2);
+	TestFalse(TEXT("Late callback cannot restore readiness"), Subsystem->IsReady(TEXT("CancelableReward")));
+
+	TestFalse(
+		TEXT("Completed request cannot be cancelled again"),
+		Subsystem->CancelRequest(LoadResult.RequestId).bAccepted
+	);
+	const FOpenMobileAdsOperationResult TeardownLoad =
+		Subsystem->LoadAd(TEXT("CancelableReward"));
+	TestTrue(TEXT("A new load can begin after cancellation"), TeardownLoad.bAccepted);
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Subsystem teardown cancels active provider work"), Provider.CancelledRequests.Num(), 2);
+	if (Provider.CancelledRequests.Num() == 2)
+	{
+		TestEqual(TEXT("Teardown cancels the current request"), Provider.CancelledRequests[1], TeardownLoad.RequestId);
+	}
 	return true;
 }
 

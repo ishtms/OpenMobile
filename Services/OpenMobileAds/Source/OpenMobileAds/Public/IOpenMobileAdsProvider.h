@@ -28,6 +28,7 @@ class OPENMOBILEADS_API IOpenMobileAdsProviderEventSink
 public:
 	virtual ~IOpenMobileAdsProviderEventSink() = default;
 	virtual void Submit(FOpenMobileAdsEvent Event) = 0;
+	virtual void Invalidate() = 0;
 };
 
 /** Public, versioned SPI implemented by independently enabled ad-provider plugins. */

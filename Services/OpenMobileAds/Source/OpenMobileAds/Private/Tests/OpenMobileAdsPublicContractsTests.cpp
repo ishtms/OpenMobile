@@ -1,4 +1,5 @@
 #include "OpenMobileAdsCapabilities.h"
+#include "OpenMobileAdsAsyncAction.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsErrors.h"
@@ -64,6 +65,30 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	);
 	TestFalse(TEXT("Rejected operations are not accepted"), Rejected.bAccepted);
 	TestEqual(TEXT("Rejected operations preserve typed errors"), Rejected.Error.Code, EOpenMobileAdsErrorCode::UnsupportedFormat);
+
+	UClass* AsyncActionClass = UOpenMobileAdsAsyncAction::StaticClass();
+	TestNotNull(TEXT("Blueprint async action class is reflected"), AsyncActionClass);
+	TestTrue(TEXT("Blueprint async action exposes its cancellation proxy"), AsyncActionClass->HasMetaData(TEXT("ExposedAsyncProxy")));
+	TestNotNull(TEXT("Completed output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnCompleted")));
+	TestNotNull(TEXT("Failed output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnFailed")));
+	TestNotNull(TEXT("Cancelled output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnCancelled")));
+	TestNotNull(TEXT("Cancellation is callable from the async proxy"), AsyncActionClass->FindFunctionByName(TEXT("Cancel")));
+	const FName OperationNames[] = {
+		TEXT("LoadAd"),
+		TEXT("ShowAd"),
+		TEXT("DestroyAd"),
+		TEXT("DestroyAllAds")
+	};
+	for (FName OperationName : OperationNames)
+	{
+		const UFunction* Function = AsyncActionClass->FindFunctionByName(OperationName);
+		TestNotNull(*FString::Printf(TEXT("%s async node is reflected"), *OperationName.ToString()), Function);
+		if (Function)
+		{
+			TestTrue(TEXT("Async factories are hidden behind Blueprint nodes"), Function->HasMetaData(TEXT("BlueprintInternalUseOnly")));
+			TestEqual(TEXT("Async factories use an explicit world context"), Function->GetMetaData(TEXT("WorldContext")), FString(TEXT("WorldContextObject")));
+		}
+	}
 	return true;
 }
 

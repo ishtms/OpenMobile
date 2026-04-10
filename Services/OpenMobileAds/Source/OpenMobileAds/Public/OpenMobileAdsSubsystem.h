@@ -13,6 +13,7 @@
 class IOpenMobileAdsProvider;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
+struct FOpenMobileAdsActiveRequestContext;
 
 UENUM(BlueprintType)
 enum class EOpenMobileRewardedAdState : uint8
@@ -73,6 +74,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Destroy All Ads"))
 	FOpenMobileAdsOperationResult DestroyAllAds();
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Cancel Ads Request"))
+	FOpenMobileAdsOperationResult CancelRequest(FGuid RequestId);
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Is Ad Ready"))
 	bool IsReady(FName Placement) const;
@@ -150,6 +154,8 @@ private:
 	TMap<FName, FOpenMobileAdsPlacementStatus> PlacementStatuses;
 	TSet<FGuid> RewardedCachedAds;
 	TSet<FGuid> ImpressedCachedAds;
+	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
+	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FDelegateHandle ProviderUnregisteredHandle;
