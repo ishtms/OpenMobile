@@ -406,6 +406,11 @@ bool FOpenMobileAdsProviderUnregistrationContractTest::RunTest(const FString& Pa
 	TestTrue(TEXT("Load begins before unregistration"), LoadResult.bAccepted);
 	DrainGameThreadTasks();
 
+	AddExpectedError(
+		TEXT("The ads provider was unregistered during an active placement operation."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
 	Registration.Unregister();
 	DrainGameThreadTasks();
 	const FOpenMobileAdsPlacementStatus Status =

@@ -66,3 +66,30 @@ struct OPENMOBILEADS_API FOpenMobileAdsDiagnosticRecord
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString Message;
 };
+
+class OPENMOBILEADS_API FOpenMobileAdsLog
+{
+public:
+	static bool ShouldLog(EOpenMobileAdsLogLevel Level);
+	static bool IsLevelEnabled(
+		EOpenMobileAdsLogLevel Level,
+		int32 GlobalLevel,
+		int32 AdsLevel
+	);
+	static int32 GetAdsLevel();
+	static FString Redact(
+		const FString& Message,
+		const TArray<FString>& SensitiveValues = {}
+	);
+	static FOpenMobileAdsNativeDiagnostics Redact(
+		const FOpenMobileAdsNativeDiagnostics& Diagnostics,
+		const TArray<FString>& SensitiveValues = {}
+	);
+	static void Write(
+		EOpenMobileAdsLogLevel Level,
+		const FString& Message,
+		FName Placement = NAME_None,
+		FName Provider = NAME_None,
+		const TArray<FString>& SensitiveValues = {}
+	);
+};

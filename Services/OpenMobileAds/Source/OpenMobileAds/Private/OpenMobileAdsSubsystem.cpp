@@ -5,7 +5,7 @@
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/ScopeLock.h"
-#include "OpenMobileCoreLog.h"
+#include "OpenMobileAdsDiagnostics.h"
 
 class FOpenMobileAdsEventDispatcher final
 	: public TSharedFromThis<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>
@@ -242,6 +242,53 @@ namespace OpenMobileAdsPrivate
 			}
 		}
 		return nullptr;
+	}
+
+	void LogEvent(const FOpenMobileAdsEvent& Event)
+	{
+		EOpenMobileAdsLogLevel Level = EOpenMobileAdsLogLevel::Info;
+		switch (Event.Type)
+		{
+		case EOpenMobileAdsEventType::LoadFailed:
+		case EOpenMobileAdsEventType::Failed:
+			Level = Event.Error.Code == EOpenMobileAdsErrorCode::Cancelled
+				? EOpenMobileAdsLogLevel::Info
+				: Event.Error.bRetryable
+				? EOpenMobileAdsLogLevel::Warning
+				: EOpenMobileAdsLogLevel::Error;
+			break;
+		case EOpenMobileAdsEventType::ProviderRegistered:
+		case EOpenMobileAdsEventType::ProviderUnregistered:
+		case EOpenMobileAdsEventType::PlacementStateChanged:
+		case EOpenMobileAdsEventType::LoadStarted:
+		case EOpenMobileAdsEventType::ShowAccepted:
+		case EOpenMobileAdsEventType::Refreshed:
+		case EOpenMobileAdsEventType::Destroyed:
+			Level = EOpenMobileAdsLogLevel::Verbose;
+			break;
+		case EOpenMobileAdsEventType::Impression:
+		case EOpenMobileAdsEventType::Clicked:
+		case EOpenMobileAdsEventType::RewardEarned:
+		case EOpenMobileAdsEventType::RevenuePaid:
+			Level = EOpenMobileAdsLogLevel::VeryVerbose;
+			break;
+		default:
+			break;
+		}
+
+		FString Message = StaticEnum<EOpenMobileAdsEventType>()->GetNameStringByValue(
+			static_cast<int64>(Event.Type)
+		);
+		if (Event.Error.IsSet())
+		{
+			Message += FString::Printf(TEXT(": %s"), *Event.Error.Explanation);
+		}
+		FOpenMobileAdsLog::Write(
+			Level,
+			Message,
+			Event.Placement,
+			Event.Provider
+		);
 	}
 }
 
@@ -1032,6 +1079,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		|| Event.Type == EOpenMobileAdsEventType::ProviderUnregistered
 	)
 	{
+		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 		return;
@@ -1043,6 +1091,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		&& CancelledRequestEvents.Remove(Event.RequestId) > 0
 	)
 	{
+		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 		return;
@@ -1058,6 +1107,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		PlacementStatuses.Reset();
 		RewardedCachedAds.Reset();
 		ImpressedCachedAds.Reset();
+		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 		return;
@@ -1196,6 +1246,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 				Context->EventSink->Invalidate();
 			}
 		}
+		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 	}
@@ -1423,6 +1474,11 @@ void UOpenMobileAdsSubsystem::HandleAdClosed()
 void UOpenMobileAdsSubsystem::HandleAdFailed(FOpenMobileError Error)
 {
 	State = EOpenMobileRewardedAdState::Idle;
-	UE_LOG(LogOpenMobile, Warning, TEXT("Ads request failed: %s"), *Error.Message);
+	FOpenMobileAdsLog::Write(
+		EOpenMobileAdsLogLevel::Warning,
+		Error.Message,
+		NAME_None,
+		FName(*Error.Provider)
+	);
 	OnAdFailed.Broadcast(Error);
 }
