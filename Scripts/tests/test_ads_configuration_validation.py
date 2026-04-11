@@ -44,9 +44,35 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 			],
 		}
 		self.mock = PluginDescriptor("OpenMobileAdsMock", Path("mock.uplugin"), mock_data)
+		adapter_data = {
+			"OpenMobileAdsType": "MediationAdapter",
+			"Modules": [
+				{
+					"Name": "OpenMobileAdsMockAdapter",
+					"Type": "Runtime",
+					"LoadingPhase": "Default",
+				}
+			],
+			"Plugins": [
+				{"Name": "OpenMobileCore", "Enabled": True},
+				{"Name": "OpenMobileAds", "Enabled": True},
+				{"Name": "OpenMobileAdsMock", "Enabled": True},
+			],
+		}
+		self.mock_adapter = PluginDescriptor(
+			"OpenMobileAdsMockAdapter",
+			Path("mock-adapter.uplugin"),
+			adapter_data,
+		)
 		self.descriptors = {
 			descriptor.name: descriptor
-			for descriptor in (self.core, self.service, self.admob, self.mock)
+			for descriptor in (
+				self.core,
+				self.service,
+				self.admob,
+				self.mock,
+				self.mock_adapter,
+			)
 		}
 
 	def test_service_only_configuration_has_no_provider_payload(self) -> None:
@@ -60,6 +86,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual({"OpenMobileAds", "OpenMobileCore"}, configuration.plugins)
 		self.assertEqual({"OpenMobileAds", "OpenMobileCore"}, configuration.modules)
 		self.assertEqual(set(), configuration.ads_providers)
+		self.assertEqual(set(), configuration.ads_adapters)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -73,6 +100,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertIn("OpenMobileAdsAdMobAndroid", configuration.modules)
 		self.assertNotIn("OpenMobileAdsAdMobIOS", configuration.modules)
 		self.assertNotIn("OpenMobileAdsAdMobEditor", configuration.modules)
+		self.assertEqual(set(), configuration.ads_adapters)
 
 	def test_multi_provider_configuration_keeps_providers_independent(self) -> None:
 		configuration = resolve_configuration(
@@ -87,6 +115,26 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 			configuration.ads_providers,
 		)
 		self.assertNotIn("OpenMobileAdsAdMob", self.mock.dependencies)
+
+	def test_mediation_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsMock"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual(set(), provider_only.ads_adapters)
+		self.assertNotIn("OpenMobileAdsMockAdapter", provider_only.modules)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsMockAdapter"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsMock"}, with_adapter.ads_providers)
+		self.assertEqual({"OpenMobileAdsMockAdapter"}, with_adapter.ads_adapters)
+		self.assertIn("OpenMobileAdsMockAdapter", with_adapter.modules)
 
 	def test_artifact_validation_checks_provider_payload_isolation(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
@@ -118,6 +166,47 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				validate_artifact(
 					inspect_artifact(service_artifact),
 					ArtifactExpectation(forbidden_providers={"OpenMobileAdsAdMob"}),
+				),
+			)
+
+	def test_multi_provider_and_optional_adapter_artifacts(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			multi_artifact = Path(temporary_directory) / "multi-provider-app.zip"
+			with zipfile.ZipFile(multi_artifact, "w") as archive:
+				archive.writestr(
+					"Payload/Game.app/Frameworks/GoogleMobileAds.framework/GoogleMobileAds",
+					b"sdk",
+				)
+				archive.writestr(
+					"Payload/Game.app/Game.modules",
+					b"openmobileadsmockpayload",
+				)
+			inventory = inspect_artifact(multi_artifact)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inventory,
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob", "OpenMobileAdsMock"},
+						forbidden_adapters={"OpenMobileAdsMockAdapter"},
+					),
+				),
+			)
+
+			adapter_artifact = Path(temporary_directory) / "adapter-app.zip"
+			with zipfile.ZipFile(adapter_artifact, "w") as archive:
+				archive.writestr(
+					"Payload/Game.app/Game.modules",
+					b"openmobileadsmockpayload openmobileadsmockadapterpayload",
+				)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inspect_artifact(adapter_artifact),
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsMock"},
+						required_adapters={"OpenMobileAdsMockAdapter"},
+					),
 				),
 			)
 

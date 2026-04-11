@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 
 		self.assertEqual("Runtime", modules["OpenMobileAds"]["Type"])
 		self.assertEqual("Editor", modules["OpenMobileAdsEditor"]["Type"])
+		self.assertEqual("DeveloperTool", modules["OpenMobileAdsConsumerTests"]["Type"])
 		module_root = ADS_PLUGIN / "Source" / "OpenMobileAdsEditor"
 		self.assertTrue((module_root / "OpenMobileAdsEditor.Build.cs").is_file())
 		self.assertTrue((module_root / "Private" / "OpenMobileAdsEditorModule.cpp").is_file())
@@ -85,6 +87,41 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			)
 			self.assertIsNotNone(owner, f"{payload_path} has no provider descriptor")
 			self.assertEqual(ADMOB_PLUGIN, owner)
+
+	def test_public_api_and_build_rules_have_no_vendor_dependencies(self) -> None:
+		public_root = ADS_PLUGIN / "Source" / "OpenMobileAds" / "Public"
+		forbidden_tokens = {
+			"admob",
+			"googlemobileads",
+			"play-services-ads",
+			"appsflyer",
+			"applovin",
+			"ironSource".lower(),
+			"levelplay",
+		}
+		for header in public_root.glob("*.h"):
+			contents = header.read_text(encoding="utf-8").lower()
+			for token in forbidden_tokens:
+				self.assertNotIn(token, contents, f"{header} leaks {token}")
+			for include in re.findall(r'^#include\s+[<\"]([^>\"]+)', contents, re.MULTILINE):
+				self.assertNotIn("thirdparty", include)
+				self.assertFalse(include.startswith("android/"))
+				self.assertFalse(include.startswith("ios/"))
+
+		build_rules = (
+			ADS_PLUGIN / "Source" / "OpenMobileAds" / "OpenMobileAds.Build.cs"
+		).read_text(encoding="utf-8").lower()
+		for token in forbidden_tokens:
+			self.assertNotIn(token, build_rules)
+
+		consumer_rules = (
+			ADS_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsConsumerTests"
+			/ "OpenMobileAdsConsumerTests.Build.cs"
+		).read_text(encoding="utf-8")
+		dependencies = set(re.findall(r'"([A-Za-z0-9]+)"', consumer_rules))
+		self.assertEqual({"Core", "CoreUObject", "OpenMobileAds"}, dependencies)
 
 
 if __name__ == "__main__":

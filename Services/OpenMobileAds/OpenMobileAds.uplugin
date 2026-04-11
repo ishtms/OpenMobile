@@ -20,6 +20,11 @@
 			"Name": "OpenMobileAdsEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileAdsConsumerTests",
+			"Type": "DeveloperTool",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

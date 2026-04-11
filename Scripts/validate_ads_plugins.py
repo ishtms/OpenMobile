@@ -16,6 +16,14 @@ PROVIDER_SIGNATURES = {
 		b"com/google/android/gms/ads",
 		b"usermessagingplatform",
 	),
+	"OpenMobileAdsMock": (
+		b"openmobileadsmockpayload",
+	),
+}
+ADAPTER_SIGNATURES = {
+	"OpenMobileAdsMockAdapter": (
+		b"openmobileadsmockadapterpayload",
+	),
 }
 SCANNABLE_SUFFIXES = {
 	".dex",
@@ -53,7 +61,15 @@ class PluginDescriptor:
 
 	@property
 	def is_ads_provider(self) -> bool:
-		return self.name != "OpenMobileAds" and "OpenMobileAds" in self.dependencies
+		return (
+			self.data.get("OpenMobileAdsType") != "MediationAdapter"
+			and self.name != "OpenMobileAds"
+			and "OpenMobileAds" in self.dependencies
+		)
+
+	@property
+	def is_ads_adapter(self) -> bool:
+		return self.data.get("OpenMobileAdsType") == "MediationAdapter"
 
 
 @dataclass(frozen=True)
@@ -61,18 +77,22 @@ class ResolvedConfiguration:
 	plugins: set[str]
 	modules: set[str]
 	ads_providers: set[str]
+	ads_adapters: set[str]
 
 
 @dataclass(frozen=True)
 class ArtifactInventory:
 	entries: set[str]
 	detected_providers: set[str]
+	detected_adapters: set[str]
 
 
 @dataclass(frozen=True)
 class ArtifactExpectation:
 	required_providers: set[str] = field(default_factory=set)
 	forbidden_providers: set[str] = field(default_factory=set)
+	required_adapters: set[str] = field(default_factory=set)
+	forbidden_adapters: set[str] = field(default_factory=set)
 
 
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
@@ -115,7 +135,12 @@ def resolve_configuration(
 		for plugin_name in resolved
 		if descriptors[plugin_name].is_ads_provider
 	}
-	return ResolvedConfiguration(resolved, modules, providers)
+	adapters = {
+		plugin_name
+		for plugin_name in resolved
+		if descriptors[plugin_name].is_ads_adapter
+	}
+	return ResolvedConfiguration(resolved, modules, providers, adapters)
 
 
 def stream_contains_markers(stream: BinaryIO, markers: tuple[bytes, ...]) -> set[bytes]:
@@ -138,29 +163,46 @@ def stream_contains_markers(stream: BinaryIO, markers: tuple[bytes, ...]) -> set
 
 def inspect_artifact(path: Path) -> ArtifactInventory:
 	entries: set[str] = set()
-	detected: set[str] = set()
+	detected_providers: set[str] = set()
+	detected_adapters: set[str] = set()
 	provider_markers = {
 		provider: tuple(marker.lower() for marker in markers)
 		for provider, markers in PROVIDER_SIGNATURES.items()
 	}
+	adapter_markers = {
+		adapter: tuple(marker.lower() for marker in markers)
+		for adapter, markers in ADAPTER_SIGNATURES.items()
+	}
 
 	marker_owners = {
-		marker: provider
+		marker: ("provider", provider)
 		for provider, markers in provider_markers.items()
 		for marker in markers
 	}
+	marker_owners.update({
+		marker: ("adapter", adapter)
+		for adapter, markers in adapter_markers.items()
+		for marker in markers
+	})
 
 	def inspect_name(name: str) -> bool:
 		lower_name = name.lower()
 		entries.add(lower_name)
 		for provider, markers in provider_markers.items():
 			if any(marker.decode("ascii") in lower_name for marker in markers):
-				detected.add(provider)
+				detected_providers.add(provider)
+		for adapter, markers in adapter_markers.items():
+			if any(marker.decode("ascii") in lower_name for marker in markers):
+				detected_adapters.add(adapter)
 		return Path(lower_name).suffix in SCANNABLE_SUFFIXES
 
 	def inspect_stream(stream: BinaryIO) -> None:
 		for marker in stream_contains_markers(stream, tuple(marker_owners)):
-			detected.add(marker_owners[marker])
+			payload_type, owner = marker_owners[marker]
+			if payload_type == "provider":
+				detected_providers.add(owner)
+			else:
+				detected_adapters.add(owner)
 
 	if path.is_dir():
 		for artifact_file in path.rglob("*"):
@@ -185,7 +227,7 @@ def inspect_artifact(path: Path) -> ArtifactInventory:
 			inspect_name(path.name)
 			inspect_stream(artifact_stream)
 
-	return ArtifactInventory(entries, detected)
+	return ArtifactInventory(entries, detected_providers, detected_adapters)
 
 
 def validate_artifact(
@@ -199,6 +241,14 @@ def validate_artifact(
 	errors.extend(
 		f"found disabled native payload for {provider}"
 		for provider in sorted(expectation.forbidden_providers & inventory.detected_providers)
+	)
+	errors.extend(
+		f"missing native payload for adapter {adapter}"
+		for adapter in sorted(expectation.required_adapters - inventory.detected_adapters)
+	)
+	errors.extend(
+		f"found disabled native payload for adapter {adapter}"
+		for adapter in sorted(expectation.forbidden_adapters & inventory.detected_adapters)
 	)
 	return errors
 
@@ -229,6 +279,7 @@ def run_graph_command(arguments: argparse.Namespace) -> int:
 		"plugins": sorted(configuration.plugins),
 		"modules": sorted(configuration.modules),
 		"ads_providers": sorted(configuration.ads_providers),
+		"ads_adapters": sorted(configuration.ads_adapters),
 	}, indent=2))
 	return 0
 
@@ -237,7 +288,12 @@ def run_artifact_command(arguments: argparse.Namespace) -> int:
 	inventory = inspect_artifact(arguments.artifact)
 	errors = validate_artifact(
 		inventory,
-		ArtifactExpectation(set(arguments.require_provider), set(arguments.forbid_provider)),
+		ArtifactExpectation(
+			set(arguments.require_provider),
+			set(arguments.forbid_provider),
+			set(arguments.require_adapter),
+			set(arguments.forbid_adapter),
+		),
 	)
 	if errors:
 		for error in errors:
@@ -264,6 +320,8 @@ def parse_arguments() -> argparse.Namespace:
 	artifact_parser.add_argument("artifact", type=Path)
 	artifact_parser.add_argument("--require-provider", action="append", default=[])
 	artifact_parser.add_argument("--forbid-provider", action="append", default=[])
+	artifact_parser.add_argument("--require-adapter", action="append", default=[])
+	artifact_parser.add_argument("--forbid-adapter", action="append", default=[])
 	artifact_parser.set_defaults(handler=run_artifact_command)
 
 	return parser.parse_args()
