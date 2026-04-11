@@ -8,6 +8,9 @@
 
 class UOpenMobileAdsSubsystem;
 class UWorld;
+#if WITH_DEV_AUTOMATION_TESTS
+class FOpenMobileAdsAsyncWorldCleanupTest;
+#endif
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAdsAsyncCompleted,
@@ -101,6 +104,10 @@ public:
 	virtual void Activate() override;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FOpenMobileAdsAsyncWorldCleanupTest;
+#endif
+
 	enum class EOperation : uint8
 	{
 		Load,

@@ -4,6 +4,7 @@
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileAdsAsyncAction.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsSubsystem.h"
 
@@ -346,6 +347,12 @@ bool FOpenMobileAdsProviderEventContractTest::RunTest(const FString& Parameters)
 	FOpenMobileAdsEvent Dismissed;
 	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
 	Provider.ShowSink->Submit(Dismissed);
+	FOpenMobileAdsEvent LateClick;
+	LateClick.Type = EOpenMobileAdsEventType::Clicked;
+	Provider.ShowSink->Submit(LateClick);
+	FOpenMobileAdsEvent LateRevenue;
+	LateRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+	Provider.ShowSink->Submit(LateRevenue);
 	DrainGameThreadTasks();
 
 	TestEqual(TEXT("Duplicate rewards are ignored"), Events.Num(), 8);
@@ -507,6 +514,133 @@ bool FOpenMobileAdsRequestCancellationContractTest::RunTest(const FString& Param
 	{
 		TestEqual(TEXT("Teardown cancels the current request"), Provider.CancelledRequests[1], TeardownLoad.RequestId);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsDestroyAllFailureContractTest,
+	"OpenMobile.Ads.ProviderContract.DestroyAllFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsDestroyAllFailureContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	const FOpenMobileAdsOperationResult DestroyResult = Subsystem->DestroyAllAds();
+	TestTrue(TEXT("Service-wide destroy starts"), DestroyResult.bAccepted);
+	TestTrue(TEXT("Provider receives a service-wide destroy sink"), Provider.DestroySink.IsValid());
+	if (Provider.DestroySink)
+	{
+		FOpenMobileAdsEvent Failed;
+		Failed.Type = EOpenMobileAdsEventType::Failed;
+		Failed.Error = FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::ProviderFailure,
+			EOpenMobileAdsFailureStage::Teardown,
+			NAME_None,
+			TEXT("The provider could not destroy all ads."),
+			TEXT("MockAds")
+		);
+		AddExpectedError(
+			TEXT("The provider could not destroy all ads."),
+			EAutomationExpectedErrorFlags::Contains,
+			1
+		);
+		Provider.DestroySink->Submit(Failed);
+		DrainGameThreadTasks();
+	}
+
+	TestEqual(TEXT("Destroy-all failure emits one terminal event"), Events.Num(), 1);
+	if (Events.Num() == 1)
+	{
+		TestEqual(TEXT("Destroy-all terminal event is failed"), Events[0].Type, EOpenMobileAdsEventType::Failed);
+		TestEqual(TEXT("Destroy-all failure keeps the request ID"), Events[0].RequestId, DestroyResult.RequestId);
+	}
+	TestFalse(
+		TEXT("Terminal destroy-all request is no longer cancellable"),
+		Subsystem->CancelRequest(DestroyResult.RequestId).bAccepted
+	);
+
+	const FOpenMobileAdsOperationResult UnregisteredDestroy = Subsystem->DestroyAllAds();
+	TestTrue(TEXT("A second service-wide destroy starts"), UnregisteredDestroy.bAccepted);
+	AddExpectedError(
+		TEXT("The ads provider was unregistered during a service-wide operation."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Registration.Unregister();
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Unregistration emits one service-wide terminal event"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		TestEqual(TEXT("Unregistration keeps the service-wide request ID"), Events[1].RequestId, UnregisteredDestroy.RequestId);
+		TestEqual(TEXT("Unregistration is typed"), Events[1].Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+	}
+	TestFalse(
+		TEXT("Unregistered service-wide request is terminal"),
+		Subsystem->CancelRequest(UnregisteredDestroy.RequestId).bAccepted
+	);
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAsyncWorldCleanupTest,
+	"OpenMobile.Ads.Blueprint.AsyncWorldCleanup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAsyncWorldCleanupTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("WorldCleanupReward");
+	Placement.Android.AdUnitId = TEXT("android-mock-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-mock-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	const FOpenMobileAdsOperationResult LoadResult =
+		Subsystem->LoadAd(TEXT("WorldCleanupReward"));
+	TestTrue(TEXT("Load begins before world cleanup"), LoadResult.bAccepted);
+
+	UWorld* World = NewObject<UWorld>();
+	UOpenMobileAdsAsyncAction* Action = NewObject<UOpenMobileAdsAsyncAction>();
+	Action->Subsystem = Subsystem;
+	Action->TargetWorld = World;
+	Action->RequestId = LoadResult.RequestId;
+	Action->HandleWorldCleanup(World, true, true);
+	DrainGameThreadTasks();
+
+	TestTrue(TEXT("World cleanup finishes the async proxy"), Action->bFinished);
+	TestEqual(TEXT("World cleanup cancels provider work once"), Provider.CancelledRequests.Num(), 1);
+	if (Provider.CancelledRequests.Num() == 1)
+	{
+		TestEqual(TEXT("World cleanup cancels the active request"), Provider.CancelledRequests[0], LoadResult.RequestId);
+	}
+	TestFalse(TEXT("World cleanup leaves no ready ad"), Subsystem->IsReady(TEXT("WorldCleanupReward")));
+	Subsystem->Deinitialize();
 	return true;
 }
 

@@ -224,6 +224,7 @@ struct FOpenMobileAdsActiveRequestContext
 	EOpenMobileAdsFailureStage Stage = EOpenMobileAdsFailureStage::Internal;
 	TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 	TMap<FName, FOpenMobileAdsPlacementStatus> PreviousStatuses;
+	bool bRestoreStatusesOnFailure = true;
 };
 
 namespace OpenMobileAdsPrivate
@@ -1099,14 +1100,70 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 
 	if (Event.Placement.IsNone() && Event.Type == EOpenMobileAdsEventType::Destroyed)
 	{
-		TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context;
-		if (ActiveRequests.RemoveAndCopyValue(Event.RequestId, Context) && Context)
+		TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* FoundContext =
+			ActiveRequests.Find(Event.RequestId);
+		if (
+			!FoundContext
+			|| !FoundContext->IsValid()
+			|| (*FoundContext)->Provider != Event.Provider
+			|| !(*FoundContext)->Placement.IsNone()
+		)
 		{
-			Context->EventSink->Invalidate();
+			return;
 		}
+		(*FoundContext)->EventSink->Invalidate();
+		ActiveRequests.Remove(Event.RequestId);
 		PlacementStatuses.Reset();
 		RewardedCachedAds.Reset();
 		ImpressedCachedAds.Reset();
+		OpenMobileAdsPrivate::LogEvent(Event);
+		NativeAdsEvent.Broadcast(Event);
+		OnAdsEvent.Broadcast(Event);
+		return;
+	}
+
+	if (Event.Placement.IsNone() && Event.Type == EOpenMobileAdsEventType::Failed)
+	{
+		TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* FoundContext =
+			ActiveRequests.Find(Event.RequestId);
+		if (
+			!FoundContext
+			|| !FoundContext->IsValid()
+			|| (*FoundContext)->Provider != Event.Provider
+			|| !(*FoundContext)->Placement.IsNone()
+		)
+		{
+			return;
+		}
+
+		const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
+			FoundContext->ToSharedRef();
+		if (Context->bRestoreStatusesOnFailure)
+		{
+			TArray<FName> StatusesToRemove;
+			for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
+			{
+				if (Pair.Value.ActiveRequestId != Event.RequestId)
+				{
+					continue;
+				}
+				if (const FOpenMobileAdsPlacementStatus* Previous =
+					Context->PreviousStatuses.Find(Pair.Key))
+				{
+					Pair.Value = *Previous;
+				}
+				else
+				{
+					StatusesToRemove.Add(Pair.Key);
+				}
+			}
+			for (FName Placement : StatusesToRemove)
+			{
+				PlacementStatuses.Remove(Placement);
+			}
+		}
+		Context->EventSink->Invalidate();
+		ActiveRequests.Remove(Event.RequestId);
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
@@ -1164,7 +1221,8 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 
 	case EOpenMobileAdsEventType::Impression:
 		if (
-			Status->ActiveRequestId == Event.RequestId
+			Status->State == EOpenMobileAdPlacementState::Showing
+			&& Status->ActiveRequestId == Event.RequestId
 			&& !ImpressedCachedAds.Contains(Status->CachedAdId)
 		)
 		{
@@ -1175,7 +1233,8 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 
 	case EOpenMobileAdsEventType::RewardEarned:
 		if (
-			Status->ActiveRequestId == Event.RequestId
+			Status->State == EOpenMobileAdPlacementState::Showing
+			&& Status->ActiveRequestId == Event.RequestId
 			&& !RewardedCachedAds.Contains(Status->CachedAdId)
 		)
 		{
@@ -1186,7 +1245,8 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 
 	case EOpenMobileAdsEventType::Clicked:
 	case EOpenMobileAdsEventType::RevenuePaid:
-		bBroadcast = Status->ActiveRequestId == Event.RequestId;
+		bBroadcast = Status->State == EOpenMobileAdPlacementState::Showing
+			&& Status->ActiveRequestId == Event.RequestId;
 		break;
 
 	case EOpenMobileAdsEventType::Dismissed:
@@ -1289,12 +1349,34 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	{
 		return;
 	}
+	TSet<FGuid> ServiceWideRequests;
 	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
 	{
 		if (Pair.Value && Pair.Value->Provider == ProviderName)
 		{
 			Pair.Value->EventSink->Invalidate();
+			if (Pair.Value->Placement.IsNone())
+			{
+				Pair.Value->bRestoreStatusesOnFailure = false;
+				ServiceWideRequests.Add(Pair.Key);
+			}
 		}
+	}
+	for (FGuid RequestId : ServiceWideRequests)
+	{
+		FOpenMobileAdsEvent Failed;
+		Failed.Type = EOpenMobileAdsEventType::Failed;
+		Failed.Provider = ProviderName;
+		Failed.RequestId = RequestId;
+		Failed.Error = FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			EOpenMobileAdsFailureStage::Teardown,
+			NAME_None,
+			TEXT("The ads provider was unregistered during a service-wide operation."),
+			ProviderName,
+			TEXT("Keep the provider enabled until the ads subsystem has shut down.")
+		);
+		SubmitServiceEvent(MoveTemp(Failed));
 	}
 
 	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
@@ -1306,6 +1388,19 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 			|| Status.State == EOpenMobileAdPlacementState::Disabled
 		)
 		{
+			continue;
+		}
+		if (ServiceWideRequests.Contains(Status.ActiveRequestId))
+		{
+			Status.State = EOpenMobileAdPlacementState::Failed;
+			Status.LastError = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Teardown,
+				Status.Placement,
+				TEXT("The ads provider was unregistered during a service-wide operation."),
+				ProviderName,
+				TEXT("Keep the provider enabled until the ads subsystem has shut down.")
+			);
 			continue;
 		}
 		Status.State = EOpenMobileAdPlacementState::Failed;

@@ -1,5 +1,6 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileAdsDiagnostics.h"
+#include "HAL/IConsoleManager.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -31,6 +32,26 @@ bool FOpenMobileAdsLogFilterTest::RunTest(const FString& Parameters)
 		TEXT("Negative global level disables inherited ads logs"),
 		FOpenMobileAdsLog::IsLevelEnabled(EOpenMobileAdsLogLevel::Error, -1, -1)
 	);
+	IConsoleVariable* GlobalLevel = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("OpenMobile.LogLevel")
+	);
+	IConsoleVariable* AdsLevel = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("OpenMobile.Ads.LogLevel")
+	);
+	TestNotNull(TEXT("Global log filter is a runtime console variable"), GlobalLevel);
+	TestNotNull(TEXT("Ads log filter is a runtime console variable"), AdsLevel);
+	if (GlobalLevel && AdsLevel)
+	{
+		const int32 SavedGlobalLevel = GlobalLevel->GetInt();
+		const int32 SavedAdsLevel = AdsLevel->GetInt();
+		GlobalLevel->Set(1, ECVF_SetByCode);
+		AdsLevel->Set(-1, ECVF_SetByCode);
+		TestFalse(TEXT("Runtime global filter suppresses ads info"), FOpenMobileAdsLog::ShouldLog(EOpenMobileAdsLogLevel::Info));
+		AdsLevel->Set(3, ECVF_SetByCode);
+		TestTrue(TEXT("Runtime ads override enables verbose logs"), FOpenMobileAdsLog::ShouldLog(EOpenMobileAdsLogLevel::Verbose));
+		GlobalLevel->Set(SavedGlobalLevel, ECVF_SetByCode);
+		AdsLevel->Set(SavedAdsLevel, ECVF_SetByCode);
+	}
 	return true;
 }
 
@@ -54,6 +75,12 @@ bool FOpenMobileAdsLogRedactionTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Advertising IDs are redacted"), Redacted.Contains(TEXT("id-77")));
 	TestFalse(TEXT("IDFA values are redacted"), Redacted.Contains(TEXT("ios-88")));
 	TestTrue(TEXT("Unrelated log context is preserved"), Redacted.Contains(TEXT("safe=kept")));
+	const FString JsonRedacted = FOpenMobileAdsLog::Redact(
+		TEXT("{\"adUnitId\":\"json-unit\",\"device_id\":\"json-device\",\"custom_data\":\"json-custom\"}")
+	);
+	TestFalse(TEXT("JSON ad-unit IDs are redacted"), JsonRedacted.Contains(TEXT("json-unit")));
+	TestFalse(TEXT("JSON device IDs are redacted"), JsonRedacted.Contains(TEXT("json-device")));
+	TestFalse(TEXT("JSON custom data is redacted"), JsonRedacted.Contains(TEXT("json-custom")));
 
 	FOpenMobileAdsNativeDiagnostics Diagnostics;
 	Diagnostics.NativeCode = TEXT("native-7");

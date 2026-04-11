@@ -16,7 +16,7 @@ namespace OpenMobileAdsLogPrivate
 	FString ReplaceSensitiveFields(const FString& Message)
 	{
 		static const FRegexPattern SensitiveFieldPattern(TEXT(
-			"(?i)(ad[ _-]?unit[ _-]?id|device[ _-]?id|consent(?:[ _-]?data)?|custom[ _-]?data|advertising[ _-]?id|idfa|gaid)(\\s*[:=]\\s*)(\"[^\"]*\"|'[^']*'|[^\\s,;&]+)"
+			"(?i)(ad[ _-]?unit[ _-]?id|device[ _-]?id|consent(?:[ _-]?data)?|custom[ _-]?data|advertising[ _-]?id|idfa|gaid)(\\s*[\"']?\\s*[:=]\\s*)(\"[^\"]*\"|'[^']*'|[^\\s,;&}]+)"
 		));
 		FRegexMatcher Matcher(SensitiveFieldPattern, Message);
 		FString Result;

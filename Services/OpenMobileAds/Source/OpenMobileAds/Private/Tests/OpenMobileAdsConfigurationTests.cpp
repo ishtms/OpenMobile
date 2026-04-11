@@ -1,4 +1,5 @@
 #include "OpenMobileAdsConfiguration.h"
+#include "OpenMobileAdsCapabilities.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -105,6 +106,11 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 		TEXT("ios-reward-2")
 	));
 	Placements.Add(MakeRewardedPlacement(
+		TEXT("ContinueReward"),
+		TEXT("android-reward-exact-duplicate"),
+		TEXT("ios-reward-exact-duplicate")
+	));
+	Placements.Add(MakeRewardedPlacement(
 		NAME_None,
 		TEXT("android-empty-name"),
 		TEXT("ios-empty-name")
@@ -132,6 +138,14 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	);
 	InvalidRefresh.RefreshIntervalSeconds = 10.0;
 	Placements.Add(InvalidRefresh);
+
+	FOpenMobileAdsPlacementSettings NegativeRefresh = MakeRewardedPlacement(
+		TEXT("NegativeRefresh"),
+		TEXT("android-negative-refresh"),
+		TEXT("ios-negative-refresh")
+	);
+	NegativeRefresh.RefreshIntervalSeconds = -1.0;
+	Placements.Add(NegativeRefresh);
 
 	FOpenMobileAdsPlacementSettings InvalidCap = MakeRewardedPlacement(
 		TEXT("InvalidCap"),
@@ -161,15 +175,68 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 		FOpenMobileAdsConfigurationValidator::Validate(Placements);
 
 	TestTrue(TEXT("Empty names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::EmptyPlacement));
+	TestTrue(TEXT("Exact duplicate names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::DuplicatePlacement));
 	TestTrue(TEXT("Case conflicts are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::CaseConflict));
 	TestTrue(TEXT("Duplicate Android IDs are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::DuplicateAndroidAdUnitId));
 	TestTrue(TEXT("Duplicate iOS IDs are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::DuplicateIOSAdUnitId));
 	TestTrue(TEXT("Missing Android IDs are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::MissingAndroidAdUnitId));
 	TestTrue(TEXT("Missing iOS IDs are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::MissingIOSAdUnitId));
 	TestTrue(TEXT("Rewarded refresh is rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::RefreshNotSupported));
+	TestTrue(TEXT("Negative refresh intervals are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidRefreshInterval));
 	TestTrue(TEXT("Incomplete caps are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFrequencyCap));
 	TestTrue(TEXT("Negative cooldowns are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidCooldown));
 	TestTrue(TEXT("Empty provider option names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::EmptyProviderOption));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsPlacementCapabilityValidationTest,
+	"OpenMobile.Ads.Configuration.ProviderCapabilities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsPlacementCapabilityValidationTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileAdsPlacementSettings Placement =
+		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
+			TEXT("UnsupportedInterstitial"),
+			TEXT("android-interstitial"),
+			TEXT("ios-interstitial")
+		);
+	Placement.Format = EOpenMobileAdFormat::Interstitial;
+	const FOpenMobileAdsPlacementSettings UnsupportedOperation =
+		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
+			TEXT("UnsupportedRewardedOperation"),
+			TEXT("android-rewarded-operation"),
+			TEXT("ios-rewarded-operation")
+		);
+
+	FOpenMobileAdFormatCapabilities Rewarded;
+	Rewarded.Format = EOpenMobileAdFormat::Rewarded;
+	Rewarded.bCanLoad = true;
+	FOpenMobileAdsProviderCapabilities Capabilities;
+	Capabilities.Provider = TEXT("RewardedOnlyAds");
+	Capabilities.Formats.Add(Rewarded);
+
+	const TArray<FOpenMobileAdsConfigurationIssue> Issues =
+		FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+			{Placement, UnsupportedOperation},
+			Capabilities
+		);
+	TestTrue(
+		TEXT("Unsupported provider formats are rejected"),
+		OpenMobileAdsConfigurationTests::HasIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderFormat
+		)
+	);
+	TestTrue(
+		TEXT("Unsupported provider operations are rejected"),
+		OpenMobileAdsConfigurationTests::HasIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation
+		)
+	);
 	return true;
 }
 

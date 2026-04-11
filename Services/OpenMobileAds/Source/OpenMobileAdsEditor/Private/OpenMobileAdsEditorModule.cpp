@@ -1,4 +1,6 @@
 #include "Editor.h"
+#include "Features/IModularFeatures.h"
+#include "IOpenMobileAdsProvider.h"
 #include "Logging/MessageLog.h"
 #include "MessageLogModule.h"
 #include "Modules/ModuleManager.h"
@@ -9,6 +11,28 @@
 namespace OpenMobileAdsEditorPrivate
 {
 	const FName MessageLogName(TEXT("OpenMobileAds"));
+
+	IOpenMobileAdsProvider* FindConfiguredProvider(
+		const UOpenMobileAdsSettings& Settings
+	)
+	{
+		const TArray<IOpenMobileAdsProvider*> Providers =
+			IModularFeatures::Get().GetModularFeatureImplementations<IOpenMobileAdsProvider>(
+				IOpenMobileAdsProvider::GetModularFeatureName()
+			);
+		if (!Settings.PreferredProvider.IsNone())
+		{
+			for (IOpenMobileAdsProvider* Provider : Providers)
+			{
+				if (Provider && Provider->GetProviderName() == Settings.PreferredProvider)
+				{
+					return Provider;
+				}
+			}
+			return nullptr;
+		}
+		return Providers.Num() == 1 ? Providers[0] : nullptr;
+	}
 }
 
 class FOpenMobileAdsEditorModule final : public IModuleInterface
@@ -44,8 +68,18 @@ private:
 	void HandlePreBeginPIE(bool) const
 	{
 		const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
-		const TArray<FOpenMobileAdsConfigurationIssue> Issues =
+		TArray<FOpenMobileAdsConfigurationIssue> Issues =
 			FOpenMobileAdsConfigurationValidator::Validate(Settings->Placements);
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsEditorPrivate::FindConfiguredProvider(*Settings))
+		{
+			Issues.Append(
+				FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+					Settings->Placements,
+					Provider->GetCapabilities()
+				)
+			);
+		}
 		if (Issues.IsEmpty())
 		{
 			return;

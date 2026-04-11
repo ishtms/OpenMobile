@@ -1,5 +1,7 @@
 #include "OpenMobileAdsConfiguration.h"
 
+#include "OpenMobileAdsCapabilities.h"
+
 namespace OpenMobileAdsConfigurationPrivate
 {
 	void AddIssue(
@@ -249,6 +251,67 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 		);
 	}
 
+	return Issues;
+}
+
+TArray<FOpenMobileAdsConfigurationIssue>
+FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+	const TArray<FOpenMobileAdsPlacementSettings>& Placements,
+	const FOpenMobileAdsProviderCapabilities& Capabilities
+)
+{
+	using namespace OpenMobileAdsConfigurationPrivate;
+	TArray<FOpenMobileAdsConfigurationIssue> Issues;
+	for (const FOpenMobileAdsPlacementSettings& Placement : Placements)
+	{
+		const bool bEnabledOnAnyMobilePlatform =
+			Placement.Resolve(EOpenMobileAdsPlatform::Android).bEnabled
+			|| Placement.Resolve(EOpenMobileAdsPlatform::IOS).bEnabled;
+		if (!bEnabledOnAnyMobilePlatform)
+		{
+			continue;
+		}
+
+		const FOpenMobileAdFormatCapabilities* FormatCapabilities =
+			Capabilities.FindFormat(Placement.Format);
+		if (!FormatCapabilities)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderFormat,
+				Placement.Placement,
+				FString::Printf(
+					TEXT("Provider '%s' does not support this placement format."),
+					*Capabilities.Provider.ToString()
+				)
+			);
+			continue;
+		}
+
+		auto ValidateOperation = [
+			&Issues,
+			&Placement,
+			&Capabilities
+		](bool bSupported, const TCHAR* Operation)
+		{
+			if (!bSupported)
+			{
+				AddIssue(
+					Issues,
+					EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation,
+					Placement.Placement,
+					FString::Printf(
+						TEXT("Provider '%s' does not support %s for this placement format."),
+						*Capabilities.Provider.ToString(),
+						Operation
+					)
+				);
+			}
+		};
+		ValidateOperation(FormatCapabilities->bCanLoad, TEXT("load"));
+		ValidateOperation(FormatCapabilities->bCanShow, TEXT("show"));
+		ValidateOperation(FormatCapabilities->bCanDestroy, TEXT("destroy"));
+	}
 	return Issues;
 }
 

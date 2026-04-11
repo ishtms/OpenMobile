@@ -5,6 +5,8 @@
 #include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsConfiguration.generated.h"
 
+struct FOpenMobileAdsProviderCapabilities;
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 {
@@ -156,7 +158,9 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	RefreshNotSupported,
 	InvalidFrequencyCap,
 	InvalidCooldown,
-	EmptyProviderOption
+	EmptyProviderOption,
+	UnsupportedProviderFormat,
+	UnsupportedProviderOperation
 };
 
 USTRUCT(BlueprintType)
@@ -185,6 +189,11 @@ class OPENMOBILEADS_API FOpenMobileAdsConfigurationValidator
 public:
 	static TArray<FOpenMobileAdsConfigurationIssue> Validate(
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements
+	);
+
+	static TArray<FOpenMobileAdsConfigurationIssue> ValidateProviderCapabilities(
+		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
+		const FOpenMobileAdsProviderCapabilities& Capabilities
 	);
 };
 
