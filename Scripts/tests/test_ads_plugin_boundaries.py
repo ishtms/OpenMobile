@@ -1,10 +1,16 @@
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
+
+from validate_ads_plugins import ADAPTER_SIGNATURES, PROVIDER_SIGNATURES
+
+
 ADS_PLUGIN = REPOSITORY_ROOT / "Services" / "OpenMobileAds"
 ADMOB_PLUGIN = REPOSITORY_ROOT / "Providers" / "Ads" / "OpenMobileAdsAdMob"
 
@@ -15,6 +21,10 @@ def load_descriptor(plugin_root: Path) -> dict:
 
 
 class AdsPluginBoundaryTests(unittest.TestCase):
+	def test_production_payload_signatures_only_name_real_integrations(self) -> None:
+		self.assertNotIn("OpenMobileAdsMock", PROVIDER_SIGNATURES)
+		self.assertNotIn("OpenMobileAdsMockAdapter", ADAPTER_SIGNATURES)
+
 	def test_service_plugin_has_no_vendor_payload(self) -> None:
 		text_suffixes = {".cs", ".cpp", ".h", ".ini", ".md", ".uplugin", ".xml"}
 		for path in ADS_PLUGIN.rglob("*"):

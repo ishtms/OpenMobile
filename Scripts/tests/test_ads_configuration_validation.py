@@ -10,12 +10,24 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
 from validate_ads_plugins import (
+	ADAPTER_SIGNATURES,
 	ArtifactExpectation,
 	PluginDescriptor,
+	PROVIDER_SIGNATURES,
 	inspect_artifact,
 	resolve_configuration,
 	validate_artifact,
 )
+
+
+TEST_PROVIDER_SIGNATURES = {
+	**PROVIDER_SIGNATURES,
+	"OpenMobileAdsMock": (b"openmobileadsmockpayload",),
+}
+TEST_ADAPTER_SIGNATURES = {
+	**ADAPTER_SIGNATURES,
+	"OpenMobileAdsMockAdapter": (b"openmobileadsmockadapterpayload",),
+}
 
 
 def repository_descriptor(relative_path: str) -> PluginDescriptor:
@@ -136,6 +148,43 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual({"OpenMobileAdsMockAdapter"}, with_adapter.ads_adapters)
 		self.assertIn("OpenMobileAdsMockAdapter", with_adapter.modules)
 
+	def test_mediation_adapter_dependency_contract_is_enforced(self) -> None:
+		malformed_adapter = PluginDescriptor(
+			"MalformedAdapter",
+			Path("malformed-adapter.uplugin"),
+			{
+				"OpenMobileAdsType": "MediationAdapter",
+				"Plugins": [{"Name": "OpenMobileAds", "Enabled": True}],
+			},
+		)
+		descriptors = {**self.descriptors, malformed_adapter.name: malformed_adapter}
+		with self.assertRaisesRegex(ValueError, "exactly one provider"):
+			resolve_configuration(
+				descriptors,
+				[malformed_adapter.name],
+				platform="Android",
+				target_type="Game",
+			)
+
+		provider_with_adapter = PluginDescriptor(
+			"ProviderWithAdapter",
+			Path("provider-with-adapter.uplugin"),
+			{
+				"Plugins": [
+					{"Name": "OpenMobileAds", "Enabled": True},
+					{"Name": "OpenMobileAdsMockAdapter", "Enabled": True},
+				],
+			},
+		)
+		descriptors[provider_with_adapter.name] = provider_with_adapter
+		with self.assertRaisesRegex(ValueError, "must not depend on mediation adapter"):
+			resolve_configuration(
+				descriptors,
+				[provider_with_adapter.name],
+				platform="Android",
+				target_type="Game",
+			)
+
 	def test_artifact_validation_checks_provider_payload_isolation(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			provider_artifact = Path(temporary_directory) / "provider-app.zip"
@@ -181,7 +230,11 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 					"Payload/Game.app/Game.modules",
 					b"openmobileadsmockpayload",
 				)
-			inventory = inspect_artifact(multi_artifact)
+			inventory = inspect_artifact(
+				multi_artifact,
+				provider_signatures=TEST_PROVIDER_SIGNATURES,
+				adapter_signatures=TEST_ADAPTER_SIGNATURES,
+			)
 			self.assertEqual(
 				[],
 				validate_artifact(
@@ -202,7 +255,11 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 			self.assertEqual(
 				[],
 				validate_artifact(
-					inspect_artifact(adapter_artifact),
+					inspect_artifact(
+						adapter_artifact,
+						provider_signatures=TEST_PROVIDER_SIGNATURES,
+						adapter_signatures=TEST_ADAPTER_SIGNATURES,
+					),
 					ArtifactExpectation(
 						required_providers={"OpenMobileAdsMock"},
 						required_adapters={"OpenMobileAdsMockAdapter"},

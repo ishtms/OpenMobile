@@ -16,15 +16,8 @@ PROVIDER_SIGNATURES = {
 		b"com/google/android/gms/ads",
 		b"usermessagingplatform",
 	),
-	"OpenMobileAdsMock": (
-		b"openmobileadsmockpayload",
-	),
 }
-ADAPTER_SIGNATURES = {
-	"OpenMobileAdsMockAdapter": (
-		b"openmobileadsmockadapterpayload",
-	),
-}
+ADAPTER_SIGNATURES = {}
 SCANNABLE_SUFFIXES = {
 	".dex",
 	".dylib",
@@ -140,6 +133,28 @@ def resolve_configuration(
 		for plugin_name in resolved
 		if descriptors[plugin_name].is_ads_adapter
 	}
+	for adapter_name in adapters:
+		adapter = descriptors[adapter_name]
+		provider_dependencies = {
+			dependency
+			for dependency in adapter.dependencies
+			if dependency in descriptors and descriptors[dependency].is_ads_provider
+		}
+		if "OpenMobileAds" not in adapter.dependencies or len(provider_dependencies) != 1:
+			raise ValueError(
+				f"mediation adapter '{adapter_name}' must depend on OpenMobileAds and exactly one provider"
+			)
+	for provider_name in providers:
+		adapter_dependencies = {
+			dependency
+			for dependency in descriptors[provider_name].dependencies
+			if dependency in descriptors and descriptors[dependency].is_ads_adapter
+		}
+		if adapter_dependencies:
+			raise ValueError(
+				f"provider '{provider_name}' must not depend on mediation adapter "
+				f"'{sorted(adapter_dependencies)[0]}'"
+			)
 	return ResolvedConfiguration(resolved, modules, providers, adapters)
 
 
@@ -161,17 +176,22 @@ def stream_contains_markers(stream: BinaryIO, markers: tuple[bytes, ...]) -> set
 	return found
 
 
-def inspect_artifact(path: Path) -> ArtifactInventory:
+def inspect_artifact(
+	path: Path,
+	*,
+	provider_signatures: dict[str, tuple[bytes, ...]] = PROVIDER_SIGNATURES,
+	adapter_signatures: dict[str, tuple[bytes, ...]] = ADAPTER_SIGNATURES,
+) -> ArtifactInventory:
 	entries: set[str] = set()
 	detected_providers: set[str] = set()
 	detected_adapters: set[str] = set()
 	provider_markers = {
 		provider: tuple(marker.lower() for marker in markers)
-		for provider, markers in PROVIDER_SIGNATURES.items()
+		for provider, markers in provider_signatures.items()
 	}
 	adapter_markers = {
 		adapter: tuple(marker.lower() for marker in markers)
-		for adapter, markers in ADAPTER_SIGNATURES.items()
+		for adapter, markers in adapter_signatures.items()
 	}
 
 	marker_owners = {
