@@ -68,7 +68,9 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 
 	UClass* AsyncActionClass = UOpenMobileAdsAsyncAction::StaticClass();
 	TestNotNull(TEXT("Blueprint async action class is reflected"), AsyncActionClass);
+#if WITH_METADATA
 	TestTrue(TEXT("Blueprint async action exposes its cancellation proxy"), AsyncActionClass->HasMetaData(TEXT("ExposedAsyncProxy")));
+#endif
 	TestNotNull(TEXT("Completed output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnCompleted")));
 	TestNotNull(TEXT("Failed output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnFailed")));
 	TestNotNull(TEXT("Cancelled output is reflected"), AsyncActionClass->FindPropertyByName(TEXT("OnCancelled")));
@@ -85,8 +87,10 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		TestNotNull(*FString::Printf(TEXT("%s async node is reflected"), *OperationName.ToString()), Function);
 		if (Function)
 		{
+#if WITH_METADATA
 			TestTrue(TEXT("Async factories are hidden behind Blueprint nodes"), Function->HasMetaData(TEXT("BlueprintInternalUseOnly")));
 			TestEqual(TEXT("Async factories use an explicit world context"), Function->GetMetaData(TEXT("WorldContext")), FString(TEXT("WorldContextObject")));
+#endif
 		}
 	}
 	return true;
