@@ -22,6 +22,32 @@ enum class EOpenMobileAdsAgeTreatment : uint8
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsPrivacyConfiguration
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment ChildDirectedTreatment =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (
+			DisplayName = "Delay Provider Initialization Until Consent",
+			ToolTip = "When enabled, the ads service waits for consent state before initializing the selected provider."
+		)
+	)
+	bool bDelayProviderInitializationUntilConsent = true;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 {
 	GENERATED_BODY()

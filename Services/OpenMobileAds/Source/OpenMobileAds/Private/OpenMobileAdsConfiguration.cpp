@@ -9,10 +9,13 @@ namespace OpenMobileAdsConfigurationPrivate
 		EOpenMobileAdsConfigurationIssueCode Code,
 		FName Placement,
 		FString Message,
-		FName ConflictingPlacement = NAME_None
+		FName ConflictingPlacement = NAME_None,
+		EOpenMobileAdsConfigurationIssueSeverity Severity =
+			EOpenMobileAdsConfigurationIssueSeverity::Error
 	)
 	{
 		FOpenMobileAdsConfigurationIssue& Issue = Issues.Emplace_GetRef();
+		Issue.Severity = Severity;
 		Issue.Code = Code;
 		Issue.Placement = Placement;
 		Issue.ConflictingPlacement = ConflictingPlacement;
@@ -87,6 +90,18 @@ namespace OpenMobileAdsConfigurationPrivate
 			);
 		}
 	}
+}
+
+bool FOpenMobileAdsRetryPolicy::IsValid() const
+{
+	return MaxRetryAttempts >= 0
+		&& MaxRetryAttempts <= 10
+		&& FMath::IsFinite(InitialDelaySeconds)
+		&& InitialDelaySeconds >= 0.0
+		&& FMath::IsFinite(BackoffMultiplier)
+		&& BackoffMultiplier >= 1.0
+		&& FMath::IsFinite(MaxDelaySeconds)
+		&& MaxDelaySeconds >= InitialDelaySeconds;
 }
 
 EOpenMobileAdsPlatform OpenMobileAdsGetCurrentPlatform()
@@ -311,6 +326,41 @@ FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 		ValidateOperation(FormatCapabilities->bCanLoad, TEXT("load"));
 		ValidateOperation(FormatCapabilities->bCanShow, TEXT("show"));
 		ValidateOperation(FormatCapabilities->bCanDestroy, TEXT("destroy"));
+	}
+	return Issues;
+}
+
+TArray<FOpenMobileAdsConfigurationIssue>
+FOpenMobileAdsConfigurationValidator::ValidateSettings(
+	const UOpenMobileAdsSettings& Settings,
+	bool bForShipping
+)
+{
+	using namespace OpenMobileAdsConfigurationPrivate;
+	TArray<FOpenMobileAdsConfigurationIssue> Issues = Validate(Settings.Placements);
+	if (!Settings.RetryPolicy.IsValid())
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy,
+			NAME_None,
+			TEXT("Retry attempts must be between 0 and 10, delays must be finite and non-negative, maximum delay must not be shorter than the initial delay, and backoff must be at least 1.")
+		);
+	}
+	if (Settings.bDevelopmentTestMode)
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestMode,
+			NAME_None,
+			bForShipping
+				? TEXT("Development/Test Mode is not allowed in shipping builds.")
+				: TEXT("Development/Test Mode must be disabled before making a shipping build."),
+			NAME_None,
+			bForShipping
+				? EOpenMobileAdsConfigurationIssueSeverity::Error
+				: EOpenMobileAdsConfigurationIssueSeverity::Warning
+		);
 	}
 	return Issues;
 }

@@ -10,8 +10,12 @@ public class OpenMobileAdsEditor : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"MessageLog",
 			"OpenMobileAds",
+			"PropertyEditor",
+			"Slate",
+			"SlateCore",
 			"UnrealEd"
 		});
 	}

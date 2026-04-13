@@ -2,10 +2,59 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsConfiguration.generated.h"
 
 struct FOpenMobileAdsProviderCapabilities;
+class UOpenMobileAdsSettings;
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsRetryPolicy
+{
+	GENERATED_BODY()
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0", ClampMax = "10")
+	)
+	int32 MaxRetryAttempts = 2;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double InitialDelaySeconds = 1.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "1.0")
+	)
+	double BackoffMultiplier = 2.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double MaxDelaySeconds = 30.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bUseJitter = true;
+
+	bool IsValid() const;
+};
 
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
@@ -160,7 +209,9 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidCooldown,
 	EmptyProviderOption,
 	UnsupportedProviderFormat,
-	UnsupportedProviderOperation
+	UnsupportedProviderOperation,
+	InvalidRetryPolicy,
+	UnsafeShippingTestMode
 };
 
 USTRUCT(BlueprintType)
@@ -195,6 +246,11 @@ public:
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
 		const FOpenMobileAdsProviderCapabilities& Capabilities
 	);
+
+	static TArray<FOpenMobileAdsConfigurationIssue> ValidateSettings(
+		const UOpenMobileAdsSettings& Settings,
+		bool bForShipping
+	);
 };
 
 UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "OpenMobile Ads"))
@@ -208,6 +264,24 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Providers")
 	FName PreferredProvider;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Development",
+		meta = (
+			DisplayName = "Development/Test Mode",
+			ToolTip = "Enables provider test behavior and verbose diagnostics. This must be disabled for shipping builds."
+		)
+	)
+	bool bDevelopmentTestMode = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability")
+	FOpenMobileAdsRetryPolicy RetryPolicy;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Privacy")
+	FOpenMobileAdsPrivacyConfiguration Privacy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Placements")
 	TArray<FOpenMobileAdsPlacementSettings> Placements;

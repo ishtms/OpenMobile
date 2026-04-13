@@ -3,7 +3,6 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "Misc/FileHelper.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 
@@ -253,36 +252,116 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TEXT("OpenMobileAdsConfig"),
 		TEXT(".ini")
 	);
-	const FString Config = TEXT(
-		"[/Script/OpenMobileAds.OpenMobileAdsSettings]\n"
-		"PreferredProvider=ConfiguredAds\n"
-		"Placements=(Placement=ConfiguredReward,Format=Rewarded,bEnabled=True,bPreload=True,RefreshIntervalSeconds=0.000000,FrequencyCap=(MaxImpressions=2,WindowSeconds=60.000000),CooldownSeconds=30.000000,Android=(AdUnitId=\"android-config\",bOverridePreload=True,bPreload=False),IOS=(AdUnitId=\"ios-config\"))\n"
-	);
-	if (!FFileHelper::SaveStringToFile(Config, *ConfigPath))
-	{
-		AddError(TEXT("Could not create the temporary ads config."));
-		return false;
-	}
+	UOpenMobileAdsSettings* SavedSettings = NewObject<UOpenMobileAdsSettings>();
+	SavedSettings->PreferredProvider = TEXT("ConfiguredAds");
+	SavedSettings->bDevelopmentTestMode = true;
+	SavedSettings->RetryPolicy.MaxRetryAttempts = 4;
+	SavedSettings->RetryPolicy.InitialDelaySeconds = 0.5;
+	SavedSettings->RetryPolicy.BackoffMultiplier = 3.0;
+	SavedSettings->RetryPolicy.MaxDelaySeconds = 12.0;
+	SavedSettings->RetryPolicy.bUseJitter = false;
+	SavedSettings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
+	SavedSettings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	FOpenMobileAdsPlacementSettings Placement =
+		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
+			TEXT("ConfiguredReward"),
+			TEXT("android-config"),
+			TEXT("ios-config")
+		);
+	Placement.bPreload = true;
+	Placement.CooldownSeconds = 30.0;
+	Placement.FrequencyCap.MaxImpressions = 2;
+	Placement.FrequencyCap.WindowSeconds = 60.0;
+	Placement.Android.bOverridePreload = true;
+	Placement.Android.bPreload = false;
+	SavedSettings->Placements.Add(Placement);
+	SavedSettings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 
-	UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
-	Settings->LoadConfig(UOpenMobileAdsSettings::StaticClass(), *ConfigPath);
+	UOpenMobileAdsSettings* SettingsAfterRestart = NewObject<UOpenMobileAdsSettings>();
+	SettingsAfterRestart->LoadConfig(UOpenMobileAdsSettings::StaticClass(), *ConfigPath);
 	IFileManager::Get().Delete(*ConfigPath, false, true, true);
 
-	TestEqual(TEXT("Preferred provider loads from config"), Settings->PreferredProvider, FName(TEXT("ConfiguredAds")));
-	TestEqual(TEXT("One placement loads from config"), Settings->Placements.Num(), 1);
-	if (Settings->Placements.Num() == 1)
+	TestEqual(TEXT("Preferred provider survives restart"), SettingsAfterRestart->PreferredProvider, FName(TEXT("ConfiguredAds")));
+	TestTrue(TEXT("Development test mode survives restart"), SettingsAfterRestart->bDevelopmentTestMode);
+	TestEqual(TEXT("Retry count survives restart"), SettingsAfterRestart->RetryPolicy.MaxRetryAttempts, 4);
+	TestEqual(TEXT("Initial retry delay survives restart"), SettingsAfterRestart->RetryPolicy.InitialDelaySeconds, 0.5);
+	TestEqual(TEXT("Retry backoff survives restart"), SettingsAfterRestart->RetryPolicy.BackoffMultiplier, 3.0);
+	TestEqual(TEXT("Maximum retry delay survives restart"), SettingsAfterRestart->RetryPolicy.MaxDelaySeconds, 12.0);
+	TestFalse(TEXT("Retry jitter survives restart"), SettingsAfterRestart->RetryPolicy.bUseJitter);
+	TestEqual(
+		TEXT("Child-directed setting survives restart"),
+		SettingsAfterRestart->Privacy.ChildDirectedTreatment,
+		EOpenMobileAdsAgeTreatment::Yes
+	);
+	TestEqual(
+		TEXT("Under-age setting survives restart"),
+		SettingsAfterRestart->Privacy.UnderAgeOfConsent,
+		EOpenMobileAdsAgeTreatment::No
+	);
+	TestFalse(
+		TEXT("Consent initialization policy survives restart"),
+		SettingsAfterRestart->Privacy.bDelayProviderInitializationUntilConsent
+	);
+	TestEqual(TEXT("One placement survives restart"), SettingsAfterRestart->Placements.Num(), 1);
+	if (SettingsAfterRestart->Placements.Num() == 1)
 	{
-		const FOpenMobileAdsPlacementSettings& Placement = Settings->Placements[0];
-		TestEqual(TEXT("Placement key loads from config"), Placement.Placement, FName(TEXT("ConfiguredReward")));
-		TestTrue(TEXT("Shared preload loads from config"), Placement.bPreload);
-		TestEqual(TEXT("Frequency cap count loads from config"), Placement.FrequencyCap.MaxImpressions, 2);
-		TestEqual(TEXT("Frequency cap window loads from config"), Placement.FrequencyCap.WindowSeconds, 60.0);
-		TestEqual(TEXT("Cooldown loads from config"), Placement.CooldownSeconds, 30.0);
-		TestEqual(TEXT("Android ID loads from config"), Placement.Android.AdUnitId, FString(TEXT("android-config")));
-		TestTrue(TEXT("Android override flag loads from config"), Placement.Android.bOverridePreload);
-		TestFalse(TEXT("Android override value loads from config"), Placement.Android.bPreload);
-		TestEqual(TEXT("iOS ID loads from config"), Placement.IOS.AdUnitId, FString(TEXT("ios-config")));
+		const FOpenMobileAdsPlacementSettings& LoadedPlacement =
+			SettingsAfterRestart->Placements[0];
+		TestEqual(TEXT("Placement key survives restart"), LoadedPlacement.Placement, FName(TEXT("ConfiguredReward")));
+		TestTrue(TEXT("Shared preload survives restart"), LoadedPlacement.bPreload);
+		TestEqual(TEXT("Frequency cap count survives restart"), LoadedPlacement.FrequencyCap.MaxImpressions, 2);
+		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
+		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
+		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
+		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
+		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);
+		TestEqual(TEXT("iOS ID survives restart"), LoadedPlacement.IOS.AdUnitId, FString(TEXT("ios-config")));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsProjectSettingsValidationTest,
+	"OpenMobile.Ads.Configuration.ProjectSettingsValidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsConfigurationTests;
+	UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
+	Settings->Placements.Add(MakeRewardedPlacement(
+		TEXT("ContinueReward"),
+		TEXT("android-reward"),
+		TEXT("ios-reward")
+	));
+
+	TestFalse(TEXT("Development test mode is off by default"), Settings->bDevelopmentTestMode);
+	TestEqual(TEXT("Default retry count is bounded"), Settings->RetryPolicy.MaxRetryAttempts, 2);
+	TestTrue(TEXT("Default retry policy is valid"), Settings->RetryPolicy.IsValid());
+	TestTrue(
+		TEXT("Default project settings are valid"),
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false).IsEmpty()
+	);
+
+	Settings->RetryPolicy.MaxRetryAttempts = -1;
+	Settings->RetryPolicy.InitialDelaySeconds = -1.0;
+	const TArray<FOpenMobileAdsConfigurationIssue> RetryIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Invalid retry policies are rejected"),
+		HasIssue(RetryIssues, EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy)
+	);
+
+	Settings->RetryPolicy = FOpenMobileAdsRetryPolicy();
+	Settings->bDevelopmentTestMode = true;
+	const TArray<FOpenMobileAdsConfigurationIssue> ShippingIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);
+	TestTrue(
+		TEXT("Development test mode is rejected for shipping"),
+		HasIssue(ShippingIssues, EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestMode)
+	);
 	return true;
 }
 
