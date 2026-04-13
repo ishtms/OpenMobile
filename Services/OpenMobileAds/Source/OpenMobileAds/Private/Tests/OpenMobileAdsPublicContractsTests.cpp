@@ -41,6 +41,19 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	LoadRequest.Placement.Format = EOpenMobileAdFormat::Rewarded;
 	TestTrue(TEXT("Request identifiers are valid Unreal GUIDs"), LoadRequest.RequestId.IsValid());
 
+	FOpenMobileAdsInitializationRequest InitializationRequest;
+	InitializationRequest.RequestId = FGuid::NewGuid();
+	InitializationRequest.bDevelopmentTestMode = true;
+	InitializationRequest.Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
+	InitializationRequest.RequestConfiguration.MaxAdContentRating =
+		EOpenMobileAdsMaxAdContentRating::ParentalGuidance;
+	TestTrue(TEXT("Initialization identifiers use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
+	TestEqual(
+		TEXT("Initialization keeps provider-neutral request configuration"),
+		InitializationRequest.RequestConfiguration.MaxAdContentRating,
+		EOpenMobileAdsMaxAdContentRating::ParentalGuidance
+	);
+
 	FOpenMobileAdsEvent Event;
 	Event.Type = EOpenMobileAdsEventType::RewardEarned;
 	Event.Placement = LoadRequest.Placement.Placement;

@@ -26,6 +26,23 @@ FOpenMobileAdsProviderCapabilities IOpenMobileAdsProvider::GetCapabilities() con
 	return Capabilities;
 }
 
+bool IOpenMobileAdsProvider::Initialize(
+	const FOpenMobileAdsInitializationRequest& Request,
+	TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Initialization,
+		NAME_None,
+		TEXT("The selected ads provider does not implement SDK initialization."),
+		GetProviderName(),
+		TEXT("Update the provider plugin to implement the current OpenMobile Ads initialization contract.")
+	);
+	return false;
+}
+
 bool IOpenMobileAdsProvider::Load(
 	const FOpenMobileAdsLoadRequest& Request,
 	TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -73,11 +90,18 @@ FOpenMobileAdsProviderSelection FOpenMobileAdsProviderResolver::Resolve(
 	FName PreferredProvider
 )
 {
+	TArray<IOpenMobileAdsProvider*> RegisteredProviders;
 	TArray<IOpenMobileAdsProvider*> SupportedProviders;
+	RegisteredProviders.Reserve(Providers.Num());
 	SupportedProviders.Reserve(Providers.Num());
 	for (IOpenMobileAdsProvider* Provider : Providers)
 	{
-		if (Provider && Provider->IsSupported())
+		if (!Provider)
+		{
+			continue;
+		}
+		RegisteredProviders.Add(Provider);
+		if (Provider->IsSupported())
 		{
 			SupportedProviders.Add(Provider);
 		}
@@ -86,28 +110,27 @@ FOpenMobileAdsProviderSelection FOpenMobileAdsProviderResolver::Resolve(
 	FOpenMobileAdsProviderSelection Result;
 	if (!PreferredProvider.IsNone())
 	{
-		for (IOpenMobileAdsProvider* Provider : SupportedProviders)
+		TArray<IOpenMobileAdsProvider*> MatchingProviders;
+		for (IOpenMobileAdsProvider* Provider : RegisteredProviders)
 		{
-			if (Provider->GetProviderName() != PreferredProvider)
+			if (Provider->GetProviderName() == PreferredProvider)
 			{
-				continue;
+				MatchingProviders.Add(Provider);
 			}
-			if (Result.Provider)
-			{
-				Result.Provider = nullptr;
-				Result.Error = FOpenMobileAdsError::Make(
-					EOpenMobileAdsErrorCode::ProviderConflict,
-					EOpenMobileAdsFailureStage::ProviderSelection,
-					NAME_None,
-					TEXT("More than one enabled ads provider uses the preferred provider name."),
-					PreferredProvider,
-					TEXT("Disable the duplicate provider plugin or give each provider a unique name.")
-				);
-				return Result;
-			}
-			Result.Provider = Provider;
 		}
-		if (!Result.Provider)
+		if (MatchingProviders.Num() > 1)
+		{
+			Result.Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderConflict,
+				EOpenMobileAdsFailureStage::ProviderSelection,
+				NAME_None,
+				TEXT("More than one enabled ads provider uses the preferred provider name."),
+				PreferredProvider,
+				TEXT("Disable the duplicate provider plugin or give each provider a unique name.")
+			);
+			return Result;
+		}
+		if (MatchingProviders.IsEmpty())
 		{
 			Result.Error = FOpenMobileAdsError::Make(
 				EOpenMobileAdsErrorCode::ProviderUnavailable,
@@ -120,7 +143,24 @@ FOpenMobileAdsProviderSelection FOpenMobileAdsProviderResolver::Resolve(
 				PreferredProvider,
 				TEXT("Enable the provider plugin, verify platform support, or select another provider.")
 			);
+			return Result;
 		}
+		if (!MatchingProviders[0]->IsSupported())
+		{
+			Result.Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::UnsupportedPlatform,
+				EOpenMobileAdsFailureStage::ProviderSelection,
+				NAME_None,
+				FString::Printf(
+					TEXT("The preferred ads provider '%s' does not support this platform."),
+					*PreferredProvider.ToString()
+				),
+				PreferredProvider,
+				TEXT("Run on a supported target platform or select another provider.")
+			);
+			return Result;
+		}
+		Result.Provider = MatchingProviders[0];
 		return Result;
 	}
 
@@ -132,13 +172,20 @@ FOpenMobileAdsProviderSelection FOpenMobileAdsProviderResolver::Resolve(
 
 	if (SupportedProviders.IsEmpty())
 	{
+		const bool bHasRegisteredProviders = !RegisteredProviders.IsEmpty();
 		Result.Error = FOpenMobileAdsError::Make(
-			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			bHasRegisteredProviders
+				? EOpenMobileAdsErrorCode::UnsupportedPlatform
+				: EOpenMobileAdsErrorCode::ProviderUnavailable,
 			EOpenMobileAdsFailureStage::ProviderSelection,
 			NAME_None,
-			TEXT("No enabled ads provider supports this platform."),
+			bHasRegisteredProviders
+				? TEXT("Enabled ads providers do not support this platform.")
+				: TEXT("No ads provider is enabled."),
 			NAME_None,
-			TEXT("Enable and configure one ads provider plugin for the target platform.")
+			bHasRegisteredProviders
+				? TEXT("Run on a supported target platform or enable a compatible provider.")
+				: TEXT("Enable and configure one ads provider plugin for the target platform.")
 		);
 		return Result;
 	}

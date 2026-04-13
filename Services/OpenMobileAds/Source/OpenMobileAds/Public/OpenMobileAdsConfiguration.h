@@ -9,6 +9,26 @@
 struct FOpenMobileAdsProviderCapabilities;
 class UOpenMobileAdsSettings;
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsMaxAdContentRating : uint8
+{
+	Unspecified,
+	General,
+	ParentalGuidance,
+	Teen,
+	Mature
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsRequestConfiguration
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsMaxAdContentRating MaxAdContentRating =
+		EOpenMobileAdsMaxAdContentRating::Unspecified;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRetryPolicy
 {
@@ -282,6 +302,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Privacy")
 	FOpenMobileAdsPrivacyConfiguration Privacy;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Request Configuration")
+	FOpenMobileAdsRequestConfiguration RequestConfiguration;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Placements")
 	TArray<FOpenMobileAdsPlacementSettings> Placements;

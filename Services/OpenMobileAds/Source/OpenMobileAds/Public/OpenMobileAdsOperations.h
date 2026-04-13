@@ -4,6 +4,19 @@
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsOperations.generated.h"
 
+struct OPENMOBILEADS_API FOpenMobileAdsInitializationRequest
+{
+	FGuid RequestId;
+
+	EOpenMobileAdsPlatform Platform = EOpenMobileAdsPlatform::Unsupported;
+
+	bool bDevelopmentTestMode = false;
+
+	FOpenMobileAdsPrivacyConfiguration Privacy;
+
+	FOpenMobileAdsRequestConfiguration RequestConfiguration;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsLoadOptions
 {

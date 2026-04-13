@@ -35,6 +35,10 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	LoadRequest.RequestId = FGuid::NewGuid();
 	LoadRequest.Placement.Placement = Placement;
 	LoadRequest.Placement.Format = EOpenMobileAdFormat::Rewarded;
+	FOpenMobileAdsInitializationRequest InitializationRequest;
+	InitializationRequest.RequestId = FGuid::NewGuid();
+	InitializationRequest.RequestConfiguration.MaxAdContentRating =
+		EOpenMobileAdsMaxAdContentRating::General;
 
 	FOpenMobileAdsEvent Event;
 	Event.Type = EOpenMobileAdsEventType::LoadStarted;
@@ -50,8 +54,12 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 
 	TestEqual(TEXT("Public operations retain placement names"), Event.Placement, Placement);
 	TestTrue(TEXT("Public request IDs use Unreal GUIDs"), LoadRequest.RequestId.IsValid());
+	TestTrue(TEXT("Public initialization requests use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
 	TestTrue(TEXT("Unknown public errors stay typed"), Error.IsSet());
-	TestNotNull(TEXT("Subsystem type is public"), UOpenMobileAdsSubsystem::StaticClass());
+	UClass* SubsystemClass = UOpenMobileAdsSubsystem::StaticClass();
+	TestNotNull(TEXT("Subsystem type is public"), SubsystemClass);
+	TestNotNull(TEXT("Initialization is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("InitializeAds")));
+	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));
 	TestNotNull(TEXT("Async action type is public"), UOpenMobileAdsAsyncAction::StaticClass());
 	return true;
 }

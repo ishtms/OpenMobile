@@ -41,11 +41,13 @@ import com.google.android.gms.ads.FullScreenContentCallback;
 import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.MobileAds;
 import com.google.android.gms.ads.OnUserEarnedRewardListener;
+import com.google.android.gms.ads.RequestConfiguration;
 import com.google.android.gms.ads.initialization.InitializationStatus;
 import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
 import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
+import java.util.Collections;
         </insert>
     </gameActivityImportAdditions>
 
@@ -54,7 +56,10 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
     private RewardedAd openMobileRewardedAd = null;
     private boolean openMobileRewardedAdLoading = false;
     private boolean openMobileRewardedAdsInitialized = false;
+    private boolean openMobileRewardedAdsInitializing = false;
 
+    public native void nativeOpenMobileAdsInitializationCompleted(long requestId);
+    public native void nativeOpenMobileAdsInitializationFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileRewardedAdLoaded(long requestId);
     public native void nativeOpenMobileRewardedAdShown(long requestId);
     public native void nativeOpenMobileRewardedAdEarned(
@@ -65,29 +70,82 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
     public native void nativeOpenMobileRewardedAdClosed(long requestId);
     public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
 
-    public void AndroidThunkJava_InitializeOpenMobileRewardedAds()
+    public boolean AndroidThunkJava_InitializeOpenMobileRewardedAds(
+        final long requestId,
+        final int childDirectedTreatment,
+        final int underAgeOfConsent,
+        final boolean developmentTestMode,
+        final String maxAdContentRating
+    )
     {
-        GameActivity.this.runOnUiThread(new Runnable()
+        try
         {
-            @Override
-            public void run()
+            GameActivity.this.runOnUiThread(new Runnable()
             {
-                if (openMobileRewardedAdsInitialized)
+                @Override
+                public void run()
                 {
-                    return;
-                }
-
-                openMobileRewardedAdsInitialized = true;
-                MobileAds.initialize(activityContext, new OnInitializationCompleteListener()
-                {
-                    @Override
-                    public void onInitializationComplete(InitializationStatus initializationStatus)
+                    try
                     {
-                        Log.debug("OpenMobile rewarded Google ads initialized");
+                        RequestConfiguration.Builder configuration =
+                            MobileAds.getRequestConfiguration().toBuilder()
+                                .setTagForChildDirectedTreatment(childDirectedTreatment)
+                                .setTagForUnderAgeOfConsent(underAgeOfConsent)
+                                .setTestDeviceIds(
+                                    developmentTestMode
+                                        ? Collections.singletonList("B3EEABB8EE11C2BE770B684D95219ECB")
+                                        : Collections.emptyList()
+                                );
+                        if (maxAdContentRating != null &amp;&amp; maxAdContentRating.length() > 0)
+                        {
+                            configuration.setMaxAdContentRating(maxAdContentRating);
+                        }
+                        MobileAds.setRequestConfiguration(configuration.build());
+
+                        if (openMobileRewardedAdsInitialized)
+                        {
+                            nativeOpenMobileAdsInitializationCompleted(requestId);
+                            return;
+                        }
+                        if (openMobileRewardedAdsInitializing)
+                        {
+                            nativeOpenMobileAdsInitializationFailed(
+                                requestId,
+                                "AdMob SDK initialization is already in progress."
+                            );
+                            return;
+                        }
+
+                        openMobileRewardedAdsInitializing = true;
+                        MobileAds.initialize(activityContext, new OnInitializationCompleteListener()
+                        {
+                            @Override
+                            public void onInitializationComplete(InitializationStatus initializationStatus)
+                            {
+                                openMobileRewardedAdsInitializing = false;
+                                openMobileRewardedAdsInitialized = true;
+                                Log.debug("OpenMobile rewarded Google ads initialized");
+                                nativeOpenMobileAdsInitializationCompleted(requestId);
+                            }
+                        });
                     }
-                });
-            }
-        });
+                    catch (Exception exception)
+                    {
+                        openMobileRewardedAdsInitializing = false;
+                        nativeOpenMobileAdsInitializationFailed(
+                            requestId,
+                            "AdMob SDK initialization failed: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile AdMob initialization could not be scheduled: " + exception.getMessage());
+            return false;
+        }
     }
 
     public void AndroidThunkJava_ShutdownOpenMobileRewardedAds()
@@ -231,6 +289,8 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
     <proguardAdditions>
         <insert>
 -keepclassmembers class com.epicgames.unreal.GameActivity {
+    public native void nativeOpenMobileAdsInitializationCompleted(long);
+    public native void nativeOpenMobileAdsInitializationFailed(long, java.lang.String);
     public native void nativeOpenMobileRewardedAdLoaded(long);
     public native void nativeOpenMobileRewardedAdShown(long);
     public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);

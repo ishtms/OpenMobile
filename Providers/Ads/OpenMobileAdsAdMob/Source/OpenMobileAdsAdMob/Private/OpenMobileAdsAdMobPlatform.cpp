@@ -6,16 +6,26 @@
 
 namespace OpenMobileAdsAdMobPlatformPrivate
 {
+	TArray<FOnOpenMobileAdMobInitialized> InitializationDelegates;
 	FOnOpenMobileAdMobRewardedLoaded LoadedDelegate;
 	FOnOpenMobileAdMobRewardedShown ShownDelegate;
 	FOnOpenMobileAdMobRewardedEarned EarnedDelegate;
 	FOnOpenMobileAdMobRewardedClosed ClosedDelegate;
 	FOnOpenMobileAdMobRewardedFailed FailedDelegate;
 	int64 NextRequestId = 0;
+	int64 ActiveInitializationRequestId = 0;
 	int64 ActiveRequestId = 0;
+	bool bInitializationInProgress = false;
 	bool bRequestInProgress = false;
 	bool bRewardDispatched = false;
 	bool bInitialized = false;
+
+	void ResetInitialization()
+	{
+		InitializationDelegates.Reset();
+		ActiveInitializationRequestId = 0;
+		bInitializationInProgress = false;
+	}
 
 	void ResetRequest()
 	{
@@ -51,12 +61,54 @@ bool FOpenMobileAdsAdMobPlatform::IsSupported()
 	return OpenMobileAdsAdMobPlatformPrivate::FindBackend() != nullptr;
 }
 
+bool FOpenMobileAdsAdMobPlatform::Initialize(
+	const FOpenMobileAdsInitializationRequest& Request,
+	FOnOpenMobileAdMobInitialized&& OnCompleted,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+
+	IOpenMobileAdsAdMobBackend* Backend = FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for this platform.");
+		return false;
+	}
+	if (bInitialized)
+	{
+		OnCompleted.ExecuteIfBound(FOpenMobileAdsError());
+		return true;
+	}
+
+	InitializationDelegates.Add(MoveTemp(OnCompleted));
+	if (bInitializationInProgress)
+	{
+		return true;
+	}
+
+	++NextRequestId;
+	if (NextRequestId <= 0)
+	{
+		NextRequestId = 1;
+	}
+	ActiveInitializationRequestId = NextRequestId;
+	bInitializationInProgress = true;
+	if (!Backend->Initialize(Request, ActiveInitializationRequestId, OutError))
+	{
+		ResetInitialization();
+		return false;
+	}
+	return true;
+}
+
 void FOpenMobileAdsAdMobPlatform::Shutdown()
 {
 	check(IsInGameThread());
 	using namespace OpenMobileAdsAdMobPlatformPrivate;
 	ResetRequest();
-	if (bInitialized)
+	if (bInitialized || bInitializationInProgress)
 	{
 		if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
 		{
@@ -64,6 +116,7 @@ void FOpenMobileAdsAdMobPlatform::Shutdown()
 		}
 		bInitialized = false;
 	}
+	ResetInitialization();
 }
 
 bool FOpenMobileAdsAdMobPlatform::BeginRequest(
@@ -95,11 +148,10 @@ bool FOpenMobileAdsAdMobPlatform::BeginRequest(
 		OutError = TEXT("The AdMob rewarded-ad unit ID is empty.");
 		return false;
 	}
-
 	if (!bInitialized)
 	{
-		Backend->Initialize();
-		bInitialized = true;
+		OutError = TEXT("The AdMob SDK has not finished initializing.");
+		return false;
 	}
 
 	LoadedDelegate = MoveTemp(OnLoaded);
@@ -124,6 +176,55 @@ bool FOpenMobileAdsAdMobPlatform::BeginRequest(
 	}
 
 	return true;
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(int64 RequestId)
+{
+	OpenMobile::DispatchToGameThread([RequestId]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		if (!bInitializationInProgress || ActiveInitializationRequestId != RequestId)
+		{
+			return;
+		}
+		TArray<FOnOpenMobileAdMobInitialized> Completions = MoveTemp(InitializationDelegates);
+		ResetInitialization();
+		bInitialized = true;
+		for (FOnOpenMobileAdMobInitialized& Completion : Completions)
+		{
+			Completion.ExecuteIfBound(FOpenMobileAdsError());
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeInitializationFailed(
+	int64 RequestId,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		if (!bInitializationInProgress || ActiveInitializationRequestId != RequestId)
+		{
+			return;
+		}
+		TArray<FOnOpenMobileAdMobInitialized> Completions = MoveTemp(InitializationDelegates);
+		ResetInitialization();
+		bInitialized = false;
+		for (FOnOpenMobileAdMobInitialized& Completion : Completions)
+		{
+			Completion.ExecuteIfBound(FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::NativeFailure,
+				EOpenMobileAdsFailureStage::Initialization,
+				NAME_None,
+				ErrorMessage.IsEmpty()
+					? TEXT("The AdMob SDK failed to initialize.")
+					: ErrorMessage,
+				TEXT("AdMob")
+			));
+		}
+	});
 }
 
 void FOpenMobileAdsAdMobPlatform::NativeLoaded(int64 RequestId)

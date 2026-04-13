@@ -36,6 +36,23 @@ namespace OpenMobileAdsProviderContractTests
 			return Capabilities;
 		}
 
+		virtual bool Initialize(
+			const FOpenMobileAdsInitializationRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++InitializationCalls;
+			LastInitializationRequest = Request;
+			InitializationSink = CompletionSink;
+			if (!bAcceptInitialization)
+			{
+				OutError = InitializationRejection;
+				return false;
+			}
+			return true;
+		}
+
 		virtual bool Load(
 			const FOpenMobileAdsLoadRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -82,15 +99,34 @@ namespace OpenMobileAdsProviderContractTests
 			CancelledRequests.Add(RequestId);
 		}
 
+		virtual void Shutdown() override
+		{
+			++ShutdownCalls;
+		}
+
+		void CompleteInitialization(FOpenMobileAdsError Error = FOpenMobileAdsError())
+		{
+			if (InitializationSink)
+			{
+				InitializationSink->Complete(MoveTemp(Error));
+			}
+		}
+
 		FName Name;
 		bool bSupported = true;
+		bool bAcceptInitialization = true;
+		int32 InitializationCalls = 0;
+		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
+		FOpenMobileAdsInitializationRequest LastInitializationRequest;
+		FOpenMobileAdsError InitializationRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
+		TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 		TArray<FGuid> CancelledRequests;
 	};
 
@@ -136,12 +172,18 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			Settings = GetMutableDefault<UOpenMobileAdsSettings>();
 			SavedProvider = Settings->PreferredProvider;
+			bSavedDevelopmentTestMode = Settings->bDevelopmentTestMode;
+			SavedPrivacy = Settings->Privacy;
+			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
 		}
 
 		~FScopedSettings()
 		{
 			Settings->PreferredProvider = SavedProvider;
+			Settings->bDevelopmentTestMode = bSavedDevelopmentTestMode;
+			Settings->Privacy = SavedPrivacy;
+			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
 		}
 
@@ -149,6 +191,9 @@ namespace OpenMobileAdsProviderContractTests
 
 	private:
 		FName SavedProvider;
+		bool bSavedDevelopmentTestMode = false;
+		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
+		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
 	};
 
@@ -156,6 +201,167 @@ namespace OpenMobileAdsProviderContractTests
 	{
 		FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
 	}
+
+	bool InitializeSuccessfully(
+		UOpenMobileAdsSubsystem& Subsystem,
+		FMockProvider& Provider
+	)
+	{
+		const FOpenMobileAdsOperationResult Result = Subsystem.InitializeAds();
+		if (!Result.bAccepted)
+		{
+			return false;
+		}
+		Provider.CompleteInitialization();
+		DrainGameThreadTasks();
+		return Subsystem.GetServiceState() == EOpenMobileAdsServiceState::Ready;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationIdempotencyContractTest,
+	"OpenMobile.Ads.ProviderContract.Initialization.IdempotencyAndConfiguration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationIdempotencyContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
+	ScopedSettings.Settings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	ScopedSettings.Settings->RequestConfiguration.MaxAdContentRating =
+		EOpenMobileAdsMaxAdContentRating::ParentalGuidance;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+
+	const FOpenMobileAdsOperationResult First = Subsystem->InitializeAds();
+	TestTrue(TEXT("The first initialization request is accepted"), First.bAccepted);
+	TestTrue(TEXT("Initialization receives a stable request ID"), First.RequestId.IsValid());
+	TestEqual(TEXT("The service enters initializing state"), Subsystem->GetServiceState(), EOpenMobileAdsServiceState::Initializing);
+	TestEqual(TEXT("The provider starts once"), Provider.InitializationCalls, 1);
+	TestTrue(TEXT("Test mode reaches the provider before initialization"), Provider.LastInitializationRequest.bDevelopmentTestMode);
+	TestEqual(
+		TEXT("Child-directed treatment reaches the provider"),
+		Provider.LastInitializationRequest.Privacy.ChildDirectedTreatment,
+		EOpenMobileAdsAgeTreatment::Yes
+	);
+	TestEqual(
+		TEXT("Under-age treatment reaches the provider"),
+		Provider.LastInitializationRequest.Privacy.UnderAgeOfConsent,
+		EOpenMobileAdsAgeTreatment::No
+	);
+	TestEqual(
+		TEXT("Request configuration reaches the provider"),
+		Provider.LastInitializationRequest.RequestConfiguration.MaxAdContentRating,
+		EOpenMobileAdsMaxAdContentRating::ParentalGuidance
+	);
+
+	const FOpenMobileAdsOperationResult Overlapping = Subsystem->InitializeAds();
+	TestTrue(TEXT("An overlapping initialization call is accepted"), Overlapping.bAccepted);
+	TestEqual(TEXT("Overlapping calls share the request ID"), Overlapping.RequestId, First.RequestId);
+	TestEqual(TEXT("An overlapping call does not restart the provider"), Provider.InitializationCalls, 1);
+
+	TFuture<void> Completion = Async(EAsyncExecution::ThreadPool, [&Provider]()
+	{
+		Provider.CompleteInitialization();
+	});
+	Completion.Wait();
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Provider completion makes the service ready"), Subsystem->GetServiceState(), EOpenMobileAdsServiceState::Ready);
+
+	const FOpenMobileAdsOperationResult Repeated = Subsystem->InitializeAds();
+	TestTrue(TEXT("Initialization remains idempotent after success"), Repeated.bAccepted);
+	TestEqual(TEXT("Successful repeated calls share the request ID"), Repeated.RequestId, First.RequestId);
+	TestEqual(TEXT("A successful repeated call does not restart the provider"), Provider.InitializationCalls, 1);
+
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Teardown shuts down the initialized provider once"), Provider.ShutdownCalls, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationFailureContractTest,
+	"OpenMobile.Ads.ProviderContract.Initialization.Failure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationFailureContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+
+	const FOpenMobileAdsOperationResult Started = Subsystem->InitializeAds();
+	TestTrue(TEXT("Initialization starts before an asynchronous failure"), Started.bAccepted);
+	Provider.CompleteInitialization(FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Initialization,
+		NAME_None,
+		TEXT("The mock SDK failed to initialize."),
+		TEXT("MockAds")
+	));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Provider failure makes the service failed"), Subsystem->GetServiceState(), EOpenMobileAdsServiceState::Failed);
+
+	const FOpenMobileAdsOperationResult Repeated = Subsystem->InitializeAds();
+	TestFalse(TEXT("A failed initialization is not reported as accepted"), Repeated.bAccepted);
+	TestEqual(TEXT("The provider error is retained"), Repeated.Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	TestEqual(TEXT("A repeated failed call does not restart the provider"), Provider.InitializationCalls, 1);
+
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("A provider that accepted initialization is shut down"), Provider.ShutdownCalls, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationSelectionContractTest,
+	"OpenMobile.Ads.ProviderContract.Initialization.SelectionFailures",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationSelectionContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+
+	ScopedSettings.Settings->PreferredProvider = TEXT("MissingAds");
+	UOpenMobileAdsSubsystem* MissingSubsystem = NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	const FOpenMobileAdsOperationResult Missing = MissingSubsystem->InitializeAds();
+	TestFalse(TEXT("A missing preferred provider is rejected"), Missing.bAccepted);
+	TestEqual(TEXT("A missing provider has a typed error"), Missing.Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+	MissingSubsystem->Deinitialize();
+
+	FMockProvider UnsupportedProvider(TEXT("UnsupportedAds"), false);
+	FScopedProviderRegistration UnsupportedRegistration(UnsupportedProvider);
+	ScopedSettings.Settings->PreferredProvider = TEXT("UnsupportedAds");
+	UOpenMobileAdsSubsystem* UnsupportedSubsystem = NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	const FOpenMobileAdsOperationResult Unsupported = UnsupportedSubsystem->InitializeAds();
+	TestFalse(TEXT("An unsupported platform is rejected"), Unsupported.bAccepted);
+	TestEqual(TEXT("Unsupported platform failure is distinct"), Unsupported.Error.Code, EOpenMobileAdsErrorCode::UnsupportedPlatform);
+	UnsupportedSubsystem->Deinitialize();
+
+	FMockProvider Alpha(TEXT("AlphaAds"));
+	FMockProvider Beta(TEXT("BetaAds"));
+	FScopedProviderRegistration AlphaRegistration(Alpha);
+	FScopedProviderRegistration BetaRegistration(Beta);
+	ScopedSettings.Settings->PreferredProvider = NAME_None;
+	UOpenMobileAdsSubsystem* ConflictSubsystem = NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	const FOpenMobileAdsOperationResult Conflict = ConflictSubsystem->InitializeAds();
+	TestFalse(TEXT("Ambiguous provider selection is rejected"), Conflict.bAccepted);
+	TestEqual(TEXT("Ambiguous selection has a typed error"), Conflict.Error.Code, EOpenMobileAdsErrorCode::ProviderConflict);
+	ConflictSubsystem->Deinitialize();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -206,6 +412,7 @@ bool FOpenMobileAdsProviderErrorContractTest::RunTest(const FString& Parameters)
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 
 	TestEqual(
 		TEXT("Empty placement errors are typed"),
@@ -254,6 +461,7 @@ bool FOpenMobileAdsProviderEventContractTest::RunTest(const FString& Parameters)
 	{
 		return false;
 	}
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 
 	TArray<FOpenMobileAdsEvent> Events;
 	bool bEveryCallbackWasOnGameThread = true;
@@ -408,6 +616,7 @@ bool FOpenMobileAdsProviderUnregistrationContractTest::RunTest(const FString& Pa
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 	const FOpenMobileAdsOperationResult LoadResult =
 		Subsystem->LoadAd(TEXT("ContinueReward"));
 	TestTrue(TEXT("Load begins before unregistration"), LoadResult.bAccepted);
@@ -459,6 +668,7 @@ bool FOpenMobileAdsRequestCancellationContractTest::RunTest(const FString& Param
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 	TArray<FOpenMobileAdsEvent> Events;
 	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
 		[&Events](const FOpenMobileAdsEvent& Event)
@@ -533,6 +743,7 @@ bool FOpenMobileAdsDestroyAllFailureContractTest::RunTest(const FString& Paramet
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 	TArray<FOpenMobileAdsEvent> Events;
 	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
 		[&Events](const FOpenMobileAdsEvent& Event)
@@ -621,6 +832,7 @@ bool FOpenMobileAdsAsyncWorldCleanupTest::RunTest(const FString& Parameters)
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
 	const FOpenMobileAdsOperationResult LoadResult =
 		Subsystem->LoadAd(TEXT("WorldCleanupReward"));
 	TestTrue(TEXT("Load begins before world cleanup"), LoadResult.bAccepted);

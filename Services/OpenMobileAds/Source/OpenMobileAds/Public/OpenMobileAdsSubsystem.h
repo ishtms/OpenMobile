@@ -11,6 +11,7 @@
 #include "OpenMobileAdsSubsystem.generated.h"
 
 class IOpenMobileAdsProvider;
+class IOpenMobileAdsProviderInitializationSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 struct FOpenMobileAdsActiveRequestContext;
@@ -46,6 +47,12 @@ class OPENMOBILEADS_API UOpenMobileAdsSubsystem : public UGameInstanceSubsystem
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Initialize Ads"))
+	FOpenMobileAdsOperationResult InitializeAds();
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Service State"))
+	EOpenMobileAdsServiceState GetServiceState() const { return ServiceState; }
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
 	FOpenMobileAdsOperationResult LoadAd(
@@ -139,6 +146,11 @@ private:
 		FOpenMobileAdsResolvedPlacement& OutPlacement
 	) const;
 	void SubmitServiceEvent(FOpenMobileAdsEvent Event);
+	void HandleInitializationCompleted(
+		FGuid RequestId,
+		FName ProviderName,
+		FOpenMobileAdsError Error
+	);
 	void HandleProviderEvent(FOpenMobileAdsEvent Event);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
@@ -159,6 +171,12 @@ private:
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FDelegateHandle ProviderUnregisteredHandle;
+	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
+	FName SelectedProviderName;
+	FGuid InitializationRequestId;
+	FOpenMobileAdsError InitializationError;
+	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
+	bool bProviderInitializationStarted = false;
 	bool bRuntimeInitialized = false;
 	bool bDeinitialized = false;
 };

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
+#include "OpenMobileAdsOperations.h"
 
 /** Native AdMob SDK boundary, internal to the AdMob provider plugin. */
 class IOpenMobileAdsAdMobBackend : public IModularFeature
@@ -17,7 +18,11 @@ public:
 
 	virtual FName GetBackendName() const = 0;
 	virtual bool IsAvailable() const = 0;
-	virtual void Initialize() = 0;
+	virtual bool Initialize(
+		const FOpenMobileAdsInitializationRequest& Request,
+		int64 RequestId,
+		FString& OutError
+	) = 0;
 	virtual void Shutdown() = 0;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) = 0;
 };

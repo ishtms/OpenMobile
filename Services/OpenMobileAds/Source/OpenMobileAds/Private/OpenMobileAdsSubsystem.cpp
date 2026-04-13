@@ -3,7 +3,6 @@
 #include "Async/Async.h"
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileAdsProvider.h"
-#include "Misc/ConfigCacheIni.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAdsDiagnostics.h"
 
@@ -89,6 +88,75 @@ private:
 
 namespace OpenMobileAdsPrivate
 {
+	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
+	{
+	public:
+		explicit FInitializationSink(TFunction<void(FOpenMobileAdsError)>&& InCompletion)
+			: Completion(MoveTemp(InCompletion))
+		{
+		}
+
+		virtual void Complete(FOpenMobileAdsError Error) override
+		{
+			TFunction<void(FOpenMobileAdsError)> CompletionToRun;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid || bCompleted)
+				{
+					return;
+				}
+				if (!bCommitted)
+				{
+					PendingError = MoveTemp(Error);
+					bHasPendingCompletion = true;
+					return;
+				}
+				bCompleted = true;
+				CompletionToRun = Completion;
+			}
+			CompletionToRun(MoveTemp(Error));
+		}
+
+		void Commit()
+		{
+			TFunction<void(FOpenMobileAdsError)> CompletionToRun;
+			FOpenMobileAdsError Error;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid || bCommitted)
+				{
+					return;
+				}
+				bCommitted = true;
+				if (!bHasPendingCompletion)
+				{
+					return;
+				}
+				bCompleted = true;
+				Error = MoveTemp(PendingError);
+				CompletionToRun = Completion;
+			}
+			CompletionToRun(MoveTemp(Error));
+		}
+
+		virtual void Invalidate() override
+		{
+			FScopeLock Lock(&Mutex);
+			bValid = false;
+			bHasPendingCompletion = false;
+			Completion = nullptr;
+		}
+
+	private:
+		FCriticalSection Mutex;
+		TFunction<void(FOpenMobileAdsError)> Completion;
+		FOpenMobileAdsError PendingError;
+		bool bHasPendingCompletion = false;
+		bool bCommitted = false;
+		bool bCompleted = false;
+		bool bValid = true;
+	};
+
 	class FContextualEventSink final : public IOpenMobileAdsProviderEventSink
 	{
 	public:
@@ -214,6 +282,57 @@ namespace OpenMobileAdsPrivate
 			TEXT("Choose a supported format or select another provider.")
 		);
 	}
+
+	FOpenMobileAdsError MakeServiceNotReadyError(
+		FName Placement,
+		EOpenMobileAdsServiceState State,
+		const FOpenMobileAdsError& InitializationError
+	)
+	{
+		if (State == EOpenMobileAdsServiceState::Failed && InitializationError.IsSet())
+		{
+			FOpenMobileAdsError Error = InitializationError;
+			Error.Placement = Placement;
+			return Error;
+		}
+		return FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Initialization,
+			Placement,
+			State == EOpenMobileAdsServiceState::Initializing
+				? TEXT("The ads service is still initializing.")
+				: TEXT("The ads service has not been initialized."),
+			NAME_None,
+			TEXT("Call Initialize Ads and wait for the service to become ready.")
+		);
+	}
+
+	FOpenMobileAdsError NormalizeInitializationError(
+		FOpenMobileAdsError Error,
+		FName ProviderName,
+		const TCHAR* FallbackExplanation
+	)
+	{
+		if (!Error.IsSet())
+		{
+			Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderFailure,
+				EOpenMobileAdsFailureStage::Initialization,
+				NAME_None,
+				FallbackExplanation,
+				ProviderName
+			);
+		}
+		if (Error.Stage == EOpenMobileAdsFailureStage::None)
+		{
+			Error.Stage = EOpenMobileAdsFailureStage::Initialization;
+		}
+		if (Error.Provider.IsNone())
+		{
+			Error.Provider = ProviderName;
+		}
+		return Error;
+	}
 }
 
 struct FOpenMobileAdsActiveRequestContext
@@ -300,6 +419,143 @@ void UOpenMobileAdsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	EnsureRuntime();
 }
 
+FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
+{
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::Initialization
+			)
+		);
+	}
+
+	EnsureRuntime();
+	if (bDeinitialized || ServiceState == EOpenMobileAdsServiceState::ShuttingDown)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Cancelled,
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			TEXT("The ads subsystem has been deinitialized.")
+		));
+	}
+	if (
+		ServiceState == EOpenMobileAdsServiceState::Initializing
+		|| ServiceState == EOpenMobileAdsServiceState::Ready
+	)
+	{
+		return FOpenMobileAdsOperationResult::Accepted(InitializationRequestId);
+	}
+	if (ServiceState == EOpenMobileAdsServiceState::Failed)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
+	}
+
+	FOpenMobileAdsError SelectionError;
+	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
+	if (!Provider)
+	{
+		ServiceState = EOpenMobileAdsServiceState::Failed;
+		InitializationError = MoveTemp(SelectionError);
+		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
+	}
+
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	InitializationRequestId = FGuid::NewGuid();
+	SelectedProviderName = Provider->GetProviderName();
+	InitializationError = FOpenMobileAdsError();
+	ServiceState = EOpenMobileAdsServiceState::Initializing;
+
+	FOpenMobileAdsInitializationRequest Request;
+	Request.RequestId = InitializationRequestId;
+	Request.Platform = OpenMobileAdsGetCurrentPlatform();
+	Request.bDevelopmentTestMode = Settings->bDevelopmentTestMode;
+	Request.Privacy = Settings->Privacy;
+	Request.RequestConfiguration = Settings->RequestConfiguration;
+
+	const FGuid RequestId = InitializationRequestId;
+	const FName ProviderName = SelectedProviderName;
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	const TSharedRef<OpenMobileAdsPrivate::FInitializationSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<OpenMobileAdsPrivate::FInitializationSink, ESPMode::ThreadSafe>(
+			[WeakThis, RequestId, ProviderName](FOpenMobileAdsError Error) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, ProviderName, Error = MoveTemp(Error)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleInitializationCompleted(
+								RequestId,
+								ProviderName,
+								MoveTemp(Error)
+							);
+						}
+					}
+				);
+			}
+		);
+	InitializationSink = Sink;
+
+	FOpenMobileAdsError ProviderError;
+	if (!Provider->Initialize(Request, Sink, ProviderError))
+	{
+		Sink->Invalidate();
+		InitializationSink.Reset();
+		ServiceState = EOpenMobileAdsServiceState::Failed;
+		InitializationError = OpenMobileAdsPrivate::NormalizeInitializationError(
+			MoveTemp(ProviderError),
+			ProviderName,
+			TEXT("The ads provider rejected SDK initialization without an error.")
+		);
+		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
+	}
+
+	bProviderInitializationStarted = true;
+	Sink->Commit();
+	return FOpenMobileAdsOperationResult::Accepted(InitializationRequestId);
+}
+
+void UOpenMobileAdsSubsystem::HandleInitializationCompleted(
+	FGuid RequestId,
+	FName ProviderName,
+	FOpenMobileAdsError Error
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| ServiceState != EOpenMobileAdsServiceState::Initializing
+		|| RequestId != InitializationRequestId
+		|| ProviderName != SelectedProviderName
+	)
+	{
+		return;
+	}
+
+	if (InitializationSink)
+	{
+		InitializationSink->Invalidate();
+		InitializationSink.Reset();
+	}
+	if (Error.IsSet())
+	{
+		InitializationError = OpenMobileAdsPrivate::NormalizeInitializationError(
+			MoveTemp(Error),
+			ProviderName,
+			TEXT("The ads provider failed to initialize.")
+		);
+		ServiceState = EOpenMobileAdsServiceState::Failed;
+		return;
+	}
+
+	InitializationError = FOpenMobileAdsError();
+	ServiceState = EOpenMobileAdsServiceState::Ready;
+}
+
 void UOpenMobileAdsSubsystem::EnsureRuntime()
 {
 	if (bRuntimeInitialized || bDeinitialized)
@@ -317,23 +573,7 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
 {
-	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
-	if (!Settings->PreferredProvider.IsNone())
-	{
-		return Settings->PreferredProvider;
-	}
-
-	FString LegacyPreferredProvider;
-	GConfig->GetString(
-		TEXT("OpenMobileAds"),
-		TEXT("PreferredProvider"),
-		LegacyPreferredProvider,
-		GEngineIni
-	);
-	LegacyPreferredProvider.TrimStartAndEndInline();
-	return LegacyPreferredProvider.IsEmpty()
-		? NAME_None
-		: FName(*LegacyPreferredProvider);
+	return GetDefault<UOpenMobileAdsSettings>()->PreferredProvider;
 }
 
 IOpenMobileAdsProvider* UOpenMobileAdsSubsystem::FindProvider(
@@ -345,7 +585,12 @@ IOpenMobileAdsProvider* UOpenMobileAdsSubsystem::FindProvider(
 			IOpenMobileAdsProvider::GetModularFeatureName()
 		);
 	FOpenMobileAdsProviderSelection Selection =
-		FOpenMobileAdsProviderResolver::Resolve(Providers, GetPreferredProviderName());
+		FOpenMobileAdsProviderResolver::Resolve(
+			Providers,
+			SelectedProviderName.IsNone()
+				? GetPreferredProviderName()
+				: SelectedProviderName
+		);
 	if (OutError)
 	{
 		*OutError = MoveTemp(Selection.Error);
@@ -423,6 +668,14 @@ FOpenMobileAdsError UOpenMobileAdsSubsystem::ValidatePlacementForProvider(
 			TEXT("The requested ads placement is disabled."),
 			NAME_None,
 			TEXT("Enable the placement for the current platform.")
+		);
+	}
+	if (ServiceState != EOpenMobileAdsServiceState::Ready)
+	{
+		return OpenMobileAdsPrivate::MakeServiceNotReadyError(
+			Placement,
+			ServiceState,
+			InitializationError
 		);
 	}
 
@@ -807,6 +1060,16 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAllAds()
 		);
 	}
 	EnsureRuntime();
+	if (ServiceState != EOpenMobileAdsServiceState::Ready)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeServiceNotReadyError(
+				NAME_None,
+				ServiceState,
+				InitializationError
+			)
+		);
+	}
 
 	FOpenMobileAdsError Error;
 	IOpenMobileAdsProvider* Provider = FindProvider(&Error);
@@ -966,6 +1229,16 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) co
 	{
 		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::Disabled;
 		Result.Explanation = TEXT("The requested ads placement is disabled.");
+		return Result;
+	}
+	if (ServiceState != EOpenMobileAdsServiceState::Ready)
+	{
+		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::NotInitialized;
+		Result.Explanation = OpenMobileAdsPrivate::MakeServiceNotReadyError(
+			Placement,
+			ServiceState,
+			InitializationError
+		).Explanation;
 		return Result;
 	}
 
@@ -1349,6 +1622,30 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	{
 		return;
 	}
+	if (
+		ProviderName == SelectedProviderName
+		&& (
+			ServiceState == EOpenMobileAdsServiceState::Initializing
+			|| ServiceState == EOpenMobileAdsServiceState::Ready
+		)
+	)
+	{
+		if (InitializationSink)
+		{
+			InitializationSink->Invalidate();
+			InitializationSink.Reset();
+		}
+		InitializationError = FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			TEXT("The selected ads provider was unregistered after initialization began."),
+			ProviderName,
+			TEXT("Keep the selected provider enabled until the ads subsystem has shut down.")
+		);
+		ServiceState = EOpenMobileAdsServiceState::Failed;
+		bProviderInitializationStarted = false;
+	}
 	TSet<FGuid> ServiceWideRequests;
 	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
 	{
@@ -1427,6 +1724,23 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 void UOpenMobileAdsSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	IOpenMobileAdsProvider* InitializationProvider = FindProvider();
+	const bool bInitializationInProgress =
+		ServiceState == EOpenMobileAdsServiceState::Initializing;
+	ServiceState = EOpenMobileAdsServiceState::ShuttingDown;
+	if (InitializationSink)
+	{
+		InitializationSink->Invalidate();
+		InitializationSink.Reset();
+	}
+	if (
+		InitializationProvider
+		&& bInitializationInProgress
+		&& InitializationRequestId.IsValid()
+	)
+	{
+		InitializationProvider->Cancel(InitializationRequestId);
+	}
 	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
 	{
 		if (!Pair.Value)
@@ -1457,12 +1771,33 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	PlacementStatuses.Reset();
 	RewardedCachedAds.Reset();
 	ImpressedCachedAds.Reset();
+	if (InitializationProvider && bProviderInitializationStarted)
+	{
+		InitializationProvider->Shutdown();
+	}
+	SelectedProviderName = NAME_None;
+	InitializationRequestId.Invalidate();
+	InitializationError = FOpenMobileAdsError();
+	bProviderInitializationStarted = false;
 	State = EOpenMobileRewardedAdState::Idle;
 	Super::Deinitialize();
 }
 
 bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 {
+	if (ServiceState != EOpenMobileAdsServiceState::Ready)
+	{
+		const FOpenMobileAdsError Error = OpenMobileAdsPrivate::MakeServiceNotReadyError(
+			NAME_None,
+			ServiceState,
+			InitializationError
+		);
+		HandleAdFailed(FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			Error.Explanation
+		));
+		return false;
+	}
 	if (State != EOpenMobileRewardedAdState::Idle)
 	{
 		HandleAdFailed(FOpenMobileError::Make(
@@ -1472,15 +1807,13 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 		return false;
 	}
 
-	FOpenMobileAdsError SelectionError;
-	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
+	FOpenMobileAdsError ProviderError;
+	IOpenMobileAdsProvider* Provider = FindProvider(&ProviderError);
 	if (!Provider)
 	{
 		HandleAdFailed(FOpenMobileError::Make(
-			SelectionError.Code == EOpenMobileAdsErrorCode::ProviderConflict
-				? EOpenMobileErrorCode::NotConfigured
-				: EOpenMobileErrorCode::NotSupported,
-			SelectionError.Explanation
+			EOpenMobileErrorCode::NotSupported,
+			ProviderError.Explanation
 		));
 		return false;
 	}

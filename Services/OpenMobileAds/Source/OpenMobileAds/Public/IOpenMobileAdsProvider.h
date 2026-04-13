@@ -31,6 +31,14 @@ public:
 	virtual void Invalidate() = 0;
 };
 
+class OPENMOBILEADS_API IOpenMobileAdsProviderInitializationSink
+{
+public:
+	virtual ~IOpenMobileAdsProviderInitializationSink() = default;
+	virtual void Complete(FOpenMobileAdsError Error) = 0;
+	virtual void Invalidate() = 0;
+};
+
 /** Public, versioned SPI implemented by independently enabled ad-provider plugins. */
 class OPENMOBILEADS_API IOpenMobileAdsProvider : public IModularFeature
 {
@@ -47,6 +55,14 @@ public:
 	virtual int32 GetPriority() const { return 0; }
 	virtual bool IsSupported() const = 0;
 	virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const;
+
+	virtual bool Initialize(
+		const FOpenMobileAdsInitializationRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,
+		FOpenMobileAdsError& OutError
+	);
+
+	virtual void Shutdown() {}
 
 	virtual bool Load(
 		const FOpenMobileAdsLoadRequest& Request,

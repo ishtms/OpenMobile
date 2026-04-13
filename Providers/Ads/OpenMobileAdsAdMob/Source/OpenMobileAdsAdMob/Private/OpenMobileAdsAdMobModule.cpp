@@ -25,6 +25,43 @@ namespace OpenMobileAdsAdMobPrivate
 			return Capabilities;
 		}
 
+		virtual bool Initialize(
+			const FOpenMobileAdsInitializationRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FString NativeError;
+			const bool bStarted = FOpenMobileAdsAdMobPlatform::Initialize(
+				Request,
+				FOnOpenMobileAdMobInitialized::CreateLambda(
+					[CompletionSink](FOpenMobileAdsError Error)
+					{
+						CompletionSink->Complete(MoveTemp(Error));
+					}
+				),
+				NativeError
+			);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Initialization,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("AdMob could not start SDK initialization.")
+						: MoveTemp(NativeError),
+					GetProviderName()
+				);
+			}
+			return bStarted;
+		}
+
+		virtual void Shutdown() override
+		{
+			FOpenMobileAdsAdMobPlatform::Shutdown();
+		}
+
 		virtual bool RequestAndShowRewardedAd(
 			FOpenMobileRewardedAdCallbacks&& Callbacks,
 			FOpenMobileError& OutError

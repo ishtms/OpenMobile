@@ -11,6 +11,36 @@
 
 namespace OpenMobileAdsAdMobIOS
 {
+	NSNumber* ToNSNumber(EOpenMobileAdsAgeTreatment Treatment)
+	{
+		switch (Treatment)
+		{
+		case EOpenMobileAdsAgeTreatment::No:
+			return @NO;
+		case EOpenMobileAdsAgeTreatment::Yes:
+			return @YES;
+		default:
+			return nil;
+		}
+	}
+
+	GADMaxAdContentRating ToMaxAdContentRating(EOpenMobileAdsMaxAdContentRating Rating)
+	{
+		switch (Rating)
+		{
+		case EOpenMobileAdsMaxAdContentRating::General:
+			return GADMaxAdContentRatingGeneral;
+		case EOpenMobileAdsMaxAdContentRating::ParentalGuidance:
+			return GADMaxAdContentRatingParentalGuidance;
+		case EOpenMobileAdsMaxAdContentRating::Teen:
+			return GADMaxAdContentRatingTeen;
+		case EOpenMobileAdsMaxAdContentRating::Mature:
+			return GADMaxAdContentRatingMatureAudience;
+		default:
+			return nil;
+		}
+	}
+
 	UIViewController* TopViewController(UIViewController* Controller)
 	{
 		if (!Controller)
@@ -91,12 +121,37 @@ static OpenMobileRewardedAdDelegate* GOpenMobileRewardedAdDelegate = nil;
 
 @end
 
-void FOpenMobileAdsAdMobIOSBackend::Initialize()
+bool FOpenMobileAdsAdMobIOSBackend::Initialize(
+	const FOpenMobileAdsInitializationRequest& Request,
+	const int64 RequestId,
+	FString& OutError
+)
 {
+	const EOpenMobileAdsAgeTreatment ChildDirectedTreatment =
+		Request.Privacy.ChildDirectedTreatment;
+	const EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
+		Request.Privacy.UnderAgeOfConsent;
+	const EOpenMobileAdsMaxAdContentRating MaxAdContentRating =
+		Request.RequestConfiguration.MaxAdContentRating;
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
-		[GADMobileAds.sharedInstance startWithCompletionHandler:nil];
+		GADRequestConfiguration* Configuration =
+			GADMobileAds.sharedInstance.requestConfiguration;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+		Configuration.tagForChildDirectedTreatment =
+			OpenMobileAdsAdMobIOS::ToNSNumber(ChildDirectedTreatment);
+		Configuration.tagForUnderAgeOfConsent =
+			OpenMobileAdsAdMobIOS::ToNSNumber(UnderAgeOfConsent);
+#pragma clang diagnostic pop
+		Configuration.maxAdContentRating =
+			OpenMobileAdsAdMobIOS::ToMaxAdContentRating(MaxAdContentRating);
+		[GADMobileAds.sharedInstance startWithCompletionHandler:^(GADInitializationStatus* Status)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(RequestId);
+		}];
 	});
+	return true;
 }
 
 void FOpenMobileAdsAdMobIOSBackend::Shutdown()

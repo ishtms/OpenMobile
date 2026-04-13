@@ -263,6 +263,8 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	SavedSettings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
 	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	SavedSettings->RequestConfiguration.MaxAdContentRating =
+		EOpenMobileAdsMaxAdContentRating::Teen;
 	FOpenMobileAdsPlacementSettings Placement =
 		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
 			TEXT("ConfiguredReward"),
@@ -302,6 +304,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	TestFalse(
 		TEXT("Consent initialization policy survives restart"),
 		SettingsAfterRestart->Privacy.bDelayProviderInitializationUntilConsent
+	);
+	TestEqual(
+		TEXT("Maximum ad content rating survives restart"),
+		SettingsAfterRestart->RequestConfiguration.MaxAdContentRating,
+		EOpenMobileAdsMaxAdContentRating::Teen
 	);
 	TestEqual(TEXT("One placement survives restart"), SettingsAfterRestart->Placements.Num(), 1);
 	if (SettingsAfterRestart->Placements.Num() == 1)
