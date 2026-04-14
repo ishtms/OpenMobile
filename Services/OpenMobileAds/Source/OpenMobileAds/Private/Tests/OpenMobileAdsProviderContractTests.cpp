@@ -112,6 +112,16 @@ namespace OpenMobileAdsProviderContractTests
 			}
 		}
 
+		void ReportInitializationStatus(
+			FOpenMobileAdsInitializationComponentStatus Status
+		)
+		{
+			if (InitializationSink)
+			{
+				InitializationSink->UpdateStatus(MoveTemp(Status));
+			}
+		}
+
 		FName Name;
 		bool bSupported = true;
 		bool bAcceptInitialization = true;
@@ -216,6 +226,20 @@ namespace OpenMobileAdsProviderContractTests
 		DrainGameThreadTasks();
 		return Subsystem.GetServiceState() == EOpenMobileAdsServiceState::Ready;
 	}
+
+	const FOpenMobileAdsInitializationComponentStatus* FindInitializationComponent(
+		const FOpenMobileAdsInitializationStatusSnapshot& Snapshot,
+		EOpenMobileAdsInitializationComponentType Type,
+		FName Name
+	)
+	{
+		return Snapshot.Components.FindByPredicate(
+			[Type, Name](const FOpenMobileAdsInitializationComponentStatus& Component)
+			{
+				return Component.Type == Type && Component.Name == Name;
+			}
+		);
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -287,6 +311,138 @@ bool FOpenMobileAdsInitializationIdempotencyContractTest::RunTest(const FString&
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationStatusContractTest,
+	"OpenMobile.Ads.ProviderContract.Initialization.StatusReporting",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationStatusContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.ProviderVersion = TEXT("mock-2.4");
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	TArray<FOpenMobileAdsInitializationStatusSnapshot> Changes;
+	const FDelegateHandle StatusHandle =
+		Subsystem->OnNativeInitializationStatusChanged().AddLambda(
+			[&Changes](const FOpenMobileAdsInitializationStatusSnapshot& Status)
+			{
+				Changes.Add(Status);
+			}
+		);
+
+	const FOpenMobileAdsOperationResult Started = Subsystem->InitializeAds();
+	TestTrue(TEXT("Initialization starts"), Started.bAccepted);
+	const FOpenMobileAdsInitializationStatusSnapshot Initializing =
+		Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("The snapshot is initializing"), Initializing.ServiceState, EOpenMobileAdsServiceState::Initializing);
+	TestEqual(TEXT("The snapshot keeps the request ID"), Initializing.RequestId, Started.RequestId);
+	TestTrue(TEXT("The snapshot records its start time"), Initializing.StartedAt != FDateTime());
+	const FOpenMobileAdsInitializationComponentStatus* InitialProvider =
+		FindInitializationComponent(
+			Initializing,
+			EOpenMobileAdsInitializationComponentType::Provider,
+			TEXT("MockAds")
+		);
+	TestNotNull(TEXT("The provider has a normalized status"), InitialProvider);
+	if (InitialProvider)
+	{
+		TestEqual(TEXT("The provider starts as initializing"), InitialProvider->State, EOpenMobileAdsInitializationState::Initializing);
+		TestEqual(TEXT("The provider version is exposed"), InitialProvider->Version, FString(TEXT("mock-2.4")));
+		TestTrue(TEXT("Provider capabilities are exposed"), InitialProvider->bHasCapabilities);
+		TestTrue(TEXT("Rewarded capability is retained"), InitialProvider->Capabilities.SupportsFormat(EOpenMobileAdFormat::Rewarded));
+	}
+
+	TFuture<void> ComponentUpdates = Async(EAsyncExecution::ThreadPool, [&Provider]()
+	{
+		FOpenMobileAdsInitializationComponentStatus Network;
+		Network.Type = EOpenMobileAdsInitializationComponentType::Network;
+		Network.Name = TEXT("MockNetwork");
+		Network.Parent = TEXT("MockAds");
+		Network.State = EOpenMobileAdsInitializationState::Ready;
+		Network.Version = TEXT("1.2.0");
+		Network.LatencyMilliseconds = 12.5;
+		Provider.ReportInitializationStatus(MoveTemp(Network));
+
+		FOpenMobileAdsInitializationComponentStatus Adapter;
+		Adapter.Type = EOpenMobileAdsInitializationComponentType::Adapter;
+		Adapter.Name = TEXT("MockAdapter");
+		Adapter.Parent = TEXT("MockNetwork");
+		Adapter.State = EOpenMobileAdsInitializationState::Initializing;
+		Provider.ReportInitializationStatus(MoveTemp(Adapter));
+	});
+	ComponentUpdates.Wait();
+	DrainGameThreadTasks();
+	const FOpenMobileAdsInitializationStatusSnapshot ComponentStatus =
+		Subsystem->GetInitializationStatus();
+	const FOpenMobileAdsInitializationComponentStatus* Network =
+		FindInitializationComponent(
+			ComponentStatus,
+			EOpenMobileAdsInitializationComponentType::Network,
+			TEXT("MockNetwork")
+		);
+	TestNotNull(TEXT("Network status is reported"), Network);
+	if (Network)
+	{
+		TestEqual(TEXT("Network version is retained"), Network->Version, FString(TEXT("1.2.0")));
+		TestEqual(TEXT("Network latency is retained"), Network->LatencyMilliseconds, 12.5);
+	}
+
+	Provider.CompleteInitialization();
+	DrainGameThreadTasks();
+	FOpenMobileAdsInitializationStatusSnapshot Ready = Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("The service reports ready"), Ready.ServiceState, EOpenMobileAdsServiceState::Ready);
+	TestTrue(TEXT("Service latency is recorded"), Ready.LatencyMilliseconds >= 0.0);
+	TestTrue(TEXT("A pending adapter reports partial success"), Ready.bPartialSuccess);
+
+	FOpenMobileAdsInitializationComponentStatus FailedAdapter;
+	FailedAdapter.Type = EOpenMobileAdsInitializationComponentType::Adapter;
+	FailedAdapter.Name = TEXT("MockAdapter");
+	FailedAdapter.Parent = TEXT("MockNetwork");
+	FailedAdapter.State = EOpenMobileAdsInitializationState::Failed;
+	FailedAdapter.LatencyMilliseconds = 25.0;
+	FailedAdapter.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Initialization,
+		NAME_None,
+		TEXT("The mock adapter did not initialize."),
+		TEXT("MockAds")
+	);
+	Provider.ReportInitializationStatus(FailedAdapter);
+	DrainGameThreadTasks();
+	Ready = Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("Adapter failure does not fail the ready provider"), Ready.ServiceState, EOpenMobileAdsServiceState::Ready);
+	TestTrue(TEXT("Adapter failure reports partial success"), Ready.bPartialSuccess);
+	const FOpenMobileAdsInitializationComponentStatus* Failed =
+		FindInitializationComponent(
+			Ready,
+			EOpenMobileAdsInitializationComponentType::Adapter,
+			TEXT("MockAdapter")
+		);
+	TestNotNull(TEXT("Failed adapter remains inspectable"), Failed);
+	if (Failed)
+	{
+		TestEqual(TEXT("Adapter failure detail is retained"), Failed->Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	}
+
+	FailedAdapter.State = EOpenMobileAdsInitializationState::Ready;
+	FailedAdapter.LatencyMilliseconds = 40.0;
+	FailedAdapter.Error = FOpenMobileAdsError();
+	Provider.ReportInitializationStatus(MoveTemp(FailedAdapter));
+	DrainGameThreadTasks();
+	Ready = Subsystem->GetInitializationStatus();
+	TestFalse(TEXT("A late ready adapter clears partial success"), Ready.bPartialSuccess);
+	TestTrue(TEXT("Each accepted transition broadcasts a snapshot"), Changes.Num() >= 6);
+
+	Subsystem->OnNativeInitializationStatusChanged().Remove(StatusHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsInitializationFailureContractTest,
 	"OpenMobile.Ads.ProviderContract.Initialization.Failure",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -313,6 +469,22 @@ bool FOpenMobileAdsInitializationFailureContractTest::RunTest(const FString& Par
 	));
 	DrainGameThreadTasks();
 	TestEqual(TEXT("Provider failure makes the service failed"), Subsystem->GetServiceState(), EOpenMobileAdsServiceState::Failed);
+	const FOpenMobileAdsInitializationStatusSnapshot FailedStatus =
+		Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("The status snapshot reports failure"), FailedStatus.ServiceState, EOpenMobileAdsServiceState::Failed);
+	TestEqual(TEXT("The status snapshot keeps the provider error"), FailedStatus.Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	const FOpenMobileAdsInitializationComponentStatus* FailedProvider =
+		FindInitializationComponent(
+			FailedStatus,
+			EOpenMobileAdsInitializationComponentType::Provider,
+			TEXT("MockAds")
+		);
+	TestNotNull(TEXT("The failed provider remains inspectable"), FailedProvider);
+	if (FailedProvider)
+	{
+		TestEqual(TEXT("The provider status reports failure"), FailedProvider->State, EOpenMobileAdsInitializationState::Failed);
+		TestEqual(TEXT("The provider status keeps the failure detail"), FailedProvider->Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	}
 
 	const FOpenMobileAdsOperationResult Repeated = Subsystem->InitializeAds();
 	TestFalse(TEXT("A failed initialization is not reported as accepted"), Repeated.bAccepted);
@@ -633,6 +805,21 @@ bool FOpenMobileAdsProviderUnregistrationContractTest::RunTest(const FString& Pa
 		Subsystem->GetPlacementStatus(TEXT("ContinueReward"));
 	TestEqual(TEXT("Unregistration fails active state"), Status.State, EOpenMobileAdPlacementState::Failed);
 	TestEqual(TEXT("Unregistration has a typed error"), Status.LastError.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+	const FOpenMobileAdsInitializationStatusSnapshot InitializationStatus =
+		Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("Unregistration fails initialization status"), InitializationStatus.ServiceState, EOpenMobileAdsServiceState::Failed);
+	TestEqual(TEXT("Initialization status keeps unregistration detail"), InitializationStatus.Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+	const FOpenMobileAdsInitializationComponentStatus* ProviderStatus =
+		FindInitializationComponent(
+			InitializationStatus,
+			EOpenMobileAdsInitializationComponentType::Provider,
+			TEXT("MockAds")
+		);
+	TestNotNull(TEXT("The unregistered provider remains inspectable"), ProviderStatus);
+	if (ProviderStatus)
+	{
+		TestEqual(TEXT("The unregistered provider reports failure"), ProviderStatus->State, EOpenMobileAdsInitializationState::Failed);
+	}
 
 	if (Provider.LoadSink)
 	{

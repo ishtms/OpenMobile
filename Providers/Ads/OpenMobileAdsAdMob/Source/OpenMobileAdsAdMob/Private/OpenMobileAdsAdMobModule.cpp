@@ -21,6 +21,11 @@ namespace OpenMobileAdsAdMobPrivate
 
 			FOpenMobileAdsProviderCapabilities Capabilities;
 			Capabilities.Provider = GetProviderName();
+#if PLATFORM_ANDROID
+			Capabilities.ProviderVersion = TEXT("25.4.0");
+#elif PLATFORM_IOS
+			Capabilities.ProviderVersion = TEXT("13.8.0");
+#endif
 			Capabilities.Formats.Add(Rewarded);
 			return Capabilities;
 		}
@@ -34,6 +39,14 @@ namespace OpenMobileAdsAdMobPrivate
 			FString NativeError;
 			const bool bStarted = FOpenMobileAdsAdMobPlatform::Initialize(
 				Request,
+				FOnOpenMobileAdMobInitializationStatus::CreateLambda(
+					[CompletionSink](
+						const FOpenMobileAdsInitializationComponentStatus& Status
+					)
+					{
+						CompletionSink->UpdateStatus(Status);
+					}
+				),
 				FOnOpenMobileAdMobInitialized::CreateLambda(
 					[CompletionSink](FOpenMobileAdsError Error)
 					{

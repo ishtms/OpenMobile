@@ -5,6 +5,7 @@
 #include "OpenMobileAdsCapabilities.h"
 #include "OpenMobileAdsErrors.h"
 #include "OpenMobileAdsEvents.h"
+#include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileCoreTypes.h"
 
@@ -35,6 +36,7 @@ class OPENMOBILEADS_API IOpenMobileAdsProviderInitializationSink
 {
 public:
 	virtual ~IOpenMobileAdsProviderInitializationSink() = default;
+	virtual void UpdateStatus(FOpenMobileAdsInitializationComponentStatus Status) = 0;
 	virtual void Complete(FOpenMobileAdsError Error) = 0;
 	virtual void Invalidate() = 0;
 };

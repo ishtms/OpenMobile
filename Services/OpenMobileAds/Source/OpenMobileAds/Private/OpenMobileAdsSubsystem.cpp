@@ -2,6 +2,7 @@
 
 #include "Async/Async.h"
 #include "Features/IModularFeatures.h"
+#include "HAL/PlatformTime.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAdsDiagnostics.h"
@@ -91,9 +92,34 @@ namespace OpenMobileAdsPrivate
 	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
 	{
 	public:
-		explicit FInitializationSink(TFunction<void(FOpenMobileAdsError)>&& InCompletion)
-			: Completion(MoveTemp(InCompletion))
+		FInitializationSink(
+			TFunction<void(FOpenMobileAdsInitializationComponentStatus)>&& InStatusUpdate,
+			TFunction<void(FOpenMobileAdsError)>&& InCompletion
+		)
+			: StatusUpdate(MoveTemp(InStatusUpdate))
+			, Completion(MoveTemp(InCompletion))
 		{
+		}
+
+		virtual void UpdateStatus(
+			FOpenMobileAdsInitializationComponentStatus Status
+		) override
+		{
+			TFunction<void(FOpenMobileAdsInitializationComponentStatus)> StatusUpdateToRun;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid)
+				{
+					return;
+				}
+				if (!bCommitted)
+				{
+					PendingStatuses.Add(MoveTemp(Status));
+					return;
+				}
+				StatusUpdateToRun = StatusUpdate;
+			}
+			StatusUpdateToRun(MoveTemp(Status));
 		}
 
 		virtual void Complete(FOpenMobileAdsError Error) override
@@ -101,17 +127,17 @@ namespace OpenMobileAdsPrivate
 			TFunction<void(FOpenMobileAdsError)> CompletionToRun;
 			{
 				FScopeLock Lock(&Mutex);
-				if (!bValid || bCompleted)
+				if (!bValid || bCompletionSubmitted)
 				{
 					return;
 				}
+				bCompletionSubmitted = true;
 				if (!bCommitted)
 				{
 					PendingError = MoveTemp(Error);
 					bHasPendingCompletion = true;
 					return;
 				}
-				bCompleted = true;
 				CompletionToRun = Completion;
 			}
 			CompletionToRun(MoveTemp(Error));
@@ -119,8 +145,11 @@ namespace OpenMobileAdsPrivate
 
 		void Commit()
 		{
+			TFunction<void(FOpenMobileAdsInitializationComponentStatus)> StatusUpdateToRun;
 			TFunction<void(FOpenMobileAdsError)> CompletionToRun;
+			TArray<FOpenMobileAdsInitializationComponentStatus> Statuses;
 			FOpenMobileAdsError Error;
+			bool bRunCompletion = false;
 			{
 				FScopeLock Lock(&Mutex);
 				if (!bValid || bCommitted)
@@ -128,32 +157,44 @@ namespace OpenMobileAdsPrivate
 					return;
 				}
 				bCommitted = true;
-				if (!bHasPendingCompletion)
+				Statuses = MoveTemp(PendingStatuses);
+				StatusUpdateToRun = StatusUpdate;
+				bRunCompletion = bHasPendingCompletion;
+				if (bRunCompletion)
 				{
-					return;
+					Error = MoveTemp(PendingError);
 				}
-				bCompleted = true;
-				Error = MoveTemp(PendingError);
 				CompletionToRun = Completion;
 			}
-			CompletionToRun(MoveTemp(Error));
+			for (FOpenMobileAdsInitializationComponentStatus& Status : Statuses)
+			{
+				StatusUpdateToRun(MoveTemp(Status));
+			}
+			if (bRunCompletion)
+			{
+				CompletionToRun(MoveTemp(Error));
+			}
 		}
 
 		virtual void Invalidate() override
 		{
 			FScopeLock Lock(&Mutex);
 			bValid = false;
+			PendingStatuses.Reset();
 			bHasPendingCompletion = false;
+			StatusUpdate = nullptr;
 			Completion = nullptr;
 		}
 
 	private:
 		FCriticalSection Mutex;
+		TFunction<void(FOpenMobileAdsInitializationComponentStatus)> StatusUpdate;
 		TFunction<void(FOpenMobileAdsError)> Completion;
+		TArray<FOpenMobileAdsInitializationComponentStatus> PendingStatuses;
 		FOpenMobileAdsError PendingError;
 		bool bHasPendingCompletion = false;
 		bool bCommitted = false;
-		bool bCompleted = false;
+		bool bCompletionSubmitted = false;
 		bool bValid = true;
 	};
 
@@ -459,6 +500,14 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	{
 		ServiceState = EOpenMobileAdsServiceState::Failed;
 		InitializationError = MoveTemp(SelectionError);
+		const FDateTime Now = FDateTime::UtcNow();
+		InitializationStatus = FOpenMobileAdsInitializationStatusSnapshot();
+		InitializationStatus.ServiceState = ServiceState;
+		InitializationStatus.StartedAt = Now;
+		InitializationStatus.LastUpdated = Now;
+		InitializationStatus.LatencyMilliseconds = 0.0;
+		InitializationStatus.Error = InitializationError;
+		BroadcastInitializationStatus();
 		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
 	}
 
@@ -467,6 +516,21 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	SelectedProviderName = Provider->GetProviderName();
 	InitializationError = FOpenMobileAdsError();
 	ServiceState = EOpenMobileAdsServiceState::Initializing;
+	InitializationStartedSeconds = FPlatformTime::Seconds();
+	InitializationStatus = FOpenMobileAdsInitializationStatusSnapshot();
+	InitializationStatus.RequestId = InitializationRequestId;
+	InitializationStatus.ServiceState = ServiceState;
+	InitializationStatus.StartedAt = FDateTime::UtcNow();
+	InitializationStatus.LastUpdated = InitializationStatus.StartedAt;
+	FOpenMobileAdsInitializationComponentStatus ProviderStatus;
+	ProviderStatus.Type = EOpenMobileAdsInitializationComponentType::Provider;
+	ProviderStatus.Name = SelectedProviderName;
+	ProviderStatus.State = EOpenMobileAdsInitializationState::Initializing;
+	ProviderStatus.Capabilities = Provider->GetCapabilities();
+	ProviderStatus.Version = ProviderStatus.Capabilities.ProviderVersion;
+	ProviderStatus.bHasCapabilities = true;
+	InitializationStatus.Components.Add(MoveTemp(ProviderStatus));
+	BroadcastInitializationStatus();
 
 	FOpenMobileAdsInitializationRequest Request;
 	Request.RequestId = InitializationRequestId;
@@ -480,6 +544,25 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
 	const TSharedRef<OpenMobileAdsPrivate::FInitializationSink, ESPMode::ThreadSafe> Sink =
 		MakeShared<OpenMobileAdsPrivate::FInitializationSink, ESPMode::ThreadSafe>(
+			[WeakThis, RequestId, ProviderName](
+				FOpenMobileAdsInitializationComponentStatus Status
+			) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, ProviderName, Status = MoveTemp(Status)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleProviderInitializationStatus(
+								RequestId,
+								ProviderName,
+								MoveTemp(Status)
+							);
+						}
+					}
+				);
+			},
 			[WeakThis, RequestId, ProviderName](FOpenMobileAdsError Error) mutable
 			{
 				AsyncTask(
@@ -511,6 +594,24 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 			ProviderName,
 			TEXT("The ads provider rejected SDK initialization without an error.")
 		);
+		InitializationStatus.ServiceState = ServiceState;
+		InitializationStatus.Error = InitializationError;
+		InitializationStatus.LatencyMilliseconds =
+			(FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0;
+		if (FOpenMobileAdsInitializationComponentStatus* Component =
+			InitializationStatus.Components.FindByPredicate(
+				[ProviderName](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+				{
+					return Candidate.Type == EOpenMobileAdsInitializationComponentType::Provider
+						&& Candidate.Name == ProviderName;
+				}
+			))
+		{
+			Component->State = EOpenMobileAdsInitializationState::Failed;
+			Component->LatencyMilliseconds = InitializationStatus.LatencyMilliseconds;
+			Component->Error = InitializationError;
+		}
+		BroadcastInitializationStatus();
 		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
 	}
 
@@ -536,24 +637,154 @@ void UOpenMobileAdsSubsystem::HandleInitializationCompleted(
 		return;
 	}
 
-	if (InitializationSink)
-	{
-		InitializationSink->Invalidate();
-		InitializationSink.Reset();
-	}
 	if (Error.IsSet())
 	{
+		if (InitializationSink)
+		{
+			InitializationSink->Invalidate();
+			InitializationSink.Reset();
+		}
 		InitializationError = OpenMobileAdsPrivate::NormalizeInitializationError(
 			MoveTemp(Error),
 			ProviderName,
 			TEXT("The ads provider failed to initialize.")
 		);
 		ServiceState = EOpenMobileAdsServiceState::Failed;
+		InitializationStatus.Error = InitializationError;
+		if (FOpenMobileAdsInitializationComponentStatus* Component =
+			InitializationStatus.Components.FindByPredicate(
+				[ProviderName](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+				{
+					return Candidate.Type == EOpenMobileAdsInitializationComponentType::Provider
+						&& Candidate.Name == ProviderName;
+				}
+			))
+		{
+			Component->State = EOpenMobileAdsInitializationState::Failed;
+			Component->LatencyMilliseconds =
+				(FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0;
+			Component->Error = InitializationError;
+		}
+		InitializationStatus.ServiceState = ServiceState;
+		InitializationStatus.LatencyMilliseconds =
+			(FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0;
+		BroadcastInitializationStatus();
 		return;
 	}
 
 	InitializationError = FOpenMobileAdsError();
 	ServiceState = EOpenMobileAdsServiceState::Ready;
+	InitializationStatus.Error = FOpenMobileAdsError();
+	InitializationStatus.ServiceState = ServiceState;
+	InitializationStatus.LatencyMilliseconds =
+		(FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0;
+	if (FOpenMobileAdsInitializationComponentStatus* Component =
+		InitializationStatus.Components.FindByPredicate(
+			[ProviderName](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+			{
+				return Candidate.Type == EOpenMobileAdsInitializationComponentType::Provider
+					&& Candidate.Name == ProviderName;
+			}
+		))
+	{
+		Component->State = EOpenMobileAdsInitializationState::Ready;
+		Component->LatencyMilliseconds = InitializationStatus.LatencyMilliseconds;
+		Component->Error = FOpenMobileAdsError();
+	}
+	UpdatePartialInitializationState();
+	BroadcastInitializationStatus();
+}
+
+void UOpenMobileAdsSubsystem::HandleProviderInitializationStatus(
+	FGuid RequestId,
+	FName ProviderName,
+	FOpenMobileAdsInitializationComponentStatus Status
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| RequestId != InitializationRequestId
+		|| ProviderName != SelectedProviderName
+		|| (
+			ServiceState != EOpenMobileAdsServiceState::Initializing
+			&& ServiceState != EOpenMobileAdsServiceState::Ready
+		)
+	)
+	{
+		return;
+	}
+	if (Status.Type == EOpenMobileAdsInitializationComponentType::Provider)
+	{
+		Status.Name = ProviderName;
+	}
+	else if (Status.Parent.IsNone())
+	{
+		Status.Parent = ProviderName;
+	}
+	if (Status.Name.IsNone())
+	{
+		return;
+	}
+	if (Status.Error.IsSet())
+	{
+		Status.Error.Provider = ProviderName;
+	}
+	UpsertInitializationComponent(MoveTemp(Status));
+	UpdatePartialInitializationState();
+	BroadcastInitializationStatus();
+}
+
+void UOpenMobileAdsSubsystem::UpsertInitializationComponent(
+	FOpenMobileAdsInitializationComponentStatus Status
+)
+{
+	FOpenMobileAdsInitializationComponentStatus* Existing =
+		InitializationStatus.Components.FindByPredicate(
+			[&Status](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+			{
+				return Candidate.Type == Status.Type
+					&& Candidate.Name == Status.Name
+					&& Candidate.Parent == Status.Parent;
+			}
+		);
+	if (!Existing)
+	{
+		InitializationStatus.Components.Add(MoveTemp(Status));
+		return;
+	}
+	if (Status.Version.IsEmpty())
+	{
+		Status.Version = Existing->Version;
+	}
+	if (!Status.bHasCapabilities && Existing->bHasCapabilities)
+	{
+		Status.bHasCapabilities = true;
+		Status.Capabilities = Existing->Capabilities;
+	}
+	*Existing = MoveTemp(Status);
+}
+
+void UOpenMobileAdsSubsystem::UpdatePartialInitializationState()
+{
+	InitializationStatus.bPartialSuccess =
+		ServiceState == EOpenMobileAdsServiceState::Ready
+		&& InitializationStatus.Components.ContainsByPredicate(
+			[](const FOpenMobileAdsInitializationComponentStatus& Component)
+			{
+				return Component.Type != EOpenMobileAdsInitializationComponentType::Provider
+					&& Component.State != EOpenMobileAdsInitializationState::Ready;
+			}
+		);
+}
+
+void UOpenMobileAdsSubsystem::BroadcastInitializationStatus()
+{
+	check(IsInGameThread());
+	InitializationStatus.ServiceState = ServiceState;
+	InitializationStatus.LastUpdated = FDateTime::UtcNow();
+	NativeInitializationStatusChanged.Broadcast(InitializationStatus);
+	OnInitializationStatusChanged.Broadcast(InitializationStatus);
 }
 
 void UOpenMobileAdsSubsystem::EnsureRuntime()
@@ -1622,6 +1853,7 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	{
 		return;
 	}
+	bool bInitializationProviderUnavailable = false;
 	if (
 		ProviderName == SelectedProviderName
 		&& (
@@ -1645,6 +1877,32 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 		);
 		ServiceState = EOpenMobileAdsServiceState::Failed;
 		bProviderInitializationStarted = false;
+		InitializationStatus.Error = InitializationError;
+		InitializationStatus.LatencyMilliseconds = InitializationStartedSeconds > 0.0
+			? (FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0
+			: InitializationStatus.LatencyMilliseconds;
+		if (FOpenMobileAdsInitializationComponentStatus* Component =
+			InitializationStatus.Components.FindByPredicate(
+				[ProviderName](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+				{
+					return Candidate.Type == EOpenMobileAdsInitializationComponentType::Provider
+						&& Candidate.Name == ProviderName;
+				}
+			))
+		{
+			Component->State = EOpenMobileAdsInitializationState::Failed;
+			Component->Error = InitializationError;
+			if (Component->LatencyMilliseconds < 0.0)
+			{
+				Component->LatencyMilliseconds = InitializationStatus.LatencyMilliseconds;
+			}
+		}
+		UpdatePartialInitializationState();
+		bInitializationProviderUnavailable = true;
+	}
+	if (bInitializationProviderUnavailable)
+	{
+		BroadcastInitializationStatus();
 	}
 	TSet<FGuid> ServiceWideRequests;
 	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
@@ -1728,6 +1986,8 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	const bool bInitializationInProgress =
 		ServiceState == EOpenMobileAdsServiceState::Initializing;
 	ServiceState = EOpenMobileAdsServiceState::ShuttingDown;
+	UpdatePartialInitializationState();
+	BroadcastInitializationStatus();
 	if (InitializationSink)
 	{
 		InitializationSink->Invalidate();
@@ -1778,6 +2038,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	SelectedProviderName = NAME_None;
 	InitializationRequestId.Invalidate();
 	InitializationError = FOpenMobileAdsError();
+	InitializationStartedSeconds = 0.0;
 	bProviderInitializationStarted = false;
 	State = EOpenMobileRewardedAdState::Idle;
 	Super::Deinitialize();

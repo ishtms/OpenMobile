@@ -42,12 +42,14 @@ import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.MobileAds;
 import com.google.android.gms.ads.OnUserEarnedRewardListener;
 import com.google.android.gms.ads.RequestConfiguration;
+import com.google.android.gms.ads.initialization.AdapterStatus;
 import com.google.android.gms.ads.initialization.InitializationStatus;
 import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
 import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
 import java.util.Collections;
+import java.util.Map;
         </insert>
     </gameActivityImportAdditions>
 
@@ -57,9 +59,17 @@ import java.util.Collections;
     private boolean openMobileRewardedAdLoading = false;
     private boolean openMobileRewardedAdsInitialized = false;
     private boolean openMobileRewardedAdsInitializing = false;
+    private InitializationStatus openMobileRewardedAdsInitializationStatus = null;
 
     public native void nativeOpenMobileAdsInitializationCompleted(long requestId);
     public native void nativeOpenMobileAdsInitializationFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileAdsAdapterInitializationStatus(
+        long requestId,
+        String adapterName,
+        boolean ready,
+        long latencyMilliseconds,
+        String description
+    );
     public native void nativeOpenMobileRewardedAdLoaded(long requestId);
     public native void nativeOpenMobileRewardedAdShown(long requestId);
     public native void nativeOpenMobileRewardedAdEarned(
@@ -69,6 +79,33 @@ import java.util.Collections;
     );
     public native void nativeOpenMobileRewardedAdClosed(long requestId);
     public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
+
+    private void reportOpenMobileAdsAdapterInitializationStatuses(
+        long requestId,
+        InitializationStatus initializationStatus
+    )
+    {
+        if (initializationStatus == null)
+        {
+            return;
+        }
+        for (Map.Entry&lt;String, AdapterStatus&gt; entry
+            : initializationStatus.getAdapterStatusMap().entrySet())
+        {
+            AdapterStatus status = entry.getValue();
+            if (status == null)
+            {
+                continue;
+            }
+            nativeOpenMobileAdsAdapterInitializationStatus(
+                requestId,
+                entry.getKey(),
+                status.getInitializationState() == AdapterStatus.State.READY,
+                status.getLatency(),
+                status.getDescription()
+            );
+        }
+    }
 
     public boolean AndroidThunkJava_InitializeOpenMobileRewardedAds(
         final long requestId,
@@ -104,6 +141,10 @@ import java.util.Collections;
 
                         if (openMobileRewardedAdsInitialized)
                         {
+                            reportOpenMobileAdsAdapterInitializationStatuses(
+                                requestId,
+                                openMobileRewardedAdsInitializationStatus
+                            );
                             nativeOpenMobileAdsInitializationCompleted(requestId);
                             return;
                         }
@@ -124,7 +165,12 @@ import java.util.Collections;
                             {
                                 openMobileRewardedAdsInitializing = false;
                                 openMobileRewardedAdsInitialized = true;
+                                openMobileRewardedAdsInitializationStatus = initializationStatus;
                                 Log.debug("OpenMobile rewarded Google ads initialized");
+                                reportOpenMobileAdsAdapterInitializationStatuses(
+                                    requestId,
+                                    initializationStatus
+                                );
                                 nativeOpenMobileAdsInitializationCompleted(requestId);
                             }
                         });
@@ -291,6 +337,13 @@ import java.util.Collections;
 -keepclassmembers class com.epicgames.unreal.GameActivity {
     public native void nativeOpenMobileAdsInitializationCompleted(long);
     public native void nativeOpenMobileAdsInitializationFailed(long, java.lang.String);
+    public native void nativeOpenMobileAdsAdapterInitializationStatus(
+        long,
+        java.lang.String,
+        boolean,
+        long,
+        java.lang.String
+    );
     public native void nativeOpenMobileRewardedAdLoaded(long);
     public native void nativeOpenMobileRewardedAdShown(long);
     public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);

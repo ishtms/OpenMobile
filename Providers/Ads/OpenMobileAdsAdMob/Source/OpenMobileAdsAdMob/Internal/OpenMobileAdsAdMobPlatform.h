@@ -2,8 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileAdsErrors.h"
+#include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 
+DECLARE_DELEGATE_OneParam(
+	FOnOpenMobileAdMobInitializationStatus,
+	const FOpenMobileAdsInitializationComponentStatus&
+);
 DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobInitialized, FOpenMobileAdsError);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
@@ -17,6 +22,7 @@ public:
 	static bool IsSupported();
 	static bool Initialize(
 		const FOpenMobileAdsInitializationRequest& Request,
+		FOnOpenMobileAdMobInitializationStatus&& OnStatus,
 		FOnOpenMobileAdMobInitialized&& OnCompleted,
 		FString& OutError
 	);
@@ -34,6 +40,13 @@ public:
 
 	static void NativeInitializationCompleted(int64 RequestId);
 	static void NativeInitializationFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeAdapterInitializationStatus(
+		int64 RequestId,
+		FString AdapterName,
+		bool bReady,
+		double LatencyMilliseconds,
+		FString Description
+	);
 	static void NativeLoaded(int64 RequestId);
 	static void NativeShown(int64 RequestId);
 	static void NativeEarned(int64 RequestId, int32 NetworkAmount, FString NetworkRewardType);

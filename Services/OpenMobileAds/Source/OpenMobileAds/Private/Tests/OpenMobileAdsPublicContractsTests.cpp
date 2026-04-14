@@ -4,6 +4,7 @@
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsErrors.h"
 #include "OpenMobileAdsEvents.h"
+#include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileAdsResults.h"
@@ -52,6 +53,22 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		TEXT("Initialization keeps provider-neutral request configuration"),
 		InitializationRequest.RequestConfiguration.MaxAdContentRating,
 		EOpenMobileAdsMaxAdContentRating::ParentalGuidance
+	);
+
+	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
+	FOpenMobileAdsInitializationComponentStatus AdapterStatus;
+	AdapterStatus.Type = EOpenMobileAdsInitializationComponentType::Adapter;
+	AdapterStatus.Name = TEXT("MockAdapter");
+	AdapterStatus.Parent = TEXT("MockAds");
+	AdapterStatus.State = EOpenMobileAdsInitializationState::Ready;
+	InitializationStatus.Components.Add(AdapterStatus);
+	TestNotNull(
+		TEXT("Initialization snapshots expose normalized components"),
+		InitializationStatus.FindComponent(
+			EOpenMobileAdsInitializationComponentType::Adapter,
+			TEXT("MockAdapter"),
+			TEXT("MockAds")
+		)
 	);
 
 	FOpenMobileAdsEvent Event;

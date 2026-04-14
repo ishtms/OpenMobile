@@ -148,6 +148,18 @@ bool FOpenMobileAdsAdMobIOSBackend::Initialize(
 			OpenMobileAdsAdMobIOS::ToMaxAdContentRating(MaxAdContentRating);
 		[GADMobileAds.sharedInstance startWithCompletionHandler:^(GADInitializationStatus* Status)
 		{
+			for (NSString* AdapterName in Status.adapterStatusesByClassName)
+			{
+				GADAdapterStatus* AdapterStatus =
+					Status.adapterStatusesByClassName[AdapterName];
+				FOpenMobileAdsAdMobPlatform::NativeAdapterInitializationStatus(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToFString(AdapterName),
+					AdapterStatus.state == GADAdapterInitializationStateReady,
+					AdapterStatus.latency * 1000.0,
+					OpenMobileAdsAdMobIOS::ToFString(AdapterStatus.description)
+				);
+			}
 			FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(RequestId);
 		}];
 	});

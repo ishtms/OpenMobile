@@ -7,6 +7,8 @@
 namespace OpenMobileAdsAdMobPlatformPrivate
 {
 	TArray<FOnOpenMobileAdMobInitialized> InitializationDelegates;
+	TArray<FOnOpenMobileAdMobInitializationStatus> InitializationStatusDelegates;
+	TArray<FOpenMobileAdsInitializationComponentStatus> InitializationStatuses;
 	FOnOpenMobileAdMobRewardedLoaded LoadedDelegate;
 	FOnOpenMobileAdMobRewardedShown ShownDelegate;
 	FOnOpenMobileAdMobRewardedEarned EarnedDelegate;
@@ -23,8 +25,38 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	void ResetInitialization()
 	{
 		InitializationDelegates.Reset();
+		InitializationStatusDelegates.Reset();
+		InitializationStatuses.Reset();
 		ActiveInitializationRequestId = 0;
 		bInitializationInProgress = false;
+	}
+
+	void BroadcastInitializationStatus(
+		FOpenMobileAdsInitializationComponentStatus Status
+	)
+	{
+		const int32 ExistingIndex = InitializationStatuses.IndexOfByPredicate(
+			[&Status](const FOpenMobileAdsInitializationComponentStatus& Candidate)
+			{
+				return Candidate.Type == Status.Type
+					&& Candidate.Name == Status.Name
+					&& Candidate.Parent == Status.Parent;
+			}
+		);
+		const int32 StatusIndex = ExistingIndex == INDEX_NONE
+			? InitializationStatuses.Add(MoveTemp(Status))
+			: ExistingIndex;
+		if (ExistingIndex != INDEX_NONE)
+		{
+			InitializationStatuses[ExistingIndex] = MoveTemp(Status);
+		}
+
+		const FOpenMobileAdsInitializationComponentStatus& CurrentStatus =
+			InitializationStatuses[StatusIndex];
+		for (FOnOpenMobileAdMobInitializationStatus& Delegate : InitializationStatusDelegates)
+		{
+			Delegate.ExecuteIfBound(CurrentStatus);
+		}
 	}
 
 	void ResetRequest()
@@ -63,6 +95,7 @@ bool FOpenMobileAdsAdMobPlatform::IsSupported()
 
 bool FOpenMobileAdsAdMobPlatform::Initialize(
 	const FOpenMobileAdsInitializationRequest& Request,
+	FOnOpenMobileAdMobInitializationStatus&& OnStatus,
 	FOnOpenMobileAdMobInitialized&& OnCompleted,
 	FString& OutError
 )
@@ -78,10 +111,16 @@ bool FOpenMobileAdsAdMobPlatform::Initialize(
 	}
 	if (bInitialized)
 	{
+		for (const FOpenMobileAdsInitializationComponentStatus& Status : InitializationStatuses)
+		{
+			OnStatus.ExecuteIfBound(Status);
+		}
+		InitializationStatusDelegates.Add(MoveTemp(OnStatus));
 		OnCompleted.ExecuteIfBound(FOpenMobileAdsError());
 		return true;
 	}
 
+	InitializationStatusDelegates.Add(MoveTemp(OnStatus));
 	InitializationDelegates.Add(MoveTemp(OnCompleted));
 	if (bInitializationInProgress)
 	{
@@ -95,6 +134,7 @@ bool FOpenMobileAdsAdMobPlatform::Initialize(
 	}
 	ActiveInitializationRequestId = NextRequestId;
 	bInitializationInProgress = true;
+	InitializationStatuses.Reset();
 	if (!Backend->Initialize(Request, ActiveInitializationRequestId, OutError))
 	{
 		ResetInitialization();
@@ -188,7 +228,7 @@ void FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(int64 RequestId)
 			return;
 		}
 		TArray<FOnOpenMobileAdMobInitialized> Completions = MoveTemp(InitializationDelegates);
-		ResetInitialization();
+		bInitializationInProgress = false;
 		bInitialized = true;
 		for (FOnOpenMobileAdMobInitialized& Completion : Completions)
 		{
@@ -210,7 +250,10 @@ void FOpenMobileAdsAdMobPlatform::NativeInitializationFailed(
 			return;
 		}
 		TArray<FOnOpenMobileAdMobInitialized> Completions = MoveTemp(InitializationDelegates);
-		ResetInitialization();
+		InitializationStatusDelegates.Reset();
+		InitializationStatuses.Reset();
+		ActiveInitializationRequestId = 0;
+		bInitializationInProgress = false;
 		bInitialized = false;
 		for (FOnOpenMobileAdMobInitialized& Completion : Completions)
 		{
@@ -225,6 +268,58 @@ void FOpenMobileAdsAdMobPlatform::NativeInitializationFailed(
 			));
 		}
 	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeAdapterInitializationStatus(
+	int64 RequestId,
+	FString AdapterName,
+	bool bReady,
+	double LatencyMilliseconds,
+	FString Description
+)
+{
+	OpenMobile::DispatchToGameThread(
+		[
+			RequestId,
+			AdapterName = MoveTemp(AdapterName),
+			bReady,
+			LatencyMilliseconds,
+			Description = MoveTemp(Description)
+		]() mutable
+		{
+			using namespace OpenMobileAdsAdMobPlatformPrivate;
+			if (
+				ActiveInitializationRequestId != RequestId
+				|| (!bInitializationInProgress && !bInitialized)
+				|| AdapterName.IsEmpty()
+			)
+			{
+				return;
+			}
+
+			FOpenMobileAdsInitializationComponentStatus Status;
+			Status.Type = EOpenMobileAdsInitializationComponentType::Adapter;
+			Status.Name = FName(*AdapterName);
+			Status.Parent = TEXT("AdMob");
+			Status.State = bReady
+				? EOpenMobileAdsInitializationState::Ready
+				: EOpenMobileAdsInitializationState::Failed;
+			Status.LatencyMilliseconds = FMath::Max(0.0, LatencyMilliseconds);
+			if (!bReady)
+			{
+				Status.Error = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::ProviderFailure,
+					EOpenMobileAdsFailureStage::Initialization,
+					NAME_None,
+					Description.IsEmpty()
+						? TEXT("The AdMob adapter did not initialize.")
+						: MoveTemp(Description),
+					TEXT("AdMob")
+				);
+			}
+			BroadcastInitializationStatus(MoveTemp(Status));
+		}
+	);
 }
 
 void FOpenMobileAdsAdMobPlatform::NativeLoaded(int64 RequestId)

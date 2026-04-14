@@ -7,6 +7,7 @@
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsErrors.h"
 #include "OpenMobileAdsEvents.h"
+#include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileAdsResults.h"
@@ -60,6 +61,8 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Subsystem type is public"), SubsystemClass);
 	TestNotNull(TEXT("Initialization is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("InitializeAds")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));
+	TestNotNull(TEXT("Initialization status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetInitializationStatus")));
+	TestNotNull(TEXT("Initialization changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnInitializationStatusChanged")));
 	TestNotNull(TEXT("Async action type is public"), UOpenMobileAdsAsyncAction::StaticClass());
 	return true;
 }

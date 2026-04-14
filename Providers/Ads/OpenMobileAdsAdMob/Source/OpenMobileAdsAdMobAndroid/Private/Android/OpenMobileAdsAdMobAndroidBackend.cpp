@@ -188,6 +188,25 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitia
 	);
 }
 
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsAdapterInitializationStatus(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring AdapterName,
+	jboolean bReady,
+	jlong LatencyMilliseconds,
+	jstring Description
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeAdapterInitializationStatus(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, AdapterName),
+		static_cast<bool>(bReady),
+		static_cast<double>(LatencyMilliseconds),
+		FJavaHelper::FStringFromParam(Env, Description)
+	);
+}
+
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdShown(
 	JNIEnv* Env,
 	jobject Activity,

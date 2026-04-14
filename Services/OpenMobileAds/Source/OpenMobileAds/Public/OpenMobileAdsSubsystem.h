@@ -4,6 +4,7 @@
 #include "OpenMobileAdsCapabilities.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsEvents.h"
+#include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsResults.h"
 #include "OpenMobileCoreTypes.h"
@@ -53,6 +54,21 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Service State"))
 	EOpenMobileAdsServiceState GetServiceState() const { return ServiceState; }
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Initialization Status"))
+	FOpenMobileAdsInitializationStatusSnapshot GetInitializationStatus() const
+	{
+		return InitializationStatus;
+	}
+	const FOpenMobileAdsInitializationStatusSnapshot& GetInitializationStatusRef() const
+	{
+		return InitializationStatus;
+	}
+
+	FOpenMobileAdsInitializationStatusNativeEvent& OnNativeInitializationStatusChanged()
+	{
+		return NativeInitializationStatusChanged;
+	}
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
 	FOpenMobileAdsOperationResult LoadAd(
@@ -133,6 +149,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
 	FOpenMobileAdsDynamicEvent OnAdsEvent;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	FOpenMobileAdsInitializationStatusDynamicEvent OnInitializationStatusChanged;
+
 private:
 	friend class FOpenMobileAdsEventDispatcher;
 
@@ -151,6 +170,16 @@ private:
 		FName ProviderName,
 		FOpenMobileAdsError Error
 	);
+	void HandleProviderInitializationStatus(
+		FGuid RequestId,
+		FName ProviderName,
+		FOpenMobileAdsInitializationComponentStatus Status
+	);
+	void BroadcastInitializationStatus();
+	void UpsertInitializationComponent(
+		FOpenMobileAdsInitializationComponentStatus Status
+	);
+	void UpdatePartialInitializationState();
 	void HandleProviderEvent(FOpenMobileAdsEvent Event);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
@@ -170,11 +199,14 @@ private:
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
+	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 	FName SelectedProviderName;
 	FGuid InitializationRequestId;
 	FOpenMobileAdsError InitializationError;
+	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
+	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
 	bool bRuntimeInitialized = false;
