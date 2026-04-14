@@ -270,7 +270,11 @@ bool FOpenMobileAdsInitializationIdempotencyContractTest::RunTest(const FString&
 	TestTrue(TEXT("Initialization receives a stable request ID"), First.RequestId.IsValid());
 	TestEqual(TEXT("The service enters initializing state"), Subsystem->GetServiceState(), EOpenMobileAdsServiceState::Initializing);
 	TestEqual(TEXT("The provider starts once"), Provider.InitializationCalls, 1);
-	TestTrue(TEXT("Test mode reaches the provider before initialization"), Provider.LastInitializationRequest.bDevelopmentTestMode);
+	TestTrue(TEXT("Test mode reaches the provider before initialization"), Provider.LastInitializationRequest.Development.bEnabled);
+	TestTrue(TEXT("Test mode enables test devices"), Provider.LastInitializationRequest.Development.bUseTestDevices);
+	TestTrue(TEXT("Test mode enables official test IDs"), Provider.LastInitializationRequest.Development.bUseTestAdUnitIds);
+	TestTrue(TEXT("Test mode enables consent debug intent"), Provider.LastInitializationRequest.Development.bEnableConsentDebug);
+	TestTrue(TEXT("Test mode enables verbose diagnostics"), Provider.LastInitializationRequest.Development.bEnableVerboseDiagnostics);
 	TestEqual(
 		TEXT("Child-directed treatment reaches the provider"),
 		Provider.LastInitializationRequest.Privacy.ChildDirectedTreatment,

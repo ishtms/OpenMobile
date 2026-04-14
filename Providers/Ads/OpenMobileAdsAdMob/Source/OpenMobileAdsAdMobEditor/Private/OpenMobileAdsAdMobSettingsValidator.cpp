@@ -49,7 +49,8 @@ namespace OpenMobileAdsAdMobEditorPrivate
 }
 
 TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
-	const UOpenMobileAdsAdMobSettings& Settings
+	const UOpenMobileAdsAdMobSettings& Settings,
+	bool bForShipping
 )
 {
 	TArray<FString> Errors;
@@ -78,5 +79,17 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 		TEXT('/'),
 		Errors
 	);
+	if (
+		bForShipping
+		&& (
+			Settings.AndroidAppId == TEXT("ca-app-pub-3940256099942544~3347511713")
+			|| Settings.AndroidRewardedAdUnitId == TEXT("ca-app-pub-3940256099942544/5224354917")
+			|| Settings.IOSAppId == TEXT("ca-app-pub-3940256099942544~1458002511")
+			|| Settings.IOSRewardedAdUnitId == TEXT("ca-app-pub-3940256099942544/1712485313")
+		)
+	)
+	{
+		Errors.Add(TEXT("Google sample IDs are not allowed in shipping builds."));
+	}
 	return Errors;
 }

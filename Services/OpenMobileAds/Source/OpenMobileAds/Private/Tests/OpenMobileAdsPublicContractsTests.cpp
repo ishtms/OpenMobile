@@ -44,11 +44,16 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 
 	FOpenMobileAdsInitializationRequest InitializationRequest;
 	InitializationRequest.RequestId = FGuid::NewGuid();
-	InitializationRequest.bDevelopmentTestMode = true;
+	InitializationRequest.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
 	InitializationRequest.Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	InitializationRequest.RequestConfiguration.MaxAdContentRating =
 		EOpenMobileAdsMaxAdContentRating::ParentalGuidance;
 	TestTrue(TEXT("Initialization identifiers use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
+	TestTrue(TEXT("Development mode enables test devices"), InitializationRequest.Development.bUseTestDevices);
+	TestTrue(TEXT("Development mode enables official test IDs"), InitializationRequest.Development.bUseTestAdUnitIds);
+	TestTrue(TEXT("Development mode enables consent debug controls"), InitializationRequest.Development.bEnableConsentDebug);
+	TestTrue(TEXT("Development mode enables verbose diagnostics"), InitializationRequest.Development.bEnableVerboseDiagnostics);
 	TestEqual(
 		TEXT("Initialization keeps provider-neutral request configuration"),
 		InitializationRequest.RequestConfiguration.MaxAdContentRating,

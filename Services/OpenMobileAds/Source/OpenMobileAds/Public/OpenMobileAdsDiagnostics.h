@@ -74,8 +74,10 @@ public:
 	static bool IsLevelEnabled(
 		EOpenMobileAdsLogLevel Level,
 		int32 GlobalLevel,
-		int32 AdsLevel
+		int32 AdsLevel,
+		bool bDevelopmentTestMode = false
 	);
+	static void SetDevelopmentTestMode(bool bEnabled);
 	static int32 GetAdsLevel();
 	static FString Redact(
 		const FString& Message,

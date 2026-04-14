@@ -6,6 +6,8 @@
 
 namespace OpenMobileAdsLogPrivate
 {
+	TAtomic<bool> bDevelopmentTestMode(false);
+
 	TAutoConsoleVariable<int32> CVarAdsLogLevel(
 		TEXT("OpenMobile.Ads.LogLevel"),
 		-1,
@@ -53,19 +55,30 @@ bool FOpenMobileAdsLog::ShouldLog(EOpenMobileAdsLogLevel Level)
 	return IsLevelEnabled(
 		Level,
 		FOpenMobileLogFilter::GetGlobalLevel(),
-		GetAdsLevel()
+		GetAdsLevel(),
+		OpenMobileAdsLogPrivate::bDevelopmentTestMode.Load()
 	);
 }
 
 bool FOpenMobileAdsLog::IsLevelEnabled(
 	EOpenMobileAdsLogLevel Level,
 	int32 GlobalLevel,
-	int32 AdsLevel
+	int32 AdsLevel,
+	bool bDevelopmentTestMode
 )
 {
-	const int32 EffectiveLevel = AdsLevel >= 0 ? AdsLevel : GlobalLevel;
+	const int32 EffectiveLevel = AdsLevel >= 0
+		? AdsLevel
+		: bDevelopmentTestMode
+			? FMath::Max(GlobalLevel, static_cast<int32>(EOpenMobileAdsLogLevel::Verbose))
+			: GlobalLevel;
 	return EffectiveLevel >= 0
 		&& static_cast<int32>(Level) <= FMath::Clamp(EffectiveLevel, -1, 4);
+}
+
+void FOpenMobileAdsLog::SetDevelopmentTestMode(bool bEnabled)
+{
+	OpenMobileAdsLogPrivate::bDevelopmentTestMode.Store(bEnabled);
 }
 
 int32 FOpenMobileAdsLog::GetAdsLevel()

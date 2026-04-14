@@ -345,6 +345,18 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	));
 
 	TestFalse(TEXT("Development test mode is off by default"), Settings->bDevelopmentTestMode);
+	TestFalse(
+		TEXT("An unset development mode stays off outside Shipping"),
+		UOpenMobileAdsSettings::ResolveDevelopmentTestMode(false, false)
+	);
+	TestTrue(
+		TEXT("An enabled development mode runs outside Shipping"),
+		UOpenMobileAdsSettings::ResolveDevelopmentTestMode(true, false)
+	);
+	TestFalse(
+		TEXT("Shipping always forces production behavior"),
+		UOpenMobileAdsSettings::ResolveDevelopmentTestMode(true, true)
+	);
 	TestEqual(TEXT("Default retry count is bounded"), Settings->RetryPolicy.MaxRetryAttempts, 2);
 	TestTrue(TEXT("Default retry policy is valid"), Settings->RetryPolicy.IsValid());
 	TestTrue(

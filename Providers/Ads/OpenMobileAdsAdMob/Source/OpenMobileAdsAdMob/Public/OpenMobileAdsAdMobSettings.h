@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsAdMobSettings.generated.h"
 
 /** AdMob-owned build and ad-unit configuration. Values are identifiers, not secrets. */
@@ -30,4 +31,24 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "iOS")
 	FString IOSRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/1712485313");
+
+	FString ResolveRewardedAdUnitId(
+		EOpenMobileAdsPlatform Platform,
+		bool bUseTestAdUnitId
+	) const
+	{
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return bUseTestAdUnitId
+				? TEXT("ca-app-pub-3940256099942544/5224354917")
+				: AndroidRewardedAdUnitId;
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return bUseTestAdUnitId
+				? TEXT("ca-app-pub-3940256099942544/1712485313")
+				: IOSRewardedAdUnitId;
+		}
+		return FString();
+	}
 };

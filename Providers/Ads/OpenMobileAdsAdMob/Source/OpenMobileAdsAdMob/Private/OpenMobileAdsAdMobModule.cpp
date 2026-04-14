@@ -67,12 +67,17 @@ namespace OpenMobileAdsAdMobPrivate
 					GetProviderName()
 				);
 			}
+			else
+			{
+				bUseTestAdUnitIds = Request.Development.bUseTestAdUnitIds;
+			}
 			return bStarted;
 		}
 
 		virtual void Shutdown() override
 		{
 			FOpenMobileAdsAdMobPlatform::Shutdown();
+			bUseTestAdUnitIds = false;
 		}
 
 		virtual bool RequestAndShowRewardedAd(
@@ -81,12 +86,10 @@ namespace OpenMobileAdsAdMobPrivate
 		) override
 		{
 			const UOpenMobileAdsAdMobSettings* Settings = GetDefault<UOpenMobileAdsAdMobSettings>();
-			FString AdUnitId;
-#if PLATFORM_ANDROID
-			AdUnitId = Settings->AndroidRewardedAdUnitId;
-#elif PLATFORM_IOS
-			AdUnitId = Settings->IOSRewardedAdUnitId;
-#endif
+			FString AdUnitId = Settings->ResolveRewardedAdUnitId(
+				OpenMobileAdsGetCurrentPlatform(),
+				bUseTestAdUnitIds
+			);
 			AdUnitId.TrimStartAndEndInline();
 			if (AdUnitId.IsEmpty())
 			{
@@ -132,6 +135,9 @@ namespace OpenMobileAdsAdMobPrivate
 			}
 			return bStarted;
 		}
+
+	private:
+		bool bUseTestAdUnitIds = false;
 	};
 }
 

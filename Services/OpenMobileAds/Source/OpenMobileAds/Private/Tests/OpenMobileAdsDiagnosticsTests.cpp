@@ -32,6 +32,33 @@ bool FOpenMobileAdsLogFilterTest::RunTest(const FString& Parameters)
 		TEXT("Negative global level disables inherited ads logs"),
 		FOpenMobileAdsLog::IsLevelEnabled(EOpenMobileAdsLogLevel::Error, -1, -1)
 	);
+	TestTrue(
+		TEXT("Development mode enables verbose diagnostics by default"),
+		FOpenMobileAdsLog::IsLevelEnabled(
+			EOpenMobileAdsLogLevel::Verbose,
+			-1,
+			-1,
+			true
+		)
+	);
+	TestFalse(
+		TEXT("Development mode does not enable very verbose diagnostics"),
+		FOpenMobileAdsLog::IsLevelEnabled(
+			EOpenMobileAdsLogLevel::VeryVerbose,
+			-1,
+			-1,
+			true
+		)
+	);
+	TestFalse(
+		TEXT("An explicit ads log level overrides development diagnostics"),
+		FOpenMobileAdsLog::IsLevelEnabled(
+			EOpenMobileAdsLogLevel::Verbose,
+			4,
+			1,
+			true
+		)
+	);
 	IConsoleVariable* GlobalLevel = IConsoleManager::Get().FindConsoleVariable(
 		TEXT("OpenMobile.LogLevel")
 	);

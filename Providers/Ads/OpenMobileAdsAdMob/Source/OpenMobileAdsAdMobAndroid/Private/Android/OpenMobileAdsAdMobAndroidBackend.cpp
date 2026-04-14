@@ -82,7 +82,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
 		static_cast<jint>(OpenMobileAdsAdMobAndroidBackendPrivate::ToNativeAgeTreatment(
 			Request.Privacy.UnderAgeOfConsent
 		)),
-		static_cast<jboolean>(Request.bDevelopmentTestMode),
+		static_cast<jboolean>(Request.Development.bUseTestDevices),
 		*JavaRating
 	);
 	if (!bScheduled)

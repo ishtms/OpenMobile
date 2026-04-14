@@ -292,10 +292,20 @@ public:
 		Category = "Development",
 		meta = (
 			DisplayName = "Development/Test Mode",
-			ToolTip = "Enables provider test behavior and verbose diagnostics. This must be disabled for shipping builds."
+			ToolTip = "Enables test devices, official test IDs, consent debug controls, and verbose diagnostics in non-shipping builds. Shipping builds reject this setting and force production behavior."
 		)
 	)
 	bool bDevelopmentTestMode = false;
+
+	static bool ResolveDevelopmentTestMode(bool bConfigured, bool bForShipping)
+	{
+		return bConfigured && !bForShipping;
+	}
+
+	bool IsDevelopmentTestModeEnabled() const
+	{
+		return ResolveDevelopmentTestMode(bDevelopmentTestMode, UE_BUILD_SHIPPING != 0);
+	}
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability")
 	FOpenMobileAdsRetryPolicy RetryPolicy;

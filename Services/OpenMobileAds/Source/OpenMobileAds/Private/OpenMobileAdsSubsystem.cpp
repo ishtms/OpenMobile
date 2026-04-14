@@ -473,6 +473,9 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	}
 
 	EnsureRuntime();
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	const bool bDevelopmentTestMode = Settings->IsDevelopmentTestModeEnabled();
+	FOpenMobileAdsLog::SetDevelopmentTestMode(bDevelopmentTestMode);
 	if (bDeinitialized || ServiceState == EOpenMobileAdsServiceState::ShuttingDown)
 	{
 		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
@@ -511,7 +514,6 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
 	}
 
-	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
 	InitializationRequestId = FGuid::NewGuid();
 	SelectedProviderName = Provider->GetProviderName();
 	InitializationError = FOpenMobileAdsError();
@@ -535,7 +537,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	FOpenMobileAdsInitializationRequest Request;
 	Request.RequestId = InitializationRequestId;
 	Request.Platform = OpenMobileAdsGetCurrentPlatform();
-	Request.bDevelopmentTestMode = Settings->bDevelopmentTestMode;
+	Request.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(bDevelopmentTestMode);
 	Request.Privacy = Settings->Privacy;
 	Request.RequestConfiguration = Settings->RequestConfiguration;
 
