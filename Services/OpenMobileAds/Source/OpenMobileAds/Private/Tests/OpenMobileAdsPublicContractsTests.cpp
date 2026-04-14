@@ -45,7 +45,10 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	FOpenMobileAdsInitializationRequest InitializationRequest;
 	InitializationRequest.RequestId = FGuid::NewGuid();
 	InitializationRequest.Development =
-		FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			true,
+			{TEXT("GLOBAL-DEVICE")}
+		);
 	InitializationRequest.Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	InitializationRequest.RequestConfiguration.MaxAdContentRating =
 		EOpenMobileAdsMaxAdContentRating::ParentalGuidance;
@@ -54,6 +57,18 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Development mode enables official test IDs"), InitializationRequest.Development.bUseTestAdUnitIds);
 	TestTrue(TEXT("Development mode enables consent debug controls"), InitializationRequest.Development.bEnableConsentDebug);
 	TestTrue(TEXT("Development mode enables verbose diagnostics"), InitializationRequest.Development.bEnableVerboseDiagnostics);
+	TestEqual(
+		TEXT("Development mode keeps global test-device identifiers"),
+		InitializationRequest.Development.TestDeviceIdentifiers,
+		TArray<FString>({TEXT("GLOBAL-DEVICE")})
+	);
+	TestTrue(
+		TEXT("Production mode omits configured test-device identifiers"),
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			false,
+			{TEXT("GLOBAL-DEVICE")}
+		).TestDeviceIdentifiers.IsEmpty()
+	);
 	TestEqual(
 		TEXT("Initialization keeps provider-neutral request configuration"),
 		InitializationRequest.RequestConfiguration.MaxAdContentRating,

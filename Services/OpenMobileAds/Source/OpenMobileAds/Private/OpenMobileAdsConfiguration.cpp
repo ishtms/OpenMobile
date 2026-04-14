@@ -1,6 +1,7 @@
 #include "OpenMobileAdsConfiguration.h"
 
 #include "OpenMobileAdsCapabilities.h"
+#include "OpenMobileAdsOperations.h"
 
 namespace OpenMobileAdsConfigurationPrivate
 {
@@ -360,6 +361,37 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			bForShipping
 				? EOpenMobileAdsConfigurationIssueSeverity::Error
 				: EOpenMobileAdsConfigurationIssueSeverity::Warning
+		);
+	}
+	TSet<FString> SeenTestDeviceIdentifiers;
+	for (int32 Index = 0; Index < Settings.TestDeviceIdentifiers.Num(); ++Index)
+	{
+		const FString& Identifier = Settings.TestDeviceIdentifiers[Index];
+		const FString IdentifierKey = Identifier.ToLower();
+		if (
+			!FOpenMobileAdsDevelopmentConfiguration::IsValidTestDeviceIdentifier(Identifier)
+			|| SeenTestDeviceIdentifiers.Contains(IdentifierKey)
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidTestDeviceIdentifier,
+				NAME_None,
+				FString::Printf(
+					TEXT("Global test-device identifier at index %d is invalid or duplicated."),
+					Index
+				)
+			);
+		}
+		SeenTestDeviceIdentifiers.Add(IdentifierKey);
+	}
+	if (bForShipping && !Settings.TestDeviceIdentifiers.IsEmpty())
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestDeviceIdentifier,
+			NAME_None,
+			TEXT("Global test-device identifiers are not allowed in shipping builds.")
 		);
 	}
 	return Issues;

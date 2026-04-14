@@ -26,6 +26,41 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings).Num(),
 		0
 	);
+	TestTrue(
+		TEXT("AdMob test-device identifiers are empty by default"),
+		Settings->TestDeviceIdentifiers.IsEmpty()
+	);
+	Settings->TestDeviceIdentifiers = {
+		TEXT("SHARED-DEVICE"),
+		TEXT("ADMOB-DEVICE")
+	};
+	TestEqual(
+		TEXT("AdMob merges global and provider test devices without duplicates"),
+		Settings->ResolveTestDeviceIdentifiers({
+			TEXT("GLOBAL-DEVICE"),
+			TEXT("shared-device")
+		}),
+		TArray<FString>({
+			TEXT("GLOBAL-DEVICE"),
+			TEXT("shared-device"),
+			TEXT("ADMOB-DEVICE")
+		})
+	);
+	Settings->TestDeviceIdentifiers = {TEXT("invalid device")};
+	TestTrue(
+		TEXT("Malformed AdMob test-device identifiers are rejected"),
+		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings).Contains(
+			TEXT("AdMob test-device identifier at index 0 is invalid.")
+		)
+	);
+	Settings->TestDeviceIdentifiers = {TEXT("ADMOB-DEVICE")};
+	TestTrue(
+		TEXT("AdMob test-device identifiers are rejected for shipping"),
+		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings, true).Contains(
+			TEXT("AdMob test-device identifiers are not allowed in shipping builds.")
+		)
+	);
+	Settings->TestDeviceIdentifiers.Reset();
 	TestEqual(
 		TEXT("Android development mode uses Google's rewarded test ID"),
 		Settings->ResolveRewardedAdUnitId(EOpenMobileAdsPlatform::Android, true),

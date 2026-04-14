@@ -54,7 +54,7 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 )
 {
 	TArray<FString> Errors;
-	Errors.Reserve(4);
+	Errors.Reserve(6 + Settings.TestDeviceIdentifiers.Num());
 	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
 		TEXT("Android app ID"),
 		Settings.AndroidAppId,
@@ -79,6 +79,27 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 		TEXT('/'),
 		Errors
 	);
+	TSet<FString> SeenTestDeviceIdentifiers;
+	for (int32 Index = 0; Index < Settings.TestDeviceIdentifiers.Num(); ++Index)
+	{
+		const FString& Identifier = Settings.TestDeviceIdentifiers[Index];
+		const FString IdentifierKey = Identifier.ToLower();
+		if (
+			!FOpenMobileAdsDevelopmentConfiguration::IsValidTestDeviceIdentifier(Identifier)
+			|| SeenTestDeviceIdentifiers.Contains(IdentifierKey)
+		)
+		{
+			Errors.Add(FString::Printf(
+				TEXT("AdMob test-device identifier at index %d is invalid."),
+				Index
+			));
+		}
+		SeenTestDeviceIdentifiers.Add(IdentifierKey);
+	}
+	if (bForShipping && !Settings.TestDeviceIdentifiers.IsEmpty())
+	{
+		Errors.Add(TEXT("AdMob test-device identifiers are not allowed in shipping builds."));
+	}
 	if (
 		bForShipping
 		&& (

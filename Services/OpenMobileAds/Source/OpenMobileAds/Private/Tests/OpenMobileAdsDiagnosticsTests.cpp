@@ -109,6 +109,17 @@ bool FOpenMobileAdsLogRedactionTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("JSON device IDs are redacted"), JsonRedacted.Contains(TEXT("json-device")));
 	TestFalse(TEXT("JSON custom data is redacted"), JsonRedacted.Contains(TEXT("json-custom")));
 
+	const FString RegisteredTestDevice = TEXT("REGISTERED-TEST-DEVICE");
+	FOpenMobileAdsLog::SetTestDeviceIdentifiers({RegisteredTestDevice});
+	const FString RegisteredRedacted = FOpenMobileAdsLog::Redact(
+		FString::Printf(TEXT("provider returned %s without a label"), *RegisteredTestDevice)
+	);
+	FOpenMobileAdsLog::SetTestDeviceIdentifiers({});
+	TestFalse(
+		TEXT("Registered test-device identifiers are redacted without labels"),
+		RegisteredRedacted.Contains(RegisteredTestDevice)
+	);
+
 	FOpenMobileAdsNativeDiagnostics Diagnostics;
 	Diagnostics.NativeCode = TEXT("native-7");
 	Diagnostics.NativeMessage = TEXT("gaid=android-99 adUnitId=unit-1");

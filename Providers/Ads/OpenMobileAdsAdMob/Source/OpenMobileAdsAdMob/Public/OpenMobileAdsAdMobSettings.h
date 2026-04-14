@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
-#include "OpenMobileAdsTypes.h"
+#include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsAdMobSettings.generated.h"
 
-/** AdMob-owned build and ad-unit configuration. Values are identifiers, not secrets. */
+/** AdMob-owned build, ad-unit, and test-device configuration. */
 UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "AdMob"))
 class OPENMOBILEADSADMOB_API UOpenMobileAdsAdMobSettings : public UDeveloperSettings
 {
@@ -31,6 +31,27 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "iOS")
 	FString IOSRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/1712485313");
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		Category = "Development",
+		meta = (
+			DisplayName = "AdMob Test Device Identifiers",
+			ToolTip = "Opaque AdMob test-device identifiers merged with the global list while Development/Test Mode is enabled. Shipping builds reject non-empty values."
+		)
+	)
+	TArray<FString> TestDeviceIdentifiers;
+
+	TArray<FString> ResolveTestDeviceIdentifiers(
+		const TArray<FString>& GlobalIdentifiers
+	) const
+	{
+		return FOpenMobileAdsDevelopmentConfiguration::MergeTestDeviceIdentifiers(
+			GlobalIdentifiers,
+			TestDeviceIdentifiers
+		);
+	}
 
 	FString ResolveRewardedAdUnitId(
 		EOpenMobileAdsPlatform Platform,

@@ -11,8 +11,59 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 	bool bUseTestAdUnitIds = false;
 	bool bEnableConsentDebug = false;
 	bool bEnableVerboseDiagnostics = false;
+	TArray<FString> TestDeviceIdentifiers;
 
-	static FOpenMobileAdsDevelopmentConfiguration FromMode(bool bEnabled)
+	static bool IsValidTestDeviceIdentifier(const FString& Identifier)
+	{
+		if (Identifier.IsEmpty() || Identifier.Len() > 256)
+		{
+			return false;
+		}
+		for (const TCHAR Character : Identifier)
+		{
+			if (Character < TEXT('!') || Character > TEXT('~'))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	static TArray<FString> MergeTestDeviceIdentifiers(
+		const TArray<FString>& GlobalIdentifiers,
+		const TArray<FString>& ProviderIdentifiers = {}
+	)
+	{
+		TArray<FString> Result;
+		Result.Reserve(GlobalIdentifiers.Num() + ProviderIdentifiers.Num());
+		auto AppendUnique = [&Result](const TArray<FString>& Identifiers)
+		{
+			for (const FString& Identifier : Identifiers)
+			{
+				if (
+					!IsValidTestDeviceIdentifier(Identifier)
+					|| Result.ContainsByPredicate(
+						[&Identifier](const FString& Existing)
+						{
+							return Existing.Equals(Identifier, ESearchCase::IgnoreCase);
+						}
+					)
+				)
+				{
+					continue;
+				}
+				Result.Add(Identifier);
+			}
+		};
+		AppendUnique(GlobalIdentifiers);
+		AppendUnique(ProviderIdentifiers);
+		return Result;
+	}
+
+	static FOpenMobileAdsDevelopmentConfiguration FromMode(
+		bool bEnabled,
+		const TArray<FString>& ConfiguredTestDeviceIdentifiers = {}
+	)
 	{
 		FOpenMobileAdsDevelopmentConfiguration Configuration;
 		Configuration.bEnabled = bEnabled;
@@ -20,6 +71,12 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 		Configuration.bUseTestAdUnitIds = bEnabled;
 		Configuration.bEnableConsentDebug = bEnabled;
 		Configuration.bEnableVerboseDiagnostics = bEnabled;
+		if (bEnabled)
+		{
+			Configuration.TestDeviceIdentifiers = MergeTestDeviceIdentifiers(
+				ConfiguredTestDeviceIdentifiers
+			);
+		}
 		return Configuration;
 	}
 };

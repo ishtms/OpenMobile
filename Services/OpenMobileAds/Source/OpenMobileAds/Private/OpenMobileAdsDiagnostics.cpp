@@ -2,11 +2,14 @@
 
 #include "HAL/IConsoleManager.h"
 #include "Internationalization/Regex.h"
+#include "Misc/ScopeRWLock.h"
 #include "OpenMobileCoreLog.h"
 
 namespace OpenMobileAdsLogPrivate
 {
 	TAtomic<bool> bDevelopmentTestMode(false);
+	FRWLock TestDeviceIdentifiersLock;
+	TArray<FString> TestDeviceIdentifiers;
 
 	TAutoConsoleVariable<int32> CVarAdsLogLevel(
 		TEXT("OpenMobile.Ads.LogLevel"),
@@ -81,6 +84,12 @@ void FOpenMobileAdsLog::SetDevelopmentTestMode(bool bEnabled)
 	OpenMobileAdsLogPrivate::bDevelopmentTestMode.Store(bEnabled);
 }
 
+void FOpenMobileAdsLog::SetTestDeviceIdentifiers(const TArray<FString>& Identifiers)
+{
+	FWriteScopeLock Lock(OpenMobileAdsLogPrivate::TestDeviceIdentifiersLock);
+	OpenMobileAdsLogPrivate::TestDeviceIdentifiers = Identifiers;
+}
+
 int32 FOpenMobileAdsLog::GetAdsLevel()
 {
 	return FMath::Clamp(
@@ -96,6 +105,20 @@ FString FOpenMobileAdsLog::Redact(
 )
 {
 	FString Result = OpenMobileAdsLogPrivate::ReplaceSensitiveFields(Message);
+	{
+		FReadScopeLock Lock(OpenMobileAdsLogPrivate::TestDeviceIdentifiersLock);
+		for (const FString& Identifier : OpenMobileAdsLogPrivate::TestDeviceIdentifiers)
+		{
+			if (!Identifier.IsEmpty())
+			{
+				Result.ReplaceInline(
+					*Identifier,
+					TEXT("[REDACTED]"),
+					ESearchCase::IgnoreCase
+				);
+			}
+		}
+	}
 	for (const FString& SensitiveValue : SensitiveValues)
 	{
 		if (!SensitiveValue.IsEmpty())

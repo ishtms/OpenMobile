@@ -4,6 +4,7 @@
 #include "Modules/ModuleManager.h"
 #include "OpenMobileAdsAdMobPlatform.h"
 #include "OpenMobileAdsAdMobSettings.h"
+#include "OpenMobileAdsDiagnostics.h"
 
 namespace OpenMobileAdsAdMobPrivate
 {
@@ -36,9 +37,21 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsError& OutError
 		) override
 		{
+			FOpenMobileAdsInitializationRequest ProviderRequest = Request;
+			const UOpenMobileAdsAdMobSettings* Settings =
+				GetDefault<UOpenMobileAdsAdMobSettings>();
+			ProviderRequest.Development.TestDeviceIdentifiers =
+				Request.Development.bUseTestDevices
+					? Settings->ResolveTestDeviceIdentifiers(
+						Request.Development.TestDeviceIdentifiers
+					)
+					: TArray<FString>();
+			FOpenMobileAdsLog::SetTestDeviceIdentifiers(
+				ProviderRequest.Development.TestDeviceIdentifiers
+			);
 			FString NativeError;
 			const bool bStarted = FOpenMobileAdsAdMobPlatform::Initialize(
-				Request,
+				ProviderRequest,
 				FOnOpenMobileAdMobInitializationStatus::CreateLambda(
 					[CompletionSink](
 						const FOpenMobileAdsInitializationComponentStatus& Status

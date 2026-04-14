@@ -48,7 +48,7 @@ import com.google.android.gms.ads.initialization.OnInitializationCompleteListene
 import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Map;
         </insert>
     </gameActivityImportAdditions>
@@ -111,7 +111,7 @@ import java.util.Map;
         final long requestId,
         final int childDirectedTreatment,
         final int underAgeOfConsent,
-        final boolean developmentTestMode,
+        final String[] testDeviceIdentifiers,
         final String maxAdContentRating
     )
     {
@@ -128,11 +128,7 @@ import java.util.Map;
                             MobileAds.getRequestConfiguration().toBuilder()
                                 .setTagForChildDirectedTreatment(childDirectedTreatment)
                                 .setTagForUnderAgeOfConsent(underAgeOfConsent)
-                                .setTestDeviceIds(
-                                    developmentTestMode
-                                        ? Collections.singletonList("B3EEABB8EE11C2BE770B684D95219ECB")
-                                        : Collections.emptyList()
-                                );
+                                .setTestDeviceIds(Arrays.asList(testDeviceIdentifiers));
                         if (maxAdContentRating != null &amp;&amp; maxAdContentRating.length() > 0)
                         {
                             configuration.setMaxAdContentRating(maxAdContentRating);

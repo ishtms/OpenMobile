@@ -78,6 +78,7 @@ public:
 		bool bDevelopmentTestMode = false
 	);
 	static void SetDevelopmentTestMode(bool bEnabled);
+	static void SetTestDeviceIdentifiers(const TArray<FString>& Identifiers);
 	static int32 GetAdsLevel();
 	static FString Redact(
 		const FString& Message,

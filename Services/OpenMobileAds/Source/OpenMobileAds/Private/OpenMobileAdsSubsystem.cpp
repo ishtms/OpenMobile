@@ -476,6 +476,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
 	const bool bDevelopmentTestMode = Settings->IsDevelopmentTestModeEnabled();
 	FOpenMobileAdsLog::SetDevelopmentTestMode(bDevelopmentTestMode);
+	FOpenMobileAdsLog::SetTestDeviceIdentifiers(Settings->TestDeviceIdentifiers);
 	if (bDeinitialized || ServiceState == EOpenMobileAdsServiceState::ShuttingDown)
 	{
 		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
@@ -538,7 +539,10 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	Request.RequestId = InitializationRequestId;
 	Request.Platform = OpenMobileAdsGetCurrentPlatform();
 	Request.Development =
-		FOpenMobileAdsDevelopmentConfiguration::FromMode(bDevelopmentTestMode);
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			bDevelopmentTestMode,
+			Settings->TestDeviceIdentifiers
+		);
 	Request.Privacy = Settings->Privacy;
 	Request.RequestConfiguration = Settings->RequestConfiguration;
 

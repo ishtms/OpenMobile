@@ -57,7 +57,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_InitializeOpenMobileRewardedAds",
-		"(JIIZLjava/lang/String;)Z",
+		"(JII[Ljava/lang/String;Ljava/lang/String;)Z",
 		false
 	);
 
@@ -70,6 +70,14 @@ bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
 	const FString Rating = OpenMobileAdsAdMobAndroidBackendPrivate::ToNativeMaxAdContentRating(
 		Request.RequestConfiguration.MaxAdContentRating
 	);
+	TArray<FStringView> TestDeviceIdentifierViews;
+	TestDeviceIdentifierViews.Reserve(Request.Development.TestDeviceIdentifiers.Num());
+	for (const FString& Identifier : Request.Development.TestDeviceIdentifiers)
+	{
+		TestDeviceIdentifierViews.Add(Identifier);
+	}
+	const FScopedJavaObject<jobjectArray> JavaTestDeviceIdentifiers =
+		FJavaHelper::ToJavaStringArray(Env, TestDeviceIdentifierViews);
 	const FScopedJavaObject<jstring> JavaRating = FJavaHelper::ToJavaString(Env, Rating);
 	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
 		Env,
@@ -82,7 +90,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
 		static_cast<jint>(OpenMobileAdsAdMobAndroidBackendPrivate::ToNativeAgeTreatment(
 			Request.Privacy.UnderAgeOfConsent
 		)),
-		static_cast<jboolean>(Request.Development.bUseTestDevices),
+		*JavaTestDeviceIdentifiers,
 		*JavaRating
 	);
 	if (!bScheduled)

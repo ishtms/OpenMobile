@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using EpicGames.Core;
 using UnrealBuildTool;
 
@@ -15,6 +16,9 @@ public class OpenMobileAdsAdMob : ModuleRules
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSRewardedAdUnitId = "ca-app-pub-3940256099942544/1712485313";
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
+	List<string> TestDeviceIdentifiers = new List<string>();
 
 	public OpenMobileAdsAdMob(ReadOnlyTargetRules Target) : base(Target)
 	{
@@ -37,6 +41,12 @@ public class OpenMobileAdsAdMob : ModuleRules
 				Target.Platform,
 				this
 			);
+			if (TestDeviceIdentifiers.Count > 0)
+			{
+				throw new BuildException(
+					"OpenMobile Ads AdMob test-device identifiers must be removed before making a Shipping build."
+				);
+			}
 			string[] Identifiers =
 			{
 				AndroidAppId,

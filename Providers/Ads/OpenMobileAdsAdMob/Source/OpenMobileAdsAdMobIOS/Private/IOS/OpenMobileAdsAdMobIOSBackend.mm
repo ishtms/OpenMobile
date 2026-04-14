@@ -4,6 +4,8 @@
 
 #if PLATFORM_IOS
 
+#include "Apple/AppleStringUtils.h"
+
 #import <GoogleMobileAds/GoogleMobileAds.h>
 #import <UIKit/UIKit.h>
 
@@ -133,6 +135,12 @@ bool FOpenMobileAdsAdMobIOSBackend::Initialize(
 		Request.Privacy.UnderAgeOfConsent;
 	const EOpenMobileAdsMaxAdContentRating MaxAdContentRating =
 		Request.RequestConfiguration.MaxAdContentRating;
+	NSMutableArray<NSString*>* TestDeviceIdentifiers = [NSMutableArray
+		arrayWithCapacity:Request.Development.TestDeviceIdentifiers.Num()];
+	for (const FString& Identifier : Request.Development.TestDeviceIdentifiers)
+	{
+		[TestDeviceIdentifiers addObject:FAppleStringUtils::ConvertToNSString(Identifier)];
+	}
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
 		GADRequestConfiguration* Configuration =
@@ -146,6 +154,9 @@ bool FOpenMobileAdsAdMobIOSBackend::Initialize(
 #pragma clang diagnostic pop
 		Configuration.maxAdContentRating =
 			OpenMobileAdsAdMobIOS::ToMaxAdContentRating(MaxAdContentRating);
+		Configuration.testDeviceIdentifiers = TestDeviceIdentifiers.count > 0
+			? TestDeviceIdentifiers
+			: nil;
 		[GADMobileAds.sharedInstance startWithCompletionHandler:^(GADInitializationStatus* Status)
 		{
 			for (NSString* AdapterName in Status.adapterStatusesByClassName)

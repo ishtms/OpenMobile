@@ -183,6 +183,7 @@ namespace OpenMobileAdsProviderContractTests
 			Settings = GetMutableDefault<UOpenMobileAdsSettings>();
 			SavedProvider = Settings->PreferredProvider;
 			bSavedDevelopmentTestMode = Settings->bDevelopmentTestMode;
+			SavedTestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
@@ -192,6 +193,7 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			Settings->PreferredProvider = SavedProvider;
 			Settings->bDevelopmentTestMode = bSavedDevelopmentTestMode;
+			Settings->TestDeviceIdentifiers = MoveTemp(SavedTestDeviceIdentifiers);
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -202,6 +204,7 @@ namespace OpenMobileAdsProviderContractTests
 	private:
 		FName SavedProvider;
 		bool bSavedDevelopmentTestMode = false;
+		TArray<FString> SavedTestDeviceIdentifiers;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -254,6 +257,10 @@ bool FOpenMobileAdsInitializationIdempotencyContractTest::RunTest(const FString&
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
 	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->TestDeviceIdentifiers = {
+		TEXT("GLOBAL-DEVICE-A"),
+		TEXT("GLOBAL-DEVICE-B")
+	};
 	ScopedSettings.Settings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	ScopedSettings.Settings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
 	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
@@ -275,6 +282,11 @@ bool FOpenMobileAdsInitializationIdempotencyContractTest::RunTest(const FString&
 	TestTrue(TEXT("Test mode enables official test IDs"), Provider.LastInitializationRequest.Development.bUseTestAdUnitIds);
 	TestTrue(TEXT("Test mode enables consent debug intent"), Provider.LastInitializationRequest.Development.bEnableConsentDebug);
 	TestTrue(TEXT("Test mode enables verbose diagnostics"), Provider.LastInitializationRequest.Development.bEnableVerboseDiagnostics);
+	TestEqual(
+		TEXT("Global test-device identifiers reach the provider before initialization"),
+		Provider.LastInitializationRequest.Development.TestDeviceIdentifiers,
+		ScopedSettings.Settings->TestDeviceIdentifiers
+	);
 	TestEqual(
 		TEXT("Child-directed treatment reaches the provider"),
 		Provider.LastInitializationRequest.Privacy.ChildDirectedTreatment,

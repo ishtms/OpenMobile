@@ -231,7 +231,9 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	UnsupportedProviderFormat,
 	UnsupportedProviderOperation,
 	InvalidRetryPolicy,
-	UnsafeShippingTestMode
+	UnsafeShippingTestMode,
+	InvalidTestDeviceIdentifier,
+	UnsafeShippingTestDeviceIdentifier
 };
 
 USTRUCT(BlueprintType)
@@ -296,6 +298,18 @@ public:
 		)
 	)
 	bool bDevelopmentTestMode = false;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Development",
+		meta = (
+			DisplayName = "Global Test Device Identifiers",
+			ToolTip = "Opaque test-device identifiers shared with the selected ads provider while Development/Test Mode is enabled. Shipping builds reject non-empty values."
+		)
+	)
+	TArray<FString> TestDeviceIdentifiers;
 
 	static bool ResolveDevelopmentTestMode(bool bConfigured, bool bForShipping)
 	{

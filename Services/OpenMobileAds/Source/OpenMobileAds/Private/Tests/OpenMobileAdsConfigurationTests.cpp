@@ -255,6 +255,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	UOpenMobileAdsSettings* SavedSettings = NewObject<UOpenMobileAdsSettings>();
 	SavedSettings->PreferredProvider = TEXT("ConfiguredAds");
 	SavedSettings->bDevelopmentTestMode = true;
+	SavedSettings->TestDeviceIdentifiers.Add(TEXT("GLOBAL-TEST-DEVICE"));
 	SavedSettings->RetryPolicy.MaxRetryAttempts = 4;
 	SavedSettings->RetryPolicy.InitialDelaySeconds = 0.5;
 	SavedSettings->RetryPolicy.BackoffMultiplier = 3.0;
@@ -286,6 +287,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 
 	TestEqual(TEXT("Preferred provider survives restart"), SettingsAfterRestart->PreferredProvider, FName(TEXT("ConfiguredAds")));
 	TestTrue(TEXT("Development test mode survives restart"), SettingsAfterRestart->bDevelopmentTestMode);
+	TestEqual(
+		TEXT("Global test-device identifiers survive restart"),
+		SettingsAfterRestart->TestDeviceIdentifiers,
+		TArray<FString>({TEXT("GLOBAL-TEST-DEVICE")})
+	);
 	TestEqual(TEXT("Retry count survives restart"), SettingsAfterRestart->RetryPolicy.MaxRetryAttempts, 4);
 	TestEqual(TEXT("Initial retry delay survives restart"), SettingsAfterRestart->RetryPolicy.InitialDelaySeconds, 0.5);
 	TestEqual(TEXT("Retry backoff survives restart"), SettingsAfterRestart->RetryPolicy.BackoffMultiplier, 3.0);
@@ -380,6 +386,29 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	TestTrue(
 		TEXT("Development test mode is rejected for shipping"),
 		HasIssue(ShippingIssues, EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestMode)
+	);
+
+	Settings->bDevelopmentTestMode = false;
+	Settings->TestDeviceIdentifiers = {TEXT("invalid device")};
+	const TArray<FOpenMobileAdsConfigurationIssue> InvalidDeviceIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Malformed global test-device identifiers are rejected"),
+		HasIssue(
+			InvalidDeviceIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTestDeviceIdentifier
+		)
+	);
+
+	Settings->TestDeviceIdentifiers = {TEXT("GLOBAL-TEST-DEVICE")};
+	const TArray<FOpenMobileAdsConfigurationIssue> ShippingDeviceIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);
+	TestTrue(
+		TEXT("Global test-device identifiers are rejected for shipping"),
+		HasIssue(
+			ShippingDeviceIssues,
+			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestDeviceIdentifier
+		)
 	);
 	return true;
 }
