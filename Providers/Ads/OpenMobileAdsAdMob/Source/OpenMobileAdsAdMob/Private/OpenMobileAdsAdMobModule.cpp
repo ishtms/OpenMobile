@@ -37,9 +37,27 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsError& OutError
 		) override
 		{
-			FOpenMobileAdsInitializationRequest ProviderRequest = Request;
 			const UOpenMobileAdsAdMobSettings* Settings =
 				GetDefault<UOpenMobileAdsAdMobSettings>();
+			FString ConfigurationError;
+			if (!Settings->IsConfigurationCompatibleWithMode(
+				Request.Platform,
+				Request.Development.bUseTestAdUnitIds,
+				ConfigurationError
+			))
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NotConfigured,
+					EOpenMobileAdsFailureStage::Configuration,
+					NAME_None,
+					MoveTemp(ConfigurationError),
+					GetProviderName(),
+					TEXT("Enable Development/Test Mode or replace every Google sample identifier with a production identifier.")
+				);
+				return false;
+			}
+
+			FOpenMobileAdsInitializationRequest ProviderRequest = Request;
 			ProviderRequest.Development.TestDeviceIdentifiers =
 				Request.Development.bUseTestDevices
 					? Settings->ResolveTestDeviceIdentifiers(
@@ -83,6 +101,7 @@ namespace OpenMobileAdsAdMobPrivate
 			else
 			{
 				bUseTestAdUnitIds = Request.Development.bUseTestAdUnitIds;
+				InitializedPlatform = Request.Platform;
 			}
 			return bStarted;
 		}
@@ -91,6 +110,7 @@ namespace OpenMobileAdsAdMobPrivate
 		{
 			FOpenMobileAdsAdMobPlatform::Shutdown();
 			bUseTestAdUnitIds = false;
+			InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
 		}
 
 		virtual bool RequestAndShowRewardedAd(
@@ -100,7 +120,7 @@ namespace OpenMobileAdsAdMobPrivate
 		{
 			const UOpenMobileAdsAdMobSettings* Settings = GetDefault<UOpenMobileAdsAdMobSettings>();
 			FString AdUnitId = Settings->ResolveRewardedAdUnitId(
-				OpenMobileAdsGetCurrentPlatform(),
+				InitializedPlatform,
 				bUseTestAdUnitIds
 			);
 			AdUnitId.TrimStartAndEndInline();
@@ -151,6 +171,7 @@ namespace OpenMobileAdsAdMobPrivate
 
 	private:
 		bool bUseTestAdUnitIds = false;
+		EOpenMobileAdsPlatform InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
 	};
 }
 

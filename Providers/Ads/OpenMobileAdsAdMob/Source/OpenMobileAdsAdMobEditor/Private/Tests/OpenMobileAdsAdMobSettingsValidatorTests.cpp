@@ -71,6 +71,20 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		Settings->ResolveRewardedAdUnitId(EOpenMobileAdsPlatform::IOS, true),
 		FString(TEXT("ca-app-pub-3940256099942544/1712485313"))
 	);
+	TestTrue(
+		TEXT("Android production mode rejects Google's sample rewarded ID"),
+		Settings->ResolveRewardedAdUnitId(
+			EOpenMobileAdsPlatform::Android,
+			false
+		).IsEmpty()
+	);
+	TestTrue(
+		TEXT("iOS production mode rejects Google's sample rewarded ID"),
+		Settings->ResolveRewardedAdUnitId(
+			EOpenMobileAdsPlatform::IOS,
+			false
+		).IsEmpty()
+	);
 	Settings->AndroidRewardedAdUnitId = TEXT("ca-app-pub-1234567890123456/1234567890");
 	TestEqual(
 		TEXT("Production mode keeps the configured Android ID"),
@@ -79,7 +93,15 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 	);
 	Settings->AndroidRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/5224354917");
 	TestTrue(
-		TEXT("Shipping validation rejects Google's known sample IDs"),
+		TEXT("Shipping validation rejects Google's sample IDs"),
+		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings, true).Contains(
+			TEXT("Google sample IDs are not allowed in shipping builds.")
+		)
+	);
+	Settings->AndroidRewardedAdUnitId =
+		TEXT("ca-app-pub-3940256099942544/6300978111");
+	TestTrue(
+		TEXT("Shipping validation rejects sample IDs for other ad formats"),
 		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings, true).Contains(
 			TEXT("Google sample IDs are not allowed in shipping builds.")
 		)

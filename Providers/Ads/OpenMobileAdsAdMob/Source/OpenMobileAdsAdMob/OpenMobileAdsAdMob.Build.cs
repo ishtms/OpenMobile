@@ -54,16 +54,12 @@ public class OpenMobileAdsAdMob : ModuleRules
 				IOSAppId,
 				IOSRewardedAdUnitId
 			};
-			string[] GoogleSampleIdentifiers =
-			{
-				"ca-app-pub-3940256099942544~3347511713",
-				"ca-app-pub-3940256099942544/5224354917",
-				"ca-app-pub-3940256099942544~1458002511",
-				"ca-app-pub-3940256099942544/1712485313"
-			};
 			foreach (string Identifier in Identifiers)
 			{
-				if (Array.IndexOf(GoogleSampleIdentifiers, Identifier) >= 0)
+				if (Identifier.Trim().StartsWith(
+					"ca-app-pub-3940256099942544",
+					StringComparison.Ordinal
+				))
 				{
 					throw new BuildException(
 						"OpenMobile Ads AdMob sample IDs must be replaced before making a Shipping build."

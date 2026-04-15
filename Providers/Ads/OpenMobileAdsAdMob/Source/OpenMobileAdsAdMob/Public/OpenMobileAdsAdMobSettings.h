@@ -53,6 +53,60 @@ public:
 		);
 	}
 
+	static bool IsGoogleSampleIdentifier(const FString& Identifier)
+	{
+		return Identifier.TrimStartAndEnd().StartsWith(
+			TEXT("ca-app-pub-3940256099942544")
+		);
+	}
+
+	FString GetAppId(EOpenMobileAdsPlatform Platform) const
+	{
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return AndroidAppId;
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return IOSAppId;
+		}
+		return FString();
+	}
+
+	FString GetRewardedAdUnitId(EOpenMobileAdsPlatform Platform) const
+	{
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return AndroidRewardedAdUnitId;
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return IOSRewardedAdUnitId;
+		}
+		return FString();
+	}
+
+	bool IsConfigurationCompatibleWithMode(
+		EOpenMobileAdsPlatform Platform,
+		bool bUseTestAds,
+		FString& OutError
+	) const
+	{
+		if (bUseTestAds)
+		{
+			return true;
+		}
+		if (
+			IsGoogleSampleIdentifier(GetAppId(Platform))
+			|| IsGoogleSampleIdentifier(GetRewardedAdUnitId(Platform))
+		)
+		{
+			OutError = TEXT("AdMob production mode cannot use Google sample identifiers.");
+			return false;
+		}
+		return true;
+	}
+
 	FString ResolveRewardedAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
@@ -62,13 +116,17 @@ public:
 		{
 			return bUseTestAdUnitId
 				? TEXT("ca-app-pub-3940256099942544/5224354917")
-				: AndroidRewardedAdUnitId;
+				: IsGoogleSampleIdentifier(AndroidRewardedAdUnitId)
+					? FString()
+					: AndroidRewardedAdUnitId;
 		}
 		if (Platform == EOpenMobileAdsPlatform::IOS)
 		{
 			return bUseTestAdUnitId
 				? TEXT("ca-app-pub-3940256099942544/1712485313")
-				: IOSRewardedAdUnitId;
+				: IsGoogleSampleIdentifier(IOSRewardedAdUnitId)
+					? FString()
+					: IOSRewardedAdUnitId;
 		}
 		return FString();
 	}

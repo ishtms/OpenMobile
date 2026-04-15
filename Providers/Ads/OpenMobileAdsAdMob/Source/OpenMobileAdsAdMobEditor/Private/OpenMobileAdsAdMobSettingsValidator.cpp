@@ -103,10 +103,14 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 	if (
 		bForShipping
 		&& (
-			Settings.AndroidAppId == TEXT("ca-app-pub-3940256099942544~3347511713")
-			|| Settings.AndroidRewardedAdUnitId == TEXT("ca-app-pub-3940256099942544/5224354917")
-			|| Settings.IOSAppId == TEXT("ca-app-pub-3940256099942544~1458002511")
-			|| Settings.IOSRewardedAdUnitId == TEXT("ca-app-pub-3940256099942544/1712485313")
+			UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.AndroidAppId)
+			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+				Settings.AndroidRewardedAdUnitId
+			)
+			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.IOSAppId)
+			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+				Settings.IOSRewardedAdUnitId
+			)
 		)
 	)
 	{
