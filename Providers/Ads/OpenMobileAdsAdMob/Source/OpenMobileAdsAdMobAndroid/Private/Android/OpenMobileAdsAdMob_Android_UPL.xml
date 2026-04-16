@@ -10,13 +10,28 @@
             default="ca-app-pub-3940256099942544~3347511713"/>
     </init>
 
+    <minimumSDKAPI>
+        <insertValue value="35"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
     <buildGradleAdditions>
         <insert>
+repositories {
+    google()
+    mavenCentral()
+}
 dependencies {
-    implementation('com.google.android.gms:play-services-ads:25.4.0')
+    implementation('com.google.android.gms:play-services-ads') {
+        version {
+            strictly '25.4.0'
+        }
+    }
 }
         </insert>
         <insertValue value="ext.openMobileAdsAdMobExpectedAppId = '$S(OpenMobileAdsAdMobAndroidAppId)'"/>
+        <insertNewline/>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMob_Dependencies.gradle')</insert>
         <insertNewline/>
         <insert>apply from: rootProject.file('OpenMobileAdsAdMob_Android.gradle')</insert>
         <insertNewline/>
@@ -26,6 +41,8 @@ dependencies {
         <insert>/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings[AndroidAppId]</insert>
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidManifestContract=4</insert>
+        <insertNewline/>
+        <insert>OpenMobileAdsAdMobAndroidDependencyContract=3</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -45,6 +62,12 @@ dependencies {
     </androidManifestUpdates>
 
     <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMob_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMob_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMob_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMob_Dependencies.gradle"/>
         <copyFile
             src="$S(PluginDir)/OpenMobileAdsAdMob_Android.gradle"
             dst="$S(BuildDir)/gradle/OpenMobileAdsAdMob_Android.gradle"/>
@@ -351,6 +374,18 @@ import java.util.Map;
     <proguardAdditions>
         <insert>
 -keepclassmembers class com.epicgames.unreal.GameActivity {
+    public boolean AndroidThunkJava_InitializeOpenMobileRewardedAds(
+        long,
+        int,
+        int,
+        java.lang.String[],
+        java.lang.String
+    );
+    public void AndroidThunkJava_ShutdownOpenMobileRewardedAds();
+    public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
+        java.lang.String,
+        long
+    );
     public native void nativeOpenMobileAdsInitializationCompleted(long);
     public native void nativeOpenMobileAdsInitializationFailed(long, java.lang.String);
     public native void nativeOpenMobileAdsAdapterInitializationStatus(

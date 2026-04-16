@@ -1,0 +1,187 @@
+import java.util.zip.ZipFile
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ModuleComponentSelector
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.util.GradleVersion
+
+def openMobileAdsAdMobGroup = "com.google.android.gms"
+def openMobileAdsAdMobArtifact = "play-services-ads"
+def openMobileAdsAdMobVersion = "25.4.0"
+def openMobileAdsMinimumSdk = 23
+def openMobileAdsMinimumCompileSdk = 35
+def openMobileAdsMinimumGradle = GradleVersion.version("8.7")
+def openMobileAdsMaximumGradle = GradleVersion.version("8.8")
+def openMobileAdsMinimumAgp = GradleVersion.version("8.6.1")
+def openMobileAdsMaximumAgp = GradleVersion.version("8.7")
+def openMobileAdsMinimumJava = 17
+def openMobileAdsMaximumJava = 21
+
+def openMobileAdsReadSdkProperty = { String name, List errors ->
+    def value = project.findProperty(name)?.toString()
+    if (value == null || !(value ==~ /\d+/)) {
+        errors.add("${name} must be an integer")
+        return null
+    }
+    return value.toInteger()
+}
+
+afterEvaluate {
+    def toolchainErrors = []
+    def minSdk = openMobileAdsReadSdkProperty("MIN_SDK_VERSION", toolchainErrors)
+    def compileSdk = openMobileAdsReadSdkProperty("COMPILE_SDK_VERSION", toolchainErrors)
+    if (minSdk != null && minSdk < openMobileAdsMinimumSdk) {
+        toolchainErrors.add(
+            "Android min SDK ${minSdk} is unsupported; Google Mobile Ads " +
+            "${openMobileAdsAdMobVersion} requires 23 or newer"
+        )
+    }
+    if (compileSdk != null && compileSdk < openMobileAdsMinimumCompileSdk) {
+        toolchainErrors.add(
+            "Android compile SDK ${compileSdk} is unsupported; Google Mobile Ads " +
+            "${openMobileAdsAdMobVersion} requires 35 or newer"
+        )
+    }
+
+    def gradleVersion = GradleVersion.current()
+    if (gradleVersion < openMobileAdsMinimumGradle || gradleVersion >= openMobileAdsMaximumGradle) {
+        toolchainErrors.add(
+            "Gradle ${gradleVersion.version} is unsupported; expected 8.7.x"
+        )
+    }
+    def agpCoordinate = project.findProperty("ANDROID_TOOLS_BUILD_GRADLE_VERSION")?.toString()
+    def agpPrefix = "com.android.tools.build:gradle:"
+    if (agpCoordinate == null || !agpCoordinate.startsWith(agpPrefix)) {
+        toolchainErrors.add("ANDROID_TOOLS_BUILD_GRADLE_VERSION must name the Android Gradle Plugin")
+    } else {
+        def agpVersion = GradleVersion.version(agpCoordinate.substring(agpPrefix.length()))
+        if (agpVersion < openMobileAdsMinimumAgp || agpVersion >= openMobileAdsMaximumAgp) {
+            toolchainErrors.add(
+                "Android Gradle Plugin ${agpVersion.version} is unsupported; " +
+                "expected 8.6.x at or above 8.6.1"
+            )
+        }
+    }
+    def javaVersion = JavaVersion.current().majorVersion.toInteger()
+    if (javaVersion < openMobileAdsMinimumJava || javaVersion > openMobileAdsMaximumJava) {
+        toolchainErrors.add(
+            "Java ${javaVersion} is unsupported; expected Java 17 through 21"
+        )
+    }
+    if (!toolchainErrors.isEmpty()) {
+        throw new GradleException(
+            "OpenMobile Ads AdMob Android toolchain validation failed:\n - " +
+            toolchainErrors.join("\n - ")
+        )
+    }
+
+    def manifestTasks = tasks.matching {
+        it.name ==~ /^process.+ManifestForPackage$/
+    }.toList()
+    manifestTasks.each { manifestTask ->
+        def match = manifestTask.name =~ /^process(.+)ManifestForPackage$/
+        match.matches()
+        def variantName = match.group(1)
+        def configurationName =
+            variantName.substring(0, 1).toLowerCase() + variantName.substring(1) +
+            "RuntimeClasspath"
+        def dependencyConfiguration = configurations.findByName(configurationName)
+        def validationTask = tasks.register(
+            "validateOpenMobileAdsAdMob${variantName}Dependencies"
+        ) {
+            doLast {
+                if (dependencyConfiguration == null) {
+                    throw new GradleException(
+                        "OpenMobile Ads AdMob could not find Gradle configuration " +
+                        "'${configurationName}'"
+                    )
+                }
+
+                def requestedVersions = [] as Set
+                def selectedVersions = [] as Set
+                dependencyConfiguration.incoming.resolutionResult.allDependencies.each { dependency ->
+                    def requested = dependency.requested
+                    if (requested instanceof ModuleComponentSelector &&
+                        requested.group == openMobileAdsAdMobGroup &&
+                        requested.module == openMobileAdsAdMobArtifact) {
+                        def strictVersion = requested.versionConstraint.strictVersion
+                        requestedVersions.add(strictVersion ?: requested.version)
+                    }
+                    if (dependency instanceof ResolvedDependencyResult) {
+                        def selected = dependency.selected.id
+                        if (selected instanceof ModuleComponentIdentifier &&
+                            selected.group == openMobileAdsAdMobGroup &&
+                            selected.module == openMobileAdsAdMobArtifact) {
+                            selectedVersions.add(selected.version)
+                        }
+                    }
+                }
+
+                def dependencyErrors = []
+                def unexpectedRequests = requestedVersions.findAll {
+                    it != openMobileAdsAdMobVersion
+                }
+                if (!unexpectedRequests.isEmpty()) {
+                    dependencyErrors.add(
+                        "${openMobileAdsAdMobGroup}:${openMobileAdsAdMobArtifact} has " +
+                        "unsupported requested version(s) ${unexpectedRequests.sort().join(', ')}; " +
+                        "expected ${openMobileAdsAdMobVersion}"
+                    )
+                }
+                if (selectedVersions != [openMobileAdsAdMobVersion] as Set) {
+                    dependencyErrors.add(
+                        "${openMobileAdsAdMobGroup}:${openMobileAdsAdMobArtifact} resolved to " +
+                        "${selectedVersions.sort().join(', ') ?: 'nothing'}; " +
+                        "expected ${openMobileAdsAdMobVersion}"
+                    )
+                }
+
+                def sdkArtifacts = dependencyConfiguration.incoming.artifactView {
+                    componentFilter { identifier ->
+                        identifier instanceof ModuleComponentIdentifier &&
+                        identifier.group == openMobileAdsAdMobGroup &&
+                        identifier.module == openMobileAdsAdMobArtifact
+                    }
+                }.files.files
+                if (sdkArtifacts.size() != 1) {
+                    dependencyErrors.add(
+                        "expected one resolved Google Mobile Ads AAR, found ${sdkArtifacts.size()}"
+                    )
+                } else {
+                    def sdkArtifact = sdkArtifacts.first()
+                    if (!sdkArtifact.name.endsWith(".aar")) {
+                        dependencyErrors.add(
+                            "Google Mobile Ads resolved to '${sdkArtifact.name}', expected an AAR"
+                        )
+                    } else {
+                        new ZipFile(sdkArtifact).withCloseable { archive ->
+                            ["AndroidManifest.xml", "classes.jar", "proguard.txt"].each { entry ->
+                                if (archive.getEntry(entry) == null) {
+                                    dependencyErrors.add(
+                                        "Google Mobile Ads AAR is missing '${entry}'"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!dependencyErrors.isEmpty()) {
+                    throw new GradleException(
+                        "OpenMobile Ads AdMob Android dependency validation failed:\n - " +
+                        dependencyErrors.join("\n - ")
+                    )
+                }
+            }
+        }
+        tasks.matching {
+            it.name == "package${variantName}" || it.name == "bundle${variantName}"
+        }.configureEach {
+            dependsOn validationTask
+        }
+        tasks.matching {
+            it.name == "pre${variantName}Build"
+        }.configureEach {
+            dependsOn validationTask
+        }
+    }
+}

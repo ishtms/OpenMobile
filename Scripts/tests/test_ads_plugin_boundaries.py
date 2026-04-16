@@ -129,13 +129,29 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			root.find("buildGradleAdditions"),
 			encoding="unicode",
 		)
-		self.assertIn("com.google.android.gms:play-services-ads:25.4.0", gradle_additions)
+		self.assertIn("google()", gradle_additions)
+		self.assertIn("mavenCentral()", gradle_additions)
+		self.assertIn("com.google.android.gms:play-services-ads", gradle_additions)
+		self.assertIn("strictly '25.4.0'", gradle_additions)
 		self.assertIn("OpenMobileAdsAdMob_Android.gradle", gradle_additions)
+		self.assertIn("OpenMobileAdsAdMob_Dependencies.gradle", gradle_additions)
+		minimum_sdk_api = ElementTree.tostring(
+			root.find("minimumSDKAPI"),
+			encoding="unicode",
+		)
+		self.assertIn("35", minimum_sdk_api)
+		proguard_additions = ElementTree.tostring(
+			root.find("proguardAdditions"),
+			encoding="unicode",
+		)
+		self.assertIn("AndroidThunkJava_InitializeOpenMobileRewardedAds", proguard_additions)
+		self.assertIn("nativeOpenMobileRewardedAdFailed", proguard_additions)
 		build_settings = ElementTree.tostring(
 			root.find("registerBuildSettings"),
 			encoding="unicode",
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=3", build_settings)
 		copy_destinations = {
 			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
 		}
@@ -143,6 +159,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			{
 				"$S(BuildDir)/gradle/OpenMobileAdsAdMob_Android.gradle",
 				"$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMob_Android.gradle",
+				"$S(BuildDir)/gradle/OpenMobileAdsAdMob_Dependencies.gradle",
+				"$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMob_Dependencies.gradle",
 			},
 			copy_destinations,
 		)
@@ -154,6 +172,25 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("ExternalDependencies.Add", android_build_rules)
 		self.assertIn("OpenMobileAdsAdMob_Android.gradle", android_build_rules)
+		self.assertIn("OpenMobileAdsAdMob_Dependencies.gradle", android_build_rules)
+
+		dependency_validation = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMob_Dependencies.gradle"
+		).read_text(encoding="utf-8")
+		self.assertIn("MIN_SDK_VERSION", dependency_validation)
+		self.assertIn("COMPILE_SDK_VERSION", dependency_validation)
+		self.assertIn("GradleVersion.current()", dependency_validation)
+		self.assertIn("ANDROID_TOOLS_BUILD_GRADLE_VERSION", dependency_validation)
+		self.assertIn("JavaVersion.current()", dependency_validation)
+		self.assertIn("resolutionResult", dependency_validation)
+		self.assertIn("proguard.txt", dependency_validation)
+		self.assertIn("AndroidManifest.xml", dependency_validation)
+		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
 
 	def test_public_api_and_build_rules_have_no_vendor_dependencies(self) -> None:
 		public_root = ADS_PLUGIN / "Source" / "OpenMobileAds" / "Public"

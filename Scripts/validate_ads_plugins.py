@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import sys
 import zipfile
 import xml.etree.ElementTree as ElementTree
@@ -34,6 +35,12 @@ ANDROID_MANIFEST_CONTRACTS = {
 	},
 }
 ANDROID_ADAPTER_MANIFEST_CONTRACTS = {}
+ANDROID_DEPENDENCY_CONTRACTS = {
+	"OpenMobileAdsAdMob": {
+		"com.google.android.gms:play-services-ads": "25.4.0",
+	},
+}
+ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {}
 ANDROID_PROVIDER_AUTHORITY_SUFFIXES = {
 	"com.google.android.gms.ads.MobileAdsInitProvider": ".mobileadsinitprovider",
 }
@@ -125,6 +132,21 @@ class AndroidManifestExpectation:
 	required_adapters: set[str] = field(default_factory=set)
 	forbidden_adapters: set[str] = field(default_factory=set)
 	expected_metadata: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AndroidDependencyInventory:
+	requested_versions: dict[str, tuple[str, ...]]
+	selected_versions: dict[str, tuple[str, ...]]
+	failed_coordinates: set[str]
+
+
+@dataclass(frozen=True)
+class AndroidDependencyExpectation:
+	required_providers: set[str] = field(default_factory=set)
+	forbidden_providers: set[str] = field(default_factory=set)
+	required_adapters: set[str] = field(default_factory=set)
+	forbidden_adapters: set[str] = field(default_factory=set)
 
 
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
@@ -454,6 +476,96 @@ def _manifest_has_owned_entry(
 	)
 
 
+ANDROID_DEPENDENCY_PATTERN = re.compile(
+	r"(?P<group>[A-Za-z0-9_.-]+):(?P<name>[A-Za-z0-9_.-]+):"
+	r"(?P<requested>\{strictly [^}]+\}|\[[^]]+\]|[^\s()]+)"
+	r"(?:\s+->\s+(?P<selected>[^\s()]+))?"
+)
+
+
+def _normalize_requested_version(version: str) -> str:
+	if version.startswith("{strictly ") and version.endswith("}"):
+		return version[len("{strictly "):-1]
+	if version.startswith("[") and version.endswith("]") and "," not in version:
+		return version[1:-1]
+	return version
+
+
+def inspect_android_dependency_graph(contents: str) -> AndroidDependencyInventory:
+	requested_versions: dict[str, set[str]] = {}
+	selected_versions: dict[str, set[str]] = {}
+	failed_coordinates: set[str] = set()
+	for line in contents.splitlines():
+		match = ANDROID_DEPENDENCY_PATTERN.search(line)
+		if match is None:
+			continue
+		coordinate = f"{match.group('group')}:{match.group('name')}"
+		requested = _normalize_requested_version(match.group("requested"))
+		selected = match.group("selected") or requested
+		requested_versions.setdefault(coordinate, set()).add(requested)
+		selected_versions.setdefault(coordinate, set()).add(selected)
+		if " FAILED" in line:
+			failed_coordinates.add(coordinate)
+	return AndroidDependencyInventory(
+		{
+			coordinate: tuple(sorted(versions))
+			for coordinate, versions in requested_versions.items()
+		},
+		{
+			coordinate: tuple(sorted(versions))
+			for coordinate, versions in selected_versions.items()
+		},
+		failed_coordinates,
+	)
+
+
+def validate_android_dependencies(
+	inventory: AndroidDependencyInventory,
+	expectation: AndroidDependencyExpectation,
+) -> list[str]:
+	errors: list[str] = []
+	required_contracts = {
+		name: ANDROID_DEPENDENCY_CONTRACTS[name]
+		for name in expectation.required_providers
+		if name in ANDROID_DEPENDENCY_CONTRACTS
+	}
+	required_contracts.update({
+		name: ANDROID_ADAPTER_DEPENDENCY_CONTRACTS[name]
+		for name in expectation.required_adapters
+		if name in ANDROID_ADAPTER_DEPENDENCY_CONTRACTS
+	})
+	for owner, contract in sorted(required_contracts.items()):
+		for coordinate, expected_version in sorted(contract.items()):
+			requested = set(inventory.requested_versions.get(coordinate, ()))
+			selected = set(inventory.selected_versions.get(coordinate, ()))
+			if not requested:
+				errors.append(f"missing Android dependency '{coordinate}:{expected_version}' for {owner}")
+				continue
+			unexpected_requests = requested - {expected_version}
+			if unexpected_requests:
+				errors.append(
+					f"Android dependency '{coordinate}' has unsupported requested version(s) "
+					f"{', '.join(sorted(unexpected_requests))}; expected {expected_version}"
+				)
+			if selected != {expected_version}:
+				errors.append(
+					f"Android dependency '{coordinate}' resolved to "
+					f"{', '.join(sorted(selected)) or 'nothing'}; expected {expected_version}"
+				)
+			if coordinate in inventory.failed_coordinates:
+				errors.append(f"Android dependency '{coordinate}' failed to resolve")
+
+	for owner in sorted(expectation.forbidden_providers):
+		contract = ANDROID_DEPENDENCY_CONTRACTS.get(owner, {})
+		if any(coordinate in inventory.requested_versions for coordinate in contract):
+			errors.append(f"found disabled Android dependency for {owner}")
+	for owner in sorted(expectation.forbidden_adapters):
+		contract = ANDROID_ADAPTER_DEPENDENCY_CONTRACTS.get(owner, {})
+		if any(coordinate in inventory.requested_versions for coordinate in contract):
+			errors.append(f"found disabled Android dependency for adapter {owner}")
+	return errors
+
+
 def discover_descriptors(repository_root: Path) -> dict[str, PluginDescriptor]:
 	descriptors: dict[str, PluginDescriptor] = {}
 	for search_root in ("Foundation", "Native", "Services", "Providers", "Tests/Plugins"):
@@ -531,6 +643,30 @@ def run_manifest_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def run_dependencies_command(arguments: argparse.Namespace) -> int:
+	inventory = inspect_android_dependency_graph(
+		arguments.dependencies.read_text(encoding="utf-8")
+	)
+	errors = validate_android_dependencies(
+		inventory,
+		AndroidDependencyExpectation(
+			set(arguments.require_provider),
+			set(arguments.forbid_provider),
+			set(arguments.require_adapter),
+			set(arguments.forbid_adapter),
+		),
+	)
+	if errors:
+		for error in errors:
+			print(f"ads Android dependency validation failed: {error}", file=sys.stderr)
+		return 1
+	print(
+		"OpenMobile Ads Android dependency validation passed "
+		f"({len(inventory.requested_versions)} modules)."
+	)
+	return 0
+
+
 def parse_arguments() -> argparse.Namespace:
 	parser = argparse.ArgumentParser()
 	subparsers = parser.add_subparsers(dest="command", required=True)
@@ -558,6 +694,14 @@ def parse_arguments() -> argparse.Namespace:
 	manifest_parser.add_argument("--forbid-adapter", action="append", default=[])
 	manifest_parser.add_argument("--expected-metadata", action="append", default=[])
 	manifest_parser.set_defaults(handler=run_manifest_command)
+
+	dependencies_parser = subparsers.add_parser("dependencies")
+	dependencies_parser.add_argument("dependencies", type=Path)
+	dependencies_parser.add_argument("--require-provider", action="append", default=[])
+	dependencies_parser.add_argument("--forbid-provider", action="append", default=[])
+	dependencies_parser.add_argument("--require-adapter", action="append", default=[])
+	dependencies_parser.add_argument("--forbid-adapter", action="append", default=[])
+	dependencies_parser.set_defaults(handler=run_dependencies_command)
 
 	return parser.parse_args()
 

@@ -11,14 +11,17 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
 from validate_ads_plugins import (
 	ADAPTER_SIGNATURES,
+	AndroidDependencyExpectation,
 	AndroidManifestExpectation,
 	ArtifactExpectation,
 	PluginDescriptor,
 	PROVIDER_SIGNATURES,
 	inspect_artifact,
+	inspect_android_dependency_graph,
 	inspect_android_manifest,
 	resolve_configuration,
 	validate_artifact,
+	validate_android_dependencies,
 	validate_android_manifest,
 )
 
@@ -398,6 +401,60 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				["found disabled Android manifest entry for OpenMobileAdsAdMob"],
 				errors,
 			)
+
+	def test_admob_android_dependency_graph_uses_the_tested_sdk(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
++--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
+|    +--- com.google.android.gms:play-services-ads-api:[25.4.0] -> 25.4.0
+|    \\--- org.jetbrains.kotlin:kotlin-stdlib:2.1.0
+\\--- androidx.appcompat:appcompat:1.2.0
+"""
+		)
+
+		self.assertEqual(
+			[],
+			validate_android_dependencies(
+				inventory,
+				AndroidDependencyExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+				),
+			),
+		)
+
+	def test_admob_android_dependency_graph_reports_conflicting_requests(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
++--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
+\\--- com.google.android.gms:play-services-ads:24.7.0 -> 25.4.0
+"""
+		)
+
+		errors = validate_android_dependencies(
+			inventory,
+			AndroidDependencyExpectation(
+				required_providers={"OpenMobileAdsAdMob"},
+			),
+		)
+
+		self.assertTrue(any("24.7.0" in error for error in errors))
+
+	def test_disabled_admob_has_no_android_dependency(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
+\\--- androidx.appcompat:appcompat:1.2.0
+"""
+		)
+
+		self.assertEqual(
+			[],
+			validate_android_dependencies(
+				inventory,
+				AndroidDependencyExpectation(
+					forbidden_providers={"OpenMobileAdsAdMob"},
+				),
+			),
+		)
 
 
 if __name__ == "__main__":
