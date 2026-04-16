@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "Google Mobile Ads SDK for iOS",
+      "version": "13.8.0",
+      "source_url": "https://dl.google.com/googleadmobadssdk/googlemobileadssdkios.zip",
+      "terms_url": "https://developers.google.com/terms/site-terms",
+      "redistribution": "Distribution is subject to the Google Developers Site Terms of Service and the retained third-party licenses. Applications using IDFA must also comply with the Apple Developer Program License Agreement.",
+      "license_files": [
+        "Licenses/CCTZ-LICENSE",
+        "Licenses/NanoPB-LICENSE",
+        "Licenses/OpenMeasurement-LICENSE",
+        "Licenses/OpenSSL-LICENSE",
+        "Licenses/TCMalloc-LICENSE"
+      ],
+      "artifacts": [
+        {
+          "path": "GoogleMobileAds.xcframework.zip",
+          "sha256": "82b36093612ba18c3eeef9a7b2b4b6cc698b317f191602699a12fba65d6be68a",
+          "role": "Runtime Google Mobile Ads framework with the device library wrapped for SQLite isolation"
+        },
+        {
+          "path": "GoogleMobileAdsStatic.xcframework.zip",
+          "sha256": "9f85b20c250ee7ad626daad871628034578db6f1e99804abbad23ef028d560d4",
+          "role": "Unmodified upstream framework retained for provenance"
+        },
+        {
+          "path": "UserMessagingPlatform.xcframework.zip",
+          "sha256": "a81d30b90962c06fbbccc18ed283e012efecc438fe4023251153beae3b717b3d",
+          "role": "Runtime User Messaging Platform framework"
+        }
+      ]
+    }
+  ]
+}

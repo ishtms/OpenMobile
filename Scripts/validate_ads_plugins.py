@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import plistlib
 import re
+import struct
 import sys
 import zipfile
 import xml.etree.ElementTree as ElementTree
@@ -116,6 +118,41 @@ SCANNABLE_SUFFIXES = {
 	".upluginmanifest",
 	".xml",
 }
+THIRD_PARTY_BINARY_SUFFIXES = {
+	".a",
+	".aar",
+	".dylib",
+	".jar",
+	".so",
+	".zip",
+}
+IOS_PACKAGE_CONTRACTS = {
+	"OpenMobileAdsAdMob": {
+		"frameworks": {
+			"GoogleMobileAds",
+			"UserMessagingPlatform",
+		},
+	},
+}
+IOS_ADAPTER_PACKAGE_CONTRACTS = {}
+ANDROID_ABI_ARCHITECTURES = {
+	"arm64-v8a": "arm64",
+	"armeabi-v7a": "arm",
+	"x86": "x86",
+	"x86_64": "x86_64",
+}
+CPU_ARCHITECTURES = {
+	7: "x86",
+	12: "arm",
+	0x01000007: "x86_64",
+	0x0100000C: "arm64",
+}
+ELF_ARCHITECTURES = {
+	3: "x86",
+	40: "arm",
+	62: "x86_64",
+	183: "arm64",
+}
 
 
 @dataclass(frozen=True)
@@ -161,12 +198,24 @@ class ResolvedConfiguration:
 @dataclass(frozen=True)
 class ArtifactInventory:
 	entries: set[str]
+	entry_counts: dict[str, int]
+	native_architectures: dict[str, tuple[str, ...]]
 	detected_providers: set[str]
 	detected_adapters: set[str]
 
 
 @dataclass(frozen=True)
 class ArtifactExpectation:
+	required_providers: set[str] = field(default_factory=set)
+	forbidden_providers: set[str] = field(default_factory=set)
+	required_adapters: set[str] = field(default_factory=set)
+	forbidden_adapters: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class PackageExpectation:
+	platform: str
+	architectures: set[str] = field(default_factory=set)
 	required_providers: set[str] = field(default_factory=set)
 	forbidden_providers: set[str] = field(default_factory=set)
 	required_adapters: set[str] = field(default_factory=set)
@@ -315,6 +364,63 @@ def stream_contains_markers(stream: BinaryIO, markers: tuple[bytes, ...]) -> set
 	return found
 
 
+def inspect_native_architectures(header: bytes) -> tuple[str, ...]:
+	if len(header) >= 20 and header.startswith(b"\x7fELF"):
+		endianness = {1: "<", 2: ">"}.get(header[5])
+		if endianness is None:
+			return ()
+		machine = struct.unpack_from(f"{endianness}H", header, 18)[0]
+		architecture = ELF_ARCHITECTURES.get(machine)
+		return (architecture,) if architecture else ()
+
+	thin_mach_o = {
+		b"\xce\xfa\xed\xfe": "<",
+		b"\xcf\xfa\xed\xfe": "<",
+		b"\xfe\xed\xfa\xce": ">",
+		b"\xfe\xed\xfa\xcf": ">",
+	}
+	endianness = thin_mach_o.get(header[:4])
+	if endianness and len(header) >= 8:
+		cpu_type = struct.unpack_from(f"{endianness}I", header, 4)[0]
+		architecture = CPU_ARCHITECTURES.get(cpu_type)
+		return (architecture,) if architecture else ()
+
+	fat_mach_o = {
+		b"\xca\xfe\xba\xbe": (">", 20),
+		b"\xbe\xba\xfe\xca": ("<", 20),
+		b"\xca\xfe\xba\xbf": (">", 32),
+		b"\xbf\xba\xfe\xca": ("<", 32),
+	}
+	fat_format = fat_mach_o.get(header[:4])
+	if fat_format is None or len(header) < 8:
+		return ()
+	endianness, entry_size = fat_format
+	entry_count = struct.unpack_from(f"{endianness}I", header, 4)[0]
+	if entry_count > 64 or len(header) < 8 + (entry_count * entry_size):
+		return ()
+	architectures: set[str] = set()
+	for index in range(entry_count):
+		cpu_type = struct.unpack_from(
+			f"{endianness}I",
+			header,
+			8 + (index * entry_size),
+		)[0]
+		architecture = CPU_ARCHITECTURES.get(cpu_type)
+		if architecture:
+			architectures.add(architecture)
+	return tuple(sorted(architectures))
+
+
+def is_native_artifact_entry(name: str) -> bool:
+	path = Path(name)
+	if path.suffix in {".dylib", ".so"}:
+		return True
+	parts = path.parts
+	if len(parts) < 2 or not parts[-2].endswith(".framework"):
+		return False
+	return parts[-1] == Path(parts[-2]).stem
+
+
 def inspect_artifact(
 	path: Path,
 	*,
@@ -322,6 +428,8 @@ def inspect_artifact(
 	adapter_signatures: dict[str, tuple[bytes, ...]] = ADAPTER_SIGNATURES,
 ) -> ArtifactInventory:
 	entries: set[str] = set()
+	entry_counts: dict[str, int] = {}
+	native_architectures: dict[str, tuple[str, ...]] = {}
 	detected_providers: set[str] = set()
 	detected_adapters: set[str] = set()
 	provider_markers = {
@@ -344,18 +452,35 @@ def inspect_artifact(
 		for marker in markers
 	})
 
-	def inspect_name(name: str) -> bool:
+	def inspect_name(name: str) -> tuple[str, bool, bool]:
 		lower_name = name.lower()
 		entries.add(lower_name)
+		entry_counts[lower_name] = entry_counts.get(lower_name, 0) + 1
 		for provider, markers in provider_markers.items():
 			if any(marker.decode("ascii") in lower_name for marker in markers):
 				detected_providers.add(provider)
 		for adapter, markers in adapter_markers.items():
 			if any(marker.decode("ascii") in lower_name for marker in markers):
 				detected_adapters.add(adapter)
-		return Path(lower_name).suffix in SCANNABLE_SUFFIXES
+		return (
+			lower_name,
+			Path(lower_name).suffix in SCANNABLE_SUFFIXES,
+			is_native_artifact_entry(lower_name),
+		)
 
-	def inspect_stream(stream: BinaryIO) -> None:
+	def inspect_stream(
+		stream: BinaryIO,
+		name: str,
+		*,
+		scan_markers: bool,
+		scan_architectures: bool,
+	) -> None:
+		if scan_architectures:
+			native_architectures[name] = inspect_native_architectures(stream.read(4096))
+		if not scan_markers:
+			return
+		if scan_architectures:
+			stream.seek(0)
 		for marker in stream_contains_markers(stream, tuple(marker_owners)):
 			payload_type, owner = marker_owners[marker]
 			if payload_type == "provider":
@@ -367,26 +492,51 @@ def inspect_artifact(
 		for artifact_file in path.rglob("*"):
 			if not artifact_file.is_file():
 				continue
-			if not inspect_name(str(artifact_file.relative_to(path))):
+			name, scan_markers, scan_architectures = inspect_name(
+				str(artifact_file.relative_to(path))
+			)
+			if not scan_markers and not scan_architectures:
 				continue
 			with artifact_file.open("rb") as artifact_stream:
-				inspect_stream(artifact_stream)
+				inspect_stream(
+					artifact_stream,
+					name,
+					scan_markers=scan_markers,
+					scan_architectures=scan_architectures,
+				)
 	elif zipfile.is_zipfile(path):
 		with zipfile.ZipFile(path) as archive:
 			for entry in archive.infolist():
 				if entry.is_dir():
-					entries.add(entry.filename.lower())
+					inspect_name(entry.filename)
 					continue
-				if not inspect_name(entry.filename):
+				name, scan_markers, scan_architectures = inspect_name(entry.filename)
+				if not scan_markers and not scan_architectures:
 					continue
 				with archive.open(entry) as artifact_stream:
-					inspect_stream(artifact_stream)
+					inspect_stream(
+						artifact_stream,
+						name,
+						scan_markers=scan_markers,
+						scan_architectures=scan_architectures,
+					)
 	else:
 		with path.open("rb") as artifact_stream:
-			inspect_name(path.name)
-			inspect_stream(artifact_stream)
+			name, scan_markers, scan_architectures = inspect_name(path.name)
+			inspect_stream(
+				artifact_stream,
+				name,
+				scan_markers=scan_markers,
+				scan_architectures=scan_architectures,
+			)
 
-	return ArtifactInventory(entries, detected_providers, detected_adapters)
+	return ArtifactInventory(
+		entries=entries,
+		entry_counts=entry_counts,
+		native_architectures=native_architectures,
+		detected_providers=detected_providers,
+		detected_adapters=detected_adapters,
+	)
 
 
 def validate_artifact(
@@ -408,6 +558,297 @@ def validate_artifact(
 	errors.extend(
 		f"found disabled native payload for adapter {adapter}"
 		for adapter in sorted(expectation.forbidden_adapters & inventory.detected_adapters)
+	)
+	return errors
+
+
+def validate_android_package(
+	inventory: ArtifactInventory,
+	expectation: PackageExpectation,
+) -> list[str]:
+	errors: list[str] = []
+	native_entries = {
+		entry: architectures
+		for entry, architectures in inventory.native_architectures.items()
+		if re.search(r"(?:^|/)lib/[^/]+/[^/]+\.so$", entry)
+	}
+	for entry, architectures in sorted(native_entries.items()):
+		match = re.search(r"(?:^|/)lib/([^/]+)/[^/]+\.so$", entry)
+		if match is None:
+			continue
+		abi = match.group(1)
+		if expectation.architectures and abi not in expectation.architectures:
+			errors.append(f"unexpected Android ABI {abi} in {entry}")
+		expected_native_architecture = ANDROID_ABI_ARCHITECTURES.get(abi)
+		if expected_native_architecture and architectures != (expected_native_architecture,):
+			detected = ", ".join(architectures) if architectures else "unknown"
+			errors.append(
+				f"Android ABI {abi} contains {detected} native binary {entry}"
+			)
+
+	for architecture in sorted(expectation.architectures):
+		if not any(
+			re.search(rf"(?:^|/)lib/{re.escape(architecture)}/[^/]+\.so$", entry)
+			for entry in native_entries
+		):
+			errors.append(f"missing Android ABI {architecture}")
+
+	unmerged_dependencies = sorted(
+		entry
+		for entry in inventory.entries
+		if Path(entry).suffix == ".aar"
+		or (
+			Path(entry).suffix == ".jar"
+			and ("/libs/" in f"/{entry}" or Path(entry).name == "classes.jar")
+		)
+	)
+	if unmerged_dependencies:
+		errors.append(
+			"unmerged Android dependency in package: " + unmerged_dependencies[0]
+		)
+
+	ios_payload = sorted(
+		entry
+		for entry in inventory.entries
+		if ".framework/" in entry
+		or ".xcframework/" in entry
+		or entry.endswith(".dylib")
+	)
+	if ios_payload:
+		errors.append("iOS payload found in Android package: " + ios_payload[0])
+	return errors
+
+
+def framework_entry_suffix(framework: str, suffix: str) -> str:
+	return f"/frameworks/{framework.lower()}.framework/{suffix.lower()}"
+
+
+def find_framework_entry(
+	entries: Iterable[str],
+	framework: str,
+	suffix: str,
+) -> str | None:
+	expected_suffix = framework_entry_suffix(framework, suffix)
+	for entry in entries:
+		if f"/{entry}".endswith(expected_suffix):
+			return entry
+	return None
+
+
+def validate_ios_package(
+	inventory: ArtifactInventory,
+	expectation: PackageExpectation,
+) -> list[str]:
+	errors: list[str] = []
+	required_frameworks: set[str] = set()
+	for provider in expectation.required_providers:
+		required_frameworks.update(
+			IOS_PACKAGE_CONTRACTS.get(provider, {}).get("frameworks", set())
+		)
+	for adapter in expectation.required_adapters:
+		required_frameworks.update(
+			IOS_ADAPTER_PACKAGE_CONTRACTS.get(adapter, {}).get("frameworks", set())
+		)
+
+	for framework in sorted(required_frameworks):
+		binary_entry = find_framework_entry(
+			inventory.entries,
+			framework,
+			framework,
+		)
+		if binary_entry is None:
+			errors.append(f"missing embedded iOS framework {framework}")
+			continue
+		if find_framework_entry(
+			inventory.entries,
+			framework,
+			"_CodeSignature/CodeResources",
+		) is None:
+			errors.append(f"unsigned framework {framework}")
+		if find_framework_entry(
+			inventory.entries,
+			framework,
+			"PrivacyInfo.xcprivacy",
+		) is None:
+			errors.append(f"missing privacy manifest for framework {framework}")
+		architectures = set(inventory.native_architectures.get(binary_entry, ()))
+		if architectures != expectation.architectures:
+			detected = ", ".join(sorted(architectures)) if architectures else "unknown"
+			expected = ", ".join(sorted(expectation.architectures)) or "device default"
+			errors.append(
+				f"framework {framework} contains {detected}, expected {expected}"
+			)
+
+	build_payload = sorted(
+		entry
+		for entry in inventory.entries
+		if ".xcframework/" in entry
+		or "/headers/" in f"/{entry}"
+		or "/privateheaders/" in f"/{entry}"
+		or "/modules/" in f"/{entry}"
+		or "-simulator/" in entry
+		or Path(entry).suffix == ".a"
+		or (
+			Path(entry).suffix == ".zip"
+			and (
+				"/frameworks/" in f"/{entry}"
+				or any(
+					marker.decode("ascii") in entry
+					for markers in PROVIDER_SIGNATURES.values()
+					for marker in markers
+				)
+			)
+		)
+	)
+	if build_payload:
+		errors.append("build-time iOS payload in application: " + build_payload[0])
+
+	android_payload = sorted(
+		entry
+		for entry in inventory.entries
+		if entry.endswith("classes.dex")
+		or re.search(r"(?:^|/)lib/[^/]+/[^/]+\.so$", entry)
+		or entry.endswith("androidmanifest.xml")
+	)
+	if android_payload:
+		errors.append("Android payload found in iOS package: " + android_payload[0])
+	return errors
+
+
+def validate_package(
+	inventory: ArtifactInventory,
+	expectation: PackageExpectation,
+) -> list[str]:
+	errors = validate_artifact(
+		inventory,
+		ArtifactExpectation(
+			required_providers=expectation.required_providers,
+			forbidden_providers=expectation.forbidden_providers,
+			required_adapters=expectation.required_adapters,
+			forbidden_adapters=expectation.forbidden_adapters,
+		),
+	)
+	errors.extend(
+		f"duplicate package entry {entry}"
+		for entry, count in sorted(inventory.entry_counts.items())
+		if count > 1
+	)
+	platform = expectation.platform.lower()
+	if platform == "android":
+		errors.extend(validate_android_package(inventory, expectation))
+	elif platform == "ios":
+		errors.extend(validate_ios_package(inventory, expectation))
+	else:
+		errors.append(f"unsupported package platform {expectation.platform}")
+	return errors
+
+
+def sha256_file(path: Path) -> str:
+	digest = hashlib.sha256()
+	with path.open("rb") as source:
+		while chunk := source.read(1024 * 1024):
+			digest.update(chunk)
+	return digest.hexdigest()
+
+
+def safe_manifest_path(root: Path, relative_path: str) -> Path | None:
+	if not relative_path or Path(relative_path).is_absolute():
+		return None
+	path = (root / relative_path).resolve()
+	try:
+		path.relative_to(root.resolve())
+	except ValueError:
+		return None
+	return path
+
+
+def validate_third_party_packages(manifest_path: Path) -> list[str]:
+	errors: list[str] = []
+	if not manifest_path.is_file():
+		return [f"missing third-party package manifest {manifest_path}"]
+	try:
+		manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+		return [f"invalid third-party package manifest {manifest_path}: {error}"]
+	if not isinstance(manifest, dict):
+		return [f"invalid third-party package manifest {manifest_path}: expected object"]
+	if manifest.get("schema_version") != 1:
+		errors.append("third-party package manifest schema_version must be 1")
+
+	root = manifest_path.parent
+	listed_artifacts: set[str] = set()
+	packages = manifest.get("packages")
+	if not isinstance(packages, list) or not packages:
+		return errors + ["third-party package manifest has no packages"]
+	for package in packages:
+		if not isinstance(package, dict):
+			errors.append("third-party package entry must be an object")
+			continue
+		name = package.get("name")
+		if not isinstance(name, str) or not name.strip():
+			name = "unnamed package"
+			errors.append("third-party package is missing a name")
+		for field_name in ("version", "redistribution"):
+			value = package.get(field_name)
+			if not isinstance(value, str) or not value.strip():
+				errors.append(f"{name} is missing {field_name}")
+		for field_name in ("source_url", "terms_url"):
+			value = package.get(field_name)
+			if not isinstance(value, str) or not value.startswith("https://"):
+				errors.append(f"{name} has invalid {field_name}")
+
+		license_files = package.get("license_files")
+		if not isinstance(license_files, list) or not license_files:
+			errors.append(f"{name} has no license files")
+		else:
+			for relative_path in license_files:
+				if not isinstance(relative_path, str):
+					errors.append(f"{name} has an invalid license file entry")
+					continue
+				path = safe_manifest_path(root, relative_path)
+				if path is None or not path.is_file() or path.stat().st_size == 0:
+					errors.append(f"{name} has missing license file {relative_path}")
+
+		artifacts = package.get("artifacts")
+		if not isinstance(artifacts, list) or not artifacts:
+			errors.append(f"{name} has no artifacts")
+			continue
+		for artifact in artifacts:
+			if not isinstance(artifact, dict):
+				errors.append(f"{name} has an invalid artifact entry")
+				continue
+			relative_path = artifact.get("path")
+			checksum = artifact.get("sha256")
+			role = artifact.get("role")
+			if not isinstance(relative_path, str):
+				errors.append(f"{name} has an artifact without a path")
+				continue
+			if relative_path in listed_artifacts:
+				errors.append(f"duplicate third-party artifact {relative_path}")
+			listed_artifacts.add(relative_path)
+			path = safe_manifest_path(root, relative_path)
+			if path is None or not path.is_file():
+				errors.append(f"missing third-party artifact {relative_path}")
+				continue
+			if not isinstance(role, str) or not role.strip():
+				errors.append(f"{relative_path} is missing its package role")
+			if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+				errors.append(f"{relative_path} has invalid sha256")
+			elif sha256_file(path) != checksum:
+				errors.append(f"checksum mismatch for {relative_path}")
+
+	discovered_artifacts = {
+		str(path.relative_to(root))
+		for path in root.rglob("*")
+		if path.is_file()
+		and (
+			path.suffix.lower() in THIRD_PARTY_BINARY_SUFFIXES
+			or is_native_artifact_entry(str(path.relative_to(root)).lower())
+		)
+	}
+	errors.extend(
+		f"unlisted third-party binary {path}"
+		for path in sorted(discovered_artifacts - listed_artifacts)
 	)
 	return errors
 
@@ -940,6 +1381,40 @@ def run_artifact_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def run_package_command(arguments: argparse.Namespace) -> int:
+	inventory = inspect_artifact(arguments.artifact)
+	errors = validate_package(
+		inventory,
+		PackageExpectation(
+			platform=arguments.platform,
+			architectures=set(arguments.architecture),
+			required_providers=set(arguments.require_provider),
+			forbidden_providers=set(arguments.forbid_provider),
+			required_adapters=set(arguments.require_adapter),
+			forbidden_adapters=set(arguments.forbid_adapter),
+		),
+	)
+	if errors:
+		for error in errors:
+			print(f"ads package validation failed: {error}", file=sys.stderr)
+		return 1
+	print(
+		"OpenMobile Ads package validation passed "
+		f"({len(inventory.entries)} entries)."
+	)
+	return 0
+
+
+def run_third_party_command(arguments: argparse.Namespace) -> int:
+	errors = validate_third_party_packages(arguments.manifest)
+	if errors:
+		for error in errors:
+			print(f"ads third-party validation failed: {error}", file=sys.stderr)
+		return 1
+	print("OpenMobile Ads third-party package validation passed.")
+	return 0
+
+
 def run_manifest_command(arguments: argparse.Namespace) -> int:
 	expected_metadata = {}
 	for assignment in arguments.expected_metadata:
@@ -1036,6 +1511,25 @@ def parse_arguments() -> argparse.Namespace:
 	artifact_parser.add_argument("--require-adapter", action="append", default=[])
 	artifact_parser.add_argument("--forbid-adapter", action="append", default=[])
 	artifact_parser.set_defaults(handler=run_artifact_command)
+
+	package_parser = subparsers.add_parser("package")
+	package_parser.add_argument("artifact", type=Path)
+	package_parser.add_argument("--platform", choices=("Android", "IOS"), required=True)
+	package_parser.add_argument(
+		"--architecture",
+		action="append",
+		choices=("arm64", "arm64-v8a", "armeabi-v7a", "x86", "x86_64"),
+		required=True,
+	)
+	package_parser.add_argument("--require-provider", action="append", default=[])
+	package_parser.add_argument("--forbid-provider", action="append", default=[])
+	package_parser.add_argument("--require-adapter", action="append", default=[])
+	package_parser.add_argument("--forbid-adapter", action="append", default=[])
+	package_parser.set_defaults(handler=run_package_command)
+
+	third_party_parser = subparsers.add_parser("third-party")
+	third_party_parser.add_argument("manifest", type=Path)
+	third_party_parser.set_defaults(handler=run_third_party_command)
 
 	manifest_parser = subparsers.add_parser("manifest")
 	manifest_parser.add_argument("manifest", type=Path)
