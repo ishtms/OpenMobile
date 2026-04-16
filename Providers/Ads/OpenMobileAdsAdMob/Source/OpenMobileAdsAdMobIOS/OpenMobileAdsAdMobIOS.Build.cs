@@ -47,6 +47,9 @@ public class OpenMobileAdsAdMobIOS : ModuleRules
 		));
 
 		string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
+		ExternalDependencies.Add(
+			Path.Combine(ModuleDirectory, "Private/IOS/OpenMobileAdsAdMob_IOS_UPL.xml")
+		);
 		AdditionalPropertiesForReceipt.Add(
 			"IOSPlugin",
 			Path.Combine(ModulePath, "Private/IOS/OpenMobileAdsAdMob_IOS_UPL.xml")

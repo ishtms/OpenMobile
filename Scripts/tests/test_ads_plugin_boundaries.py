@@ -9,7 +9,11 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
-from validate_ads_plugins import ADAPTER_SIGNATURES, PROVIDER_SIGNATURES
+from validate_ads_plugins import (
+	ADAPTER_SIGNATURES,
+	IOS_PLIST_CONTRACTS,
+	PROVIDER_SIGNATURES,
+)
 
 
 ADS_PLUGIN = REPOSITORY_ROOT / "Services" / "OpenMobileAds"
@@ -191,6 +195,59 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("proguard.txt", dependency_validation)
 		self.assertIn("AndroidManifest.xml", dependency_validation)
 		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
+
+	def test_admob_ios_upl_owns_safe_plist_merging(self) -> None:
+		upl_path = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMob_IOS_UPL.xml"
+		)
+		root = ElementTree.parse(upl_path).getroot()
+		plist_updates = ElementTree.tostring(
+			root.find("iosPListUpdates"),
+			encoding="unicode",
+		)
+		self.assertIn("OpenMobileAdsAdMobHasAppId", plist_updates)
+		self.assertIn("OpenMobileAdsAdMobSKAdItemsFound", plist_updates)
+		self.assertIn("OpenMobileAdsAdMobSeenSKAdNetworkIdentifiers", plist_updates)
+		self.assertIn("removeElement", plist_updates)
+		upl_identifiers = {
+			element.text
+			for element in root.findall(".//string")
+			if element.text and element.text.endswith(".skadnetwork")
+		}
+		self.assertEqual(
+			IOS_PLIST_CONTRACTS["OpenMobileAdsAdMob"]["skad_network_ids"],
+			upl_identifiers,
+		)
+		build_settings = ElementTree.tostring(
+			root.find("registerBuildSettings"),
+			encoding="unicode",
+		)
+		self.assertIn("OpenMobileAdsAdMobIOSPlistContract=2", build_settings)
+
+		common_build_rules = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMob"
+			/ "OpenMobileAdsAdMob.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertIn("ValidateIOSAppId", common_build_rules)
+		self.assertIn("AdditionalPlistData", common_build_rules)
+		self.assertIn("ValidateAdditionalPlistData", common_build_rules)
+		self.assertIn("UE_BUILD_FROM_XCODE", common_build_rules)
+
+		ios_build_rules = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "OpenMobileAdsAdMobIOS.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertIn("ExternalDependencies.Add", ios_build_rules)
+		self.assertIn("OpenMobileAdsAdMob_IOS_UPL.xml", ios_build_rules)
 
 	def test_public_api_and_build_rules_have_no_vendor_dependencies(self) -> None:
 		public_root = ADS_PLUGIN / "Source" / "OpenMobileAds" / "Public"

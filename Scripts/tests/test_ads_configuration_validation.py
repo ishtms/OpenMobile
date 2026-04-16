@@ -1,4 +1,5 @@
 import json
+import plistlib
 import sys
 import tempfile
 import unittest
@@ -14,15 +15,19 @@ from validate_ads_plugins import (
 	AndroidDependencyExpectation,
 	AndroidManifestExpectation,
 	ArtifactExpectation,
+	IOS_PLIST_CONTRACTS,
+	IOSPlistExpectation,
 	PluginDescriptor,
 	PROVIDER_SIGNATURES,
 	inspect_artifact,
 	inspect_android_dependency_graph,
 	inspect_android_manifest,
+	inspect_ios_plist,
 	resolve_configuration,
 	validate_artifact,
 	validate_android_dependencies,
 	validate_android_manifest,
+	validate_ios_plist,
 )
 
 
@@ -455,6 +460,99 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				),
 			),
 		)
+
+	def test_admob_ios_plist_preserves_project_owned_values(self) -> None:
+		contract = IOS_PLIST_CONTRACTS["OpenMobileAdsAdMob"]
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			plist_path = Path(temporary_directory) / "Info.plist"
+			plist_path.write_bytes(plistlib.dumps({
+				"GADApplicationIdentifier": "ca-app-pub-1234567890123456~1234567890",
+				"SKAdNetworkItems": [
+					{"SKAdNetworkIdentifier": identifier}
+					for identifier in sorted(contract["skad_network_ids"])
+				] + [{"SKAdNetworkIdentifier": "examplebuyer.skadnetwork"}],
+				"NSUserTrackingUsageDescription": "Ads help keep this game free.",
+				"CFBundleURLTypes": [{
+					"CFBundleURLName": "com.example.game",
+					"CFBundleURLSchemes": ["openmobile-example"],
+				}],
+			}, fmt=plistlib.FMT_BINARY))
+
+			inventory = inspect_ios_plist(plist_path)
+			errors = validate_ios_plist(
+				inventory,
+				IOSPlistExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					expected_values={
+						"GADApplicationIdentifier":
+							"ca-app-pub-1234567890123456~1234567890",
+					},
+				),
+			)
+
+			self.assertEqual([], errors)
+			self.assertIn("examplebuyer.skadnetwork", inventory.skad_network_ids)
+			self.assertEqual(("openmobile-example",), inventory.url_schemes)
+
+	def test_admob_ios_plist_reports_conflicts_and_duplicates(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			plist_path = Path(temporary_directory) / "Info.plist"
+			plist_path.write_text(
+				"""<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>GADApplicationIdentifier</key><string>ca-app-pub-111~111</string>
+    <key>GADApplicationIdentifier</key><string>ca-app-pub-222~222</string>
+    <key>SKAdNetworkItems</key>
+    <array>
+        <dict><key>SKAdNetworkIdentifier</key><string>cstr6suwn9.skadnetwork</string></dict>
+        <dict><key>SKAdNetworkIdentifier</key><string>cstr6suwn9.skadnetwork</string></dict>
+    </array>
+    <key>NSUserTrackingUsageDescription</key><string></string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict><key>CFBundleURLSchemes</key><array><string>duplicate</string></array></dict>
+        <dict><key>CFBundleURLSchemes</key><array><string>duplicate</string></array></dict>
+    </array>
+</dict>
+</plist>
+""",
+				encoding="utf-8",
+			)
+
+			errors = validate_ios_plist(
+				inspect_ios_plist(plist_path),
+				IOSPlistExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					expected_values={
+						"GADApplicationIdentifier": "ca-app-pub-333~333",
+					},
+				),
+			)
+
+			self.assertTrue(any("duplicate iOS plist key" in error for error in errors))
+			self.assertTrue(any("conflicting values" in error for error in errors))
+			self.assertTrue(any("duplicate SKAdNetworkIdentifier" in error for error in errors))
+			self.assertTrue(any("missing SKAdNetworkIdentifier" in error for error in errors))
+			self.assertTrue(any("tracking usage description is empty" in error for error in errors))
+			self.assertTrue(any("duplicate URL scheme" in error for error in errors))
+
+	def test_disabled_admob_has_no_ios_plist_entry(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			plist_path = Path(temporary_directory) / "Info.plist"
+			plist_path.write_bytes(plistlib.dumps({
+				"GADApplicationIdentifier": "ca-app-pub-1234567890123456~1234567890",
+			}))
+
+			self.assertEqual(
+				["found disabled iOS plist entry for OpenMobileAdsAdMob"],
+				validate_ios_plist(
+					inspect_ios_plist(plist_path),
+					IOSPlistExpectation(
+						forbidden_providers={"OpenMobileAdsAdMob"},
+					),
+				),
+			)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import plistlib
 import re
 import sys
 import zipfile
@@ -41,6 +42,64 @@ ANDROID_DEPENDENCY_CONTRACTS = {
 	},
 }
 ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {}
+IOS_PLIST_CONTRACTS = {
+	"OpenMobileAdsAdMob": {
+		"scalar_keys": {"GADApplicationIdentifier"},
+		"skad_network_ids": {
+			"cstr6suwn9.skadnetwork",
+			"4fzdc2evr5.skadnetwork",
+			"2fnua5tdw4.skadnetwork",
+			"ydx93a7ass.skadnetwork",
+			"p78axxw29g.skadnetwork",
+			"v72qych5uu.skadnetwork",
+			"ludvb6z3bs.skadnetwork",
+			"cp8zw746q7.skadnetwork",
+			"3sh42y64q3.skadnetwork",
+			"c6k4g5qg8m.skadnetwork",
+			"s39g8k73mm.skadnetwork",
+			"wg4vff78zm.skadnetwork",
+			"3qy4746246.skadnetwork",
+			"f38h382jlk.skadnetwork",
+			"hs6bdukanm.skadnetwork",
+			"mlmmfzh3r3.skadnetwork",
+			"v4nxqhlyqp.skadnetwork",
+			"wzmmz9fp6w.skadnetwork",
+			"su67r6k2v3.skadnetwork",
+			"yclnxrl5pm.skadnetwork",
+			"t38b2kh725.skadnetwork",
+			"7ug5zh24hu.skadnetwork",
+			"gta9lk7p23.skadnetwork",
+			"vutu7akeur.skadnetwork",
+			"y5ghdn5j9k.skadnetwork",
+			"v9wttpbfk9.skadnetwork",
+			"n38lu8286q.skadnetwork",
+			"47vhws6wlr.skadnetwork",
+			"kbd757ywx3.skadnetwork",
+			"9t245vhmpl.skadnetwork",
+			"a2p9lx4jpn.skadnetwork",
+			"22mmun2rn5.skadnetwork",
+			"44jx6755aq.skadnetwork",
+			"k674qkevps.skadnetwork",
+			"4468km3ulz.skadnetwork",
+			"2u9pt9hc89.skadnetwork",
+			"8s468mfl3y.skadnetwork",
+			"klf5c3l5u5.skadnetwork",
+			"ppxm28t8ap.skadnetwork",
+			"kbmxgpxpgc.skadnetwork",
+			"uw77j35x4d.skadnetwork",
+			"578prtvx9j.skadnetwork",
+			"4dzt52r2t5.skadnetwork",
+			"tl55sbb4fm.skadnetwork",
+			"c3frkrj4fj.skadnetwork",
+			"e5fvkxwrpn.skadnetwork",
+			"8c4e2ghe7u.skadnetwork",
+			"3rd42ekr43.skadnetwork",
+			"97r2b46745.skadnetwork",
+			"3qcr597p9d.skadnetwork",
+		},
+	},
+}
+IOS_ADAPTER_PLIST_CONTRACTS = {}
 ANDROID_PROVIDER_AUTHORITY_SUFFIXES = {
 	"com.google.android.gms.ads.MobileAdsInitProvider": ".mobileadsinitprovider",
 }
@@ -147,6 +206,25 @@ class AndroidDependencyExpectation:
 	forbidden_providers: set[str] = field(default_factory=set)
 	required_adapters: set[str] = field(default_factory=set)
 	forbidden_adapters: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class IOSPlistInventory:
+	values: dict[str, tuple[str, ...]]
+	value_types: dict[str, tuple[str, ...]]
+	skad_network_ids: tuple[str, ...]
+	url_schemes: tuple[str, ...]
+	duplicate_keys: tuple[str, ...]
+	malformed_entries: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IOSPlistExpectation:
+	required_providers: set[str] = field(default_factory=set)
+	forbidden_providers: set[str] = field(default_factory=set)
+	required_adapters: set[str] = field(default_factory=set)
+	forbidden_adapters: set[str] = field(default_factory=set)
+	expected_values: dict[str, str] = field(default_factory=dict)
 
 
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
@@ -566,6 +644,250 @@ def validate_android_dependencies(
 	return errors
 
 
+def _plist_value_text(element: ElementTree.Element) -> str:
+	return element.text or ""
+
+
+def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
+	root = ElementTree.parse(path).getroot()
+	top_dictionary = root if root.tag == "dict" else root.find("dict")
+	if top_dictionary is None:
+		raise ValueError("iOS plist has no root dictionary")
+
+	values: dict[str, list[str]] = {}
+	value_types: dict[str, list[str]] = {}
+	skad_network_ids: list[str] = []
+	url_schemes: list[str] = []
+	duplicate_keys: list[str] = []
+	malformed_entries: list[str] = []
+
+	def inspect_skad_network_items(value: ElementTree.Element, path_name: str) -> None:
+		if value.tag != "array":
+			malformed_entries.append(f"{path_name} must be an array")
+			return
+		for index, item in enumerate(value):
+			if item.tag != "dict":
+				malformed_entries.append(f"{path_name}[{index}] must be a dictionary")
+				continue
+			children = list(item)
+			identifiers = [
+				children[child_index + 1]
+				for child_index in range(len(children) - 1)
+				if children[child_index].tag == "key"
+				and _plist_value_text(children[child_index]) == "SKAdNetworkIdentifier"
+			]
+			if len(identifiers) != 1 or identifiers[0].tag != "string":
+				malformed_entries.append(
+					f"{path_name}[{index}] must contain one string SKAdNetworkIdentifier"
+				)
+				continue
+			identifier = _plist_value_text(identifiers[0]).strip()
+			if not identifier:
+				malformed_entries.append(f"{path_name}[{index}] has an empty identifier")
+				continue
+			skad_network_ids.append(identifier)
+
+	def inspect_url_schemes(value: ElementTree.Element, path_name: str) -> None:
+		if value.tag != "array":
+			malformed_entries.append(f"{path_name} must be an array")
+			return
+		for index, item in enumerate(value):
+			if item.tag != "string" or not _plist_value_text(item).strip():
+				malformed_entries.append(f"{path_name}[{index}] must be a non-empty string")
+				continue
+			url_schemes.append(_plist_value_text(item).strip())
+
+	def inspect_value(value: ElementTree.Element, path_name: str) -> None:
+		if value.tag == "dict":
+			inspect_dictionary(value, path_name, False)
+		elif value.tag == "array":
+			for index, item in enumerate(value):
+				inspect_value(item, f"{path_name}[{index}]")
+
+	def inspect_dictionary(
+		dictionary: ElementTree.Element,
+		path_name: str,
+		is_top_level: bool,
+	) -> None:
+		children = list(dictionary)
+		seen_keys: set[str] = set()
+		index = 0
+		while index < len(children):
+			key_element = children[index]
+			if key_element.tag != "key":
+				malformed_entries.append(f"{path_name} contains a value without a key")
+				inspect_value(key_element, f"{path_name}[{index}]")
+				index += 1
+				continue
+			key = _plist_value_text(key_element)
+			if not key:
+				malformed_entries.append(f"{path_name} contains an empty key")
+			if index + 1 >= len(children):
+				malformed_entries.append(f"{path_name}.{key} has no value")
+				break
+			value = children[index + 1]
+			if key in seen_keys:
+				duplicate_keys.append(key)
+			seen_keys.add(key)
+			if is_top_level:
+				values.setdefault(key, []).append(_plist_value_text(value))
+				value_types.setdefault(key, []).append(value.tag)
+			if key == "SKAdNetworkItems":
+				inspect_skad_network_items(value, f"{path_name}.{key}")
+			elif key == "CFBundleURLSchemes":
+				inspect_url_schemes(value, f"{path_name}.{key}")
+			inspect_value(value, f"{path_name}.{key}")
+			index += 2
+
+	inspect_dictionary(top_dictionary, "root", True)
+	return IOSPlistInventory(
+		{name: tuple(entries) for name, entries in values.items()},
+		{name: tuple(entries) for name, entries in value_types.items()},
+		tuple(skad_network_ids),
+		tuple(url_schemes),
+		tuple(duplicate_keys),
+		tuple(malformed_entries),
+	)
+
+
+def _inspect_binary_ios_plist(path: Path) -> IOSPlistInventory:
+	with path.open("rb") as plist_file:
+		root = plistlib.load(plist_file)
+	if not isinstance(root, dict):
+		raise ValueError("iOS plist has no root dictionary")
+
+	values = {
+		key: (value if isinstance(value, str) else "",)
+		for key, value in root.items()
+	}
+	value_types = {
+		key: ("string" if isinstance(value, str) else type(value).__name__,)
+		for key, value in root.items()
+	}
+	malformed_entries: list[str] = []
+	skad_network_ids: list[str] = []
+	url_schemes: list[str] = []
+
+	def inspect_value(value: object, path_name: str) -> None:
+		if isinstance(value, dict):
+			for key, child in value.items():
+				child_path = f"{path_name}.{key}"
+				if key == "SKAdNetworkItems":
+					if not isinstance(child, list):
+						malformed_entries.append(f"{child_path} must be an array")
+					else:
+						for index, item in enumerate(child):
+							identifier = item.get("SKAdNetworkIdentifier") if isinstance(item, dict) else None
+							if not isinstance(identifier, str) or not identifier.strip():
+								malformed_entries.append(
+									f"{child_path}[{index}] must contain one string SKAdNetworkIdentifier"
+								)
+							else:
+								skad_network_ids.append(identifier.strip())
+				elif key == "CFBundleURLSchemes":
+					if not isinstance(child, list):
+						malformed_entries.append(f"{child_path} must be an array")
+					else:
+						for index, scheme in enumerate(child):
+							if not isinstance(scheme, str) or not scheme.strip():
+								malformed_entries.append(
+									f"{child_path}[{index}] must be a non-empty string"
+								)
+							else:
+								url_schemes.append(scheme.strip())
+				inspect_value(child, child_path)
+		elif isinstance(value, list):
+			for index, child in enumerate(value):
+				inspect_value(child, f"{path_name}[{index}]")
+
+	inspect_value(root, "root")
+	return IOSPlistInventory(
+		values,
+		value_types,
+		tuple(skad_network_ids),
+		tuple(url_schemes),
+		(),
+		tuple(malformed_entries),
+	)
+
+
+def inspect_ios_plist(path: Path) -> IOSPlistInventory:
+	with path.open("rb") as plist_file:
+		is_binary = plist_file.read(8) == b"bplist00"
+	return _inspect_binary_ios_plist(path) if is_binary else _inspect_xml_ios_plist(path)
+
+
+def _duplicate_values(values: tuple[str, ...]) -> set[str]:
+	counts: dict[str, int] = {}
+	for value in values:
+		counts[value] = counts.get(value, 0) + 1
+	return {value for value, count in counts.items() if count > 1}
+
+
+def validate_ios_plist(
+	inventory: IOSPlistInventory,
+	expectation: IOSPlistExpectation,
+) -> list[str]:
+	errors = [f"malformed iOS plist entry: {entry}" for entry in inventory.malformed_entries]
+	errors.extend(
+		f"duplicate iOS plist key '{key}'"
+		for key in sorted(set(inventory.duplicate_keys))
+	)
+
+	required_contracts = {
+		name: IOS_PLIST_CONTRACTS[name]
+		for name in expectation.required_providers
+		if name in IOS_PLIST_CONTRACTS
+	}
+	required_contracts.update({
+		name: IOS_ADAPTER_PLIST_CONTRACTS[name]
+		for name in expectation.required_adapters
+		if name in IOS_ADAPTER_PLIST_CONTRACTS
+	})
+	for owner, contract in sorted(required_contracts.items()):
+		for key in sorted(contract["scalar_keys"]):
+			if key not in inventory.values:
+				errors.append(f"missing iOS plist key '{key}' for {owner}")
+			elif any(value_type != "string" for value_type in inventory.value_types[key]):
+				errors.append(f"iOS plist key '{key}' for {owner} must be a string")
+			elif not all(value.strip() for value in inventory.values[key]):
+				errors.append(f"iOS plist key '{key}' for {owner} must not be empty")
+		missing_identifiers = contract["skad_network_ids"] - set(inventory.skad_network_ids)
+		for identifier in sorted(missing_identifiers):
+			errors.append(f"missing SKAdNetworkIdentifier '{identifier}' for {owner}")
+
+	for key, expected_value in sorted(expectation.expected_values.items()):
+		actual_values = inventory.values.get(key, ())
+		if not actual_values:
+			errors.append(f"missing iOS plist key '{key}'")
+			continue
+		if len(set(actual_values)) > 1:
+			errors.append(f"conflicting values for iOS plist key '{key}'")
+		if set(actual_values) != {expected_value}:
+			errors.append(
+				f"iOS plist key '{key}' has '{actual_values[-1]}', expected '{expected_value}'"
+			)
+
+	for identifier in sorted(_duplicate_values(inventory.skad_network_ids)):
+		errors.append(f"duplicate SKAdNetworkIdentifier '{identifier}'")
+	for scheme in sorted(_duplicate_values(inventory.url_schemes)):
+		errors.append(f"duplicate URL scheme '{scheme}'")
+
+	tracking_values = inventory.values.get("NSUserTrackingUsageDescription", ())
+	if tracking_values and not all(value.strip() for value in tracking_values):
+		errors.append("iOS tracking usage description is empty")
+
+	for owner in sorted(expectation.forbidden_providers):
+		contract = IOS_PLIST_CONTRACTS.get(owner, {})
+		if any(key in inventory.values for key in contract.get("scalar_keys", set())):
+			errors.append(f"found disabled iOS plist entry for {owner}")
+	for owner in sorted(expectation.forbidden_adapters):
+		contract = IOS_ADAPTER_PLIST_CONTRACTS.get(owner, {})
+		if any(key in inventory.values for key in contract.get("scalar_keys", set())):
+			errors.append(f"found disabled iOS plist entry for adapter {owner}")
+	return errors
+
+
 def discover_descriptors(repository_root: Path) -> dict[str, PluginDescriptor]:
 	descriptors: dict[str, PluginDescriptor] = {}
 	for search_root in ("Foundation", "Native", "Services", "Providers", "Tests/Plugins"):
@@ -667,6 +989,35 @@ def run_dependencies_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def run_plist_command(arguments: argparse.Namespace) -> int:
+	expected_values = {}
+	for assignment in arguments.expected_value:
+		name, separator, value = assignment.partition("=")
+		if not separator or not name or not value:
+			raise ValueError("--expected-value must use NAME=VALUE")
+		expected_values[name] = value
+	inventory = inspect_ios_plist(arguments.plist)
+	errors = validate_ios_plist(
+		inventory,
+		IOSPlistExpectation(
+			set(arguments.require_provider),
+			set(arguments.forbid_provider),
+			set(arguments.require_adapter),
+			set(arguments.forbid_adapter),
+			expected_values,
+		),
+	)
+	if errors:
+		for error in errors:
+			print(f"ads iOS plist validation failed: {error}", file=sys.stderr)
+		return 1
+	print(
+		"OpenMobile Ads iOS plist validation passed "
+		f"({len(inventory.skad_network_ids)} SKAdNetwork identifiers)."
+	)
+	return 0
+
+
 def parse_arguments() -> argparse.Namespace:
 	parser = argparse.ArgumentParser()
 	subparsers = parser.add_subparsers(dest="command", required=True)
@@ -702,6 +1053,15 @@ def parse_arguments() -> argparse.Namespace:
 	dependencies_parser.add_argument("--require-adapter", action="append", default=[])
 	dependencies_parser.add_argument("--forbid-adapter", action="append", default=[])
 	dependencies_parser.set_defaults(handler=run_dependencies_command)
+
+	plist_parser = subparsers.add_parser("plist")
+	plist_parser.add_argument("plist", type=Path)
+	plist_parser.add_argument("--require-provider", action="append", default=[])
+	plist_parser.add_argument("--forbid-provider", action="append", default=[])
+	plist_parser.add_argument("--require-adapter", action="append", default=[])
+	plist_parser.add_argument("--forbid-adapter", action="append", default=[])
+	plist_parser.add_argument("--expected-value", action="append", default=[])
+	plist_parser.set_defaults(handler=run_plist_command)
 
 	return parser.parse_args()
 
