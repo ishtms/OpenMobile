@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import zipfile
+import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Iterable
@@ -18,6 +19,24 @@ PROVIDER_SIGNATURES = {
 	),
 }
 ADAPTER_SIGNATURES = {}
+ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+ANDROID_MANIFEST_CONTRACTS = {
+	"OpenMobileAdsAdMob": {
+		"permissions": {
+			"android.permission.INTERNET",
+			"android.permission.ACCESS_NETWORK_STATE",
+			"com.google.android.gms.permission.AD_ID",
+		},
+		"metadata": {"com.google.android.gms.ads.APPLICATION_ID"},
+		"activities": {"com.google.android.gms.ads.AdActivity"},
+		"services": {"com.google.android.gms.ads.AdService"},
+		"providers": {"com.google.android.gms.ads.MobileAdsInitProvider"},
+	},
+}
+ANDROID_ADAPTER_MANIFEST_CONTRACTS = {}
+ANDROID_PROVIDER_AUTHORITY_SUFFIXES = {
+	"com.google.android.gms.ads.MobileAdsInitProvider": ".mobileadsinitprovider",
+}
 SCANNABLE_SUFFIXES = {
 	".dex",
 	".dylib",
@@ -86,6 +105,26 @@ class ArtifactExpectation:
 	forbidden_providers: set[str] = field(default_factory=set)
 	required_adapters: set[str] = field(default_factory=set)
 	forbidden_adapters: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class AndroidManifestInventory:
+	permissions: set[str]
+	metadata: dict[str, tuple[str, ...]]
+	activities: dict[str, int]
+	services: dict[str, int]
+	providers: dict[str, tuple[str, ...]]
+	authority_owners: dict[str, tuple[str, ...]]
+	package_name: str
+
+
+@dataclass(frozen=True)
+class AndroidManifestExpectation:
+	required_providers: set[str] = field(default_factory=set)
+	forbidden_providers: set[str] = field(default_factory=set)
+	required_adapters: set[str] = field(default_factory=set)
+	forbidden_adapters: set[str] = field(default_factory=set)
+	expected_metadata: dict[str, str] = field(default_factory=dict)
 
 
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
@@ -273,6 +312,148 @@ def validate_artifact(
 	return errors
 
 
+def inspect_android_manifest(path: Path) -> AndroidManifestInventory:
+	root = ElementTree.parse(path).getroot()
+	android_name = f"{{{ANDROID_NAMESPACE}}}name"
+	android_value = f"{{{ANDROID_NAMESPACE}}}value"
+	android_authorities = f"{{{ANDROID_NAMESPACE}}}authorities"
+
+	permissions = {
+		element.get(android_name, "")
+		for element in root.findall("uses-permission")
+		if element.get(android_name)
+	}
+	metadata: dict[str, list[str]] = {}
+	activities: dict[str, int] = {}
+	services: dict[str, int] = {}
+	providers: dict[str, list[str]] = {}
+	authority_owners: dict[str, list[str]] = {}
+	application = root.find("application")
+	if application is not None:
+		for element in application.findall("meta-data"):
+			name = element.get(android_name, "")
+			if name:
+				metadata.setdefault(name, []).append(element.get(android_value, ""))
+		for element in application.findall("activity"):
+			name = element.get(android_name, "")
+			if name:
+				activities[name] = activities.get(name, 0) + 1
+		for element in application.findall("service"):
+			name = element.get(android_name, "")
+			if name:
+				services[name] = services.get(name, 0) + 1
+		for element in application.findall("provider"):
+			name = element.get(android_name, "")
+			if not name:
+				continue
+			authorities = element.get(android_authorities, "")
+			providers.setdefault(name, []).append(authorities)
+			for authority in authorities.split(";"):
+				authority = authority.strip()
+				if authority:
+					authority_owners.setdefault(authority, []).append(name)
+
+	return AndroidManifestInventory(
+		permissions,
+		{name: tuple(values) for name, values in metadata.items()},
+		activities,
+		services,
+		{name: tuple(values) for name, values in providers.items()},
+		{name: tuple(owners) for name, owners in authority_owners.items()},
+		root.get("package", ""),
+	)
+
+
+def validate_android_manifest(
+	inventory: AndroidManifestInventory,
+	expectation: AndroidManifestExpectation,
+) -> list[str]:
+	errors: list[str] = []
+	required_contracts = {
+		name: ANDROID_MANIFEST_CONTRACTS[name]
+		for name in expectation.required_providers
+		if name in ANDROID_MANIFEST_CONTRACTS
+	}
+	required_contracts.update({
+		name: ANDROID_ADAPTER_MANIFEST_CONTRACTS[name]
+		for name in expectation.required_adapters
+		if name in ANDROID_ADAPTER_MANIFEST_CONTRACTS
+	})
+	for owner, contract in sorted(required_contracts.items()):
+		for permission in sorted(contract["permissions"] - inventory.permissions):
+			errors.append(f"missing Android permission '{permission}' for {owner}")
+		for name in sorted(contract["metadata"] - inventory.metadata.keys()):
+			errors.append(f"missing Android metadata '{name}' for {owner}")
+		for name in sorted(contract["activities"] - inventory.activities.keys()):
+			errors.append(f"missing Android activity '{name}' for {owner}")
+		for name in sorted(contract["services"] - inventory.services.keys()):
+			errors.append(f"missing Android service '{name}' for {owner}")
+		for name in sorted(contract["providers"] - inventory.providers.keys()):
+			errors.append(f"missing Android provider '{name}' for {owner}")
+		for name in sorted(contract["providers"] & inventory.providers.keys()):
+			if not any(inventory.providers[name]):
+				errors.append(f"missing Android provider authority for '{name}'")
+			authority_suffix = ANDROID_PROVIDER_AUTHORITY_SUFFIXES.get(name)
+			if authority_suffix and inventory.package_name:
+				expected_authority = f"{inventory.package_name}{authority_suffix}"
+				for authorities in inventory.providers[name]:
+					if expected_authority not in {
+						authority.strip() for authority in authorities.split(";")
+					}:
+						errors.append(
+							f"Android provider '{name}' must use authority "
+							f"'{expected_authority}'"
+						)
+
+	for name, values in sorted(inventory.metadata.items()):
+		if len(set(values)) > 1:
+			errors.append(f"conflicting metadata values for '{name}'")
+	for name, expected_value in sorted(expectation.expected_metadata.items()):
+		values = inventory.metadata.get(name, ())
+		if not values:
+			if not any(name in contract["metadata"] for contract in required_contracts.values()):
+				errors.append(f"missing Android metadata '{name}'")
+		elif len(set(values)) == 1 and values[0] != expected_value:
+			errors.append(
+				f"Android metadata '{name}' has '{values[0]}', expected '{expected_value}'"
+			)
+	for authority, owners in sorted(inventory.authority_owners.items()):
+		if len(set(owners)) > 1:
+			errors.append(
+				f"Android provider authority '{authority}' is shared by "
+				f"{', '.join(sorted(set(owners)))}"
+			)
+
+	for name, count in sorted({**inventory.activities, **inventory.services}.items()):
+		if count > 1:
+			errors.append(f"duplicate Android component '{name}'")
+	for name, authorities in sorted(inventory.providers.items()):
+		if len(authorities) > 1:
+			errors.append(f"duplicate Android provider '{name}'")
+
+	for owner in sorted(expectation.forbidden_providers):
+		contract = ANDROID_MANIFEST_CONTRACTS.get(owner)
+		if contract is not None and _manifest_has_owned_entry(inventory, contract):
+			errors.append(f"found disabled Android manifest entry for {owner}")
+	for owner in sorted(expectation.forbidden_adapters):
+		contract = ANDROID_ADAPTER_MANIFEST_CONTRACTS.get(owner)
+		if contract is not None and _manifest_has_owned_entry(inventory, contract):
+			errors.append(f"found disabled Android manifest entry for adapter {owner}")
+	return errors
+
+
+def _manifest_has_owned_entry(
+	inventory: AndroidManifestInventory,
+	contract: dict[str, set[str]],
+) -> bool:
+	return bool(
+		contract["metadata"] & inventory.metadata.keys()
+		or contract["activities"] & inventory.activities.keys()
+		or contract["services"] & inventory.services.keys()
+		or contract["providers"] & inventory.providers.keys()
+	)
+
+
 def discover_descriptors(repository_root: Path) -> dict[str, PluginDescriptor]:
 	descriptors: dict[str, PluginDescriptor] = {}
 	for search_root in ("Foundation", "Native", "Services", "Providers", "Tests/Plugins"):
@@ -325,6 +506,31 @@ def run_artifact_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def run_manifest_command(arguments: argparse.Namespace) -> int:
+	expected_metadata = {}
+	for assignment in arguments.expected_metadata:
+		name, separator, value = assignment.partition("=")
+		if not separator or not name or not value:
+			raise ValueError("--expected-metadata must use NAME=VALUE")
+		expected_metadata[name] = value
+	errors = validate_android_manifest(
+		inspect_android_manifest(arguments.manifest),
+		AndroidManifestExpectation(
+			set(arguments.require_provider),
+			set(arguments.forbid_provider),
+			set(arguments.require_adapter),
+			set(arguments.forbid_adapter),
+			expected_metadata,
+		),
+	)
+	if errors:
+		for error in errors:
+			print(f"ads Android manifest validation failed: {error}", file=sys.stderr)
+		return 1
+	print("OpenMobile Ads Android manifest validation passed.")
+	return 0
+
+
 def parse_arguments() -> argparse.Namespace:
 	parser = argparse.ArgumentParser()
 	subparsers = parser.add_subparsers(dest="command", required=True)
@@ -343,6 +549,15 @@ def parse_arguments() -> argparse.Namespace:
 	artifact_parser.add_argument("--require-adapter", action="append", default=[])
 	artifact_parser.add_argument("--forbid-adapter", action="append", default=[])
 	artifact_parser.set_defaults(handler=run_artifact_command)
+
+	manifest_parser = subparsers.add_parser("manifest")
+	manifest_parser.add_argument("manifest", type=Path)
+	manifest_parser.add_argument("--require-provider", action="append", default=[])
+	manifest_parser.add_argument("--forbid-provider", action="append", default=[])
+	manifest_parser.add_argument("--require-adapter", action="append", default=[])
+	manifest_parser.add_argument("--forbid-adapter", action="append", default=[])
+	manifest_parser.add_argument("--expected-metadata", action="append", default=[])
+	manifest_parser.set_defaults(handler=run_manifest_command)
 
 	return parser.parse_args()
 

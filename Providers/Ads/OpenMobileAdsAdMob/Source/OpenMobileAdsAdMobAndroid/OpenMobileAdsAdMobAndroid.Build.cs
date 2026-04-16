@@ -16,6 +16,9 @@ public class OpenMobileAdsAdMobAndroid : ModuleRules
 		PrivateIncludePathModuleNames.Add("Launch");
 
 		string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
+		ExternalDependencies.Add(
+			Path.Combine(ModuleDirectory, "Private/Android/OpenMobileAdsAdMob_Android.gradle")
+		);
 		AdditionalPropertiesForReceipt.Add(
 			"AndroidPlugin",
 			Path.Combine(ModulePath, "Private/Android/OpenMobileAdsAdMob_Android_UPL.xml")

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root xmlns:android="http://schemas.android.com/apk/res/android">
     <init>
-        <log text="OpenMobileAdsAdMob Android bridge enabled"/>
+        <log text="OpenMobileAdsAdMob Android bridge and manifest validation enabled"/>
         <setStringFromProperty
             result="OpenMobileAdsAdMobAndroidAppId"
             ini="Engine"
@@ -16,7 +16,18 @@ dependencies {
     implementation('com.google.android.gms:play-services-ads:25.4.0')
 }
         </insert>
+        <insertValue value="ext.openMobileAdsAdMobExpectedAppId = '$S(OpenMobileAdsAdMobAndroidAppId)'"/>
+        <insertNewline/>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMob_Android.gradle')</insert>
+        <insertNewline/>
     </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings[AndroidAppId]</insert>
+        <insertNewline/>
+        <insert>OpenMobileAdsAdMobAndroidManifestContract=4</insert>
+        <insertNewline/>
+    </registerBuildSettings>
 
     <androidManifestUpdates>
         <addPermission android:name="android.permission.INTERNET"/>
@@ -32,6 +43,15 @@ dependencies {
             value="$S(OpenMobileAdsAdMobAndroidAppId)"/>
         <addElement tag="application" name="OpenMobileAdsAdMobAppIdMetaData"/>
     </androidManifestUpdates>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMob_Android.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMob_Android.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMob_Android.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMob_Android.gradle"/>
+    </gradleCopies>
 
     <gameActivityImportAdditions>
         <insert>

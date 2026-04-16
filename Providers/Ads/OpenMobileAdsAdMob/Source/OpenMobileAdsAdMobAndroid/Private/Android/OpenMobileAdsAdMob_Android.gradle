@@ -1,0 +1,138 @@
+def openMobileAdsRequiredPermissions = [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "com.google.android.gms.permission.AD_ID",
+] as Set
+def openMobileAdsRequiredComponents = [
+    activity: ["com.google.android.gms.ads.AdActivity"] as Set,
+    service: ["com.google.android.gms.ads.AdService"] as Set,
+    provider: ["com.google.android.gms.ads.MobileAdsInitProvider"] as Set,
+]
+
+def validateOpenMobileAdsAdMobManifest = { File manifestFile ->
+    def document = new XmlSlurper(false, false).parse(manifestFile)
+    def errors = []
+    def androidAttribute = { element, name ->
+        element.attributes()["android:${name}"]?.toString() ?: ""
+    }
+
+    def namesFor = { String tagName ->
+        document.'**'.findAll { it.name() == tagName }.collect {
+            androidAttribute(it, "name")
+        }
+    }
+
+    def permissions = namesFor("uses-permission") as Set
+    openMobileAdsRequiredPermissions.findAll { !permissions.contains(it) }.each {
+        errors.add("missing permission '${it}'")
+    }
+
+    openMobileAdsRequiredComponents.each { tagName, requiredNames ->
+        def names = namesFor(tagName)
+        requiredNames.each { requiredName ->
+            def count = names.count(requiredName)
+            if (count == 0) {
+                errors.add("missing ${tagName} '${requiredName}'")
+            } else if (count > 1) {
+                errors.add("duplicate ${tagName} '${requiredName}'")
+            }
+        }
+    }
+    def packageName = document.attributes()["package"]?.toString() ?: ""
+    def initProviderAuthorities = document.'**'.findAll {
+        it.name() == "provider" &&
+        androidAttribute(it, "name") == "com.google.android.gms.ads.MobileAdsInitProvider"
+    }.collect {
+        androidAttribute(it, "authorities")
+    }
+    def expectedInitProviderAuthority = "${packageName}.mobileadsinitprovider".toString()
+    if (initProviderAuthorities.size() == 1 &&
+        !initProviderAuthorities.first().split(";").collect { it.trim() }.contains(
+            expectedInitProviderAuthority
+        )) {
+        errors.add(
+            "provider 'com.google.android.gms.ads.MobileAdsInitProvider' must use authority " +
+            "'${expectedInitProviderAuthority}'"
+        )
+    }
+
+    def appIdValues = []
+    document.'**'.findAll { it.name() == "meta-data" }.each { element ->
+        if (androidAttribute(element, "name") ==
+            "com.google.android.gms.ads.APPLICATION_ID") {
+            appIdValues.add(androidAttribute(element, "value"))
+        }
+    }
+    if (appIdValues.isEmpty()) {
+        errors.add("missing metadata 'com.google.android.gms.ads.APPLICATION_ID'")
+    } else if (appIdValues.size() > 1) {
+        errors.add("conflicting metadata 'com.google.android.gms.ads.APPLICATION_ID'")
+    } else if (appIdValues.first() != openMobileAdsAdMobExpectedAppId) {
+        errors.add(
+            "metadata 'com.google.android.gms.ads.APPLICATION_ID' has '${appIdValues.first()}', " +
+            "expected '${openMobileAdsAdMobExpectedAppId}'"
+        )
+    }
+
+    def authorityOwners = [:].withDefault { [] }
+    document.'**'.findAll { it.name() == "provider" }.each { element ->
+        def owner = androidAttribute(element, "name")
+        androidAttribute(element, "authorities")
+            .split(";")
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+            .each { authorityOwners[it].add(owner) }
+    }
+    authorityOwners.each { authority, owners ->
+        if (owners.toSet().size() > 1) {
+            errors.add("provider authority '${authority}' is shared by ${owners.toSet().sort().join(', ')}")
+        }
+    }
+
+    if (!errors.isEmpty()) {
+        throw new GradleException(
+            "OpenMobile Ads AdMob Android manifest validation failed:\n - " +
+            errors.join("\n - ")
+        )
+    }
+}
+
+afterEvaluate {
+    def manifestTasks = tasks.matching {
+        it.name ==~ /^process.+ManifestForPackage$/
+    }.toList()
+    manifestTasks.each { task ->
+        def match = task.name =~ /^process(.+)ManifestForPackage$/
+        match.matches()
+        def variantName = match.group(1)
+        def validationTask = tasks.register(
+            "validateOpenMobileAdsAdMob${variantName}Manifest"
+        ) {
+            dependsOn task
+            def manifests = []
+            doLast {
+                task.outputs.files.files.each { output ->
+                    if (output.isFile() && output.name == "AndroidManifest.xml") {
+                        manifests.add(output)
+                    } else if (output.isDirectory()) {
+                        fileTree(output).matching { include "**/AndroidManifest.xml" }.files.each {
+                            manifests.add(it)
+                        }
+                    }
+                }
+                if (manifests.size() != 1) {
+                    throw new GradleException(
+                        "OpenMobile Ads AdMob expected one packaged Android manifest, found " +
+                        manifests.size()
+                    )
+                }
+                validateOpenMobileAdsAdMobManifest(manifests.first())
+            }
+        }
+        tasks.matching {
+            it.name == "package${variantName}" || it.name == "bundle${variantName}"
+        }.configureEach {
+            dependsOn validationTask
+        }
+    }
+}

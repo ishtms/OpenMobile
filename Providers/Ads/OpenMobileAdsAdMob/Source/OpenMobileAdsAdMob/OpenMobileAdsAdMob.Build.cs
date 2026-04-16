@@ -5,6 +5,31 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMob : ModuleRules
 {
+	private static void ValidateAndroidAppId(string Value)
+	{
+		string TrimmedValue = Value.Trim();
+		bool ContainsWhitespace = false;
+		foreach (char Character in Value)
+		{
+			if (char.IsWhiteSpace(Character))
+			{
+				ContainsWhitespace = true;
+				break;
+			}
+		}
+		if (
+			TrimmedValue.Length == 0
+			|| ContainsWhitespace
+			|| !TrimmedValue.StartsWith("ca-app-pub-", StringComparison.Ordinal)
+			|| !TrimmedValue.Contains("~", StringComparison.Ordinal)
+		)
+		{
+			throw new BuildException(
+				"OpenMobile Ads AdMob Android app ID must start with 'ca-app-pub-', contain '~', and have no whitespace."
+			);
+		}
+	}
+
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string AndroidAppId = "ca-app-pub-3940256099942544~3347511713";
 
@@ -34,13 +59,29 @@ public class OpenMobileAdsAdMob : ModuleRules
 			"OpenMobileCore"
 		});
 
-		if (Target.Configuration == UnrealTargetConfiguration.Shipping && Target.ProjectFile != null)
+		if (Target.ProjectFile == null)
+		{
+			return;
+		}
+
+		if (
+			Target.Platform == UnrealTargetPlatform.Android
+			|| Target.Configuration == UnrealTargetConfiguration.Shipping
+		)
 		{
 			ConfigCache.ReadSettings(
 				DirectoryReference.FromFile(Target.ProjectFile),
 				Target.Platform,
 				this
 			);
+		}
+		if (Target.Platform == UnrealTargetPlatform.Android)
+		{
+			ValidateAndroidAppId(AndroidAppId);
+		}
+
+		if (Target.Configuration == UnrealTargetConfiguration.Shipping)
+		{
 			if (TestDeviceIdentifiers.Count > 0)
 			{
 				throw new BuildException(

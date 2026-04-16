@@ -2,6 +2,7 @@ import json
 import re
 import sys
 import unittest
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 
@@ -97,6 +98,62 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			)
 			self.assertIsNotNone(owner, f"{payload_path} has no provider descriptor")
 			self.assertEqual(ADMOB_PLUGIN, owner)
+
+	def test_admob_android_upl_owns_manifest_and_gradle_configuration(self) -> None:
+		upl_path = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMob_Android_UPL.xml"
+		)
+		root = ElementTree.parse(upl_path).getroot()
+		android_name = "{http://schemas.android.com/apk/res/android}name"
+		permissions = {
+			element.get(android_name)
+			for element in root.findall("./androidManifestUpdates/addPermission")
+		}
+		self.assertEqual(
+			{"android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE"},
+			permissions,
+		)
+		attribute_values = {
+			element.get("value")
+			for element in root.findall("./androidManifestUpdates/addAttribute")
+		}
+		self.assertIn("com.google.android.gms.ads.APPLICATION_ID", attribute_values)
+		self.assertIn("$S(OpenMobileAdsAdMobAndroidAppId)", attribute_values)
+
+		gradle_additions = ElementTree.tostring(
+			root.find("buildGradleAdditions"),
+			encoding="unicode",
+		)
+		self.assertIn("com.google.android.gms:play-services-ads:25.4.0", gradle_additions)
+		self.assertIn("OpenMobileAdsAdMob_Android.gradle", gradle_additions)
+		build_settings = ElementTree.tostring(
+			root.find("registerBuildSettings"),
+			encoding="unicode",
+		)
+		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
+		copy_destinations = {
+			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
+		}
+		self.assertEqual(
+			{
+				"$S(BuildDir)/gradle/OpenMobileAdsAdMob_Android.gradle",
+				"$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMob_Android.gradle",
+			},
+			copy_destinations,
+		)
+		android_build_rules = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "OpenMobileAdsAdMobAndroid.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertIn("ExternalDependencies.Add", android_build_rules)
+		self.assertIn("OpenMobileAdsAdMob_Android.gradle", android_build_rules)
 
 	def test_public_api_and_build_rules_have_no_vendor_dependencies(self) -> None:
 		public_root = ADS_PLUGIN / "Source" / "OpenMobileAds" / "Public"

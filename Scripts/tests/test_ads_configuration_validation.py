@@ -11,12 +11,15 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
 from validate_ads_plugins import (
 	ADAPTER_SIGNATURES,
+	AndroidManifestExpectation,
 	ArtifactExpectation,
 	PluginDescriptor,
 	PROVIDER_SIGNATURES,
 	inspect_artifact,
+	inspect_android_manifest,
 	resolve_configuration,
 	validate_artifact,
+	validate_android_manifest,
 )
 
 
@@ -265,6 +268,135 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 						required_adapters={"OpenMobileAdsMockAdapter"},
 					),
 				),
+			)
+
+	def test_admob_android_manifest_contract(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			manifest = Path(temporary_directory) / "AndroidManifest.xml"
+			manifest.write_text(
+				"""<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.game">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+    <application>
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1234567890123456~1234567890"/>
+        <activity android:name="com.google.android.gms.ads.AdActivity"/>
+        <service android:name="com.google.android.gms.ads.AdService"/>
+        <provider android:name="com.google.android.gms.ads.MobileAdsInitProvider"
+            android:authorities="com.example.game.mobileadsinitprovider"/>
+    </application>
+</manifest>
+""",
+				encoding="utf-8",
+			)
+
+			errors = validate_android_manifest(
+				inspect_android_manifest(manifest),
+				AndroidManifestExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					expected_metadata={
+						"com.google.android.gms.ads.APPLICATION_ID":
+							"ca-app-pub-1234567890123456~1234567890",
+					},
+				),
+			)
+
+			self.assertEqual([], errors)
+
+	def test_admob_android_manifest_reports_missing_entries(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			manifest = Path(temporary_directory) / "AndroidManifest.xml"
+			manifest.write_text(
+				"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+		package="com.example.game">
+    <application/>
+</manifest>
+""",
+				encoding="utf-8",
+			)
+
+			errors = validate_android_manifest(
+				inspect_android_manifest(manifest),
+				AndroidManifestExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					expected_metadata={
+						"com.google.android.gms.ads.APPLICATION_ID":
+							"ca-app-pub-1234567890123456~1234567890",
+					},
+				),
+			)
+
+			self.assertTrue(any("APPLICATION_ID" in error for error in errors))
+			self.assertTrue(any("AdActivity" in error for error in errors))
+			self.assertTrue(any("AdService" in error for error in errors))
+			self.assertTrue(any("MobileAdsInitProvider" in error for error in errors))
+
+	def test_admob_android_manifest_reports_conflicts(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			manifest = Path(temporary_directory) / "AndroidManifest.xml"
+			manifest.write_text(
+				"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+		package="com.example.game">
+	    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+    <application>
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1234567890123456~1234567890"/>
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-9999999999999999~9999999999"/>
+        <activity android:name="com.google.android.gms.ads.AdActivity"/>
+        <service android:name="com.google.android.gms.ads.AdService"/>
+        <provider android:name="com.google.android.gms.ads.MobileAdsInitProvider"
+            android:authorities="com.example.shared"/>
+        <provider android:name="com.example.OtherProvider"
+            android:authorities="com.example.shared"/>
+    </application>
+</manifest>
+""",
+				encoding="utf-8",
+			)
+
+			errors = validate_android_manifest(
+				inspect_android_manifest(manifest),
+				AndroidManifestExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					expected_metadata={
+						"com.google.android.gms.ads.APPLICATION_ID":
+							"ca-app-pub-1234567890123456~1234567890",
+					},
+				),
+			)
+
+			self.assertTrue(any("conflicting metadata" in error for error in errors))
+			self.assertTrue(any("provider authority" in error for error in errors))
+			self.assertTrue(any("must use authority" in error for error in errors))
+
+	def test_disabled_admob_has_no_owned_manifest_entries(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			manifest = Path(temporary_directory) / "AndroidManifest.xml"
+			manifest.write_text(
+				"""<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.google.android.gms.ads.AdActivity"/>
+    </application>
+</manifest>
+""",
+				encoding="utf-8",
+			)
+
+			errors = validate_android_manifest(
+				inspect_android_manifest(manifest),
+				AndroidManifestExpectation(
+					forbidden_providers={"OpenMobileAdsAdMob"},
+				),
+			)
+
+			self.assertEqual(
+				["found disabled Android manifest entry for OpenMobileAdsAdMob"],
+				errors,
 			)
 
 
