@@ -99,8 +99,15 @@ namespace OpenMobileAdsProviderContractTests
 			FOpenMobileAdsError& OutError
 		) override
 		{
+			++DestroyCalls;
 			LastDestroyRequest = Request;
 			DestroySink = EventSink;
+			if (!bAcceptDestroy)
+			{
+				OutError = DestroyRejection;
+				DestroySink.Reset();
+				return false;
+			}
 			return true;
 		}
 
@@ -150,15 +157,18 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptInitialization = true;
 		bool bAcceptLoad = true;
 		bool bAcceptShow = true;
+		bool bAcceptDestroy = true;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
+		int32 DestroyCalls = 0;
 		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
 		FOpenMobileAdsError InitializationRejection;
 		FOpenMobileAdsError LoadRejection;
 		FOpenMobileAdsError ShowRejection;
+		FOpenMobileAdsError DestroyRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
@@ -953,6 +963,364 @@ bool FOpenMobileAdsShowPolicyContractTest::RunTest(const FString& Parameters)
 
 	Subsystem->Deinitialize();
 	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsDestroyLifecycleContractTest,
+	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsDestroyLifecycleContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("DestroyReward");
+	Placement.Android.AdUnitId = TEXT("android-destroy-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-destroy-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before destroy checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	auto LoadReady = [this, Subsystem, &Provider](FGuid CachedAdId)
+	{
+		const FOpenMobileAdsOperationResult Load =
+			Subsystem->LoadAd(TEXT("DestroyReward"));
+		TestTrue(TEXT("The placement loads before cached destroy"), Load.bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = CachedAdId;
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		TestTrue(TEXT("The placement is ready before cached destroy"), Subsystem->IsReady(TEXT("DestroyReward")));
+	};
+
+	const FOpenMobileAdsOperationResult Load =
+		Subsystem->LoadAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("The load starts before destroy"), Load.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink =
+		Provider.LoadSink;
+
+	const FOpenMobileAdsOperationResult Destroy =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("Destroy can replace an active load"), Destroy.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> FirstDestroySink =
+		Provider.DestroySink;
+	TestEqual(TEXT("Destroy reaches the provider once"), Provider.DestroyCalls, 1);
+	TestEqual(TEXT("Destroy cancels the active native load"), Provider.CancelledRequests.Num(), 1);
+	if (Provider.CancelledRequests.Num() == 1)
+	{
+		TestEqual(TEXT("The cancelled request is the replaced load"), Provider.CancelledRequests[0], Load.RequestId);
+	}
+	TestFalse(
+		TEXT("The replaced load request is no longer active"),
+		Subsystem->CancelRequest(Load.RequestId).bAccepted
+	);
+	const FOpenMobileAdsOperationResult DuplicateDestroy =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestFalse(TEXT("A placement cannot start two destroy operations"), DuplicateDestroy.bAccepted);
+	TestEqual(TEXT("Duplicate destroy is typed as busy"), DuplicateDestroy.Error.Code, EOpenMobileAdsErrorCode::Busy);
+	TestEqual(TEXT("Duplicate destroy does not reach the provider"), Provider.DestroyCalls, 1);
+	if (LoadSink)
+	{
+		FOpenMobileAdsEvent LateLoaded;
+		LateLoaded.Type = EOpenMobileAdsEventType::Loaded;
+		LateLoaded.CachedAdId = FGuid::NewGuid();
+		LoadSink->Submit(MoveTemp(LateLoaded));
+		DrainGameThreadTasks();
+	}
+	TestFalse(TEXT("A late load cannot survive destroy"), Subsystem->IsReady(TEXT("DestroyReward")));
+
+	if (FirstDestroySink)
+	{
+		FOpenMobileAdsEvent Destroyed;
+		Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		FirstDestroySink->Submit(MoveTemp(Destroyed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("Destroy completion returns the placement to idle"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyReward")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+
+	const FGuid RejectedCacheId = FGuid::NewGuid();
+	LoadReady(RejectedCacheId);
+	Provider.bAcceptDestroy = false;
+	Provider.DestroyRejection = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Teardown,
+		TEXT("DestroyReward"),
+		TEXT("The mock provider rejected destroy."),
+		Provider.Name
+	);
+	const FOpenMobileAdsOperationResult Rejected =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestFalse(TEXT("Provider destroy rejection is immediate"), Rejected.bAccepted);
+	TestEqual(TEXT("Provider destroy rejection is typed"), Rejected.Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	TestEqual(TEXT("Provider rejection has no request ID"), Rejected.RequestId.IsValid(), false);
+	TestTrue(TEXT("Provider rejection preserves cached readiness"), Subsystem->IsReady(TEXT("DestroyReward")));
+	TestEqual(
+		TEXT("Provider rejection preserves the cache identity"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyReward")).CachedAdId,
+		RejectedCacheId
+	);
+	Provider.bAcceptDestroy = true;
+
+	const FOpenMobileAdsOperationResult CachedDestroy =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("A ready cached ad can be destroyed"), CachedDestroy.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> CachedDestroySink =
+		Provider.DestroySink;
+	if (CachedDestroySink)
+	{
+		FOpenMobileAdsEvent Destroyed;
+		Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		CachedDestroySink->Submit(MoveTemp(Destroyed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(TEXT("Completed cached destroy releases one native ad"), Provider.ReleasedCachedAds.Num(), 1);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(TEXT("Cached destroy releases the matching identity"), Provider.ReleasedCachedAds[0], RejectedCacheId);
+	}
+	TestFalse(TEXT("Completed destroy invalidates cached readiness"), Subsystem->IsReady(TEXT("DestroyReward")));
+
+	const FGuid ShowingCacheId = FGuid::NewGuid();
+	LoadReady(ShowingCacheId);
+	const FOpenMobileAdsOperationResult Show =
+		Subsystem->ShowAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("The placement starts showing before destroy"), Show.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink =
+		Provider.ShowSink;
+	const FOpenMobileAdsOperationResult ShowingDestroy =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("Destroy can replace an active show"), ShowingDestroy.bAccepted);
+	TestEqual(TEXT("Destroy cancels the active native show"), Provider.CancelledRequests.Num(), 2);
+	if (Provider.CancelledRequests.Num() == 2)
+	{
+		TestEqual(TEXT("The cancelled request is the replaced show"), Provider.CancelledRequests[1], Show.RequestId);
+	}
+	if (ShowSink)
+	{
+		FOpenMobileAdsEvent LateDismissed;
+		LateDismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		ShowSink->Submit(MoveTemp(LateDismissed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("A late show callback cannot finish the destroy"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyReward")).State,
+		EOpenMobileAdPlacementState::Destroying
+	);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> CancelledDestroySink =
+		Provider.DestroySink;
+	TestTrue(
+		TEXT("An accepted destroy can be cancelled safely"),
+		Subsystem->CancelRequest(ShowingDestroy.RequestId).bAccepted
+	);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Destroy cancellation reaches the provider"), Provider.CancelledRequests.Num(), 3);
+	TestEqual(
+		TEXT("Destroy cancellation leaves an idle placement"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyReward")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+	TestFalse(TEXT("Destroy cancellation does not restore a stale cache"), Subsystem->IsReady(TEXT("DestroyReward")));
+	TestEqual(TEXT("Destroy cancellation releases the shown cache"), Provider.ReleasedCachedAds.Num(), 2);
+	if (CancelledDestroySink)
+	{
+		FOpenMobileAdsEvent LateDestroyed;
+		LateDestroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		CancelledDestroySink->Submit(MoveTemp(LateDestroyed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("A late destroy callback cannot change cancelled state"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyReward")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+
+	const FGuid ShutdownCacheId = FGuid::NewGuid();
+	LoadReady(ShutdownCacheId);
+	const FOpenMobileAdsOperationResult ShutdownDestroy =
+		Subsystem->DestroyAd(TEXT("DestroyReward"));
+	TestTrue(TEXT("Destroy starts before subsystem shutdown"), ShutdownDestroy.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShutdownDestroySink =
+		Provider.DestroySink;
+
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Shutdown cancels the active destroy"), Provider.CancelledRequests.Num(), 4);
+	if (Provider.CancelledRequests.Num() == 4)
+	{
+		TestEqual(TEXT("Shutdown cancels the destroy request ID"), Provider.CancelledRequests[3], ShutdownDestroy.RequestId);
+	}
+	TestEqual(TEXT("Shutdown releases the remaining cached ad"), Provider.ReleasedCachedAds.Num(), 3);
+	if (ShutdownDestroySink)
+	{
+		FOpenMobileAdsEvent LateDestroyed;
+		LateDestroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		ShutdownDestroySink->Submit(MoveTemp(LateDestroyed));
+		DrainGameThreadTasks();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsDestroyAllLifecycleContractTest,
+	"OpenMobile.Ads.ProviderContract.Destroy.AllLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsDestroyAllLifecycleContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {FName(TEXT("DestroyOne")), FName(TEXT("DestroyTwo"))})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Android.AdUnitId = FString::Printf(TEXT("android-%s"), *PlacementName.ToString());
+		Placement.IOS.AdUnitId = FString::Printf(TEXT("ios-%s"), *PlacementName.ToString());
+	}
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before destroy-all checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TestTrue(TEXT("The cached placement starts loading"), Subsystem->LoadAd(TEXT("DestroyTwo")).bAccepted);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsOperationResult ActiveLoad =
+		Subsystem->LoadAd(TEXT("DestroyOne"));
+	TestTrue(TEXT("Another placement is loading before destroy all"), ActiveLoad.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink =
+		Provider.LoadSink;
+
+	const FOpenMobileAdsOperationResult DestroyAll = Subsystem->DestroyAllAds();
+	TestTrue(TEXT("Service-wide destroy is accepted"), DestroyAll.bAccepted);
+	TestTrue(TEXT("Service-wide destroy has a request ID"), DestroyAll.RequestId.IsValid());
+	TestTrue(TEXT("The provider receives an all-placements request"), Provider.LastDestroyRequest.bAllPlacements);
+	TestEqual(TEXT("Service-wide destroy cancels active loading"), Provider.CancelledRequests.Num(), 1);
+	if (Provider.CancelledRequests.Num() == 1)
+	{
+		TestEqual(TEXT("Destroy all cancels the loading request"), Provider.CancelledRequests[0], ActiveLoad.RequestId);
+	}
+	TestEqual(
+		TEXT("The loading placement enters destroying state"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyOne")).State,
+		EOpenMobileAdPlacementState::Destroying
+	);
+	TestEqual(
+		TEXT("The cached placement enters destroying state"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyTwo")).State,
+		EOpenMobileAdPlacementState::Destroying
+	);
+	const FOpenMobileAdsOperationResult Duplicate = Subsystem->DestroyAllAds();
+	TestFalse(TEXT("Concurrent service-wide destroy is rejected"), Duplicate.bAccepted);
+	TestEqual(TEXT("Concurrent service-wide destroy is busy"), Duplicate.Error.Code, EOpenMobileAdsErrorCode::Busy);
+	TestEqual(TEXT("Concurrent service-wide destroy does not reach the provider"), Provider.DestroyCalls, 1);
+	if (LoadSink)
+	{
+		FOpenMobileAdsEvent LateLoaded;
+		LateLoaded.Type = EOpenMobileAdsEventType::Loaded;
+		LateLoaded.CachedAdId = FGuid::NewGuid();
+		LoadSink->Submit(MoveTemp(LateLoaded));
+		DrainGameThreadTasks();
+	}
+	TestFalse(TEXT("Late loading cannot escape destroy all"), Subsystem->IsReady(TEXT("DestroyOne")));
+
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink =
+		Provider.DestroySink;
+	if (DestroySink)
+	{
+		FOpenMobileAdsEvent Destroyed;
+		Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		DestroySink->Submit(MoveTemp(Destroyed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(TEXT("Destroy all releases the cached native ad"), Provider.ReleasedCachedAds.Num(), 1);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(TEXT("Destroy all releases the matching cache identity"), Provider.ReleasedCachedAds[0], CachedAdId);
+	}
+	TestEqual(
+		TEXT("Destroy all clears the first placement"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyOne")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+	TestEqual(
+		TEXT("Destroy all clears the second placement"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyTwo")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+	TestFalse(
+		TEXT("Completed service-wide destroy is terminal"),
+		Subsystem->CancelRequest(DestroyAll.RequestId).bAccepted
+	);
+	if (DestroySink)
+	{
+		FOpenMobileAdsEvent LateDestroyed;
+		LateDestroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		DestroySink->Submit(MoveTemp(LateDestroyed));
+		DrainGameThreadTasks();
+	}
+
+	TestTrue(TEXT("A placement can load after destroy all"), Subsystem->LoadAd(TEXT("DestroyTwo")).bAccepted);
+	const FGuid CancelledCacheId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Reloaded;
+	Reloaded.Type = EOpenMobileAdsEventType::Loaded;
+	Reloaded.CachedAdId = CancelledCacheId;
+	Provider.LoadSink->Submit(MoveTemp(Reloaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsOperationResult CancelledDestroyAll = Subsystem->DestroyAllAds();
+	TestTrue(TEXT("A second destroy all can start after completion"), CancelledDestroyAll.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> CancelledSink =
+		Provider.DestroySink;
+	TestTrue(
+		TEXT("Service-wide destroy cancellation is accepted"),
+		Subsystem->CancelRequest(CancelledDestroyAll.RequestId).bAccepted
+	);
+	DrainGameThreadTasks();
+	TestFalse(TEXT("Cancelled destroy all does not restore cached readiness"), Subsystem->IsReady(TEXT("DestroyTwo")));
+	TestEqual(
+		TEXT("Cancelled destroy all leaves the placement idle"),
+		Subsystem->GetPlacementStatus(TEXT("DestroyTwo")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+	TestEqual(TEXT("Cancelled destroy all releases its cached ad"), Provider.ReleasedCachedAds.Num(), 2);
+	if (CancelledSink)
+	{
+		FOpenMobileAdsEvent LateDestroyed;
+		LateDestroyed.Type = EOpenMobileAdsEventType::Destroyed;
+		CancelledSink->Submit(MoveTemp(LateDestroyed));
+		DrainGameThreadTasks();
+	}
+
+	Subsystem->Deinitialize();
 	return true;
 }
 
@@ -1999,11 +2367,27 @@ bool FOpenMobileAdsDestroyAllFailureContractTest::RunTest(const FString& Paramet
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
 	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("DestroyFailureReward");
+	Placement.Android.AdUnitId = TEXT("android-destroy-failure");
+	Placement.IOS.AdUnitId = TEXT("ios-destroy-failure");
 	FMockProvider Provider(TEXT("MockAds"));
 	FScopedProviderRegistration Registration(Provider);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
 	TestTrue(TEXT("The provider initializes before placement operations"), InitializeSuccessfully(*Subsystem, Provider));
+	TestTrue(
+		TEXT("The placement loads before destroy-all failure"),
+		Subsystem->LoadAd(TEXT("DestroyFailureReward")).bAccepted
+	);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("The placement is ready before destroy-all failure"), Subsystem->IsReady(TEXT("DestroyFailureReward")));
 	TArray<FOpenMobileAdsEvent> Events;
 	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
 		[&Events](const FOpenMobileAdsEvent& Event)
@@ -2040,6 +2424,16 @@ bool FOpenMobileAdsDestroyAllFailureContractTest::RunTest(const FString& Paramet
 	{
 		TestEqual(TEXT("Destroy-all terminal event is failed"), Events[0].Type, EOpenMobileAdsEventType::Failed);
 		TestEqual(TEXT("Destroy-all failure keeps the request ID"), Events[0].RequestId, DestroyResult.RequestId);
+	}
+	const FOpenMobileAdsPlacementStatus FailedStatus =
+		Subsystem->GetPlacementStatus(TEXT("DestroyFailureReward"));
+	TestEqual(TEXT("Destroy-all failure leaves a typed failed state"), FailedStatus.State, EOpenMobileAdPlacementState::Failed);
+	TestEqual(TEXT("Destroy-all failure keeps its typed error"), FailedStatus.LastError.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	TestFalse(TEXT("Destroy-all failure cannot revive cached readiness"), Subsystem->IsReady(TEXT("DestroyFailureReward")));
+	TestEqual(TEXT("Destroy-all failure releases the cached native ad"), Provider.ReleasedCachedAds.Num(), 1);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(TEXT("Destroy-all failure releases the matching cache"), Provider.ReleasedCachedAds[0], CachedAdId);
 	}
 	TestFalse(
 		TEXT("Terminal destroy-all request is no longer cancellable"),

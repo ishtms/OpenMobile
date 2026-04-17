@@ -197,6 +197,7 @@ private:
 	void HandleProviderEvent(FOpenMobileAdsEvent Event);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
+	void CancelSupersededRequest(FGuid RequestId);
 	void ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Status);
 	void ExpireCachedAds();
 	void ScheduleCacheExpirationCheck();

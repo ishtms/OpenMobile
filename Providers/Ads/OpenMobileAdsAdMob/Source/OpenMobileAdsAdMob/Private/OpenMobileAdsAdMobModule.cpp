@@ -202,6 +202,18 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsAdMobPlatform::CancelLoad(RequestId);
 		}
 
+		virtual bool Destroy(
+			const FOpenMobileAdsDestroyRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FOpenMobileAdsEvent Destroyed;
+			Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+			EventSink->Submit(MoveTemp(Destroyed));
+			return true;
+		}
+
 		virtual void ReleaseCachedAd(FGuid CachedAdId) override
 		{
 			FOpenMobileAdsAdMobPlatform::ReleaseCachedAd(CachedAdId);

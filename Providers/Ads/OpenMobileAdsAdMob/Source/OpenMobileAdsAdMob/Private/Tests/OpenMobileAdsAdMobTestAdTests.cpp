@@ -218,6 +218,7 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	if (Rewarded)
 	{
 		TestTrue(TEXT("AdMob advertises rewarded loading"), Rewarded->bCanLoad);
+		TestTrue(TEXT("AdMob advertises rewarded destruction"), Rewarded->bCanDestroy);
 		TestEqual(TEXT("AdMob caches one rewarded ad per placement"), Rewarded->MaxCachedAdsPerPlacement, 1);
 		TestEqual(TEXT("AdMob rewarded caches expire after one hour"), Rewarded->CacheLifetimeSeconds, 3600.0);
 	}
@@ -336,6 +337,18 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	if (Backend.CancelledRequestIds.Num() == 2)
 	{
 		TestEqual(TEXT("Cache release targets its native load"), Backend.CancelledRequestIds[1], Backend.LoadRequestIds[0]);
+	}
+	FOpenMobileAdsDestroyRequest Destroy;
+	Destroy.RequestId = FGuid::NewGuid();
+	Destroy.Placement = TEXT("RewardOne");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> DestroySink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError DestroyError;
+	TestTrue(TEXT("AdMob accepts service-owned cache destruction"), Provider->Destroy(Destroy, DestroySink, DestroyError));
+	TestEqual(TEXT("AdMob destroy completes once"), DestroySink->Events.Num(), 1);
+	if (DestroySink->Events.Num() == 1)
+	{
+		TestEqual(TEXT("AdMob destroy emits Destroyed"), DestroySink->Events[0].Type, EOpenMobileAdsEventType::Destroyed);
 	}
 
 	FOpenMobileAdsLoadRequest Failed;
