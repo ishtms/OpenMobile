@@ -209,6 +209,7 @@ namespace OpenMobileAdsPrivate
 			FName InProvider,
 			FName InPlacement,
 			EOpenMobileAdFormat InFormat,
+			EOpenMobileAdsFailureStage InOperationStage,
 			FGuid InRequestId,
 			FGuid InCachedAdId = FGuid()
 		)
@@ -216,6 +217,7 @@ namespace OpenMobileAdsPrivate
 			, Provider(InProvider)
 			, Placement(InPlacement)
 			, Format(InFormat)
+			, OperationStage(InOperationStage)
 			, RequestId(InRequestId)
 			, CachedAdId(InCachedAdId)
 		{
@@ -223,14 +225,14 @@ namespace OpenMobileAdsPrivate
 
 		virtual void Submit(FOpenMobileAdsEvent Event) override
 		{
-			Normalize(Event);
 			bool bForward = false;
 			{
 				FScopeLock Lock(&Mutex);
-				if (!bValid)
+				if (!bValid || !TryAcceptEvent(Event.Type))
 				{
 					return;
 				}
+				Normalize(Event);
 				if (!bCommitted)
 				{
 					PendingEvents.Add(MoveTemp(Event));
@@ -267,6 +269,24 @@ namespace OpenMobileAdsPrivate
 		}
 
 	private:
+		bool TryAcceptEvent(EOpenMobileAdsEventType Type)
+		{
+			if (OperationStage != EOpenMobileAdsFailureStage::Load)
+			{
+				return true;
+			}
+			if (
+				bTerminalSubmitted
+				|| (Type != EOpenMobileAdsEventType::Loaded
+					&& Type != EOpenMobileAdsEventType::LoadFailed)
+			)
+			{
+				return false;
+			}
+			bTerminalSubmitted = true;
+			return true;
+		}
+
 		void Normalize(FOpenMobileAdsEvent& Event) const
 		{
 			Event.Provider = Provider;
@@ -290,9 +310,11 @@ namespace OpenMobileAdsPrivate
 		FName Provider;
 		FName Placement;
 		EOpenMobileAdFormat Format;
+		EOpenMobileAdsFailureStage OperationStage;
 		FGuid RequestId;
 		FGuid CachedAdId;
 		bool bCommitted = false;
+		bool bTerminalSubmitted = false;
 		bool bValid = true;
 	};
 
@@ -1196,6 +1218,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 			Status.Provider,
 			Placement,
 			Status.Format,
+			EOpenMobileAdsFailureStage::Load,
 			Status.ActiveRequestId
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
@@ -1319,6 +1342,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			Status->Provider,
 			Placement,
 			Status->Format,
+			EOpenMobileAdsFailureStage::Show,
 			Status->ActiveRequestId,
 			Status->CachedAdId
 		);
@@ -1447,6 +1471,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAd(FName Placement
 			Status.Provider,
 			Placement,
 			Status.Format,
+			EOpenMobileAdsFailureStage::Teardown,
 			Status.ActiveRequestId,
 			Status.CachedAdId
 		);
@@ -1559,6 +1584,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAllAds()
 			Provider->GetProviderName(),
 			NAME_None,
 			EOpenMobileAdFormat::Rewarded,
+			EOpenMobileAdsFailureStage::Teardown,
 			Request.RequestId
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =

@@ -2046,6 +2046,154 @@ bool FOpenMobileAdsProviderErrorContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsLoadCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Load.Callback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsLoadCallbackContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {FName(TEXT("CallbackSuccess")), FName(TEXT("CallbackFailure"))})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(TEXT("android-%s"), *PlacementName.ToString());
+		Placement.IOS.AdUnitId = FString::Printf(TEXT("ios-%s"), *PlacementName.ToString());
+	}
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before load callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	const FOpenMobileAdsOperationResult SuccessfulLoad =
+		Subsystem->LoadAd(TEXT("CallbackSuccess"));
+	TestTrue(TEXT("The successful callback request is accepted"), SuccessfulLoad.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> SuccessSink =
+		Provider.LoadSink;
+	FOpenMobileAdsEvent DuplicateStarted;
+	DuplicateStarted.Type = EOpenMobileAdsEventType::LoadStarted;
+	DuplicateStarted.Provider = TEXT("WrongProvider");
+	DuplicateStarted.Placement = TEXT("WrongPlacement");
+	DuplicateStarted.Format = EOpenMobileAdFormat::Banner;
+	DuplicateStarted.RequestId = FGuid::NewGuid();
+	SuccessSink->Submit(MoveTemp(DuplicateStarted));
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.Provider = TEXT("WrongProvider");
+	Loaded.Placement = TEXT("WrongPlacement");
+	Loaded.Format = EOpenMobileAdFormat::Banner;
+	Loaded.RequestId = FGuid::NewGuid();
+	Loaded.CachedAdId = CachedAdId;
+	SuccessSink->Submit(MoveTemp(Loaded));
+	FOpenMobileAdsEvent DuplicateFailure;
+	DuplicateFailure.Type = EOpenMobileAdsEventType::LoadFailed;
+	DuplicateFailure.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Load,
+		TEXT("WrongPlacement"),
+		TEXT("This duplicate terminal result must be ignored."),
+		TEXT("WrongProvider")
+	);
+	SuccessSink->Submit(MoveTemp(DuplicateFailure));
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("A successful load broadcasts one start and one terminal result"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		const FOpenMobileAdsEvent& Started = Events[0];
+		const FOpenMobileAdsEvent& Completed = Events[1];
+		TestEqual(TEXT("The first successful event is load started"), Started.Type, EOpenMobileAdsEventType::LoadStarted);
+		TestEqual(TEXT("The successful terminal event is loaded"), Completed.Type, EOpenMobileAdsEventType::Loaded);
+		TestEqual(TEXT("Load started has the normalized placement"), Started.Placement, FName(TEXT("CallbackSuccess")));
+		TestEqual(TEXT("Loaded has the normalized placement"), Completed.Placement, FName(TEXT("CallbackSuccess")));
+		TestEqual(TEXT("Load started has the normalized format"), Started.Format, EOpenMobileAdFormat::Rewarded);
+		TestEqual(TEXT("Loaded has the normalized format"), Completed.Format, EOpenMobileAdFormat::Rewarded);
+		TestEqual(TEXT("Load started has the normalized provider"), Started.Provider, Provider.Name);
+		TestEqual(TEXT("Loaded has the normalized provider"), Completed.Provider, Provider.Name);
+		TestEqual(TEXT("Load started has the accepted request ID"), Started.RequestId, SuccessfulLoad.RequestId);
+		TestEqual(TEXT("Loaded has the accepted request ID"), Completed.RequestId, SuccessfulLoad.RequestId);
+		TestEqual(TEXT("Loaded preserves the provider cache ID"), Completed.CachedAdId, CachedAdId);
+		TestEqual(TEXT("Load started reports loading state"), Started.PlacementState, EOpenMobileAdPlacementState::Loading);
+		TestEqual(TEXT("Loaded reports ready state"), Completed.PlacementState, EOpenMobileAdPlacementState::Ready);
+		TestTrue(TEXT("Load callback sequence is increasing"), Started.Sequence < Completed.Sequence);
+	}
+
+	const FOpenMobileAdsOperationResult FailedLoad =
+		Subsystem->LoadAd(TEXT("CallbackFailure"));
+	TestTrue(TEXT("The failed callback request is accepted"), FailedLoad.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> FailureSink =
+		Provider.LoadSink;
+	FOpenMobileAdsEvent Failed;
+	Failed.Type = EOpenMobileAdsEventType::LoadFailed;
+	Failed.Provider = TEXT("WrongProvider");
+	Failed.Placement = TEXT("WrongPlacement");
+	Failed.Format = EOpenMobileAdFormat::Banner;
+	Failed.RequestId = FGuid::NewGuid();
+	Failed.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Load,
+		TEXT("WrongPlacement"),
+		TEXT("The native load failed."),
+		TEXT("WrongProvider"),
+		FString(),
+		true
+	);
+	FailureSink->Submit(MoveTemp(Failed));
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("A failed load adds one start and one terminal result"), Events.Num(), 4);
+	if (Events.Num() == 4)
+	{
+		const FOpenMobileAdsEvent& Started = Events[2];
+		const FOpenMobileAdsEvent& Completed = Events[3];
+		TestEqual(TEXT("The first failed event is load started"), Started.Type, EOpenMobileAdsEventType::LoadStarted);
+		TestEqual(TEXT("The failed terminal event is load failed"), Completed.Type, EOpenMobileAdsEventType::LoadFailed);
+		TestEqual(TEXT("Failed load has the normalized placement"), Completed.Placement, FName(TEXT("CallbackFailure")));
+		TestEqual(TEXT("Failed load has the normalized format"), Completed.Format, EOpenMobileAdFormat::Rewarded);
+		TestEqual(TEXT("Failed load has the normalized provider"), Completed.Provider, Provider.Name);
+		TestEqual(TEXT("Failed load has the accepted request ID"), Completed.RequestId, FailedLoad.RequestId);
+		TestEqual(TEXT("Failed load normalizes the error placement"), Completed.Error.Placement, FName(TEXT("CallbackFailure")));
+		TestEqual(TEXT("Failed load normalizes the error provider"), Completed.Error.Provider, Provider.Name);
+		TestEqual(TEXT("Failed load reports failed state"), Completed.PlacementState, EOpenMobileAdPlacementState::Failed);
+	}
+
+	FOpenMobileAdsEvent LateLoaded;
+	LateLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	LateLoaded.CachedAdId = FGuid::NewGuid();
+	FailureSink->Submit(MoveTemp(LateLoaded));
+	FOpenMobileAdsEvent LateFailure;
+	LateFailure.Type = EOpenMobileAdsEventType::LoadFailed;
+	FailureSink->Submit(MoveTemp(LateFailure));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Late terminal callbacks are ignored"), Events.Num(), 4);
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsProviderEventContractTest,
 	"OpenMobile.Ads.ProviderContract.EventsAndTeardown",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
