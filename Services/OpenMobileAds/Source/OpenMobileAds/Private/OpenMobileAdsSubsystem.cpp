@@ -2,9 +2,12 @@
 
 #include "Async/Async.h"
 #include "Features/IModularFeatures.h"
+#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileAdsProvider.h"
+#include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 
 class FOpenMobileAdsEventDispatcher final
@@ -821,6 +824,31 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		this,
 		&UOpenMobileAdsSubsystem::HandleProviderUnregistered
 	);
+	NetworkConnectionChangedHandle = FCoreDelegates::OnNetworkConnectionChanged.AddUObject(
+		this,
+		&UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged
+	);
+	ApplicationWillDeactivateHandle = FCoreDelegates::ApplicationWillDeactivateDelegate.AddUObject(
+		this,
+		&UOpenMobileAdsSubsystem::HandleApplicationWillDeactivate
+	);
+	ApplicationHasReactivatedHandle = FCoreDelegates::ApplicationHasReactivatedDelegate.AddUObject(
+		this,
+		&UOpenMobileAdsSubsystem::HandleApplicationHasReactivated
+	);
+	ApplicationWillEnterBackgroundHandle =
+		FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddUObject(
+			this,
+			&UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground
+		);
+	ApplicationHasEnteredForegroundHandle =
+		FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddUObject(
+			this,
+			&UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground
+		);
+	HandleNetworkConnectionChanged(FPlatformMisc::GetNetworkConnectionType());
+	bApplicationActive = true;
+	bApplicationInForeground = true;
 	bRuntimeInitialized = true;
 }
 
@@ -839,6 +867,36 @@ void UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	}
 	PrivacySnapshot = MoveTemp(Snapshot);
 	bPrivacySnapshotInitialized = true;
+}
+
+void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
+	ENetworkConnectionType ConnectionType
+)
+{
+	bPlatformOffline.Store(
+		ConnectionType == ENetworkConnectionType::None
+		|| ConnectionType == ENetworkConnectionType::AirplaneMode
+	);
+}
+
+void UOpenMobileAdsSubsystem::HandleApplicationWillDeactivate()
+{
+	bApplicationActive = false;
+}
+
+void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
+{
+	bApplicationActive = true;
+}
+
+void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
+{
+	bApplicationInForeground = false;
+}
+
+void UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground()
+{
+	bApplicationInForeground = true;
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -1525,82 +1583,66 @@ bool UOpenMobileAdsSubsystem::IsReady(FName Placement) const
 
 FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) const
 {
-	FOpenMobileAdsCanShowResult Result;
+	FOpenMobileAdsCanShowPolicyContext Context;
 	const FOpenMobileAdsPlacementSettings* Configuration = FindConfiguredPlacement(Placement);
 	if (!Configuration)
 	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::UnknownPlacement;
-		Result.Explanation = TEXT("The requested ads placement is not configured.");
-		return Result;
+		return FOpenMobileAdsCanShowPolicy::Evaluate(Context);
 	}
 
+	Context.bPlacementConfigured = true;
 	const FOpenMobileAdsResolvedPlacement Resolved =
 		Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
-	if (!Resolved.bEnabled)
-	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::Disabled;
-		Result.Explanation = TEXT("The requested ads placement is disabled.");
-		return Result;
-	}
+	Context.bPlacementEnabled = Resolved.bEnabled;
+	Context.ServiceState = ServiceState;
 	if (ServiceState != EOpenMobileAdsServiceState::Ready)
 	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::NotInitialized;
-		Result.Explanation = OpenMobileAdsPrivate::MakeServiceNotReadyError(
+		Context.ServiceExplanation = OpenMobileAdsPrivate::MakeServiceNotReadyError(
 			Placement,
 			ServiceState,
 			InitializationError
 		).Explanation;
-		return Result;
+		return FOpenMobileAdsCanShowPolicy::Evaluate(Context);
 	}
 
 	FOpenMobileAdsError ProviderError;
 	IOpenMobileAdsProvider* Provider = FindProvider(&ProviderError);
+	Context.bProviderAvailable = Provider != nullptr;
+	Context.ProviderExplanation = ProviderError.Explanation;
 	if (!Provider)
 	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::ProviderUnavailable;
-		Result.Explanation = ProviderError.Explanation;
-		return Result;
+		return FOpenMobileAdsCanShowPolicy::Evaluate(Context);
 	}
 	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
 		Provider->GetCapabilities();
 	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
 		ProviderCapabilities.FindFormat(Resolved.Format);
-	if (!FormatCapabilities || !FormatCapabilities->bCanShow)
-	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::UnsupportedFormat;
-		Result.Explanation = TEXT("The selected provider cannot show this placement format.");
-		return Result;
-	}
+	Context.bFormatSupported = FormatCapabilities && FormatCapabilities->bCanShow;
+	Context.bPrivacyAllowed = PrivacySnapshot.bCanRequestAds;
 
 	const FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
-	if (!Status)
+	if (Status)
 	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::NotLoaded;
-		Result.Explanation = TEXT("The placement has not loaded an ad.");
-		return Result;
+		Context.PlacementState = Status->State;
+		Context.bHasCachedAd = Status->CachedAdId.IsValid();
+		Context.bExpired = Status->ExpiresAt != FDateTime()
+			&& Status->ExpiresAt <= FDateTime::UtcNow();
 	}
-	if (Status->State == EOpenMobileAdPlacementState::Loading)
+	Context.bOffline = bPlatformOffline.Load();
+	Context.bLifecycleConflict = !bApplicationActive || !bApplicationInForeground;
+	for (const TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::Loading;
-		Result.Explanation = TEXT("The placement is still loading.");
-		return Result;
-	}
-	if (Status->State != EOpenMobileAdPlacementState::Ready || !Status->CachedAdId.IsValid())
-	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::NotLoaded;
-		Result.Explanation = TEXT("The placement does not have a ready ad.");
-		return Result;
-	}
-	if (Status->ExpiresAt != FDateTime() && Status->ExpiresAt <= FDateTime::UtcNow())
-	{
-		Result.BlockReason = EOpenMobileAdsCanShowBlockReason::Expired;
-		Result.Explanation = TEXT("The cached ad has expired.");
-		return Result;
+		if (
+			Pair.Key != Placement
+			&& Pair.Value.State == EOpenMobileAdPlacementState::Showing
+		)
+		{
+			Context.bLifecycleConflict = true;
+			break;
+		}
 	}
 
-	Result.bCanShow = true;
-	Result.BlockReason = EOpenMobileAdsCanShowBlockReason::None;
-	return Result;
+	return FOpenMobileAdsCanShowPolicy::Evaluate(Context);
 }
 
 FOpenMobileAdsPlacementStatus UOpenMobileAdsSubsystem::GetPlacementStatus(
@@ -2310,6 +2352,21 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	{
 		IModularFeatures::Get().OnModularFeatureUnregistered().Remove(
 			ProviderUnregisteredHandle
+		);
+		FCoreDelegates::OnNetworkConnectionChanged.Remove(
+			NetworkConnectionChangedHandle
+		);
+		FCoreDelegates::ApplicationWillDeactivateDelegate.Remove(
+			ApplicationWillDeactivateHandle
+		);
+		FCoreDelegates::ApplicationHasReactivatedDelegate.Remove(
+			ApplicationHasReactivatedHandle
+		);
+		FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Remove(
+			ApplicationWillEnterBackgroundHandle
+		);
+		FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Remove(
+			ApplicationHasEnteredForegroundHandle
 		);
 		bRuntimeInitialized = false;
 	}

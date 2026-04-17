@@ -3,9 +3,12 @@
 #include "Containers/Ticker.h"
 #include "Engine/GameInstance.h"
 #include "Features/IModularFeatures.h"
+#include "HAL/PlatformMisc.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/CoreDelegates.h"
 #include "OpenMobileAdsAsyncAction.h"
+#include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsSubsystem.h"
 
@@ -395,6 +398,340 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 	);
 
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsReadinessPolicyContractTest,
+	"OpenMobile.Ads.ProviderContract.Readiness.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsReadinessPolicyContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ReadyReward");
+	Placement.Android.AdUnitId = TEXT("android-ready-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-ready-unit");
+	FOpenMobileAdsPlacementSettings& DisabledPlacement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	DisabledPlacement.Placement = TEXT("DisabledReward");
+	DisabledPlacement.bEnabled = false;
+	DisabledPlacement.Android.AdUnitId = TEXT("android-disabled-unit");
+	DisabledPlacement.IOS.AdUnitId = TEXT("ios-disabled-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestFalse(TEXT("An unloaded placement is not ready"), Subsystem->IsReady(TEXT("ReadyReward")));
+	TestEqual(
+		TEXT("Unknown placement precedes initialization"),
+		Subsystem->CanShow(TEXT("MissingReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::UnknownPlacement
+	);
+	TestEqual(
+		TEXT("Disabled placement precedes initialization"),
+		Subsystem->CanShow(TEXT("DisabledReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Disabled
+	);
+	TestEqual(
+		TEXT("Initialization blocks before cache state"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::NotInitialized
+	);
+	TestTrue(
+		TEXT("The provider initializes for readiness checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	Provider.bSupported = false;
+	TestEqual(
+		TEXT("An unavailable provider blocks before cache state"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::ProviderUnavailable
+	);
+	Provider.bSupported = true;
+	Provider.Capabilities.Formats[0].bCanShow = false;
+	TestEqual(
+		TEXT("Unsupported show format blocks before cache state"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::UnsupportedFormat
+	);
+	Provider.Capabilities.Formats[0].bCanShow = true;
+	TestEqual(
+		TEXT("An eligible but unloaded placement reports not loaded"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::NotLoaded
+	);
+
+	TestTrue(
+		TEXT("The placement starts loading"),
+		Subsystem->LoadAd(TEXT("ReadyReward")).bAccepted
+	);
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Required;
+	Privacy.bCanRequestAds = false;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestFalse(TEXT("Loading does not count as ready"), Subsystem->IsReady(TEXT("ReadyReward")));
+	TestEqual(
+		TEXT("Privacy policy wins while loading"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::PrivacyBlocked
+	);
+
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Privacy.bCanRequestAds = true;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestEqual(
+		TEXT("Loading is reported after privacy allows ads"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Loading
+	);
+
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("A valid cached ad is ready"), Subsystem->IsReady(TEXT("ReadyReward")));
+	TestTrue(TEXT("An eligible cached ad can show"), Subsystem->CanShow(TEXT("ReadyReward")).bCanShow);
+
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Denied;
+	Privacy.bCanRequestAds = false;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestTrue(TEXT("Privacy does not change cached readiness"), Subsystem->IsReady(TEXT("ReadyReward")));
+	TestEqual(
+		TEXT("Privacy blocks an otherwise ready ad"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::PrivacyBlocked
+	);
+
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Privacy.bCanRequestAds = true;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	const ENetworkConnectionType PreviousConnectionType =
+		FPlatformMisc::GetNetworkConnectionType();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::None);
+	TestEqual(
+		TEXT("No platform connection blocks showing"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Offline
+	);
+	TestTrue(TEXT("Connectivity does not change cached readiness"), Subsystem->IsReady(TEXT("ReadyReward")));
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::Unknown);
+	TestTrue(TEXT("Unknown connectivity stays eligible"), Subsystem->CanShow(TEXT("ReadyReward")).bCanShow);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	const FOpenMobileAdsPlacementStatus StatusBeforeQueries =
+		Subsystem->GetPlacementStatus(TEXT("ReadyReward"));
+	TestEqual(
+		TEXT("Background state blocks showing"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::LifecycleConflict
+	);
+	TestEqual(
+		TEXT("Repeated background queries keep the same decision"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::LifecycleConflict
+	);
+	const FOpenMobileAdsPlacementStatus StatusAfterQueries =
+		Subsystem->GetPlacementStatus(TEXT("ReadyReward"));
+	TestEqual(
+		TEXT("CanShow does not change placement state"),
+		StatusAfterQueries.State,
+		StatusBeforeQueries.State
+	);
+	TestEqual(
+		TEXT("CanShow does not change cache identity"),
+		StatusAfterQueries.CachedAdId,
+		StatusBeforeQueries.CachedAdId
+	);
+	TestEqual(
+		TEXT("CanShow does not change cache expiration"),
+		StatusAfterQueries.ExpiresAt,
+		StatusBeforeQueries.ExpiresAt
+	);
+	TestTrue(TEXT("Lifecycle policy does not change cached readiness"), Subsystem->IsReady(TEXT("ReadyReward")));
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestTrue(TEXT("Foreground state restores eligibility"), Subsystem->CanShow(TEXT("ReadyReward")).bCanShow);
+	FCoreDelegates::ApplicationWillDeactivateDelegate.Broadcast();
+	TestEqual(
+		TEXT("Inactive state blocks showing"),
+		Subsystem->CanShow(TEXT("ReadyReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::LifecycleConflict
+	);
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestTrue(TEXT("Reactivation restores eligibility"), Subsystem->CanShow(TEXT("ReadyReward")).bCanShow);
+
+	Subsystem->Deinitialize();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCanShowDecisionContractTest,
+	"OpenMobile.Ads.ProviderContract.Readiness.Decision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCanShowDecisionContractTest::RunTest(const FString& Parameters)
+{
+	auto MakeEligibleContext = []()
+	{
+		FOpenMobileAdsCanShowPolicyContext Context;
+		Context.bPlacementConfigured = true;
+		Context.bPlacementEnabled = true;
+		Context.ServiceState = EOpenMobileAdsServiceState::Ready;
+		Context.bProviderAvailable = true;
+		Context.bFormatSupported = true;
+		Context.bPrivacyAllowed = true;
+		Context.PlacementState = EOpenMobileAdPlacementState::Ready;
+		Context.bHasCachedAd = true;
+		return Context;
+	};
+	auto TestReason = [this](
+		const TCHAR* What,
+		const FOpenMobileAdsCanShowPolicyContext& Context,
+		EOpenMobileAdsCanShowBlockReason Expected
+	)
+	{
+		const FOpenMobileAdsCanShowResult Result =
+			FOpenMobileAdsCanShowPolicy::Evaluate(Context);
+		TestEqual(What, Result.BlockReason, Expected);
+		TestFalse(TEXT("A blocked decision cannot show"), Result.bCanShow);
+		TestFalse(TEXT("A blocked decision includes an explanation"), Result.Explanation.IsEmpty());
+	};
+
+	FOpenMobileAdsCanShowPolicyContext Context = MakeEligibleContext();
+	Context.bPlacementConfigured = false;
+	Context.bPlacementEnabled = false;
+	Context.ServiceState = EOpenMobileAdsServiceState::Uninitialized;
+	Context.bProviderAvailable = false;
+	Context.bFormatSupported = false;
+	Context.bPrivacyAllowed = false;
+	Context.PlacementState = EOpenMobileAdPlacementState::Loading;
+	Context.bHasCachedAd = false;
+	Context.bExpired = true;
+	Context.bFrequencyCapped = true;
+	Context.bCooldownActive = true;
+	Context.bOffline = true;
+	Context.bLifecycleConflict = true;
+	TestReason(
+		TEXT("Unknown placement has highest precedence"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::UnknownPlacement
+	);
+
+	Context = MakeEligibleContext();
+	Context.bPlacementEnabled = false;
+	TestReason(TEXT("Disabled placement is typed"), Context, EOpenMobileAdsCanShowBlockReason::Disabled);
+	Context = MakeEligibleContext();
+	Context.ServiceState = EOpenMobileAdsServiceState::Initializing;
+	Context.bPrivacyAllowed = false;
+	Context.PlacementState = EOpenMobileAdPlacementState::Loading;
+	TestReason(
+		TEXT("Initialization precedes privacy and loading"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::NotInitialized
+	);
+	Context = MakeEligibleContext();
+	Context.bProviderAvailable = false;
+	TestReason(
+		TEXT("Provider availability is typed"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::ProviderUnavailable
+	);
+	Context = MakeEligibleContext();
+	Context.bFormatSupported = false;
+	TestReason(
+		TEXT("Unsupported format is typed"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::UnsupportedFormat
+	);
+	Context = MakeEligibleContext();
+	Context.bPrivacyAllowed = false;
+	Context.PlacementState = EOpenMobileAdPlacementState::Loading;
+	TestReason(
+		TEXT("Privacy precedes loading"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::PrivacyBlocked
+	);
+	Context = MakeEligibleContext();
+	Context.PlacementState = EOpenMobileAdPlacementState::Loading;
+	Context.bHasCachedAd = false;
+	TestReason(TEXT("Loading is typed"), Context, EOpenMobileAdsCanShowBlockReason::Loading);
+	Context = MakeEligibleContext();
+	Context.bHasCachedAd = false;
+	TestReason(TEXT("Missing cache is typed"), Context, EOpenMobileAdsCanShowBlockReason::NotLoaded);
+	Context = MakeEligibleContext();
+	Context.bExpired = true;
+	Context.bFrequencyCapped = true;
+	TestReason(
+		TEXT("Expiration precedes pacing policy"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::Expired
+	);
+
+	const FDateTime CapEndsAt(2030, 1, 2);
+	Context = MakeEligibleContext();
+	Context.bFrequencyCapped = true;
+	Context.bCooldownActive = true;
+	Context.bOffline = true;
+	Context.bLifecycleConflict = true;
+	Context.FrequencyCapEndsAt = CapEndsAt;
+	FOpenMobileAdsCanShowResult Result = FOpenMobileAdsCanShowPolicy::Evaluate(Context);
+	TestEqual(
+		TEXT("Frequency cap precedes cooldown and runtime state"),
+		Result.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::FrequencyCap
+	);
+	TestEqual(TEXT("Frequency cap returns its next eligible time"), Result.NextEligibleAt, CapEndsAt);
+
+	const FDateTime CooldownEndsAt(2030, 1, 3);
+	Context = MakeEligibleContext();
+	Context.bCooldownActive = true;
+	Context.bOffline = true;
+	Context.bLifecycleConflict = true;
+	Context.CooldownEndsAt = CooldownEndsAt;
+	Result = FOpenMobileAdsCanShowPolicy::Evaluate(Context);
+	TestEqual(
+		TEXT("Cooldown precedes connectivity and lifecycle"),
+		Result.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestEqual(TEXT("Cooldown returns its next eligible time"), Result.NextEligibleAt, CooldownEndsAt);
+
+	Context = MakeEligibleContext();
+	Context.bOffline = true;
+	Context.bLifecycleConflict = true;
+	TestReason(
+		TEXT("Connectivity precedes lifecycle"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::Offline
+	);
+	Context = MakeEligibleContext();
+	Context.bLifecycleConflict = true;
+	TestReason(
+		TEXT("Lifecycle conflict is typed"),
+		Context,
+		EOpenMobileAdsCanShowBlockReason::LifecycleConflict
+	);
+
+	Result = FOpenMobileAdsCanShowPolicy::Evaluate(MakeEligibleContext());
+	TestTrue(TEXT("An eligible decision can show"), Result.bCanShow);
+	TestEqual(
+		TEXT("An eligible decision has no block reason"),
+		Result.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::None
+	);
+	TestTrue(TEXT("An eligible decision has no explanation"), Result.Explanation.IsEmpty());
+	TestEqual(TEXT("An eligible decision has no pacing deadline"), Result.NextEligibleAt, FDateTime());
 	return true;
 }
 

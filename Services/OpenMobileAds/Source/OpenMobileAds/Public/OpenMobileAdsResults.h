@@ -67,6 +67,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsCanShowResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString Explanation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime NextEligibleAt;
 };
 
 USTRUCT(BlueprintType)

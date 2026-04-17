@@ -17,6 +17,7 @@ class IOpenMobileAdsProviderInitializationSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 struct FOpenMobileAdsActiveRequestContext;
+enum class ENetworkConnectionType : uint8;
 
 UENUM(BlueprintType)
 enum class EOpenMobileRewardedAdState : uint8
@@ -195,6 +196,11 @@ private:
 	void ExpireCachedAds();
 	void ScheduleCacheExpirationCheck();
 	bool HandleCacheExpirationTick(float DeltaTime);
+	void HandleNetworkConnectionChanged(ENetworkConnectionType ConnectionType);
+	void HandleApplicationWillDeactivate();
+	void HandleApplicationHasReactivated();
+	void HandleApplicationWillEnterBackground();
+	void HandleApplicationHasEnteredForeground();
 	void HandleAdLoaded();
 	void HandleAdShown();
 	void HandleRewardEarned(int32 NetworkAmount, FString NetworkRewardType);
@@ -214,6 +220,11 @@ private:
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
+	FDelegateHandle NetworkConnectionChangedHandle;
+	FDelegateHandle ApplicationWillDeactivateHandle;
+	FDelegateHandle ApplicationHasReactivatedHandle;
+	FDelegateHandle ApplicationWillEnterBackgroundHandle;
+	FDelegateHandle ApplicationHasEnteredForegroundHandle;
 	FTSTicker::FDelegateHandle CacheExpirationTickerHandle;
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 	FName SelectedProviderName;
@@ -227,4 +238,7 @@ private:
 	bool bPrivacySnapshotInitialized = false;
 	bool bRuntimeInitialized = false;
 	bool bDeinitialized = false;
+	bool bApplicationActive = true;
+	bool bApplicationInForeground = true;
+	TAtomic<bool> bPlatformOffline {false};
 };

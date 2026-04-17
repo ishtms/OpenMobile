@@ -115,6 +115,23 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	);
 	TestFalse(TEXT("Rejected operations are not accepted"), Rejected.bAccepted);
 	TestEqual(TEXT("Rejected operations preserve typed errors"), Rejected.Error.Code, EOpenMobileAdsErrorCode::UnsupportedFormat);
+	FOpenMobileAdsCanShowResult CanShowResult;
+	CanShowResult.BlockReason = EOpenMobileAdsCanShowBlockReason::Cooldown;
+	CanShowResult.NextEligibleAt = FDateTime(2030, 1, 2);
+	TestEqual(
+		TEXT("Show eligibility preserves its typed reason"),
+		CanShowResult.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestEqual(
+		TEXT("Show eligibility exposes its pacing deadline"),
+		CanShowResult.NextEligibleAt,
+		FDateTime(2030, 1, 2)
+	);
+	TestNotNull(
+		TEXT("The pacing deadline is reflected for Blueprints"),
+		FOpenMobileAdsCanShowResult::StaticStruct()->FindPropertyByName(TEXT("NextEligibleAt"))
+	);
 
 	UClass* AsyncActionClass = UOpenMobileAdsAsyncAction::StaticClass();
 	TestNotNull(TEXT("Blueprint async action class is reflected"), AsyncActionClass);
