@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "OpenMobileAdsCapabilities.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsEvents.h"
@@ -190,6 +191,10 @@ private:
 	void HandleProviderEvent(FOpenMobileAdsEvent Event);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
+	void ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Status);
+	void ExpireCachedAds();
+	void ScheduleCacheExpirationCheck();
+	bool HandleCacheExpirationTick(float DeltaTime);
 	void HandleAdLoaded();
 	void HandleAdShown();
 	void HandleRewardEarned(int32 NetworkAmount, FString NetworkRewardType);
@@ -202,12 +207,14 @@ private:
 	TMap<FName, FOpenMobileAdsPlacementStatus> PlacementStatuses;
 	TSet<FGuid> RewardedCachedAds;
 	TSet<FGuid> ImpressedCachedAds;
+	TSet<FGuid> PendingExpiredCachedAdEvents;
 	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
+	FTSTicker::FDelegateHandle CacheExpirationTickerHandle;
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 	FName SelectedProviderName;
 	FGuid InitializationRequestId;

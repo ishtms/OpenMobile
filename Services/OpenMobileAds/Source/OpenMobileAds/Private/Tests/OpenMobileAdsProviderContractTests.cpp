@@ -1,5 +1,6 @@
 #include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Containers/Ticker.h"
 #include "Engine/GameInstance.h"
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileAdsProvider.h"
@@ -106,6 +107,11 @@ namespace OpenMobileAdsProviderContractTests
 			CancelledRequests.Add(RequestId);
 		}
 
+		virtual void ReleaseCachedAd(FGuid CachedAdId) override
+		{
+			ReleasedCachedAds.Add(CachedAdId);
+		}
+
 		virtual void Shutdown() override
 		{
 			++ShutdownCalls;
@@ -148,6 +154,7 @@ namespace OpenMobileAdsProviderContractTests
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
 		TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 		TArray<FGuid> CancelledRequests;
+		TArray<FGuid> ReleasedCachedAds;
 	};
 
 	class FScopedProviderRegistration
@@ -348,6 +355,7 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 
 	FOpenMobileAdsEvent Loaded;
 	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
 	Provider.LoadSink->Submit(Loaded);
 	DrainGameThreadTasks();
 	const FOpenMobileAdsOperationResult CachedDuplicate =
@@ -386,6 +394,351 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 		Subsystem->IsReady(TEXT("ContinueReward"))
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCacheContractTest,
+	"OpenMobile.Ads.ProviderContract.Cache.Ownership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCacheContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {FName(TEXT("RewardOne")), FName(TEXT("RewardTwo"))})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Android.AdUnitId = FString::Printf(TEXT("android-%s"), *PlacementName.ToString());
+		Placement.IOS.AdUnitId = FString::Printf(TEXT("ios-%s"), *PlacementName.ToString());
+	}
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].MaxCachedAdsPerPlacement = 2;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before cache operations"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	const FOpenMobileAdFormatCapabilities* Rewarded =
+		Provider.Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded);
+	TestNotNull(TEXT("The mock provider advertises rewarded cache policy"), Rewarded);
+	if (Rewarded)
+	{
+		TestEqual(TEXT("Provider cache capacity remains inspectable"), Rewarded->MaxCachedAdsPerPlacement, 2);
+	}
+
+	const FGuid FirstCachedAdId = FGuid::NewGuid();
+	TestTrue(TEXT("The first placement load starts"), Subsystem->LoadAd(TEXT("RewardOne")).bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> FirstLoadSink =
+		Provider.LoadSink;
+	FOpenMobileAdsEvent FirstLoaded;
+	FirstLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	FirstLoaded.CachedAdId = FirstCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(FirstLoaded));
+	DrainGameThreadTasks();
+
+	const FGuid SecondCachedAdId = FGuid::NewGuid();
+	TestTrue(TEXT("The second placement load starts independently"), Subsystem->LoadAd(TEXT("RewardTwo")).bAccepted);
+	FOpenMobileAdsEvent SecondLoaded;
+	SecondLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	SecondLoaded.CachedAdId = SecondCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(SecondLoaded));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("The first placement retains its cache identity"),
+		Subsystem->GetPlacementStatus(TEXT("RewardOne")).CachedAdId,
+		FirstCachedAdId
+	);
+	TestEqual(
+		TEXT("The second placement has an independent cache identity"),
+		Subsystem->GetPlacementStatus(TEXT("RewardTwo")).CachedAdId,
+		SecondCachedAdId
+	);
+
+	FOpenMobileAdsLoadOptions ForceReload;
+	ForceReload.bForceReload = true;
+	const FOpenMobileAdsOperationResult CancelledReplacement =
+		Subsystem->LoadAd(TEXT("RewardOne"), ForceReload);
+	TestTrue(TEXT("A replacement load can be cancelled"), CancelledReplacement.bAccepted);
+	TestTrue(
+		TEXT("Cancelling a replacement load succeeds"),
+		Subsystem->CancelRequest(CancelledReplacement.RequestId).bAccepted
+	);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("Cancellation restores the prior cache identity"),
+		Subsystem->GetPlacementStatus(TEXT("RewardOne")).CachedAdId,
+		FirstCachedAdId
+	);
+	TestTrue(TEXT("Cancellation restores ready state"), Subsystem->IsReady(TEXT("RewardOne")));
+	TestTrue(TEXT("Cancellation does not release the prior cache"), Provider.ReleasedCachedAds.IsEmpty());
+
+	TestTrue(
+		TEXT("The first placement starts a replacement load"),
+		Subsystem->LoadAd(TEXT("RewardOne"), ForceReload).bAccepted
+	);
+	const FGuid ReplacementCachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent ReplacementLoaded;
+	ReplacementLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	ReplacementLoaded.CachedAdId = ReplacementCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(ReplacementLoaded));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Replacement releases one cached ad"), Provider.ReleasedCachedAds.Num(), 1);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(TEXT("Replacement releases the prior cache identity"), Provider.ReleasedCachedAds[0], FirstCachedAdId);
+	}
+	TestEqual(
+		TEXT("Replacement keeps the second placement unchanged"),
+		Subsystem->GetPlacementStatus(TEXT("RewardTwo")).CachedAdId,
+		SecondCachedAdId
+	);
+
+	if (FirstLoadSink)
+	{
+		FOpenMobileAdsEvent StaleLoaded;
+		StaleLoaded.Type = EOpenMobileAdsEventType::Loaded;
+		StaleLoaded.CachedAdId = FGuid::NewGuid();
+		FirstLoadSink->Submit(MoveTemp(StaleLoaded));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("A stale load callback cannot replace the current cache"),
+		Subsystem->GetPlacementStatus(TEXT("RewardOne")).CachedAdId,
+		ReplacementCachedAdId
+	);
+
+	TestTrue(TEXT("The cached first placement can start showing"), Subsystem->ShowAd(TEXT("RewardOne")).bAccepted);
+	FOpenMobileAdsEvent ShowFailed;
+	ShowFailed.Type = EOpenMobileAdsEventType::Failed;
+	ShowFailed.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("RewardOne"),
+		TEXT("Cached ad became unavailable.")
+	);
+	AddExpectedError(
+		TEXT("Cached ad became unavailable."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.ShowSink->Submit(MoveTemp(ShowFailed));
+	DrainGameThreadTasks();
+	TestFalse(
+		TEXT("Provider failure invalidates the affected cache"),
+		Subsystem->GetPlacementStatus(TEXT("RewardOne")).CachedAdId.IsValid()
+	);
+	TestEqual(TEXT("Provider failure releases the affected native cache"), Provider.ReleasedCachedAds.Num(), 2);
+	TestTrue(TEXT("Provider failure does not clear another placement"), Subsystem->IsReady(TEXT("RewardTwo")));
+
+	AddExpectedError(
+		TEXT("The ads provider was unregistered during an active placement operation."),
+		EAutomationExpectedErrorFlags::Contains,
+		2
+	);
+	Registration.Unregister();
+	DrainGameThreadTasks();
+	TestFalse(
+		TEXT("Provider unregistration invalidates remaining cached state"),
+		Subsystem->GetPlacementStatus(TEXT("RewardTwo")).CachedAdId.IsValid()
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCacheIdentityContractTest,
+	"OpenMobile.Ads.ProviderContract.Cache.Identity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCacheIdentityContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("IdentityReward");
+	Placement.Android.AdUnitId = TEXT("android-identity");
+	Placement.IOS.AdUnitId = TEXT("ios-identity");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].MaxCachedAdsPerPlacement = 0;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before cache identity checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	const FOpenMobileAdsOperationResult NoCapacity =
+		Subsystem->LoadAd(TEXT("IdentityReward"));
+	TestFalse(TEXT("A provider without cache capacity rejects loading"), NoCapacity.bAccepted);
+	TestEqual(
+		TEXT("Invalid provider cache capacity is typed"),
+		NoCapacity.Error.Code,
+		EOpenMobileAdsErrorCode::ProviderFailure
+	);
+	Provider.Capabilities.Formats[0].MaxCachedAdsPerPlacement = 1;
+	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = -1.0;
+	const FOpenMobileAdsOperationResult InvalidLifetime =
+		Subsystem->LoadAd(TEXT("IdentityReward"));
+	TestFalse(TEXT("A provider with a negative cache lifetime rejects loading"), InvalidLifetime.bAccepted);
+	TestEqual(
+		TEXT("Invalid provider cache lifetime is typed"),
+		InvalidLifetime.Error.Code,
+		EOpenMobileAdsErrorCode::ProviderFailure
+	);
+	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 0.0;
+
+	TestTrue(TEXT("The first load starts"), Subsystem->LoadAd(TEXT("IdentityReward")).bAccepted);
+	FOpenMobileAdsEvent MissingIdentity;
+	MissingIdentity.Type = EOpenMobileAdsEventType::Loaded;
+	AddExpectedError(
+		TEXT("The ads provider reported a loaded ad without a cache identity."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.LoadSink->Submit(MoveTemp(MissingIdentity));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus FailedStatus =
+		Subsystem->GetPlacementStatus(TEXT("IdentityReward"));
+	TestEqual(TEXT("A missing cache identity fails the load"), FailedStatus.State, EOpenMobileAdPlacementState::Failed);
+	TestEqual(
+		TEXT("A missing cache identity is a provider failure"),
+		FailedStatus.LastError.Code,
+		EOpenMobileAdsErrorCode::ProviderFailure
+	);
+	TestFalse(TEXT("The service does not invent a cache identity"), FailedStatus.CachedAdId.IsValid());
+
+	TestTrue(TEXT("A load can retry after the malformed callback"), Subsystem->LoadAd(TEXT("IdentityReward")).bAccepted);
+	const FGuid StableCachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = StableCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+
+	FOpenMobileAdsLoadOptions ForceReload;
+	ForceReload.bForceReload = true;
+	TestTrue(TEXT("A forced replacement starts"), Subsystem->LoadAd(TEXT("IdentityReward"), ForceReload).bAccepted);
+	FOpenMobileAdsEvent MalformedReplacement;
+	MalformedReplacement.Type = EOpenMobileAdsEventType::Loaded;
+	AddExpectedError(
+		TEXT("The ads provider reported a loaded ad without a cache identity."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.LoadSink->Submit(MoveTemp(MalformedReplacement));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A malformed replacement preserves the prior cache"),
+		Subsystem->GetPlacementStatus(TEXT("IdentityReward")).CachedAdId,
+		StableCachedAdId
+	);
+	TestTrue(TEXT("A malformed replacement keeps the prior ad ready"), Subsystem->IsReady(TEXT("IdentityReward")));
+	TestTrue(TEXT("A malformed replacement does not release the prior ad"), Provider.ReleasedCachedAds.IsEmpty());
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCacheExpirationContractTest,
+	"OpenMobile.Ads.ProviderContract.Cache.Expiration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ExpiringReward");
+	Placement.Android.AdUnitId = TEXT("android-expiring");
+	Placement.IOS.AdUnitId = TEXT("ios-expiring");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 1.0;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before expiration checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+	TestTrue(TEXT("The expiring placement starts loading"), Subsystem->LoadAd(TEXT("ExpiringReward")).bAccepted);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Loaded.Timestamp = FDateTime::UtcNow() - FTimespan::FromSeconds(2.0);
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsPlacementStatus ReadyStatus =
+		Subsystem->GetPlacementStatus(TEXT("ExpiringReward"));
+	TestEqual(TEXT("The cache records its load timestamp"), ReadyStatus.CachedAt, Events.Last().Timestamp);
+	TestEqual(
+		TEXT("The cache records provider-specific expiration"),
+		ReadyStatus.ExpiresAt,
+		ReadyStatus.CachedAt + FTimespan::FromSeconds(1.0)
+	);
+	TestFalse(TEXT("An overdue cache is not ready before cleanup runs"), Subsystem->IsReady(TEXT("ExpiringReward")));
+	TestEqual(
+		TEXT("CanShow reports an overdue cache as expired"),
+		Subsystem->CanShow(TEXT("ExpiringReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Expired
+	);
+
+	FTSTicker::GetCoreTicker().Tick(0.0f);
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus ExpiredStatus =
+		Subsystem->GetPlacementStatus(TEXT("ExpiringReward"));
+	TestEqual(TEXT("Expiration returns the placement to idle"), ExpiredStatus.State, EOpenMobileAdPlacementState::Idle);
+	TestFalse(TEXT("Expiration invalidates the public cache ID"), ExpiredStatus.CachedAdId.IsValid());
+	TestEqual(TEXT("Expiration clears the load timestamp"), ExpiredStatus.CachedAt, FDateTime());
+	TestEqual(TEXT("Expiration clears the deadline"), ExpiredStatus.ExpiresAt, FDateTime());
+	TestEqual(TEXT("Expiration releases the native cached ad"), Provider.ReleasedCachedAds.Num(), 1);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(TEXT("Expiration releases the matching cache identity"), Provider.ReleasedCachedAds[0], CachedAdId);
+	}
+	TestTrue(
+		TEXT("Expiration broadcasts a normalized event"),
+		Events.ContainsByPredicate([](const FOpenMobileAdsEvent& Event)
+		{
+			return Event.Type == EOpenMobileAdsEventType::Expired;
+		})
+	);
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
 	Subsystem->Deinitialize();
 	return true;
 }
@@ -830,6 +1183,7 @@ bool FOpenMobileAdsProviderEventContractTest::RunTest(const FString& Parameters)
 		Provider.LoadSink->Submit(PrematureDismiss);
 		FOpenMobileAdsEvent Loaded;
 		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
 		Provider.LoadSink->Submit(Loaded);
 	});
 	Callback.Wait();

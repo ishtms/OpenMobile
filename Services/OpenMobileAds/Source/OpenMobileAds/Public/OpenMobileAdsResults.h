@@ -93,5 +93,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementStatus
 	FGuid CachedAdId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime CachedAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime ExpiresAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError LastError;
 };

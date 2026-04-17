@@ -85,6 +85,7 @@ public:
 	);
 
 	virtual void Cancel(FGuid RequestId) {}
+	virtual void ReleaseCachedAd(FGuid CachedAdId) = 0;
 
 	virtual bool RequestAndShowRewardedAd(
 		FOpenMobileRewardedAdCallbacks&& Callbacks,

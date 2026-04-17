@@ -218,6 +218,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	if (Rewarded)
 	{
 		TestTrue(TEXT("AdMob advertises rewarded loading"), Rewarded->bCanLoad);
+		TestEqual(TEXT("AdMob caches one rewarded ad per placement"), Rewarded->MaxCachedAdsPerPlacement, 1);
+		TestEqual(TEXT("AdMob rewarded caches expire after one hour"), Rewarded->CacheLifetimeSeconds, 3600.0);
 	}
 
 	FOpenMobileAdsInitializationRequest Initialization;
@@ -292,6 +294,7 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 		);
 	}
 	TestEqual(TEXT("A successful load emits one terminal event"), FirstSink->Events.Num(), 1);
+	FGuid FirstCachedAdId;
 	if (FirstSink->Events.Num() == 1)
 	{
 		TestEqual(
@@ -299,6 +302,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 			FirstSink->Events[0].Type,
 			EOpenMobileAdsEventType::Loaded
 		);
+		FirstCachedAdId = FirstSink->Events[0].CachedAdId;
+		TestTrue(TEXT("A successful load returns an opaque cache ID"), FirstCachedAdId.IsValid());
 	}
 
 	FOpenMobileAdsLoadRequest Replacement = First;
@@ -317,18 +322,20 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 			Backend.LoadRequestIds[2]
 		);
 	}
-	TestEqual(
-		TEXT("A successful replacement releases the previous native ad"),
-		Backend.CancelledRequestIds.Num(),
-		2
-	);
+	TestEqual(TEXT("A replacement load emits one terminal event"), ReplacementSink->Events.Num(), 1);
+	if (ReplacementSink->Events.Num() == 1)
+	{
+		TestTrue(
+			TEXT("Each native load receives a distinct cache ID"),
+			ReplacementSink->Events[0].CachedAdId.IsValid()
+			&& ReplacementSink->Events[0].CachedAdId != FirstCachedAdId
+		);
+	}
+	Provider->ReleaseCachedAd(FirstCachedAdId);
+	TestEqual(TEXT("Releasing a cache ID reaches the backend"), Backend.CancelledRequestIds.Num(), 2);
 	if (Backend.CancelledRequestIds.Num() == 2)
 	{
-		TestEqual(
-			TEXT("Replacement releases the first completed native load"),
-			Backend.CancelledRequestIds[1],
-			Backend.LoadRequestIds[0]
-		);
+		TestEqual(TEXT("Cache release targets its native load"), Backend.CancelledRequestIds[1], Backend.LoadRequestIds[0]);
 	}
 
 	FOpenMobileAdsLoadRequest Failed;

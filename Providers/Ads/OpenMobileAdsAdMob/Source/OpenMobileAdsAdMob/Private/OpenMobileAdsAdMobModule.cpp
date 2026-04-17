@@ -20,6 +20,8 @@ namespace OpenMobileAdsAdMobPrivate
 			Rewarded.bCanLoad = true;
 			Rewarded.bReportsDismiss = true;
 			Rewarded.bReportsReward = true;
+			Rewarded.MaxCachedAdsPerPlacement = 1;
+			Rewarded.CacheLifetimeSeconds = 60.0 * 60.0;
 
 			FOpenMobileAdsProviderCapabilities Capabilities;
 			Capabilities.Provider = GetProviderName();
@@ -150,10 +152,11 @@ namespace OpenMobileAdsAdMobPrivate
 			FString NativeError;
 			const bool bStarted = FOpenMobileAdsAdMobPlatform::BeginLoad(
 				ProviderRequest,
-				FOnOpenMobileAdMobRewardedLoaded::CreateLambda([EventSink]()
+				FOnOpenMobileAdMobRewardedCached::CreateLambda([EventSink](FGuid CachedAdId)
 				{
 					FOpenMobileAdsEvent Loaded;
 					Loaded.Type = EOpenMobileAdsEventType::Loaded;
+					Loaded.CachedAdId = CachedAdId;
 					EventSink->Submit(MoveTemp(Loaded));
 				}),
 				FOnOpenMobileAdMobRewardedFailed::CreateLambda(
@@ -197,6 +200,11 @@ namespace OpenMobileAdsAdMobPrivate
 		virtual void Cancel(FGuid RequestId) override
 		{
 			FOpenMobileAdsAdMobPlatform::CancelLoad(RequestId);
+		}
+
+		virtual void ReleaseCachedAd(FGuid CachedAdId) override
+		{
+			FOpenMobileAdsAdMobPlatform::ReleaseCachedAd(CachedAdId);
 		}
 
 		virtual void Shutdown() override

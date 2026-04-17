@@ -9,8 +9,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	struct FRewardedLoadOperation
 	{
 		FGuid RequestId;
-		FName Placement;
-		FOnOpenMobileAdMobRewardedLoaded Loaded;
+		FOnOpenMobileAdMobRewardedCached Loaded;
 		FOnOpenMobileAdMobRewardedFailed Failed;
 	};
 
@@ -24,7 +23,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	FOnOpenMobileAdMobRewardedFailed FailedDelegate;
 	TMap<int64, FRewardedLoadOperation> RewardedLoadOperations;
 	TMap<FGuid, int64> NativeLoadRequestIds;
-	TMap<FName, int64> LoadedRewardedAdRequestIds;
+	TMap<FGuid, int64> LoadedRewardedAdRequestIds;
 	int64 NextRequestId = 0;
 	int64 ActiveInitializationRequestId = 0;
 	int64 ActiveRequestId = 0;
@@ -193,7 +192,7 @@ void FOpenMobileAdsAdMobPlatform::Shutdown()
 
 bool FOpenMobileAdsAdMobPlatform::BeginLoad(
 	const FOpenMobileAdsLoadRequest& Request,
-	FOnOpenMobileAdMobRewardedLoaded&& OnLoaded,
+	FOnOpenMobileAdMobRewardedCached&& OnLoaded,
 	FOnOpenMobileAdMobRewardedFailed&& OnFailed,
 	FString& OutError
 )
@@ -236,7 +235,6 @@ bool FOpenMobileAdsAdMobPlatform::BeginLoad(
 	const int64 NativeRequestId = NextRequestId;
 	FRewardedLoadOperation Operation;
 	Operation.RequestId = Request.RequestId;
-	Operation.Placement = Request.Placement.Placement;
 	Operation.Loaded = MoveTemp(OnLoaded);
 	Operation.Failed = MoveTemp(OnFailed);
 	RewardedLoadOperations.Add(NativeRequestId, MoveTemp(Operation));
@@ -265,6 +263,21 @@ void FOpenMobileAdsAdMobPlatform::CancelLoad(FGuid RequestId)
 		return;
 	}
 	RewardedLoadOperations.Remove(NativeRequestId);
+	if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
+	{
+		Backend->CancelRewardedAd(NativeRequestId);
+	}
+}
+
+void FOpenMobileAdsAdMobPlatform::ReleaseCachedAd(FGuid CachedAdId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+	int64 NativeRequestId = 0;
+	if (!LoadedRewardedAdRequestIds.RemoveAndCopyValue(CachedAdId, NativeRequestId))
+	{
+		return;
+	}
 	if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
 	{
 		Backend->CancelRewardedAd(NativeRequestId);
@@ -442,24 +455,9 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(int64 RequestId)
 		FRewardedLoadOperation Operation;
 		if (RemoveLoadOperation(RequestId, Operation))
 		{
-			if (int64* PreviousRequestId = LoadedRewardedAdRequestIds.Find(
-				Operation.Placement
-			))
-			{
-				if (*PreviousRequestId != RequestId)
-				{
-					if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
-					{
-						Backend->CancelRewardedAd(*PreviousRequestId);
-					}
-					*PreviousRequestId = RequestId;
-				}
-			}
-			else
-			{
-				LoadedRewardedAdRequestIds.Add(Operation.Placement, RequestId);
-			}
-			Operation.Loaded.ExecuteIfBound();
+			const FGuid CachedAdId = FGuid::NewGuid();
+			LoadedRewardedAdRequestIds.Add(CachedAdId, RequestId);
+			Operation.Loaded.ExecuteIfBound(CachedAdId);
 		}
 	});
 }

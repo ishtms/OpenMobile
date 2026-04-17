@@ -11,6 +11,7 @@ DECLARE_DELEGATE_OneParam(
 );
 DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobInitialized, FOpenMobileAdsError);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
+DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobRewardedCached, FGuid);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
 DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobRewardedEarned, int32, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedClosed);
@@ -29,11 +30,12 @@ public:
 	static void Shutdown();
 	static bool BeginLoad(
 		const FOpenMobileAdsLoadRequest& Request,
-		FOnOpenMobileAdMobRewardedLoaded&& OnLoaded,
+		FOnOpenMobileAdMobRewardedCached&& OnLoaded,
 		FOnOpenMobileAdMobRewardedFailed&& OnFailed,
 		FString& OutError
 	);
 	static void CancelLoad(FGuid RequestId);
+	static void ReleaseCachedAd(FGuid CachedAdId);
 
 	static bool BeginRequest(
 		const FString& AdUnitId,

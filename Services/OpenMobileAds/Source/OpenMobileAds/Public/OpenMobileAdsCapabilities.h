@@ -50,6 +50,9 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	int32 MaxCachedAdsPerPlacement = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	double CacheLifetimeSeconds = 0.0;
 };
 
 USTRUCT(BlueprintType)
