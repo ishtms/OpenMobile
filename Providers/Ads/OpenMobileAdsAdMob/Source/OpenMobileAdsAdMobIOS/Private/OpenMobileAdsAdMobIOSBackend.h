@@ -13,5 +13,11 @@ public:
 		FString& OutError
 	) override;
 	virtual void Shutdown() override;
+	virtual bool LoadRewardedAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		FString& OutError
+	) override;
+	virtual void CancelRewardedAd(int64 RequestId) override;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) override;
 };

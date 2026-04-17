@@ -24,5 +24,11 @@ public:
 		FString& OutError
 	) = 0;
 	virtual void Shutdown() = 0;
+	virtual bool LoadRewardedAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		FString& OutError
+	) = 0;
+	virtual void CancelRewardedAd(int64 RequestId) = 0;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) = 0;
 };

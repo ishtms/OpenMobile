@@ -32,6 +32,22 @@ namespace OpenMobileAdsAdMobTestAdTests
 			++ShutdownCalls;
 		}
 
+		virtual bool LoadRewardedAd(
+			const FString& AdUnitId,
+			int64 RequestId,
+			FString& OutError
+		) override
+		{
+			LoadedAdUnitIds.Add(AdUnitId);
+			LoadRequestIds.Add(RequestId);
+			return true;
+		}
+
+		virtual void CancelRewardedAd(int64 RequestId) override
+		{
+			CancelledRequestIds.Add(RequestId);
+		}
+
 		virtual bool LaunchRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -51,6 +67,9 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int64 LaunchRequestId = 0;
 		FOpenMobileAdsInitializationRequest InitializationRequest;
 		FString LaunchedAdUnitId;
+		TArray<FString> LoadedAdUnitIds;
+		TArray<int64> LoadRequestIds;
+		TArray<int64> CancelledRequestIds;
 	};
 
 	class FScopedBackendRegistration
@@ -98,6 +117,26 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 CompletionCalls = 0;
 		bool bInvalidated = false;
 		FOpenMobileAdsError CompletionError;
+	};
+
+	class FEventSink final : public IOpenMobileAdsProviderEventSink
+	{
+	public:
+		virtual void Submit(FOpenMobileAdsEvent Event) override
+		{
+			if (!bInvalidated)
+			{
+				Events.Add(MoveTemp(Event));
+			}
+		}
+
+		virtual void Invalidate() override
+		{
+			bInvalidated = true;
+		}
+
+		TArray<FOpenMobileAdsEvent> Events;
+		bool bInvalidated = false;
 	};
 
 	class FScopedSettings
@@ -150,6 +189,184 @@ namespace OpenMobileAdsAdMobTestAdTests
 		}
 		return nullptr;
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobLoadContractTest,
+	"OpenMobile.Ads.AdMob.Load.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const FOpenMobileAdsProviderCapabilities Capabilities = Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Rewarded =
+		Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded);
+	TestNotNull(TEXT("AdMob reports rewarded capabilities"), Rewarded);
+	if (Rewarded)
+	{
+		TestTrue(TEXT("AdMob advertises rewarded loading"), Rewarded->bCanLoad);
+	}
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError InitializationError;
+	TestTrue(
+		TEXT("AdMob starts before loads"),
+		Provider->Initialize(Initialization, InitializationSink, InitializationError)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest First;
+	First.RequestId = FGuid::NewGuid();
+	First.Placement.Placement = TEXT("RewardOne");
+	First.Placement.Format = EOpenMobileAdFormat::Rewarded;
+	First.Placement.AdUnitId = TEXT("production-unit-one");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FirstSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError FirstError;
+	TestTrue(
+		TEXT("The first named rewarded load starts"),
+		Provider->Load(First, FirstSink, FirstError)
+	);
+
+	FOpenMobileAdsLoadRequest Second;
+	Second.RequestId = FGuid::NewGuid();
+	Second.Placement.Placement = TEXT("RewardTwo");
+	Second.Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Second.Placement.AdUnitId = TEXT("production-unit-two");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> SecondSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError SecondError;
+	TestTrue(
+		TEXT("A different named rewarded placement can load concurrently"),
+		Provider->Load(Second, SecondSink, SecondError)
+	);
+	TestEqual(TEXT("Both loads reach the backend"), Backend.LoadRequestIds.Num(), 2);
+	for (const FString& AdUnitId : Backend.LoadedAdUnitIds)
+	{
+		TestEqual(
+			TEXT("Test mode uses Google's Android rewarded test ID"),
+			AdUnitId,
+			FString(TEXT("ca-app-pub-3940256099942544/5224354917"))
+		);
+	}
+
+	Provider->Cancel(Second.RequestId);
+	TestEqual(TEXT("Cancellation reaches the native backend"), Backend.CancelledRequestIds.Num(), 1);
+	if (Backend.CancelledRequestIds.Num() == 1 && Backend.LoadRequestIds.Num() == 2)
+	{
+		TestEqual(
+			TEXT("Cancellation targets the matching native load"),
+			Backend.CancelledRequestIds[0],
+			Backend.LoadRequestIds[1]
+		);
+		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(
+			Backend.LoadRequestIds[1]
+		);
+	}
+	TestTrue(TEXT("A cancelled load ignores late completion"), SecondSink->Events.IsEmpty());
+
+	if (!Backend.LoadRequestIds.IsEmpty())
+	{
+		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(
+			Backend.LoadRequestIds[0]
+		);
+	}
+	TestEqual(TEXT("A successful load emits one terminal event"), FirstSink->Events.Num(), 1);
+	if (FirstSink->Events.Num() == 1)
+	{
+		TestEqual(
+			TEXT("Successful native completion emits Loaded"),
+			FirstSink->Events[0].Type,
+			EOpenMobileAdsEventType::Loaded
+		);
+	}
+
+	FOpenMobileAdsLoadRequest Replacement = First;
+	Replacement.RequestId = FGuid::NewGuid();
+	Replacement.Options.bForceReload = true;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ReplacementSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError ReplacementError;
+	TestTrue(
+		TEXT("A placement can replace its completed native load"),
+		Provider->Load(Replacement, ReplacementSink, ReplacementError)
+	);
+	if (Backend.LoadRequestIds.Num() == 3)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(
+			Backend.LoadRequestIds[2]
+		);
+	}
+	TestEqual(
+		TEXT("A successful replacement releases the previous native ad"),
+		Backend.CancelledRequestIds.Num(),
+		2
+	);
+	if (Backend.CancelledRequestIds.Num() == 2)
+	{
+		TestEqual(
+			TEXT("Replacement releases the first completed native load"),
+			Backend.CancelledRequestIds[1],
+			Backend.LoadRequestIds[0]
+		);
+	}
+
+	FOpenMobileAdsLoadRequest Failed;
+	Failed.RequestId = FGuid::NewGuid();
+	Failed.Placement.Placement = TEXT("RewardFailure");
+	Failed.Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Failed.Placement.AdUnitId = TEXT("production-unit-failure");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError FailedError;
+	TestTrue(
+		TEXT("A later rewarded load starts after completion"),
+		Provider->Load(Failed, FailedSink, FailedError)
+	);
+	if (Backend.LoadRequestIds.Num() == 4)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+			Backend.LoadRequestIds[3],
+			TEXT("test native load failed")
+		);
+	}
+	TestEqual(TEXT("A native load failure emits one terminal event"), FailedSink->Events.Num(), 1);
+	if (FailedSink->Events.Num() == 1)
+	{
+		TestEqual(
+			TEXT("Native failure emits LoadFailed"),
+			FailedSink->Events[0].Type,
+			EOpenMobileAdsEventType::LoadFailed
+		);
+		TestEqual(
+			TEXT("Native load failure is typed"),
+			FailedSink->Events[0].Error.Code,
+			EOpenMobileAdsErrorCode::NativeFailure
+		);
+	}
+
+	Provider->Shutdown();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

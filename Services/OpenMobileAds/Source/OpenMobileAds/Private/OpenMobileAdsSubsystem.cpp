@@ -796,6 +796,20 @@ void UOpenMobileAdsSubsystem::BroadcastInitializationStatus()
 
 void UOpenMobileAdsSubsystem::EnsureRuntime()
 {
+	if (!bPrivacySnapshotInitialized)
+	{
+		const FOpenMobileAdsPrivacyConfiguration& Privacy =
+			GetDefault<UOpenMobileAdsSettings>()->Privacy;
+		PrivacySnapshot.ConsentStatus = Privacy.bDelayProviderInitializationUntilConsent
+			? EOpenMobileAdsConsentStatus::Unknown
+			: EOpenMobileAdsConsentStatus::NotRequired;
+		PrivacySnapshot.ChildDirectedTreatment = Privacy.ChildDirectedTreatment;
+		PrivacySnapshot.UnderAgeOfConsent = Privacy.UnderAgeOfConsent;
+		PrivacySnapshot.bCanRequestAds = !Privacy.bDelayProviderInitializationUntilConsent;
+		PrivacySnapshot.Source = TEXT("ProjectSettings");
+		PrivacySnapshot.LastUpdated = FDateTime::UtcNow();
+		bPrivacySnapshotInitialized = true;
+	}
 	if (bRuntimeInitialized || bDeinitialized)
 	{
 		return;
@@ -807,6 +821,23 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		&UOpenMobileAdsSubsystem::HandleProviderUnregistered
 	);
 	bRuntimeInitialized = true;
+}
+
+void UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
+	FOpenMobileAdsPrivacySnapshot Snapshot
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized)
+	{
+		return;
+	}
+	if (Snapshot.LastUpdated == FDateTime())
+	{
+		Snapshot.LastUpdated = FDateTime::UtcNow();
+	}
+	PrivacySnapshot = MoveTemp(Snapshot);
+	bPrivacySnapshotInitialized = true;
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -957,6 +988,17 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	if (Error.IsSet())
 	{
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
+	}
+	if (!PrivacySnapshot.bCanRequestAds)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::PrivacyBlocked,
+			EOpenMobileAdsFailureStage::Consent,
+			Placement,
+			TEXT("The current privacy state does not allow ad requests."),
+			Provider->GetProviderName(),
+			TEXT("Wait for the consent source to allow ad requests before loading this placement.")
+		));
 	}
 
 	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
@@ -1717,7 +1759,19 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			&& Status->ActiveRequestId == Event.RequestId
 		)
 		{
-			Status->State = EOpenMobileAdPlacementState::Failed;
+			const TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* Context =
+				ActiveRequests.Find(Event.RequestId);
+			const FOpenMobileAdsPlacementStatus* Previous = Context && Context->IsValid()
+				? (*Context)->PreviousStatuses.Find(Event.Placement)
+				: nullptr;
+			if (Previous && Previous->State == EOpenMobileAdPlacementState::Ready)
+			{
+				*Status = *Previous;
+			}
+			else
+			{
+				Status->State = EOpenMobileAdPlacementState::Failed;
+			}
 			Status->LastError = Event.Error;
 			Event.PlacementState = Status->State;
 			bBroadcast = true;

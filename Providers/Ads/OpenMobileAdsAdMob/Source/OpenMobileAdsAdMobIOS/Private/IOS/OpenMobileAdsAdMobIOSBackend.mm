@@ -82,6 +82,8 @@ namespace OpenMobileAdsAdMobIOS
 @end
 
 static OpenMobileRewardedAdDelegate* GOpenMobileRewardedAdDelegate = nil;
+static NSMutableDictionary<NSNumber*, GADRewardedAd*>* GOpenMobileLoadedRewardedAds = nil;
+static NSMutableSet<NSNumber*>* GOpenMobileRewardedAdLoadRequests = nil;
 
 @implementation OpenMobileRewardedAdDelegate
 
@@ -184,6 +186,91 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 		GOpenMobileRewardedAdDelegate.rewardedAd.fullScreenContentDelegate = nil;
 		GOpenMobileRewardedAdDelegate.rewardedAd = nil;
 		GOpenMobileRewardedAdDelegate = nil;
+		[GOpenMobileLoadedRewardedAds removeAllObjects];
+		[GOpenMobileRewardedAdLoadRequests removeAllObjects];
+		GOpenMobileLoadedRewardedAds = nil;
+		GOpenMobileRewardedAdLoadRequests = nil;
+	});
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	if (AdUnitId.IsEmpty())
+	{
+		OutError = TEXT("The iOS rewarded ad unit ID is empty.");
+		return false;
+	}
+
+	NSString* IOSAdUnitId = [NSString stringWithUTF8String:TCHAR_TO_UTF8(*AdUnitId)];
+	if (!IOSAdUnitId)
+	{
+		OutError = TEXT("The iOS rewarded ad unit ID could not be encoded.");
+		return false;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		if (!GOpenMobileLoadedRewardedAds)
+		{
+			GOpenMobileLoadedRewardedAds = [[NSMutableDictionary alloc] init];
+		}
+		if (!GOpenMobileRewardedAdLoadRequests)
+		{
+			GOpenMobileRewardedAdLoadRequests = [[NSMutableSet alloc] init];
+		}
+		NSNumber* Key = @(RequestId);
+		if (
+			[GOpenMobileRewardedAdLoadRequests containsObject:Key]
+			|| GOpenMobileLoadedRewardedAds[Key] != nil
+		)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+				RequestId,
+				TEXT("The iOS rewarded load request is already active.")
+			);
+			return;
+		}
+
+		[GOpenMobileRewardedAdLoadRequests addObject:Key];
+		[GADRewardedAd loadWithAdUnitID:IOSAdUnitId
+						   request:[GADRequest request]
+					completionHandler:^(GADRewardedAd* RewardedAd, NSError* Error)
+		{
+			if (![GOpenMobileRewardedAdLoadRequests containsObject:Key])
+			{
+				return;
+			}
+			[GOpenMobileRewardedAdLoadRequests removeObject:Key];
+			if (Error || !RewardedAd)
+			{
+				NSString* Detail = Error.localizedDescription ?: @"No rewarded ad was returned.";
+				FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToFString(
+						[@"Rewarded ad failed to load: " stringByAppendingString:Detail]
+					)
+				);
+				return;
+			}
+
+			GOpenMobileLoadedRewardedAds[Key] = RewardedAd;
+			FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(RequestId);
+		}];
+	});
+	return true;
+}
+
+void FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd(const int64 RequestId)
+{
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		NSNumber* Key = @(RequestId);
+		[GOpenMobileRewardedAdLoadRequests removeObject:Key];
+		[GOpenMobileLoadedRewardedAds removeObjectForKey:Key];
 	});
 }
 

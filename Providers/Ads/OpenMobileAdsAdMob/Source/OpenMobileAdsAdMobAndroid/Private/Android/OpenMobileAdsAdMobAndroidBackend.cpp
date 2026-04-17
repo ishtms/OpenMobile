@@ -121,6 +121,73 @@ void FOpenMobileAdsAdMobAndroidBackend::Shutdown()
 	}
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID LoadMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_LoadOpenMobileRewardedAd",
+		"(Ljava/lang/String;J)Z",
+		false
+	);
+	if (!LoadMethod)
+	{
+		OutError = TEXT("The Android rewarded-ad load bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		LoadMethod,
+		*JavaAdUnitId,
+		static_cast<jlong>(RequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the rewarded-ad load.");
+	}
+	return bScheduled;
+}
+
+void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedAd(const int64 RequestId)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return;
+	}
+
+	static jmethodID CancelMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_CancelOpenMobileRewardedAdLoad",
+		"(J)V",
+		false
+	);
+	if (CancelMethod)
+	{
+		FJavaWrapper::CallVoidMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			CancelMethod,
+			static_cast<jlong>(RequestId)
+		);
+	}
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LaunchRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -172,6 +239,30 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeLoaded(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdLoadCompleted(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(
+		static_cast<int64>(RequestId)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdLoadFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
 }
 
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitializationCompleted(

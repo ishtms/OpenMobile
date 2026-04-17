@@ -22,6 +22,9 @@ public class OpenMobileAdsAdMobAndroid : ModuleRules
 		ExternalDependencies.Add(
 			Path.Combine(ModuleDirectory, "Private/Android/OpenMobileAdsAdMob_Dependencies.gradle")
 		);
+		ExternalDependencies.Add(
+			Path.Combine(ModuleDirectory, "Private/Android/OpenMobileAdsAdMob_Android_UPL.xml")
+		);
 		AdditionalPropertiesForReceipt.Add(
 			"AndroidPlugin",
 			Path.Combine(ModulePath, "Private/Android/OpenMobileAdsAdMob_Android_UPL.xml")

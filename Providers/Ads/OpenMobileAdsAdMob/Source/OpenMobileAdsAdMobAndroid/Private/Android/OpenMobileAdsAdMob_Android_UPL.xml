@@ -44,6 +44,8 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=3</insert>
         <insertNewline/>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=1</insert>
+        <insertNewline/>
     </registerBuildSettings>
 
     <androidManifestUpdates>
@@ -92,7 +94,10 @@ import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
         </insert>
     </gameActivityImportAdditions>
 
@@ -103,6 +108,8 @@ import java.util.Map;
     private boolean openMobileRewardedAdsInitialized = false;
     private boolean openMobileRewardedAdsInitializing = false;
     private InitializationStatus openMobileRewardedAdsInitializationStatus = null;
+    private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
+    private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
 
     public native void nativeOpenMobileAdsInitializationCompleted(long requestId);
     public native void nativeOpenMobileAdsInitializationFailed(long requestId, String errorMessage);
@@ -122,6 +129,8 @@ import java.util.Map;
     );
     public native void nativeOpenMobileRewardedAdClosed(long requestId);
     public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileRewardedAdLoadCompleted(long requestId);
+    public native void nativeOpenMobileRewardedAdLoadFailed(long requestId, String errorMessage);
 
     private void reportOpenMobileAdsAdapterInitializationStatuses(
         long requestId,
@@ -242,6 +251,107 @@ import java.util.Map;
             {
                 openMobileRewardedAd = null;
                 openMobileRewardedAdLoading = false;
+                openMobileLoadedRewardedAds.clear();
+                openMobileRewardedAdLoadRequests.clear();
+            }
+        });
+    }
+
+    public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
+        final String adUnitId,
+        final long requestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (adUnitId == null || adUnitId.trim().length() == 0)
+                    {
+                        nativeOpenMobileRewardedAdLoadFailed(
+                            requestId,
+                            "The Android rewarded ad unit ID is empty."
+                        );
+                        return;
+                    }
+                    if (
+                        openMobileRewardedAdLoadRequests.contains(requestId)
+                        || openMobileLoadedRewardedAds.containsKey(requestId)
+                    )
+                    {
+                        nativeOpenMobileRewardedAdLoadFailed(
+                            requestId,
+                            "The Android rewarded load request is already active."
+                        );
+                        return;
+                    }
+
+                    openMobileRewardedAdLoadRequests.add(requestId);
+                    try
+                    {
+                        RewardedAd.load(
+                            activityContext,
+                            adUnitId,
+                            new AdRequest.Builder().build(),
+                            new RewardedAdLoadCallback()
+                            {
+                                @Override
+                                public void onAdLoaded(RewardedAd rewardedAd)
+                                {
+                                    if (!openMobileRewardedAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    openMobileLoadedRewardedAds.put(requestId, rewardedAd);
+                                    nativeOpenMobileRewardedAdLoadCompleted(requestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToLoad(LoadAdError loadAdError)
+                                {
+                                    if (!openMobileRewardedAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    nativeOpenMobileRewardedAdLoadFailed(
+                                        requestId,
+                                        "Rewarded ad failed to load: " + loadAdError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileRewardedAdLoadRequests.remove(requestId);
+                        nativeOpenMobileRewardedAdLoadFailed(
+                            requestId,
+                            "Rewarded ad load could not start: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile rewarded ad load failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(final long requestId)
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                openMobileRewardedAdLoadRequests.remove(requestId);
+                openMobileLoadedRewardedAds.remove(requestId);
             }
         });
     }
@@ -382,6 +492,11 @@ import java.util.Map;
         java.lang.String
     );
     public void AndroidThunkJava_ShutdownOpenMobileRewardedAds();
+    public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
+        java.lang.String,
+        long
+    );
+    public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(long);
     public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
         java.lang.String,
         long
@@ -400,6 +515,8 @@ import java.util.Map;
     public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);
     public native void nativeOpenMobileRewardedAdClosed(long);
     public native void nativeOpenMobileRewardedAdFailed(long, java.lang.String);
+    public native void nativeOpenMobileRewardedAdLoadCompleted(long);
+    public native void nativeOpenMobileRewardedAdLoadFailed(long, java.lang.String);
 }
         </insert>
     </proguardAdditions>

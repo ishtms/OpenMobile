@@ -70,6 +70,13 @@ public:
 		return NativeInitializationStatusChanged;
 	}
 
+	const FOpenMobileAdsPrivacySnapshot& GetPrivacySnapshot() const
+	{
+		return PrivacySnapshot;
+	}
+
+	void UpdatePrivacySnapshot(FOpenMobileAdsPrivacySnapshot Snapshot);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
 	FOpenMobileAdsOperationResult LoadAd(
 		FName Placement,
@@ -206,9 +213,11 @@ private:
 	FGuid InitializationRequestId;
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
+	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
 	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
+	bool bPrivacySnapshotInitialized = false;
 	bool bRuntimeInitialized = false;
 	bool bDeinitialized = false;
 };

@@ -59,8 +59,15 @@ namespace OpenMobileAdsProviderContractTests
 			FOpenMobileAdsError& OutError
 		) override
 		{
+			++LoadCalls;
 			LastLoadRequest = Request;
 			LoadSink = EventSink;
+			if (!bAcceptLoad)
+			{
+				OutError = LoadRejection;
+				LoadSink.Reset();
+				return false;
+			}
 			return true;
 		}
 
@@ -125,11 +132,14 @@ namespace OpenMobileAdsProviderContractTests
 		FName Name;
 		bool bSupported = true;
 		bool bAcceptInitialization = true;
+		bool bAcceptLoad = true;
 		int32 InitializationCalls = 0;
+		int32 LoadCalls = 0;
 		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
 		FOpenMobileAdsError InitializationRejection;
+		FOpenMobileAdsError LoadRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
@@ -217,7 +227,8 @@ namespace OpenMobileAdsProviderContractTests
 
 	bool InitializeSuccessfully(
 		UOpenMobileAdsSubsystem& Subsystem,
-		FMockProvider& Provider
+		FMockProvider& Provider,
+		bool bAllowAdRequests = true
 	)
 	{
 		const FOpenMobileAdsOperationResult Result = Subsystem.InitializeAds();
@@ -227,7 +238,19 @@ namespace OpenMobileAdsProviderContractTests
 		}
 		Provider.CompleteInitialization();
 		DrainGameThreadTasks();
-		return Subsystem.GetServiceState() == EOpenMobileAdsServiceState::Ready;
+		if (Subsystem.GetServiceState() != EOpenMobileAdsServiceState::Ready)
+		{
+			return false;
+		}
+		if (bAllowAdRequests)
+		{
+			FOpenMobileAdsPrivacySnapshot Privacy;
+			Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+			Privacy.bCanRequestAds = true;
+			Privacy.Source = TEXT("MockConsent");
+			Subsystem.UpdatePrivacySnapshot(MoveTemp(Privacy));
+		}
+		return true;
 	}
 
 	const FOpenMobileAdsInitializationComponentStatus* FindInitializationComponent(
@@ -243,6 +266,128 @@ namespace OpenMobileAdsProviderContractTests
 			}
 		);
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsLoadPolicyContractTest,
+	"OpenMobile.Ads.ProviderContract.Load.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = true;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ContinueReward");
+	Placement.Android.AdUnitId = TEXT("android-mock-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-mock-unit");
+	FOpenMobileAdsPlacementSettings& Disabled =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Disabled.Placement = TEXT("DisabledReward");
+	Disabled.bEnabled = false;
+	Disabled.Android.AdUnitId = TEXT("android-disabled-unit");
+	Disabled.IOS.AdUnitId = TEXT("ios-disabled-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before placement operations"),
+		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+
+	const FOpenMobileAdsOperationResult PrivacyBlocked =
+		Subsystem->LoadAd(TEXT("ContinueReward"));
+	TestFalse(TEXT("Unknown consent rejects the load"), PrivacyBlocked.bAccepted);
+	TestEqual(
+		TEXT("Privacy rejection is typed"),
+		PrivacyBlocked.Error.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+	TestFalse(TEXT("Rejected loads have no request ID"), PrivacyBlocked.RequestId.IsValid());
+	TestEqual(TEXT("Privacy rejection does not reach the provider"), Provider.LoadCalls, 0);
+	TestEqual(
+		TEXT("Disabled placement wins before privacy policy"),
+		Subsystem->LoadAd(TEXT("DisabledReward")).Error.Code,
+		EOpenMobileAdsErrorCode::DisabledPlacement
+	);
+
+	FOpenMobileAdsPrivacySnapshot Privacy;
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Privacy.bCanRequestAds = true;
+	Privacy.Source = TEXT("MockConsent");
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+
+	const FOpenMobileAdsOperationResult First =
+		Subsystem->LoadAd(TEXT("ContinueReward"));
+	TestTrue(TEXT("An allowed named placement starts loading"), First.bAccepted);
+	TestTrue(TEXT("An accepted load returns a request ID"), First.RequestId.IsValid());
+	TestEqual(TEXT("The provider receives one load"), Provider.LoadCalls, 1);
+	TestEqual(
+		TEXT("The provider receives the named placement"),
+		Provider.LastLoadRequest.Placement.Placement,
+		FName(TEXT("ContinueReward"))
+	);
+
+	const FOpenMobileAdsOperationResult LoadingDuplicate =
+		Subsystem->LoadAd(TEXT("ContinueReward"));
+	TestFalse(TEXT("A duplicate in-flight load is rejected"), LoadingDuplicate.bAccepted);
+	TestEqual(
+		TEXT("An in-flight duplicate is busy"),
+		LoadingDuplicate.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+	TestEqual(TEXT("A duplicate does not call the provider"), Provider.LoadCalls, 1);
+
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Provider.LoadSink->Submit(Loaded);
+	DrainGameThreadTasks();
+	const FOpenMobileAdsOperationResult CachedDuplicate =
+		Subsystem->LoadAd(TEXT("ContinueReward"));
+	TestFalse(TEXT("A cached placement is not loaded again by default"), CachedDuplicate.bAccepted);
+	TestEqual(
+		TEXT("A cached duplicate is busy"),
+		CachedDuplicate.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+
+	FOpenMobileAdsLoadOptions ForceReload;
+	ForceReload.bForceReload = true;
+	const FOpenMobileAdsOperationResult Forced =
+		Subsystem->LoadAd(TEXT("ContinueReward"), ForceReload);
+	TestTrue(TEXT("Force reload replaces the ready load operation"), Forced.bAccepted);
+	TestNotEqual(TEXT("Force reload gets a new request ID"), Forced.RequestId, First.RequestId);
+	TestEqual(TEXT("Force reload reaches the provider once"), Provider.LoadCalls, 2);
+	FOpenMobileAdsEvent ReplacementFailed;
+	ReplacementFailed.Type = EOpenMobileAdsEventType::LoadFailed;
+	ReplacementFailed.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Load,
+		TEXT("ContinueReward"),
+		TEXT("Replacement load failed.")
+	);
+	AddExpectedError(
+		TEXT("Replacement load failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.LoadSink->Submit(MoveTemp(ReplacementFailed));
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("A failed force reload preserves the previously ready ad"),
+		Subsystem->IsReady(TEXT("ContinueReward"))
+	);
+
+	Subsystem->Deinitialize();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

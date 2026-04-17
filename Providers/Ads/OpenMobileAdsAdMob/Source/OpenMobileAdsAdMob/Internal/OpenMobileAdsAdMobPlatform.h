@@ -27,6 +27,13 @@ public:
 		FString& OutError
 	);
 	static void Shutdown();
+	static bool BeginLoad(
+		const FOpenMobileAdsLoadRequest& Request,
+		FOnOpenMobileAdMobRewardedLoaded&& OnLoaded,
+		FOnOpenMobileAdMobRewardedFailed&& OnFailed,
+		FString& OutError
+	);
+	static void CancelLoad(FGuid RequestId);
 
 	static bool BeginRequest(
 		const FString& AdUnitId,
@@ -47,6 +54,8 @@ public:
 		double LatencyMilliseconds,
 		FString Description
 	);
+	static void NativeRewardedLoadCompleted(int64 RequestId);
+	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeLoaded(int64 RequestId);
 	static void NativeShown(int64 RequestId);
 	static void NativeEarned(int64 RequestId, int32 NetworkAmount, FString NetworkRewardType);

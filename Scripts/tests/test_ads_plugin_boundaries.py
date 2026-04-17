@@ -156,6 +156,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=3", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=1", build_settings)
 		copy_destinations = {
 			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
 		}
@@ -175,6 +176,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileAdsAdMobAndroid.Build.cs"
 		).read_text(encoding="utf-8")
 		self.assertIn("ExternalDependencies.Add", android_build_rules)
+		self.assertIn("OpenMobileAdsAdMob_Android_UPL.xml", android_build_rules)
 		self.assertIn("OpenMobileAdsAdMob_Android.gradle", android_build_rules)
 		self.assertIn("OpenMobileAdsAdMob_Dependencies.gradle", android_build_rules)
 
