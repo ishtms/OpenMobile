@@ -81,8 +81,15 @@ namespace OpenMobileAdsProviderContractTests
 			FOpenMobileAdsError& OutError
 		) override
 		{
+			++ShowCalls;
 			LastShowRequest = Request;
 			ShowSink = EventSink;
+			if (!bAcceptShow)
+			{
+				OutError = ShowRejection;
+				ShowSink.Reset();
+				return false;
+			}
 			return true;
 		}
 
@@ -142,13 +149,16 @@ namespace OpenMobileAdsProviderContractTests
 		bool bSupported = true;
 		bool bAcceptInitialization = true;
 		bool bAcceptLoad = true;
+		bool bAcceptShow = true;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
+		int32 ShowCalls = 0;
 		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
 		FOpenMobileAdsError InitializationRejection;
 		FOpenMobileAdsError LoadRejection;
+		FOpenMobileAdsError ShowRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
@@ -732,6 +742,217 @@ bool FOpenMobileAdsCanShowDecisionContractTest::RunTest(const FString& Parameter
 	);
 	TestTrue(TEXT("An eligible decision has no explanation"), Result.Explanation.IsEmpty());
 	TestEqual(TEXT("An eligible decision has no pacing deadline"), Result.NextEligibleAt, FDateTime());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsShowPolicyContractTest,
+	"OpenMobile.Ads.ProviderContract.Show.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsShowPolicyContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ShowReward");
+	Placement.Android.AdUnitId = TEXT("android-show-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-show-unit");
+	FOpenMobileAdsPlacementSettings& OtherPlacement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	OtherPlacement.Placement = TEXT("OtherReward");
+	OtherPlacement.Android.AdUnitId = TEXT("android-other-unit");
+	OtherPlacement.IOS.AdUnitId = TEXT("ios-other-unit");
+	FOpenMobileAdsPlacementSettings& StalePlacement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	StalePlacement.Placement = TEXT("StaleReward");
+	StalePlacement.Android.AdUnitId = TEXT("android-stale-unit");
+	StalePlacement.IOS.AdUnitId = TEXT("ios-stale-unit");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 60.0;
+	FOpenMobileAdFormatCapabilities Interstitial;
+	Interstitial.Format = EOpenMobileAdFormat::Interstitial;
+	Interstitial.bCanShow = true;
+	Provider.Capabilities.Formats.Add(Interstitial);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before show checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	auto LoadPlacement = [this, Subsystem, &Provider](
+		FName PlacementName,
+		FGuid CachedAdId,
+		FDateTime Timestamp = FDateTime()
+	)
+	{
+		TestTrue(TEXT("The placement starts loading"), Subsystem->LoadAd(PlacementName).bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = CachedAdId;
+		Loaded.Timestamp = Timestamp;
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	};
+	const FGuid ShowCachedAdId = FGuid::NewGuid();
+	const FGuid OtherCachedAdId = FGuid::NewGuid();
+	LoadPlacement(TEXT("ShowReward"), ShowCachedAdId);
+	LoadPlacement(TEXT("OtherReward"), OtherCachedAdId);
+	TestTrue(TEXT("The loaded placement is ready"), Subsystem->IsReady(TEXT("ShowReward")));
+
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Denied;
+	Privacy.bCanRequestAds = false;
+	Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy));
+	const FOpenMobileAdsOperationResult Rejected = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("Revoked consent rejects showing"), Rejected.bAccepted);
+	TestEqual(
+		TEXT("The show-time privacy rejection is typed"),
+		Rejected.Error.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+	TestEqual(TEXT("A policy rejection does not reach the provider"), Provider.ShowCalls, 0);
+	TestTrue(TEXT("A policy rejection preserves the ready cache"), Subsystem->IsReady(TEXT("ShowReward")));
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Privacy.bCanRequestAds = true;
+	Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy));
+
+	const ENetworkConnectionType PreviousConnectionType =
+		FPlatformMisc::GetNetworkConnectionType();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::AirplaneMode);
+	const FOpenMobileAdsOperationResult Offline = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("Offline state rejects showing"), Offline.bAccepted);
+	TestEqual(TEXT("Offline rejection is typed"), Offline.Error.Code, EOpenMobileAdsErrorCode::InvalidState);
+	TestEqual(TEXT("Offline rejection does not reach the provider"), Provider.ShowCalls, 0);
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::Unknown);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	const FOpenMobileAdsOperationResult Background = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("Background state rejects showing"), Background.bAccepted);
+	TestEqual(TEXT("Lifecycle rejection is typed"), Background.Error.Code, EOpenMobileAdsErrorCode::InvalidState);
+	TestEqual(TEXT("Lifecycle rejection does not reach the provider"), Provider.ShowCalls, 0);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	Provider.bSupported = false;
+	const FOpenMobileAdsOperationResult ProviderUnavailable =
+		Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("Provider availability is rechecked at show time"), ProviderUnavailable.bAccepted);
+	TestEqual(
+		TEXT("Provider availability rejection is typed"),
+		ProviderUnavailable.Error.Code,
+		EOpenMobileAdsErrorCode::UnsupportedPlatform
+	);
+	TestEqual(TEXT("Unavailable provider does not receive a show"), Provider.ShowCalls, 0);
+	TestTrue(TEXT("Provider availability rejection preserves the cache"), Subsystem->IsReady(TEXT("ShowReward")));
+	Provider.bSupported = true;
+
+	ScopedSettings.Settings->Placements[0].Format = EOpenMobileAdFormat::Interstitial;
+	const FOpenMobileAdsOperationResult WrongFormat = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("A cache for the old placement format is rejected"), WrongFormat.bAccepted);
+	TestEqual(TEXT("Wrong-format cache rejection is typed"), WrongFormat.Error.Code, EOpenMobileAdsErrorCode::NotReady);
+	TestEqual(TEXT("Wrong-format cache does not reach the provider"), Provider.ShowCalls, 0);
+	TestTrue(TEXT("Wrong-format rejection preserves the cached ad"), Subsystem->IsReady(TEXT("ShowReward")));
+	ScopedSettings.Settings->Placements[0].Format = EOpenMobileAdFormat::Rewarded;
+
+	LoadPlacement(
+		TEXT("StaleReward"),
+		FGuid::NewGuid(),
+		FDateTime::UtcNow() - FTimespan::FromSeconds(120.0)
+	);
+	const FOpenMobileAdsOperationResult Stale = Subsystem->ShowAd(TEXT("StaleReward"));
+	TestFalse(TEXT("An expired cache is rejected at show time"), Stale.bAccepted);
+	TestEqual(TEXT("Expired cache rejection is typed"), Stale.Error.Code, EOpenMobileAdsErrorCode::NotReady);
+	TestEqual(TEXT("Expired cache does not reach the provider"), Provider.ShowCalls, 0);
+
+	TArray<FOpenMobileAdsEvent> ShowEvents;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&ShowEvents](const FOpenMobileAdsEvent& Event)
+		{
+			ShowEvents.Add(Event);
+		}
+	);
+	Provider.bAcceptShow = false;
+	Provider.ShowRejection = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("ShowReward"),
+		TEXT("The mock provider rejected presentation."),
+		Provider.Name
+	);
+	const FOpenMobileAdsOperationResult ProviderRejected =
+		Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("Provider rejection is immediate"), ProviderRejected.bAccepted);
+	TestEqual(
+		TEXT("Provider rejection preserves its typed error"),
+		ProviderRejected.Error.Code,
+		EOpenMobileAdsErrorCode::ProviderFailure
+	);
+	TestFalse(TEXT("Immediate rejection has no request ID"), ProviderRejected.RequestId.IsValid());
+	TestEqual(TEXT("Provider rejection attempts one presentation"), Provider.ShowCalls, 1);
+	TestTrue(TEXT("Provider rejection restores the ready cache"), Subsystem->IsReady(TEXT("ShowReward")));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("Provider rejection does not emit an asynchronous event"), ShowEvents.IsEmpty());
+
+	Provider.bAcceptShow = true;
+	const FOpenMobileAdsOperationResult Accepted = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestTrue(TEXT("An eligible ready ad is accepted once"), Accepted.bAccepted);
+	TestTrue(TEXT("An accepted show has a request ID"), Accepted.RequestId.IsValid());
+	TestEqual(TEXT("The provider receives the accepted request ID"), Provider.LastShowRequest.RequestId, Accepted.RequestId);
+	TestEqual(TEXT("The provider receives the requested placement"), Provider.LastShowRequest.Placement, FName(TEXT("ShowReward")));
+	TestEqual(TEXT("The provider receives the cached ad identity"), Provider.LastShowRequest.CachedAdId, ShowCachedAdId);
+	TestEqual(TEXT("The provider receives the cached ad format"), Provider.LastShowRequest.Format, EOpenMobileAdFormat::Rewarded);
+	TestFalse(TEXT("An accepted ad is no longer ready for reuse"), Subsystem->IsReady(TEXT("ShowReward")));
+	const FOpenMobileAdsOperationResult Reused = Subsystem->ShowAd(TEXT("ShowReward"));
+	TestFalse(TEXT("The same accepted cached ad cannot show twice"), Reused.bAccepted);
+	TestEqual(TEXT("A reused cache rejection is typed"), Reused.Error.Code, EOpenMobileAdsErrorCode::NotReady);
+	TestEqual(TEXT("A reused cache is not submitted twice"), Provider.ShowCalls, 2);
+
+	const FOpenMobileAdsOperationResult Concurrent = Subsystem->ShowAd(TEXT("OtherReward"));
+	TestFalse(TEXT("A concurrent full-screen show is rejected"), Concurrent.bAccepted);
+	TestEqual(TEXT("Concurrent show rejection is typed"), Concurrent.Error.Code, EOpenMobileAdsErrorCode::InvalidState);
+	TestEqual(TEXT("Concurrent rejection does not reach the provider"), Provider.ShowCalls, 2);
+	TestTrue(TEXT("Concurrent rejection preserves the other cache"), Subsystem->IsReady(TEXT("OtherReward")));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Accepted show emits one service event"), ShowEvents.Num(), 1);
+	if (ShowEvents.Num() == 1)
+	{
+		TestEqual(TEXT("The immediate service event is show accepted"), ShowEvents[0].Type, EOpenMobileAdsEventType::ShowAccepted);
+	}
+
+	FOpenMobileAdsEvent Failed;
+	Failed.Type = EOpenMobileAdsEventType::Failed;
+	Failed.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("ShowReward"),
+		TEXT("The mock presentation failed asynchronously.")
+	);
+	AddExpectedError(
+		TEXT("The mock presentation failed asynchronously."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.ShowSink->Submit(MoveTemp(Failed));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Asynchronous failure follows acceptance"), ShowEvents.Num(), 2);
+	if (ShowEvents.Num() == 2)
+	{
+		TestEqual(TEXT("Presentation failure is asynchronous"), ShowEvents[1].Type, EOpenMobileAdsEventType::Failed);
+		TestEqual(TEXT("Presentation failure keeps the request ID"), ShowEvents[1].RequestId, Accepted.RequestId);
+		TestEqual(TEXT("Presentation failure keeps the cache ID"), ShowEvents[1].CachedAdId, ShowCachedAdId);
+	}
+	TestFalse(TEXT("Asynchronous failure consumes the failed cache"), Subsystem->IsReady(TEXT("ShowReward")));
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+
+	Subsystem->Deinitialize();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
 	return true;
 }
 

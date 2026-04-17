@@ -173,6 +173,11 @@ private:
 		IOpenMobileAdsProvider*& OutProvider,
 		FOpenMobileAdsResolvedPlacement& OutPlacement
 	) const;
+	FOpenMobileAdsCanShowResult EvaluateCanShow(
+		FName Placement,
+		IOpenMobileAdsProvider* KnownProvider,
+		const FOpenMobileAdsResolvedPlacement* KnownPlacement
+	) const;
 	void SubmitServiceEvent(FOpenMobileAdsEvent Event);
 	void HandleInitializationCompleted(
 		FGuid RequestId,

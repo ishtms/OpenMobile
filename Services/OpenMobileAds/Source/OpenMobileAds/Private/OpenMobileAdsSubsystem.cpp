@@ -351,6 +351,60 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	FOpenMobileAdsError MakeShowPolicyError(
+		FName Placement,
+		FName Provider,
+		const FOpenMobileAdsCanShowResult& Decision
+	)
+	{
+		EOpenMobileAdsErrorCode Code = EOpenMobileAdsErrorCode::InvalidState;
+		switch (Decision.BlockReason)
+		{
+		case EOpenMobileAdsCanShowBlockReason::UnknownPlacement:
+			Code = EOpenMobileAdsErrorCode::UnknownPlacement;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::Disabled:
+			Code = EOpenMobileAdsErrorCode::DisabledPlacement;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::ProviderUnavailable:
+			Code = EOpenMobileAdsErrorCode::ProviderUnavailable;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::UnsupportedFormat:
+			Code = EOpenMobileAdsErrorCode::UnsupportedFormat;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::PrivacyBlocked:
+			Code = EOpenMobileAdsErrorCode::PrivacyBlocked;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::Loading:
+			Code = EOpenMobileAdsErrorCode::Busy;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::NotLoaded:
+		case EOpenMobileAdsCanShowBlockReason::Expired:
+			Code = EOpenMobileAdsErrorCode::NotReady;
+			break;
+		case EOpenMobileAdsCanShowBlockReason::NotInitialized:
+		case EOpenMobileAdsCanShowBlockReason::FrequencyCap:
+		case EOpenMobileAdsCanShowBlockReason::Cooldown:
+		case EOpenMobileAdsCanShowBlockReason::Offline:
+		case EOpenMobileAdsCanShowBlockReason::LifecycleConflict:
+		case EOpenMobileAdsCanShowBlockReason::None:
+		default:
+			break;
+		}
+
+		return FOpenMobileAdsError::Make(
+			Code,
+			EOpenMobileAdsFailureStage::Show,
+			Placement,
+			Decision.Explanation,
+			Provider,
+			TEXT("Resolve the reported blocker before showing the placement."),
+			Code == EOpenMobileAdsErrorCode::Busy
+				|| Code == EOpenMobileAdsErrorCode::NotReady
+				|| Code == EOpenMobileAdsErrorCode::InvalidState
+		);
+	}
+
 	FOpenMobileAdsError NormalizeInitializationError(
 		FOpenMobileAdsError Error,
 		FName ProviderName,
@@ -1209,6 +1263,15 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 		);
 	}
 	EnsureRuntime();
+	if (bDeinitialized || !EventDispatcher)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Cancelled,
+			EOpenMobileAdsFailureStage::Show,
+			Placement,
+			TEXT("The ads subsystem has been deinitialized.")
+		));
+	}
 
 	IOpenMobileAdsProvider* Provider = nullptr;
 	FOpenMobileAdsResolvedPlacement ResolvedPlacement;
@@ -1222,33 +1285,24 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 
-	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
-		Provider->GetCapabilities();
-	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
-		ProviderCapabilities.FindFormat(ResolvedPlacement.Format);
-	if (!FormatCapabilities || !FormatCapabilities->bCanShow)
+	const FOpenMobileAdsCanShowResult Decision = EvaluateCanShow(
+		Placement,
+		Provider,
+		&ResolvedPlacement
+	);
+	if (!Decision.bCanShow)
 	{
 		return FOpenMobileAdsOperationResult::Rejected(
-			OpenMobileAdsPrivate::MakeUnsupportedFormatError(
+			OpenMobileAdsPrivate::MakeShowPolicyError(
 				Placement,
 				Provider->GetProviderName(),
-				EOpenMobileAdsFailureStage::Show
+				Decision
 			)
 		);
 	}
 
 	FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
-	if (!Status || Status->State != EOpenMobileAdPlacementState::Ready || !Status->CachedAdId.IsValid())
-	{
-		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
-			EOpenMobileAdsErrorCode::NotReady,
-			EOpenMobileAdsFailureStage::Show,
-			Placement,
-			TEXT("The placement does not have a ready ad."),
-			Provider->GetProviderName(),
-			TEXT("Load the placement and wait for the loaded event before showing it.")
-		));
-	}
+	check(Status);
 
 	const FOpenMobileAdsPlacementStatus PreviousStatus = *Status;
 	Status->State = EOpenMobileAdPlacementState::Showing;
@@ -1583,6 +1637,15 @@ bool UOpenMobileAdsSubsystem::IsReady(FName Placement) const
 
 FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) const
 {
+	return EvaluateCanShow(Placement, nullptr, nullptr);
+}
+
+FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
+	FName Placement,
+	IOpenMobileAdsProvider* KnownProvider,
+	const FOpenMobileAdsResolvedPlacement* KnownPlacement
+) const
+{
 	FOpenMobileAdsCanShowPolicyContext Context;
 	const FOpenMobileAdsPlacementSettings* Configuration = FindConfiguredPlacement(Placement);
 	if (!Configuration)
@@ -1591,8 +1654,9 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) co
 	}
 
 	Context.bPlacementConfigured = true;
-	const FOpenMobileAdsResolvedPlacement Resolved =
-		Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
+	const FOpenMobileAdsResolvedPlacement Resolved = KnownPlacement
+		? *KnownPlacement
+		: Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
 	Context.bPlacementEnabled = Resolved.bEnabled;
 	Context.ServiceState = ServiceState;
 	if (ServiceState != EOpenMobileAdsServiceState::Ready)
@@ -1606,7 +1670,11 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) co
 	}
 
 	FOpenMobileAdsError ProviderError;
-	IOpenMobileAdsProvider* Provider = FindProvider(&ProviderError);
+	IOpenMobileAdsProvider* Provider = KnownProvider;
+	if (!Provider)
+	{
+		Provider = FindProvider(&ProviderError);
+	}
 	Context.bProviderAvailable = Provider != nullptr;
 	Context.ProviderExplanation = ProviderError.Explanation;
 	if (!Provider)
@@ -1624,7 +1692,9 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) co
 	if (Status)
 	{
 		Context.PlacementState = Status->State;
-		Context.bHasCachedAd = Status->CachedAdId.IsValid();
+		Context.bHasCachedAd = Status->CachedAdId.IsValid()
+			&& Status->Format == Resolved.Format
+			&& Status->Provider == Provider->GetProviderName();
 		Context.bExpired = Status->ExpiresAt != FDateTime()
 			&& Status->ExpiresAt <= FDateTime::UtcNow();
 	}
