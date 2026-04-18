@@ -271,20 +271,52 @@ namespace OpenMobileAdsPrivate
 	private:
 		bool TryAcceptEvent(EOpenMobileAdsEventType Type)
 		{
-			if (OperationStage != EOpenMobileAdsFailureStage::Load)
+			if (OperationStage == EOpenMobileAdsFailureStage::Load)
+			{
+				if (
+					bTerminalSubmitted
+					|| (Type != EOpenMobileAdsEventType::Loaded
+						&& Type != EOpenMobileAdsEventType::LoadFailed)
+				)
+				{
+					return false;
+				}
+				bTerminalSubmitted = true;
+				return true;
+			}
+			if (OperationStage != EOpenMobileAdsFailureStage::Show)
 			{
 				return true;
 			}
-			if (
-				bTerminalSubmitted
-				|| (Type != EOpenMobileAdsEventType::Loaded
-					&& Type != EOpenMobileAdsEventType::LoadFailed)
-			)
+			if (bTerminalSubmitted)
 			{
 				return false;
 			}
-			bTerminalSubmitted = true;
-			return true;
+			switch (Type)
+			{
+			case EOpenMobileAdsEventType::Shown:
+				if (bShownSubmitted)
+				{
+					return false;
+				}
+				bShownSubmitted = true;
+				return true;
+
+			case EOpenMobileAdsEventType::Impression:
+			case EOpenMobileAdsEventType::Clicked:
+			case EOpenMobileAdsEventType::RewardEarned:
+			case EOpenMobileAdsEventType::RevenuePaid:
+			case EOpenMobileAdsEventType::Refreshed:
+				return true;
+
+			case EOpenMobileAdsEventType::Dismissed:
+			case EOpenMobileAdsEventType::Failed:
+				bTerminalSubmitted = true;
+				return true;
+
+			default:
+				return false;
+			}
 		}
 
 		void Normalize(FOpenMobileAdsEvent& Event) const
@@ -314,6 +346,7 @@ namespace OpenMobileAdsPrivate
 		FGuid RequestId;
 		FGuid CachedAdId;
 		bool bCommitted = false;
+		bool bShownSubmitted = false;
 		bool bTerminalSubmitted = false;
 		bool bValid = true;
 	};
@@ -2231,8 +2264,14 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 
 	case EOpenMobileAdsEventType::ShowAccepted:
 	case EOpenMobileAdsEventType::Shown:
-		bBroadcast = Status->State == EOpenMobileAdPlacementState::Showing
-			&& Status->ActiveRequestId == Event.RequestId;
+		if (
+			Status->State == EOpenMobileAdPlacementState::Showing
+			&& Status->ActiveRequestId == Event.RequestId
+		)
+		{
+			Event.PlacementState = Status->State;
+			bBroadcast = true;
+		}
 		break;
 
 	case EOpenMobileAdsEventType::Impression:
