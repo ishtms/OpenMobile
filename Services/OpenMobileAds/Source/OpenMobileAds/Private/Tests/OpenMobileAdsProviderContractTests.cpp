@@ -1128,6 +1128,166 @@ bool FOpenMobileAdsShowCallbackContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsImpressionCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Impression.Callback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ImpressionCallback");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-impression-callback");
+	Placement.IOS.AdUnitId = TEXT("ios-impression-callback");
+	Placement.FrequencyCap.MaxImpressions = 1;
+	Placement.FrequencyCap.WindowSeconds = 3600.0;
+	Placement.CooldownSeconds = 300.0;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].bReportsImpression = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before impression callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	TestTrue(
+		TEXT("The placement loads before impression callback checks"),
+		Subsystem->LoadAd(TEXT("ImpressionCallback")).bAccepted
+	);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("The placement is ready before impression callback checks"),
+		Subsystem->IsReady(TEXT("ImpressionCallback"))
+	);
+
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	const FOpenMobileAdsOperationResult Show =
+		Subsystem->ShowAd(TEXT("ImpressionCallback"));
+	TestTrue(TEXT("The impression callback show is accepted"), Show.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink =
+		Provider.ShowSink;
+
+	FOpenMobileAdsEvent Shown;
+	Shown.Type = EOpenMobileAdsEventType::Shown;
+	ShowSink->Submit(MoveTemp(Shown));
+	FOpenMobileAdsEvent Impression;
+	Impression.Type = EOpenMobileAdsEventType::Impression;
+	Impression.Placement = TEXT("WrongPlacement");
+	Impression.Format = EOpenMobileAdFormat::Banner;
+	Impression.Provider = TEXT("WrongProvider");
+	Impression.Network = TEXT("MockNetwork");
+	Impression.RequestId = FGuid::NewGuid();
+	Impression.CachedAdId = FGuid::NewGuid();
+	ShowSink->Submit(Impression);
+	FOpenMobileAdsEvent Clicked;
+	Clicked.Type = EOpenMobileAdsEventType::Clicked;
+	ShowSink->Submit(MoveTemp(Clicked));
+	FOpenMobileAdsEvent RevenuePaid;
+	RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
+	ShowSink->Submit(MoveTemp(RevenuePaid));
+	FOpenMobileAdsEvent RewardEarned;
+	RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
+	ShowSink->Submit(MoveTemp(RewardEarned));
+	ShowSink->Submit(MoveTemp(Impression));
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	ShowSink->Submit(MoveTemp(Dismissed));
+	FOpenMobileAdsEvent LateImpression;
+	LateImpression.Type = EOpenMobileAdsEventType::Impression;
+	ShowSink->Submit(MoveTemp(LateImpression));
+	DrainGameThreadTasks();
+
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::ShowAccepted,
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::RewardEarned,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	const int32 ExpectedEventCount = static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes));
+	TestEqual(TEXT("The show emits one ordered impression lifecycle"), Events.Num(), ExpectedEventCount);
+	if (Events.Num() == ExpectedEventCount)
+	{
+		for (int32 Index = 0; Index < Events.Num(); ++Index)
+		{
+			TestEqual(TEXT("The impression lifecycle preserves provider order"), Events[Index].Type, ExpectedTypes[Index]);
+			if (Index > 0)
+			{
+				TestTrue(TEXT("The impression lifecycle sequence is increasing"), Events[Index - 1].Sequence < Events[Index].Sequence);
+			}
+		}
+
+		const FOpenMobileAdsEvent& ImpressionEvent = Events[2];
+		TestEqual(TEXT("The impression has the normalized placement"), ImpressionEvent.Placement, FName(TEXT("ImpressionCallback")));
+		TestEqual(TEXT("The impression has the normalized format"), ImpressionEvent.Format, EOpenMobileAdFormat::Rewarded);
+		TestEqual(TEXT("The impression has the normalized provider"), ImpressionEvent.Provider, Provider.Name);
+		TestEqual(TEXT("The impression preserves the provider network"), ImpressionEvent.Network, FString(TEXT("MockNetwork")));
+		TestEqual(TEXT("The impression has the show request ID"), ImpressionEvent.RequestId, Show.RequestId);
+		TestEqual(TEXT("The impression has the shown cache ID"), ImpressionEvent.CachedAdId, CachedAdId);
+		TestEqual(TEXT("The impression reports showing state"), ImpressionEvent.PlacementState, EOpenMobileAdPlacementState::Showing);
+		TestTrue(TEXT("The impression has a service timestamp"), ImpressionEvent.Timestamp != FDateTime());
+	}
+
+	TestTrue(
+		TEXT("A replacement ad can load after dismissal"),
+		Subsystem->LoadAd(TEXT("ImpressionCallback")).bAccepted
+	);
+	FOpenMobileAdsEvent ReplacementLoaded;
+	ReplacementLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	ReplacementLoaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(MoveTemp(ReplacementLoaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsCanShowResult FrequencyCapped =
+		Subsystem->CanShow(TEXT("ImpressionCallback"));
+	TestFalse(TEXT("The accepted impression activates the frequency cap"), FrequencyCapped.bCanShow);
+	TestEqual(
+		TEXT("The frequency cap is the first pacing block"),
+		FrequencyCapped.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::FrequencyCap
+	);
+	TestTrue(TEXT("The frequency cap reports its next eligible time"), FrequencyCapped.NextEligibleAt > FDateTime::UtcNow());
+
+	ScopedSettings.Settings->Placements[0].FrequencyCap = FOpenMobileAdsFrequencyCap();
+	const FOpenMobileAdsCanShowResult CoolingDown =
+		Subsystem->CanShow(TEXT("ImpressionCallback"));
+	TestFalse(TEXT("The accepted impression activates the cooldown"), CoolingDown.bCanShow);
+	TestEqual(
+		TEXT("Cooldown remains when the frequency cap is disabled"),
+		CoolingDown.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestTrue(TEXT("The cooldown reports its next eligible time"), CoolingDown.NextEligibleAt > FDateTime::UtcNow());
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

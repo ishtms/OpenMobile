@@ -1829,6 +1829,7 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 	Context.bFormatSupported = FormatCapabilities && FormatCapabilities->bCanShow;
 	Context.bPrivacyAllowed = PrivacySnapshot.bCanRequestAds;
 
+	const FDateTime Now = FDateTime::UtcNow();
 	const FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
 	if (Status)
 	{
@@ -1837,7 +1838,42 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 			&& Status->Format == Resolved.Format
 			&& Status->Provider == Provider->GetProviderName();
 		Context.bExpired = Status->ExpiresAt != FDateTime()
-			&& Status->ExpiresAt <= FDateTime::UtcNow();
+			&& Status->ExpiresAt <= Now;
+	}
+	if (const TArray<FDateTime>* ImpressionTimestamps =
+		ImpressionTimestampsByPlacement.Find(Placement))
+	{
+		if (
+			Resolved.FrequencyCap.IsEnabled()
+			&& FMath::IsFinite(Resolved.FrequencyCap.WindowSeconds)
+			&& ImpressionTimestamps->Num() >= Resolved.FrequencyCap.MaxImpressions
+		)
+		{
+			const int32 FirstCappedIndex =
+				ImpressionTimestamps->Num() - Resolved.FrequencyCap.MaxImpressions;
+			const FDateTime FrequencyCapEndsAt =
+				(*ImpressionTimestamps)[FirstCappedIndex]
+				+ FTimespan::FromSeconds(Resolved.FrequencyCap.WindowSeconds);
+			if (FrequencyCapEndsAt > Now)
+			{
+				Context.bFrequencyCapped = true;
+				Context.FrequencyCapEndsAt = FrequencyCapEndsAt;
+			}
+		}
+		if (
+			Resolved.CooldownSeconds > 0.0
+			&& FMath::IsFinite(Resolved.CooldownSeconds)
+			&& !ImpressionTimestamps->IsEmpty()
+		)
+		{
+			const FDateTime CooldownEndsAt = ImpressionTimestamps->Last()
+				+ FTimespan::FromSeconds(Resolved.CooldownSeconds);
+			if (CooldownEndsAt > Now)
+			{
+				Context.bCooldownActive = true;
+				Context.CooldownEndsAt = CooldownEndsAt;
+			}
+		}
 	}
 	Context.bOffline = bPlatformOffline.Load();
 	Context.bLifecycleConflict = !bApplicationActive || !bApplicationInForeground;
@@ -2282,6 +2318,8 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		)
 		{
 			ImpressedCachedAds.Add(Status->CachedAdId);
+			RecordImpression(Event.Placement, Event.Timestamp);
+			Event.PlacementState = Status->State;
 			bBroadcast = true;
 		}
 		break;
@@ -2372,6 +2410,41 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+	}
+}
+
+void UOpenMobileAdsSubsystem::RecordImpression(
+	FName Placement,
+	FDateTime Timestamp
+)
+{
+	if (Timestamp == FDateTime())
+	{
+		Timestamp = FDateTime::UtcNow();
+	}
+
+	int32 HistoryLimit = 1;
+	if (const FOpenMobileAdsPlacementSettings* Configuration =
+		FindConfiguredPlacement(Placement))
+	{
+		const FOpenMobileAdsResolvedPlacement Resolved =
+			Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
+		if (Resolved.FrequencyCap.IsEnabled())
+		{
+			HistoryLimit = Resolved.FrequencyCap.MaxImpressions;
+		}
+	}
+
+	TArray<FDateTime>& ImpressionTimestamps =
+		ImpressionTimestampsByPlacement.FindOrAdd(Placement);
+	ImpressionTimestamps.Add(Timestamp);
+	if (ImpressionTimestamps.Num() > HistoryLimit)
+	{
+		ImpressionTimestamps.RemoveAt(
+			0,
+			ImpressionTimestamps.Num() - HistoryLimit,
+			EAllowShrinking::No
+		);
 	}
 }
 
@@ -2620,6 +2693,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	PlacementStatuses.Reset();
 	RewardedCachedAds.Reset();
 	ImpressedCachedAds.Reset();
+	ImpressionTimestampsByPlacement.Reset();
 	PendingExpiredCachedAdEvents.Reset();
 	if (InitializationProvider && bProviderInitializationStarted)
 	{

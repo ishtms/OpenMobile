@@ -195,6 +195,7 @@ private:
 	);
 	void UpdatePartialInitializationState();
 	void HandleProviderEvent(FOpenMobileAdsEvent Event);
+	void RecordImpression(FName Placement, FDateTime Timestamp);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
 	void CancelSupersededRequest(FGuid RequestId);
@@ -219,6 +220,7 @@ private:
 	TMap<FName, FOpenMobileAdsPlacementStatus> PlacementStatuses;
 	TSet<FGuid> RewardedCachedAds;
 	TSet<FGuid> ImpressedCachedAds;
+	TMap<FName, TArray<FDateTime>> ImpressionTimestampsByPlacement;
 	TSet<FGuid> PendingExpiredCachedAdEvents;
 	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
 	TSet<FGuid> CancelledRequestEvents;
