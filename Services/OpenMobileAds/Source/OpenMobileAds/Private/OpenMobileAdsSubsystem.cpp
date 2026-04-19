@@ -1723,6 +1723,12 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::CancelRequest(FGuid Reque
 			Pair.Value.ActiveRequestId.Invalidate();
 			Pair.Value.LastError = FOpenMobileAdsError();
 		}
+		else if (Context->Stage == EOpenMobileAdsFailureStage::Show)
+		{
+			ReleaseCachedAd(Pair.Value);
+			Pair.Value.State = EOpenMobileAdPlacementState::Idle;
+			Pair.Value.LastError = FOpenMobileAdsError();
+		}
 		else if (const FOpenMobileAdsPlacementStatus* Previous =
 			Context->PreviousStatuses.Find(Pair.Key))
 		{

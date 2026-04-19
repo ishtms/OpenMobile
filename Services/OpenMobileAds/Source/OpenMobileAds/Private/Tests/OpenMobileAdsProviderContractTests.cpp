@@ -1410,6 +1410,174 @@ bool FOpenMobileAdsClickCallbackContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsDismissCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Dismiss.Callback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsDismissCallbackContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& FullScreen =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	FullScreen.Placement = TEXT("DismissFullScreen");
+	FullScreen.Format = EOpenMobileAdFormat::Rewarded;
+	FullScreen.Android.AdUnitId = TEXT("android-dismiss-full-screen");
+	FullScreen.IOS.AdUnitId = TEXT("ios-dismiss-full-screen");
+	FOpenMobileAdsPlacementSettings& Persistent =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Persistent.Placement = TEXT("DismissPersistent");
+	Persistent.Format = EOpenMobileAdFormat::Banner;
+	Persistent.Android.AdUnitId = TEXT("android-dismiss-persistent");
+	Persistent.IOS.AdUnitId = TEXT("ios-dismiss-persistent");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities Banner;
+	Banner.Format = EOpenMobileAdFormat::Banner;
+	Banner.bCanLoad = true;
+	Banner.bCanShow = true;
+	Banner.bReportsDismiss = true;
+	Provider.Capabilities.Formats.Add(Banner);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before dismiss callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	TArray<FOpenMobileAdsEvent> Events;
+	bool bIdleBeforeDismissBroadcast = false;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[Subsystem, &Events, &bIdleBeforeDismissBroadcast](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+			if (Event.Type == EOpenMobileAdsEventType::Dismissed)
+			{
+				const FOpenMobileAdsPlacementStatus Status =
+					Subsystem->GetPlacementStatus(Event.Placement);
+				bIdleBeforeDismissBroadcast =
+					Status.State == EOpenMobileAdPlacementState::Idle
+					&& !Status.CachedAdId.IsValid();
+			}
+		}
+	);
+
+	const FGuid FullScreenCachedAdId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("The full-screen placement starts loading"),
+		Subsystem->LoadAd(TEXT("DismissFullScreen")).bAccepted
+	);
+	FOpenMobileAdsEvent FullScreenLoaded;
+	FullScreenLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	FullScreenLoaded.CachedAdId = FullScreenCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(FullScreenLoaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsOperationResult FullScreenShow =
+		Subsystem->ShowAd(TEXT("DismissFullScreen"));
+	TestTrue(TEXT("The full-screen show is accepted"), FullScreenShow.bAccepted);
+	FOpenMobileAdsEvent FullScreenShown;
+	FullScreenShown.Type = EOpenMobileAdsEventType::Shown;
+	Provider.ShowSink->Submit(MoveTemp(FullScreenShown));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A missing dismiss leaves the accepted show active"),
+		Subsystem->GetPlacementStatus(TEXT("DismissFullScreen")).State,
+		EOpenMobileAdPlacementState::Showing
+	);
+	TestTrue(
+		TEXT("An accepted show can be cancelled when dismissal is missing"),
+		Subsystem->CancelRequest(FullScreenShow.RequestId).bAccepted
+	);
+	const FOpenMobileAdsPlacementStatus CancelledStatus =
+		Subsystem->GetPlacementStatus(TEXT("DismissFullScreen"));
+	TestEqual(
+		TEXT("Cancelling a show with no dismiss restores idle state"),
+		CancelledStatus.State,
+		EOpenMobileAdPlacementState::Idle
+	);
+	TestFalse(
+		TEXT("Cancelling a show with no dismiss consumes its cache"),
+		CancelledStatus.CachedAdId.IsValid()
+	);
+	TestEqual(
+		TEXT("Cancelling a show with no dismiss releases its native cache"),
+		Provider.ReleasedCachedAds.Num(),
+		1
+	);
+	if (Provider.ReleasedCachedAds.Num() == 1)
+	{
+		TestEqual(
+			TEXT("Missing-dismiss recovery releases the shown cache identity"),
+			Provider.ReleasedCachedAds[0],
+			FullScreenCachedAdId
+		);
+	}
+
+	Events.Reset();
+	const FGuid PersistentCachedAdId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("The persistent placement starts loading"),
+		Subsystem->LoadAd(TEXT("DismissPersistent")).bAccepted
+	);
+	FOpenMobileAdsEvent PersistentLoaded;
+	PersistentLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	PersistentLoaded.CachedAdId = PersistentCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(PersistentLoaded));
+	DrainGameThreadTasks();
+	Events.Reset();
+	const FOpenMobileAdsOperationResult PersistentShow =
+		Subsystem->ShowAd(TEXT("DismissPersistent"));
+	TestTrue(TEXT("The persistent show is accepted"), PersistentShow.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> PersistentSink =
+		Provider.ShowSink;
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Dismissed.Placement = TEXT("WrongPlacement");
+	Dismissed.Format = EOpenMobileAdFormat::Interstitial;
+	Dismissed.Provider = TEXT("WrongProvider");
+	Dismissed.Network = TEXT("MockNetwork");
+	Dismissed.RequestId = FGuid::NewGuid();
+	Dismissed.CachedAdId = FGuid::NewGuid();
+	PersistentSink->Submit(Dismissed);
+	PersistentSink->Submit(MoveTemp(Dismissed));
+	FOpenMobileAdsEvent LateShown;
+	LateShown.Type = EOpenMobileAdsEventType::Shown;
+	PersistentSink->Submit(MoveTemp(LateShown));
+	DrainGameThreadTasks();
+
+	TestEqual(
+		TEXT("An out-of-order dismiss is terminal and duplicate callbacks are ignored"),
+		Events.Num(),
+		2
+	);
+	if (Events.Num() == 2)
+	{
+		const FOpenMobileAdsEvent& DismissEvent = Events[1];
+		TestEqual(TEXT("Dismiss follows service show acceptance"), Events[0].Type, EOpenMobileAdsEventType::ShowAccepted);
+		TestEqual(TEXT("The provider close is normalized as dismissed"), DismissEvent.Type, EOpenMobileAdsEventType::Dismissed);
+		TestEqual(TEXT("Dismiss has the normalized placement"), DismissEvent.Placement, FName(TEXT("DismissPersistent")));
+		TestEqual(TEXT("Dismiss has the normalized format"), DismissEvent.Format, EOpenMobileAdFormat::Banner);
+		TestEqual(TEXT("Dismiss has the normalized provider"), DismissEvent.Provider, Provider.Name);
+		TestEqual(TEXT("Dismiss preserves the provider network"), DismissEvent.Network, FString(TEXT("MockNetwork")));
+		TestEqual(TEXT("Dismiss has the show request ID"), DismissEvent.RequestId, PersistentShow.RequestId);
+		TestEqual(TEXT("Dismiss has the shown cache ID"), DismissEvent.CachedAdId, PersistentCachedAdId);
+		TestEqual(TEXT("Dismiss reports restored idle state"), DismissEvent.PlacementState, EOpenMobileAdPlacementState::Idle);
+		TestTrue(TEXT("Dismiss ordering uses an increasing sequence"), Events[0].Sequence < DismissEvent.Sequence);
+	}
+	TestTrue(TEXT("Lifecycle state is restored before dismiss broadcasts"), bIdleBeforeDismissBroadcast);
+	TestEqual(TEXT("Both consumed native caches are released"), Provider.ReleasedCachedAds.Num(), 2);
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
