@@ -1578,6 +1578,233 @@ bool FOpenMobileAdsDismissCallbackContractTest::RunTest(const FString& Parameter
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationFailureCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Failure.Callback.Initialization",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationFailureCallbackContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const FOpenMobileAdsOperationResult Started = Subsystem->InitializeAds();
+	TestTrue(TEXT("Initialization accepts the malformed native failure scenario"), Started.bAccepted);
+
+	FOpenMobileAdsError Malformed;
+	Malformed.bRetryable = true;
+	Malformed.NativeDiagnostics.NativeCode = TEXT("future-init-code");
+	Malformed.NativeDiagnostics.Provider = TEXT("WrongProvider");
+	Malformed.NativeDiagnostics.Network = TEXT("MockNetwork");
+	Provider.CompleteInitialization(MoveTemp(Malformed));
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsInitializationStatusSnapshot Status =
+		Subsystem->GetInitializationStatus();
+	TestEqual(TEXT("Native failure details cannot complete initialization as ready"), Status.ServiceState, EOpenMobileAdsServiceState::Failed);
+	TestEqual(TEXT("Initialization failure retains its request ID"), Status.RequestId, Started.RequestId);
+	TestEqual(TEXT("Malformed initialization failure becomes typed"), Status.Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	TestEqual(TEXT("Initialization failure receives its operation stage"), Status.Error.Stage, EOpenMobileAdsFailureStage::Initialization);
+	TestEqual(TEXT("Initialization failure receives the owning provider"), Status.Error.Provider, Provider.Name);
+	TestEqual(TEXT("Initialization native diagnostics receive the owning provider"), Status.Error.NativeDiagnostics.Provider, Provider.Name);
+	TestEqual(TEXT("Initialization native code is preserved"), Status.Error.NativeDiagnostics.NativeCode, FString(TEXT("future-init-code")));
+	TestEqual(TEXT("Initialization network is preserved"), Status.Error.NativeDiagnostics.Network, FString(TEXT("MockNetwork")));
+	TestTrue(TEXT("Initialization retryability is preserved"), Status.Error.bRetryable);
+	TestFalse(TEXT("Malformed initialization failure receives an explanation"), Status.Error.Explanation.IsEmpty());
+	const FOpenMobileAdsInitializationComponentStatus* Component =
+		FindInitializationComponent(
+			Status,
+			EOpenMobileAdsInitializationComponentType::Provider,
+			Provider.Name
+		);
+	TestNotNull(TEXT("The failed provider remains in initialization status"), Component);
+	if (Component)
+	{
+		TestEqual(TEXT("The provider component reports failure"), Component->State, EOpenMobileAdsInitializationState::Failed);
+		TestEqual(TEXT("The provider component retains the typed error"), Component->Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	}
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsOperationFailureCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Failure.Callback.Operations",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsOperationFailureCallbackContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("FailureCallback");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-failure-callback");
+	Placement.IOS.AdUnitId = TEXT("ios-failure-callback");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before failure callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	const FOpenMobileAdsOperationResult InitialLoad =
+		Subsystem->LoadAd(TEXT("FailureCallback"));
+	TestTrue(TEXT("The malformed native load failure is accepted"), InitialLoad.bAccepted);
+	FOpenMobileAdsEvent NativeLoadFailure;
+	NativeLoadFailure.Type = EOpenMobileAdsEventType::LoadFailed;
+	NativeLoadFailure.Error.bRetryable = true;
+	NativeLoadFailure.Error.NativeDiagnostics.NativeCode = TEXT("future-load-code");
+	NativeLoadFailure.Error.NativeDiagnostics.Provider = TEXT("WrongProvider");
+	NativeLoadFailure.Error.NativeDiagnostics.Network = TEXT("MockLoadNetwork");
+	Provider.LoadSink->Submit(MoveTemp(NativeLoadFailure));
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("A malformed load failure follows load start"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		const FOpenMobileAdsEvent& Failure = Events[1];
+		TestEqual(TEXT("Malformed load result remains load failed"), Failure.Type, EOpenMobileAdsEventType::LoadFailed);
+		TestEqual(TEXT("Malformed load failure becomes typed"), Failure.Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+		TestEqual(TEXT("Load failure receives its operation stage"), Failure.Error.Stage, EOpenMobileAdsFailureStage::Load);
+		TestEqual(TEXT("Load failure receives the normalized placement"), Failure.Error.Placement, FName(TEXT("FailureCallback")));
+		TestEqual(TEXT("Load failure receives the normalized provider"), Failure.Error.Provider, Provider.Name);
+		TestEqual(TEXT("Load failure diagnostics receive the owning provider"), Failure.Error.NativeDiagnostics.Provider, Provider.Name);
+		TestEqual(TEXT("Load failure preserves native code"), Failure.Error.NativeDiagnostics.NativeCode, FString(TEXT("future-load-code")));
+		TestEqual(TEXT("Load failure exposes its network on the event"), Failure.Network, FString(TEXT("MockLoadNetwork")));
+		TestEqual(TEXT("Load failure exposes its diagnostic network"), Failure.Error.NativeDiagnostics.Network, FString(TEXT("MockLoadNetwork")));
+		TestEqual(TEXT("Load failure has the accepted request ID"), Failure.RequestId, InitialLoad.RequestId);
+		TestTrue(TEXT("Load failure preserves retryability"), Failure.Error.bRetryable);
+		TestFalse(TEXT("Malformed load failure receives an explanation"), Failure.Error.Explanation.IsEmpty());
+		TestEqual(TEXT("Fresh load failure reports failed state"), Failure.PlacementState, EOpenMobileAdPlacementState::Failed);
+	}
+	TestEqual(
+		TEXT("Fresh load failure leaves the placement failed"),
+		Subsystem->GetPlacementStatus(TEXT("FailureCallback")).State,
+		EOpenMobileAdPlacementState::Failed
+	);
+
+	TestTrue(
+		TEXT("The failed placement can load a replacement"),
+		Subsystem->LoadAd(TEXT("FailureCallback")).bAccepted
+	);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	Events.Reset();
+	FOpenMobileAdsLoadOptions ReloadOptions;
+	ReloadOptions.bForceReload = true;
+	const FOpenMobileAdsOperationResult Replacement =
+		Subsystem->LoadAd(TEXT("FailureCallback"), ReloadOptions);
+	TestTrue(TEXT("A forced replacement load is accepted"), Replacement.bAccepted);
+	AddExpectedError(
+		TEXT("failed the load request without a typed error"),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	FOpenMobileAdsEvent EmptyLoadFailure;
+	EmptyLoadFailure.Type = EOpenMobileAdsEventType::LoadFailed;
+	Provider.LoadSink->Submit(MoveTemp(EmptyLoadFailure));
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("An empty replacement failure follows load start"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		const FOpenMobileAdsEvent& Failure = Events[1];
+		TestEqual(TEXT("Missing load error receives a typed fallback"), Failure.Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+		TestEqual(TEXT("Missing load error receives the load stage"), Failure.Error.Stage, EOpenMobileAdsFailureStage::Load);
+		TestEqual(TEXT("Replacement failure returns to ready before broadcast"), Failure.PlacementState, EOpenMobileAdPlacementState::Ready);
+	}
+	const FOpenMobileAdsPlacementStatus ReplacementStatus =
+		Subsystem->GetPlacementStatus(TEXT("FailureCallback"));
+	TestEqual(TEXT("Replacement failure preserves ready state"), ReplacementStatus.State, EOpenMobileAdPlacementState::Ready);
+	TestEqual(TEXT("Replacement failure preserves the prior cache"), ReplacementStatus.CachedAdId, CachedAdId);
+
+	Provider.bAcceptShow = false;
+	Provider.ShowRejection = FOpenMobileAdsError();
+	Provider.ShowRejection.bRetryable = true;
+	Provider.ShowRejection.NativeDiagnostics.NativeCode = TEXT("NO_FILL");
+	Provider.ShowRejection.NativeDiagnostics.Network = TEXT("MockRejectNetwork");
+	const FOpenMobileAdsOperationResult RejectedShow =
+		Subsystem->ShowAd(TEXT("FailureCallback"));
+	TestFalse(TEXT("The provider can reject show immediately"), RejectedShow.bAccepted);
+	TestEqual(TEXT("Immediate rejection is mapped from native code"), RejectedShow.Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	TestEqual(TEXT("Immediate rejection receives the show stage"), RejectedShow.Error.Stage, EOpenMobileAdsFailureStage::Show);
+	TestEqual(TEXT("Immediate rejection receives the placement"), RejectedShow.Error.Placement, FName(TEXT("FailureCallback")));
+	TestEqual(TEXT("Immediate rejection receives the provider"), RejectedShow.Error.Provider, Provider.Name);
+	TestEqual(TEXT("Immediate rejection preserves native code"), RejectedShow.Error.NativeDiagnostics.NativeCode, FString(TEXT("NO_FILL")));
+	TestEqual(TEXT("Immediate rejection preserves network"), RejectedShow.Error.NativeDiagnostics.Network, FString(TEXT("MockRejectNetwork")));
+	TestTrue(TEXT("Immediate rejection preserves retryability"), RejectedShow.Error.bRetryable);
+	TestTrue(TEXT("Immediate show rejection preserves ready state"), Subsystem->IsReady(TEXT("FailureCallback")));
+
+	Provider.bAcceptShow = true;
+	Events.Reset();
+	const FOpenMobileAdsOperationResult AcceptedShow =
+		Subsystem->ShowAd(TEXT("FailureCallback"));
+	TestTrue(TEXT("The asynchronous show failure is accepted"), AcceptedShow.bAccepted);
+	AddExpectedError(
+		TEXT("failed the show request without a typed error"),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	FOpenMobileAdsEvent EmptyShowFailure;
+	EmptyShowFailure.Type = EOpenMobileAdsEventType::Failed;
+	EmptyShowFailure.Network = TEXT("MockShowNetwork");
+	Provider.ShowSink->Submit(MoveTemp(EmptyShowFailure));
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("An empty show failure follows show acceptance"), Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		const FOpenMobileAdsEvent& Failure = Events[1];
+		TestEqual(TEXT("Missing show error receives a typed fallback"), Failure.Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+		TestEqual(TEXT("Missing show error receives the show stage"), Failure.Error.Stage, EOpenMobileAdsFailureStage::Show);
+		TestEqual(TEXT("Show failure preserves its event network"), Failure.Network, FString(TEXT("MockShowNetwork")));
+		TestEqual(TEXT("Show failure copies network into diagnostics"), Failure.Error.NativeDiagnostics.Network, FString(TEXT("MockShowNetwork")));
+		TestEqual(TEXT("Show failure has the accepted request ID"), Failure.RequestId, AcceptedShow.RequestId);
+		TestEqual(TEXT("Show failure has the consumed cache ID"), Failure.CachedAdId, CachedAdId);
+		TestEqual(TEXT("Accepted show failure reports failed state"), Failure.PlacementState, EOpenMobileAdPlacementState::Failed);
+	}
+	const FOpenMobileAdsPlacementStatus FailedStatus =
+		Subsystem->GetPlacementStatus(TEXT("FailureCallback"));
+	TestEqual(TEXT("Accepted show failure leaves failed state"), FailedStatus.State, EOpenMobileAdPlacementState::Failed);
+	TestFalse(TEXT("Accepted show failure consumes the cache"), FailedStatus.CachedAdId.IsValid());
+	TestEqual(TEXT("Accepted show failure releases the native cache"), Provider.ReleasedCachedAds.Num(), 1);
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

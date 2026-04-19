@@ -201,6 +201,76 @@ namespace OpenMobileAdsPrivate
 		bool bValid = true;
 	};
 
+	FOpenMobileAdsError NormalizeProviderError(
+		FOpenMobileAdsError Error,
+		EOpenMobileAdsFailureStage Stage,
+		FName Placement,
+		FName Provider,
+		const TCHAR* FallbackExplanation
+	)
+	{
+		const bool bReportedRetryable = Error.bRetryable;
+		const FOpenMobileAdsNativeDiagnostics ReportedDiagnostics =
+			Error.NativeDiagnostics;
+		const bool bHasNativeFailureDetails =
+			!ReportedDiagnostics.NativeCode.IsEmpty()
+			|| !ReportedDiagnostics.NativeMessage.IsEmpty()
+			|| !ReportedDiagnostics.Adapter.IsEmpty();
+		if (!Error.IsSet() && bHasNativeFailureDetails)
+		{
+			FOpenMobileAdsErrorMappingContext Context;
+			Context.Domain = Error.NativeDiagnostics.Adapter.IsEmpty()
+				? EOpenMobileAdsErrorDomain::Provider
+				: EOpenMobileAdsErrorDomain::Mediation;
+			Context.Stage = Error.Stage == EOpenMobileAdsFailureStage::None
+				? Stage
+				: Error.Stage;
+			Context.Placement = Placement;
+			Context.Provider = Provider;
+			Context.Network = Error.NativeDiagnostics.Network;
+			Context.Adapter = Error.NativeDiagnostics.Adapter;
+			Context.NativeCode = Error.NativeDiagnostics.NativeCode;
+			Context.NativeMessage = Error.NativeDiagnostics.NativeMessage;
+			Error = FOpenMobileAdsErrorMapper::FromNative(Context);
+		}
+		else if (!Error.IsSet())
+		{
+			Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderFailure,
+				Stage,
+				Placement,
+				FallbackExplanation,
+				Provider
+			);
+			Error.NativeDiagnostics = ReportedDiagnostics;
+		}
+		if (Error.Stage == EOpenMobileAdsFailureStage::None)
+		{
+			Error.Stage = Stage;
+		}
+		Error.Placement = Placement;
+		Error.Provider = Provider;
+		Error.bRetryable |= bReportedRetryable;
+		if (Error.Explanation.IsEmpty())
+		{
+			Error.Explanation = FallbackExplanation;
+		}
+		if (Error.LikelyCause.IsEmpty())
+		{
+			Error.LikelyCause = Error.Explanation;
+		}
+		if (Error.SuggestedCorrection.IsEmpty())
+		{
+			Error.SuggestedCorrection =
+				TEXT("Check the provider diagnostics and retry when the failure is retryable.");
+		}
+		if (Error.NativeDiagnostics.IsSet())
+		{
+			Error.NativeDiagnostics.Provider = Provider;
+		}
+		return Error;
+	}
+
 	class FContextualEventSink final : public IOpenMobileAdsProviderEventSink
 	{
 	public:
@@ -329,10 +399,38 @@ namespace OpenMobileAdsPrivate
 			{
 				Event.CachedAdId = CachedAdId;
 			}
-			if (Event.Error.IsSet())
+			if (
+				Event.Type == EOpenMobileAdsEventType::LoadFailed
+				|| Event.Type == EOpenMobileAdsEventType::Failed
+			)
 			{
-				Event.Error.Provider = Provider;
-				Event.Error.Placement = Placement;
+				const TCHAR* FallbackExplanation =
+					Event.Type == EOpenMobileAdsEventType::LoadFailed
+						? TEXT("The ads provider failed the load request without a typed error.")
+						: OperationStage == EOpenMobileAdsFailureStage::Show
+						? TEXT("The ads provider failed the show request without a typed error.")
+						: OperationStage == EOpenMobileAdsFailureStage::Teardown
+						? TEXT("The ads provider failed the destroy request without a typed error.")
+						: TEXT("The ads provider failed the operation without a typed error.");
+				Event.Error = NormalizeProviderError(
+					MoveTemp(Event.Error),
+					OperationStage,
+					Placement,
+					Provider,
+					FallbackExplanation
+				);
+				if (
+					Event.Error.NativeDiagnostics.Network.IsEmpty()
+					&& !Event.Network.IsEmpty()
+				)
+				{
+					Event.Error.NativeDiagnostics.Provider = Provider;
+					Event.Error.NativeDiagnostics.Network = Event.Network;
+				}
+				if (Event.Network.IsEmpty())
+				{
+					Event.Network = Event.Error.NativeDiagnostics.Network;
+				}
 			}
 		}
 
@@ -466,25 +564,13 @@ namespace OpenMobileAdsPrivate
 		const TCHAR* FallbackExplanation
 	)
 	{
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileAdsError::Make(
-				EOpenMobileAdsErrorCode::ProviderFailure,
-				EOpenMobileAdsFailureStage::Initialization,
-				NAME_None,
-				FallbackExplanation,
-				ProviderName
-			);
-		}
-		if (Error.Stage == EOpenMobileAdsFailureStage::None)
-		{
-			Error.Stage = EOpenMobileAdsFailureStage::Initialization;
-		}
-		if (Error.Provider.IsNone())
-		{
-			Error.Provider = ProviderName;
-		}
-		return Error;
+		return NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			ProviderName,
+			FallbackExplanation
+		);
 	}
 }
 
@@ -757,7 +843,7 @@ void UOpenMobileAdsSubsystem::HandleInitializationCompleted(
 		return;
 	}
 
-	if (Error.IsSet())
+	if (Error.IsSet() || Error.NativeDiagnostics.IsSet())
 	{
 		if (InitializationSink)
 		{
@@ -846,9 +932,30 @@ void UOpenMobileAdsSubsystem::HandleProviderInitializationStatus(
 	{
 		return;
 	}
-	if (Status.Error.IsSet())
+	if (
+		Status.State == EOpenMobileAdsInitializationState::Failed
+		|| Status.Error.IsSet()
+		|| Status.Error.NativeDiagnostics.IsSet()
+	)
 	{
-		Status.Error.Provider = ProviderName;
+		if (Status.Error.NativeDiagnostics.Network.IsEmpty())
+		{
+			if (Status.Type == EOpenMobileAdsInitializationComponentType::Network)
+			{
+				Status.Error.NativeDiagnostics.Network = Status.Name.ToString();
+			}
+			else if (Status.Type == EOpenMobileAdsInitializationComponentType::Adapter)
+			{
+				Status.Error.NativeDiagnostics.Network = Status.Parent.ToString();
+			}
+		}
+		Status.Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Status.Error),
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			ProviderName,
+			TEXT("The ads provider reported an initialization component failure without a typed error.")
+		);
 	}
 	UpsertInitializationComponent(MoveTemp(Status));
 	UpdatePartialInitializationState();
@@ -1279,16 +1386,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 		{
 			PlacementStatuses.Remove(Placement);
 		}
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileAdsError::Make(
-				EOpenMobileAdsErrorCode::ProviderFailure,
-				EOpenMobileAdsFailureStage::Load,
-				Placement,
-				TEXT("The ads provider rejected the load request without an error."),
-				Provider->GetProviderName()
-			);
-		}
+		Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Load,
+			Placement,
+			Provider->GetProviderName(),
+			TEXT("The ads provider rejected the load request without a typed error.")
+		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 
@@ -1394,16 +1498,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 		Sink->Invalidate();
 		ActiveRequests.Remove(Status->ActiveRequestId);
 		*Status = PreviousStatus;
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileAdsError::Make(
-				EOpenMobileAdsErrorCode::ProviderFailure,
-				EOpenMobileAdsFailureStage::Show,
-				Placement,
-				TEXT("The ads provider rejected the show request without an error."),
-				Provider->GetProviderName()
-			);
-		}
+		Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Show,
+			Placement,
+			Provider->GetProviderName(),
+			TEXT("The ads provider rejected the show request without a typed error.")
+		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 
@@ -1528,16 +1629,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAd(FName Placement
 		{
 			PlacementStatuses.Remove(Placement);
 		}
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileAdsError::Make(
-				EOpenMobileAdsErrorCode::ProviderFailure,
-				EOpenMobileAdsFailureStage::Teardown,
-				Placement,
-				TEXT("The ads provider rejected the destroy request without an error."),
-				Provider->GetProviderName()
-			);
-		}
+		Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Teardown,
+			Placement,
+			Provider->GetProviderName(),
+			TEXT("The ads provider rejected the destroy request without a typed error.")
+		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 	if (SupersededRequestId != Status.ActiveRequestId)
@@ -1631,16 +1729,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAllAds()
 	{
 		Sink->Invalidate();
 		ActiveRequests.Remove(Request.RequestId);
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileAdsError::Make(
-				EOpenMobileAdsErrorCode::ProviderFailure,
-				EOpenMobileAdsFailureStage::Teardown,
-				NAME_None,
-				TEXT("The ads provider rejected the service-wide destroy request without an error."),
-				Provider->GetProviderName()
-			);
-		}
+		Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Teardown,
+			NAME_None,
+			Provider->GetProviderName(),
+			TEXT("The ads provider rejected the service-wide destroy request without a typed error.")
+		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 	for (FGuid SupersededRequestId : SupersededRequestIds)
