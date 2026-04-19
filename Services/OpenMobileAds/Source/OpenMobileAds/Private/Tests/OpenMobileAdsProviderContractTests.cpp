@@ -1288,6 +1288,128 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsClickCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Click.Callback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsClickCallbackContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ClickCallback");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-click-callback");
+	Placement.IOS.AdUnitId = TEXT("ios-click-callback");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].bReportsClick = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before click callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	const FOpenMobileAdsProviderCapabilities Capabilities =
+		Subsystem->GetProviderCapabilities();
+	const FOpenMobileAdFormatCapabilities* RewardedCapabilities =
+		Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded);
+	TestTrue(
+		TEXT("The provider SPI advertises rewarded click callbacks"),
+		RewardedCapabilities && RewardedCapabilities->bReportsClick
+	);
+
+	TestTrue(
+		TEXT("The placement loads before click callback checks"),
+		Subsystem->LoadAd(TEXT("ClickCallback")).bAccepted
+	);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+	const FOpenMobileAdsOperationResult Show =
+		Subsystem->ShowAd(TEXT("ClickCallback"));
+	TestTrue(TEXT("The click callback show is accepted"), Show.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink =
+		Provider.ShowSink;
+
+	FOpenMobileAdsEvent Shown;
+	Shown.Type = EOpenMobileAdsEventType::Shown;
+	ShowSink->Submit(MoveTemp(Shown));
+	FOpenMobileAdsEvent Clicked;
+	Clicked.Type = EOpenMobileAdsEventType::Clicked;
+	Clicked.Placement = TEXT("WrongPlacement");
+	Clicked.Format = EOpenMobileAdFormat::Banner;
+	Clicked.Provider = TEXT("WrongProvider");
+	Clicked.Network = TEXT("MockNetwork");
+	Clicked.RequestId = FGuid::NewGuid();
+	Clicked.CachedAdId = FGuid::NewGuid();
+	ShowSink->Submit(Clicked);
+	ShowSink->Submit(MoveTemp(Clicked));
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	ShowSink->Submit(MoveTemp(Dismissed));
+	FOpenMobileAdsEvent LateClick;
+	LateClick.Type = EOpenMobileAdsEventType::Clicked;
+	LateClick.Network = TEXT("LateNetwork");
+	ShowSink->Submit(MoveTemp(LateClick));
+	DrainGameThreadTasks();
+
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::ShowAccepted,
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	const int32 ExpectedEventCount = static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes));
+	TestEqual(TEXT("Active clicks are preserved and post-dismissal clicks are ignored"), Events.Num(), ExpectedEventCount);
+	if (Events.Num() == ExpectedEventCount)
+	{
+		for (int32 Index = 0; Index < Events.Num(); ++Index)
+		{
+			TestEqual(TEXT("The click lifecycle preserves provider order"), Events[Index].Type, ExpectedTypes[Index]);
+			if (Index > 0)
+			{
+				TestTrue(TEXT("The click lifecycle sequence is increasing"), Events[Index - 1].Sequence < Events[Index].Sequence);
+			}
+		}
+		for (int32 Index : {2, 3})
+		{
+			const FOpenMobileAdsEvent& ClickEvent = Events[Index];
+			TestEqual(TEXT("The click has the normalized placement"), ClickEvent.Placement, FName(TEXT("ClickCallback")));
+			TestEqual(TEXT("The click has the normalized format"), ClickEvent.Format, EOpenMobileAdFormat::Rewarded);
+			TestEqual(TEXT("The click has the normalized provider"), ClickEvent.Provider, Provider.Name);
+			TestEqual(TEXT("The click preserves the provider network"), ClickEvent.Network, FString(TEXT("MockNetwork")));
+			TestEqual(TEXT("The click has the show request ID"), ClickEvent.RequestId, Show.RequestId);
+			TestEqual(TEXT("The click has the shown cache ID"), ClickEvent.CachedAdId, CachedAdId);
+			TestEqual(TEXT("The click reports showing state"), ClickEvent.PlacementState, EOpenMobileAdPlacementState::Showing);
+		}
+		TestEqual(TEXT("Dismissal restores idle state before its callback"), Events.Last().PlacementState, EOpenMobileAdPlacementState::Idle);
+	}
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

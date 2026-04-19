@@ -2337,6 +2337,16 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		break;
 
 	case EOpenMobileAdsEventType::Clicked:
+		if (
+			Status->State == EOpenMobileAdPlacementState::Showing
+			&& Status->ActiveRequestId == Event.RequestId
+		)
+		{
+			Event.PlacementState = Status->State;
+			bBroadcast = true;
+		}
+		break;
+
 	case EOpenMobileAdsEventType::RevenuePaid:
 		bBroadcast = Status->State == EOpenMobileAdPlacementState::Showing
 			&& Status->ActiveRequestId == Event.RequestId;
