@@ -274,6 +274,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		);
 	Placement.bPreload = true;
 	Placement.CooldownSeconds = 30.0;
+	Placement.FallbackRewardType = TEXT("gold-token");
 	Placement.FrequencyCap.MaxImpressions = 2;
 	Placement.FrequencyCap.WindowSeconds = 60.0;
 	Placement.Android.bOverridePreload = true;
@@ -326,6 +327,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Frequency cap count survives restart"), LoadedPlacement.FrequencyCap.MaxImpressions, 2);
 		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
 		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
+		TestEqual(TEXT("Reward type fallback survives restart"), LoadedPlacement.FallbackRewardType, FString(TEXT("gold-token")));
 		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
 		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
 		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);

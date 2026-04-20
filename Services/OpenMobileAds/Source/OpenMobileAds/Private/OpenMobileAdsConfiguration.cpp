@@ -128,6 +128,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.RefreshIntervalSeconds = RefreshIntervalSeconds;
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
+	Result.FallbackRewardType = FallbackRewardType;
 	Result.ProviderOptions = ProviderOptions;
 
 	const FOpenMobileAdsPlatformPlacementOverride* Override = nullptr;

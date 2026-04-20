@@ -1805,6 +1805,113 @@ bool FOpenMobileAdsOperationFailureCallbackContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardTypeContractTest,
+	"OpenMobile.Ads.ProviderContract.Reward.Type",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardTypeContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {
+		FName(TEXT("ProviderRewardType")),
+		FName(TEXT("FallbackRewardType")),
+		FName(TEXT("EmptyRewardType"))
+	})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*PlacementName.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*PlacementName.ToString()
+		);
+	}
+	ScopedSettings.Settings->Placements[0].FallbackRewardType = TEXT("fallback-coin");
+	ScopedSettings.Settings->Placements[1].FallbackRewardType = TEXT("星の欠片");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before reward type checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TArray<FOpenMobileAdsEvent> Rewards;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Rewards](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
+			{
+				Rewards.Add(Event);
+			}
+		}
+	);
+
+	auto SubmitReward = [this, Subsystem, &Provider](
+		FName PlacementName,
+		FString ProviderRewardType
+	)
+	{
+		const FOpenMobileAdsOperationResult Load =
+			Subsystem->LoadAd(PlacementName);
+		TestTrue(TEXT("The reward type placement starts loading"), Load.bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		const FOpenMobileAdsOperationResult Show =
+			Subsystem->ShowAd(PlacementName);
+		TestTrue(TEXT("The reward type placement starts showing"), Show.bAccepted);
+		FOpenMobileAdsEvent Reward;
+		Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+		Reward.bHasReward = true;
+		Reward.Reward.Type = MoveTemp(ProviderRewardType);
+		Reward.Reward.Amount = 1;
+		Provider.ShowSink->Submit(MoveTemp(Reward));
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	};
+
+	const FString ProviderSpecificType = TEXT("特殊/coin.v2");
+	SubmitReward(TEXT("ProviderRewardType"), ProviderSpecificType);
+	SubmitReward(TEXT("FallbackRewardType"), FString());
+	SubmitReward(TEXT("EmptyRewardType"), FString());
+
+	TestEqual(TEXT("Each shown ad produces one reward type result"), Rewards.Num(), 3);
+	if (Rewards.Num() == 3)
+	{
+		TestEqual(TEXT("Provider-specific reward type is preserved exactly"), Rewards[0].Reward.Type, ProviderSpecificType);
+		TestEqual(TEXT("Empty provider type uses the Unicode placement fallback"), Rewards[1].Reward.Type, FString(TEXT("星の欠片")));
+		TestTrue(TEXT("Reward type remains empty when no fallback is configured"), Rewards[2].Reward.Type.IsEmpty());
+		for (int32 Index = 0; Index < Rewards.Num(); ++Index)
+		{
+			TestTrue(TEXT("Reward type event remains marked as a reward"), Rewards[Index].bHasReward);
+			TestEqual(TEXT("Reward type event keeps its placement"), Rewards[Index].Placement, ScopedSettings.Settings->Placements[Index].Placement);
+			TestEqual(TEXT("Reward type event keeps its provider"), Rewards[Index].Provider, Provider.Name);
+			TestTrue(TEXT("Reward type event keeps its show request"), Rewards[Index].RequestId.IsValid());
+		}
+	}
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

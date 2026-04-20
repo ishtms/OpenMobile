@@ -165,6 +165,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 	double CooldownSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString FallbackRewardType;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TMap<FName, FString> ProviderOptions;
 };
 
@@ -193,6 +196,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FString FallbackRewardType;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	TMap<FName, FString> ProviderOptions;

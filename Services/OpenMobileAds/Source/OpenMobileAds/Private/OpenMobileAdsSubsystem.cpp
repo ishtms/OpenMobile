@@ -281,7 +281,8 @@ namespace OpenMobileAdsPrivate
 			EOpenMobileAdFormat InFormat,
 			EOpenMobileAdsFailureStage InOperationStage,
 			FGuid InRequestId,
-			FGuid InCachedAdId = FGuid()
+			FGuid InCachedAdId = FGuid(),
+			FString InFallbackRewardType = FString()
 		)
 			: Dispatcher(MoveTemp(InDispatcher))
 			, Provider(InProvider)
@@ -290,6 +291,7 @@ namespace OpenMobileAdsPrivate
 			, OperationStage(InOperationStage)
 			, RequestId(InRequestId)
 			, CachedAdId(InCachedAdId)
+			, FallbackRewardType(MoveTemp(InFallbackRewardType))
 		{
 		}
 
@@ -400,6 +402,14 @@ namespace OpenMobileAdsPrivate
 				Event.CachedAdId = CachedAdId;
 			}
 			if (
+				Event.Type == EOpenMobileAdsEventType::RewardEarned
+				&& Event.Reward.Type.IsEmpty()
+				&& !FallbackRewardType.IsEmpty()
+			)
+			{
+				Event.Reward.Type = FallbackRewardType;
+			}
+			if (
 				Event.Type == EOpenMobileAdsEventType::LoadFailed
 				|| Event.Type == EOpenMobileAdsEventType::Failed
 			)
@@ -443,6 +453,7 @@ namespace OpenMobileAdsPrivate
 		EOpenMobileAdsFailureStage OperationStage;
 		FGuid RequestId;
 		FGuid CachedAdId;
+		FString FallbackRewardType;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
 		bool bTerminalSubmitted = false;
@@ -1481,7 +1492,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			Status->Format,
 			EOpenMobileAdsFailureStage::Show,
 			Status->ActiveRequestId,
-			Status->CachedAdId
+			Status->CachedAdId,
+			ResolvedPlacement.FallbackRewardType
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();
