@@ -92,6 +92,8 @@ private:
 
 namespace OpenMobileAdsPrivate
 {
+	constexpr int32 MaxDismissedShowRewardContexts = 64;
+
 	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
 	{
 	public:
@@ -362,6 +364,15 @@ namespace OpenMobileAdsPrivate
 			{
 				return true;
 			}
+			if (Type == EOpenMobileAdsEventType::RewardEarned)
+			{
+				if (bRewardSubmitted || (bTerminalSubmitted && !bDismissedSubmitted))
+				{
+					return false;
+				}
+				bRewardSubmitted = true;
+				return true;
+			}
 			if (bTerminalSubmitted)
 			{
 				return false;
@@ -378,12 +389,15 @@ namespace OpenMobileAdsPrivate
 
 			case EOpenMobileAdsEventType::Impression:
 			case EOpenMobileAdsEventType::Clicked:
-			case EOpenMobileAdsEventType::RewardEarned:
 			case EOpenMobileAdsEventType::RevenuePaid:
 			case EOpenMobileAdsEventType::Refreshed:
 				return true;
 
 			case EOpenMobileAdsEventType::Dismissed:
+				bDismissedSubmitted = true;
+				bTerminalSubmitted = true;
+				return true;
+
 			case EOpenMobileAdsEventType::Failed:
 				bTerminalSubmitted = true;
 				return true;
@@ -467,6 +481,8 @@ namespace OpenMobileAdsPrivate
 		int64 FallbackRewardAmount = 0;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
+		bool bRewardSubmitted = false;
+		bool bDismissedSubmitted = false;
 		bool bTerminalSubmitted = false;
 		bool bValid = true;
 	};
@@ -1787,6 +1803,7 @@ void UOpenMobileAdsSubsystem::CancelSupersededRequest(FGuid RequestId)
 	{
 		return;
 	}
+	ForgetShowRewardContext(RequestId);
 	Context->EventSink->Invalidate();
 	if (IOpenMobileAdsProvider* Provider =
 		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
@@ -1821,6 +1838,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::CancelRequest(FGuid Reque
 
 	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		FoundContext->ToSharedRef();
+	ForgetShowRewardContext(RequestId);
 	Context->EventSink->Invalidate();
 	if (IOpenMobileAdsProvider* Provider =
 		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
@@ -2080,12 +2098,57 @@ void UOpenMobileAdsSubsystem::ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Sta
 		{
 			Provider->ReleaseCachedAd(Status.CachedAdId);
 		}
-		RewardedCachedAds.Remove(Status.CachedAdId);
 		ImpressedCachedAds.Remove(Status.CachedAdId);
 		Status.CachedAdId.Invalidate();
 	}
 	Status.CachedAt = FDateTime();
 	Status.ExpiresAt = FDateTime();
+}
+
+void UOpenMobileAdsSubsystem::RememberDismissedShow(
+	FGuid RequestId,
+	FGuid CachedAdId
+)
+{
+	if (
+		!RequestId.IsValid()
+		|| !CachedAdId.IsValid()
+		|| DismissedShowCachedAds.Contains(RequestId)
+	)
+	{
+		return;
+	}
+
+	DismissedShowCachedAds.Add(RequestId, CachedAdId);
+	DismissedShowRequestOrder.Add(RequestId);
+	while (
+		DismissedShowRequestOrder.Num()
+		> OpenMobileAdsPrivate::MaxDismissedShowRewardContexts
+	)
+	{
+		const FGuid ExpiredRequestId = DismissedShowRequestOrder[0];
+		DismissedShowRequestOrder.RemoveAt(0, 1, EAllowShrinking::No);
+		DismissedShowCachedAds.Remove(ExpiredRequestId);
+		RewardedShowRequests.Remove(ExpiredRequestId);
+	}
+}
+
+bool UOpenMobileAdsSubsystem::IsRememberedDismissedShow(
+	FGuid RequestId,
+	FGuid CachedAdId
+) const
+{
+	const FGuid* RememberedCachedAdId = DismissedShowCachedAds.Find(RequestId);
+	return RememberedCachedAdId && *RememberedCachedAdId == CachedAdId;
+}
+
+void UOpenMobileAdsSubsystem::ForgetShowRewardContext(FGuid RequestId)
+{
+	RewardedShowRequests.Remove(RequestId);
+	if (DismissedShowCachedAds.Remove(RequestId) > 0)
+	{
+		DismissedShowRequestOrder.RemoveSingle(RequestId);
+	}
 }
 
 void UOpenMobileAdsSubsystem::ExpireCachedAds()
@@ -2246,7 +2309,9 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			}
 		}
 		PlacementStatuses.Reset();
-		RewardedCachedAds.Reset();
+		RewardedShowRequests.Reset();
+		DismissedShowCachedAds.Reset();
+		DismissedShowRequestOrder.Reset();
 		ImpressedCachedAds.Reset();
 		ScheduleCacheExpirationCheck();
 		OpenMobileAdsPrivate::LogEvent(Event);
@@ -2450,16 +2515,28 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		break;
 
 	case EOpenMobileAdsEventType::RewardEarned:
-		if (
+	{
+		const bool bActiveShow =
 			Status->State == EOpenMobileAdPlacementState::Showing
 			&& Status->ActiveRequestId == Event.RequestId
-			&& !RewardedCachedAds.Contains(Status->CachedAdId)
+			&& Status->CachedAdId == Event.CachedAdId;
+		const bool bDismissedShow = IsRememberedDismissedShow(
+			Event.RequestId,
+			Event.CachedAdId
+		);
+		if (
+			(bActiveShow || bDismissedShow)
+			&& !RewardedShowRequests.Contains(Event.RequestId)
 		)
 		{
-			RewardedCachedAds.Add(Status->CachedAdId);
+			RewardedShowRequests.Add(Event.RequestId);
+			Event.PlacementState = bActiveShow
+				? EOpenMobileAdPlacementState::Showing
+				: EOpenMobileAdPlacementState::Idle;
 			bBroadcast = true;
 		}
 		break;
+	}
 
 	case EOpenMobileAdsEventType::Clicked:
 		if (
@@ -2483,6 +2560,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			&& Status->ActiveRequestId == Event.RequestId
 		)
 		{
+			RememberDismissedShow(Event.RequestId, Status->CachedAdId);
 			ReleaseCachedAd(*Status);
 			Status->State = EOpenMobileAdPlacementState::Idle;
 			Event.PlacementState = Status->State;
@@ -2505,6 +2583,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 	case EOpenMobileAdsEventType::Failed:
 		if (Status->ActiveRequestId == Event.RequestId)
 		{
+			ForgetShowRewardContext(Event.RequestId);
 			ReleaseCachedAd(*Status);
 			Status->State = EOpenMobileAdPlacementState::Failed;
 			Status->LastError = Event.Error;
@@ -2539,7 +2618,10 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context;
 			if (ActiveRequests.RemoveAndCopyValue(Event.RequestId, Context) && Context)
 			{
-				Context->EventSink->Invalidate();
+				if (Event.Type != EOpenMobileAdsEventType::Dismissed)
+				{
+					Context->EventSink->Invalidate();
+				}
 			}
 		}
 		OpenMobileAdsPrivate::LogEvent(Event);
@@ -2712,7 +2794,6 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 		{
 			continue;
 		}
-		RewardedCachedAds.Remove(Status.CachedAdId);
 		ImpressedCachedAds.Remove(Status.CachedAdId);
 		Status.CachedAdId.Invalidate();
 		Status.CachedAt = FDateTime();
@@ -2749,6 +2830,9 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 		Failed.Error = Status.LastError;
 		SubmitServiceEvent(MoveTemp(Failed));
 	}
+	RewardedShowRequests.Reset();
+	DismissedShowCachedAds.Reset();
+	DismissedShowRequestOrder.Reset();
 	ScheduleCacheExpirationCheck();
 }
 
@@ -2826,7 +2910,9 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		EventDispatcher.Reset();
 	}
 	PlacementStatuses.Reset();
-	RewardedCachedAds.Reset();
+	RewardedShowRequests.Reset();
+	DismissedShowCachedAds.Reset();
+	DismissedShowRequestOrder.Reset();
 	ImpressedCachedAds.Reset();
 	ImpressionTimestampsByPlacement.Reset();
 	PendingExpiredCachedAdEvents.Reset();

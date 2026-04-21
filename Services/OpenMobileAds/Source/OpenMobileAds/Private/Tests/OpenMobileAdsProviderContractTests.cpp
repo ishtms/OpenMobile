@@ -2021,6 +2021,152 @@ bool FOpenMobileAdsRewardAmountContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardCallbackContractTest,
+	"OpenMobile.Ads.ProviderContract.Reward.Callback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardCallbackContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {
+		FName(TEXT("RewardBeforeDismiss")),
+		FName(TEXT("RewardAfterDismiss")),
+		FName(TEXT("NoReward"))
+	})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*PlacementName.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*PlacementName.ToString()
+		);
+	}
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before reward callback checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			if (
+				Event.Type == EOpenMobileAdsEventType::RewardEarned
+				|| Event.Type == EOpenMobileAdsEventType::Dismissed
+			)
+			{
+				Events.Add(Event);
+			}
+		}
+	);
+
+	auto StartShow = [this, Subsystem, &Provider](FName PlacementName)
+	{
+		const FOpenMobileAdsOperationResult Load = Subsystem->LoadAd(PlacementName);
+		TestTrue(TEXT("The reward callback placement starts loading"), Load.bAccepted);
+		const FGuid CachedAdId = FGuid::NewGuid();
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = CachedAdId;
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		const FOpenMobileAdsOperationResult Show = Subsystem->ShowAd(PlacementName);
+		TestTrue(TEXT("The reward callback placement starts showing"), Show.bAccepted);
+		return TPair<FGuid, FGuid>(Show.RequestId, CachedAdId);
+	};
+	auto MakeReward = [](FString Network, FString VerificationId)
+	{
+		FOpenMobileAdsEvent Reward;
+		Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+		Reward.Network = MoveTemp(Network);
+		Reward.bHasReward = true;
+		Reward.Reward.Type = TEXT("coin");
+		Reward.Reward.Amount = 10;
+		Reward.Reward.bServerVerified = true;
+		Reward.Reward.VerificationId = MoveTemp(VerificationId);
+		return Reward;
+	};
+	auto MakeDismissed = []()
+	{
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		return Dismissed;
+	};
+
+	const TPair<FGuid, FGuid> Before = StartShow(TEXT("RewardBeforeDismiss"));
+	const FOpenMobileAdsEvent BeforeReward = MakeReward(TEXT("network-before"), TEXT("verify-before"));
+	Provider.ShowSink->Submit(BeforeReward);
+	Provider.ShowSink->Submit(BeforeReward);
+	Provider.ShowSink->Submit(MakeDismissed());
+	DrainGameThreadTasks();
+
+	const TPair<FGuid, FGuid> After = StartShow(TEXT("RewardAfterDismiss"));
+	Provider.ShowSink->Submit(MakeDismissed());
+	const FOpenMobileAdsEvent AfterReward = MakeReward(TEXT("network-after"), TEXT("確認-after"));
+	Provider.ShowSink->Submit(AfterReward);
+	Provider.ShowSink->Submit(AfterReward);
+	DrainGameThreadTasks();
+
+	const TPair<FGuid, FGuid> NoReward = StartShow(TEXT("NoReward"));
+	Provider.ShowSink->Submit(MakeDismissed());
+	DrainGameThreadTasks();
+
+	TestEqual(TEXT("The three shows emit two rewards and three dismissals"), Events.Num(), 5);
+	if (Events.Num() == 5)
+	{
+		TestEqual(TEXT("The first reward precedes dismissal"), Events[0].Type, EOpenMobileAdsEventType::RewardEarned);
+		TestEqual(TEXT("The first show then dismisses"), Events[1].Type, EOpenMobileAdsEventType::Dismissed);
+		TestEqual(TEXT("The second show dismisses first"), Events[2].Type, EOpenMobileAdsEventType::Dismissed);
+		TestEqual(TEXT("The second reward follows dismissal"), Events[3].Type, EOpenMobileAdsEventType::RewardEarned);
+		TestEqual(TEXT("The no-reward show only dismisses"), Events[4].Type, EOpenMobileAdsEventType::Dismissed);
+
+		const FOpenMobileAdsEvent& BeforeResult = Events[0];
+		TestEqual(TEXT("Reward keeps its placement"), BeforeResult.Placement, FName(TEXT("RewardBeforeDismiss")));
+		TestEqual(TEXT("Reward keeps its request"), BeforeResult.RequestId, Before.Key);
+		TestEqual(TEXT("Reward keeps its cached ad"), BeforeResult.CachedAdId, Before.Value);
+		TestEqual(TEXT("Reward keeps its provider"), BeforeResult.Provider, Provider.Name);
+		TestEqual(TEXT("Reward keeps its network"), BeforeResult.Network, FString(TEXT("network-before")));
+		TestEqual(TEXT("Reward before dismissal reports showing state"), BeforeResult.PlacementState, EOpenMobileAdPlacementState::Showing);
+		TestTrue(TEXT("Reward remains grantable"), BeforeResult.bHasReward);
+		TestEqual(TEXT("Reward keeps its type"), BeforeResult.Reward.Type, FString(TEXT("coin")));
+		TestEqual(TEXT("Reward keeps its amount"), BeforeResult.Reward.Amount, static_cast<int64>(10));
+		TestTrue(TEXT("Reward keeps server verification state"), BeforeResult.Reward.bServerVerified);
+		TestEqual(TEXT("Reward keeps verification ID"), BeforeResult.Reward.VerificationId, FString(TEXT("verify-before")));
+
+		const FOpenMobileAdsEvent& AfterResult = Events[3];
+		TestEqual(TEXT("Late reward keeps its placement"), AfterResult.Placement, FName(TEXT("RewardAfterDismiss")));
+		TestEqual(TEXT("Late reward keeps its request"), AfterResult.RequestId, After.Key);
+		TestEqual(TEXT("Late reward keeps its cached ad"), AfterResult.CachedAdId, After.Value);
+		TestEqual(TEXT("Late reward keeps its provider"), AfterResult.Provider, Provider.Name);
+		TestEqual(TEXT("Late reward keeps its network"), AfterResult.Network, FString(TEXT("network-after")));
+		TestEqual(TEXT("Reward after dismissal reports idle state"), AfterResult.PlacementState, EOpenMobileAdPlacementState::Idle);
+		TestTrue(TEXT("Late reward remains grantable"), AfterResult.bHasReward);
+		TestTrue(TEXT("Late reward keeps server verification state"), AfterResult.Reward.bServerVerified);
+		TestEqual(TEXT("Late reward keeps Unicode verification ID"), AfterResult.Reward.VerificationId, FString(TEXT("確認-after")));
+		TestEqual(TEXT("No-reward dismissal keeps its request"), Events[4].RequestId, NoReward.Key);
+	}
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

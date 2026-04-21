@@ -200,6 +200,9 @@ private:
 	void HandleProviderUnavailable(FName ProviderName);
 	void CancelSupersededRequest(FGuid RequestId);
 	void ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Status);
+	void RememberDismissedShow(FGuid RequestId, FGuid CachedAdId);
+	bool IsRememberedDismissedShow(FGuid RequestId, FGuid CachedAdId) const;
+	void ForgetShowRewardContext(FGuid RequestId);
 	void ExpireCachedAds();
 	void ScheduleCacheExpirationCheck();
 	bool HandleCacheExpirationTick(float DeltaTime);
@@ -218,7 +221,9 @@ private:
 	EOpenMobileRewardedAdState State = EOpenMobileRewardedAdState::Idle;
 
 	TMap<FName, FOpenMobileAdsPlacementStatus> PlacementStatuses;
-	TSet<FGuid> RewardedCachedAds;
+	TSet<FGuid> RewardedShowRequests;
+	TMap<FGuid, FGuid> DismissedShowCachedAds;
+	TArray<FGuid> DismissedShowRequestOrder;
 	TSet<FGuid> ImpressedCachedAds;
 	TMap<FName, TArray<FDateTime>> ImpressionTimestampsByPlacement;
 	TSet<FGuid> PendingExpiredCachedAdEvents;
