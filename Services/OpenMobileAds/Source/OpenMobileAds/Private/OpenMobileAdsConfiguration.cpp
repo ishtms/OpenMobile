@@ -90,6 +90,16 @@ namespace OpenMobileAdsConfigurationPrivate
 				TEXT("Cooldown must not be negative.")
 			);
 		}
+
+		if (Placement.FallbackRewardAmount < 0)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidFallbackRewardAmount,
+				Placement.Placement,
+				TEXT("Fallback reward amount must not be negative.")
+			);
+		}
 	}
 }
 
@@ -129,6 +139,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
 	Result.FallbackRewardType = FallbackRewardType;
+	Result.FallbackRewardAmount = FallbackRewardAmount;
 	Result.ProviderOptions = ProviderOptions;
 
 	const FOpenMobileAdsPlatformPlacementOverride* Override = nullptr;

@@ -168,6 +168,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 	FString FallbackRewardType;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	int64 FallbackRewardAmount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TMap<FName, FString> ProviderOptions;
 };
 
@@ -199,6 +202,18 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FString FallbackRewardType;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (
+			ClampMin = "0",
+			ToolTip = "Positive amount used only when the provider omits its reward amount. Zero disables the fallback."
+		)
+	)
+	int64 FallbackRewardAmount = 0;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	TMap<FName, FString> ProviderOptions;
@@ -233,6 +248,7 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	RefreshNotSupported,
 	InvalidFrequencyCap,
 	InvalidCooldown,
+	InvalidFallbackRewardAmount,
 	EmptyProviderOption,
 	UnsupportedProviderFormat,
 	UnsupportedProviderOperation,

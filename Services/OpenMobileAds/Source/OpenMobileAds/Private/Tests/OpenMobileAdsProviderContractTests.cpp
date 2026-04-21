@@ -1912,6 +1912,115 @@ bool FOpenMobileAdsRewardTypeContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardAmountContractTest,
+	"OpenMobile.Ads.ProviderContract.Reward.Amount",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardAmountContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	for (const FName PlacementName : {
+		FName(TEXT("ProviderRewardAmount")),
+		FName(TEXT("FallbackRewardAmount")),
+		FName(TEXT("ZeroRewardAmount")),
+		FName(TEXT("NegativeRewardAmount")),
+		FName(TEXT("WideRewardAmount"))
+	})
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*PlacementName.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*PlacementName.ToString()
+		);
+	}
+	ScopedSettings.Settings->Placements[1].FallbackRewardAmount = 25;
+	ScopedSettings.Settings->Placements[3].FallbackRewardAmount = 30;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before reward amount checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TArray<FOpenMobileAdsEvent> Rewards;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Rewards](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
+			{
+				Rewards.Add(Event);
+			}
+		}
+	);
+
+	auto SubmitReward = [this, Subsystem, &Provider](
+		FName PlacementName,
+		int64 ProviderRewardAmount
+	)
+	{
+		const FOpenMobileAdsOperationResult Load =
+			Subsystem->LoadAd(PlacementName);
+		TestTrue(TEXT("The reward amount placement starts loading"), Load.bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		const FOpenMobileAdsOperationResult Show =
+			Subsystem->ShowAd(PlacementName);
+		TestTrue(TEXT("The reward amount placement starts showing"), Show.bAccepted);
+		FOpenMobileAdsEvent Reward;
+		Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+		Reward.bHasReward = true;
+		Reward.Reward.Type = TEXT("coin");
+		Reward.Reward.Amount = ProviderRewardAmount;
+		Provider.ShowSink->Submit(MoveTemp(Reward));
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	};
+
+	SubmitReward(TEXT("ProviderRewardAmount"), 73);
+	SubmitReward(TEXT("FallbackRewardAmount"), 0);
+	SubmitReward(TEXT("ZeroRewardAmount"), 0);
+	SubmitReward(TEXT("NegativeRewardAmount"), -7);
+	SubmitReward(TEXT("WideRewardAmount"), MAX_int64);
+
+	TestEqual(TEXT("Each shown ad produces one reward amount result"), Rewards.Num(), 5);
+	if (Rewards.Num() == 5)
+	{
+		TestEqual(TEXT("Provider-specific reward amount is preserved"), Rewards[0].Reward.Amount, static_cast<int64>(73));
+		TestEqual(TEXT("An omitted provider amount uses the placement fallback"), Rewards[1].Reward.Amount, static_cast<int64>(25));
+		TestTrue(TEXT("A fallback amount remains grantable"), Rewards[1].bHasReward);
+		TestEqual(TEXT("An omitted amount without a fallback normalizes to zero"), Rewards[2].Reward.Amount, static_cast<int64>(0));
+		TestFalse(TEXT("An omitted amount without a fallback is not grantable"), Rewards[2].bHasReward);
+		TestEqual(TEXT("A negative provider amount normalizes to zero"), Rewards[3].Reward.Amount, static_cast<int64>(0));
+		TestFalse(TEXT("A negative provider amount does not use the fallback"), Rewards[3].bHasReward);
+		TestEqual(TEXT("The signed 64-bit boundary does not overflow"), Rewards[4].Reward.Amount, static_cast<int64>(MAX_int64));
+		TestTrue(TEXT("The signed 64-bit boundary remains grantable"), Rewards[4].bHasReward);
+	}
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsDestroyLifecycleContractTest,
 	"OpenMobile.Ads.ProviderContract.Destroy.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

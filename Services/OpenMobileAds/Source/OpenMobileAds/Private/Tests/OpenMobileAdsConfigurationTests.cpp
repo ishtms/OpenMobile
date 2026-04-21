@@ -162,6 +162,14 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	InvalidCooldown.CooldownSeconds = -1.0;
 	Placements.Add(InvalidCooldown);
 
+	FOpenMobileAdsPlacementSettings InvalidFallbackRewardAmount = MakeRewardedPlacement(
+		TEXT("InvalidFallbackRewardAmount"),
+		TEXT("android-reward-amount"),
+		TEXT("ios-reward-amount")
+	);
+	InvalidFallbackRewardAmount.FallbackRewardAmount = -1;
+	Placements.Add(InvalidFallbackRewardAmount);
+
 	FOpenMobileAdsPlacementSettings InvalidOption = MakeRewardedPlacement(
 		TEXT("InvalidOption"),
 		TEXT("android-option"),
@@ -184,6 +192,7 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Negative refresh intervals are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidRefreshInterval));
 	TestTrue(TEXT("Incomplete caps are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFrequencyCap));
 	TestTrue(TEXT("Negative cooldowns are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidCooldown));
+	TestTrue(TEXT("Negative reward amount fallbacks are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFallbackRewardAmount));
 	TestTrue(TEXT("Empty provider option names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::EmptyProviderOption));
 	return true;
 }
@@ -275,6 +284,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.bPreload = true;
 	Placement.CooldownSeconds = 30.0;
 	Placement.FallbackRewardType = TEXT("gold-token");
+	Placement.FallbackRewardAmount = 25;
 	Placement.FrequencyCap.MaxImpressions = 2;
 	Placement.FrequencyCap.WindowSeconds = 60.0;
 	Placement.Android.bOverridePreload = true;
@@ -328,6 +338,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
 		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
 		TestEqual(TEXT("Reward type fallback survives restart"), LoadedPlacement.FallbackRewardType, FString(TEXT("gold-token")));
+		TestEqual(TEXT("Reward amount fallback survives restart"), LoadedPlacement.FallbackRewardAmount, static_cast<int64>(25));
 		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
 		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
 		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);

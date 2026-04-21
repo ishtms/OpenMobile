@@ -282,7 +282,8 @@ namespace OpenMobileAdsPrivate
 			EOpenMobileAdsFailureStage InOperationStage,
 			FGuid InRequestId,
 			FGuid InCachedAdId = FGuid(),
-			FString InFallbackRewardType = FString()
+			FString InFallbackRewardType = FString(),
+			int64 InFallbackRewardAmount = 0
 		)
 			: Dispatcher(MoveTemp(InDispatcher))
 			, Provider(InProvider)
@@ -292,6 +293,7 @@ namespace OpenMobileAdsPrivate
 			, RequestId(InRequestId)
 			, CachedAdId(InCachedAdId)
 			, FallbackRewardType(MoveTemp(InFallbackRewardType))
+			, FallbackRewardAmount(InFallbackRewardAmount)
 		{
 		}
 
@@ -401,13 +403,21 @@ namespace OpenMobileAdsPrivate
 			{
 				Event.CachedAdId = CachedAdId;
 			}
-			if (
-				Event.Type == EOpenMobileAdsEventType::RewardEarned
-				&& Event.Reward.Type.IsEmpty()
-				&& !FallbackRewardType.IsEmpty()
-			)
+			if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
 			{
-				Event.Reward.Type = FallbackRewardType;
+				if (Event.Reward.Type.IsEmpty() && !FallbackRewardType.IsEmpty())
+				{
+					Event.Reward.Type = FallbackRewardType;
+				}
+				if (Event.Reward.Amount == 0 && FallbackRewardAmount > 0)
+				{
+					Event.Reward.Amount = FallbackRewardAmount;
+				}
+				if (Event.Reward.Amount <= 0)
+				{
+					Event.Reward.Amount = 0;
+					Event.bHasReward = false;
+				}
 			}
 			if (
 				Event.Type == EOpenMobileAdsEventType::LoadFailed
@@ -454,6 +464,7 @@ namespace OpenMobileAdsPrivate
 		FGuid RequestId;
 		FGuid CachedAdId;
 		FString FallbackRewardType;
+		int64 FallbackRewardAmount = 0;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
 		bool bTerminalSubmitted = false;
@@ -1493,7 +1504,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			EOpenMobileAdsFailureStage::Show,
 			Status->ActiveRequestId,
 			Status->CachedAdId,
-			ResolvedPlacement.FallbackRewardType
+			ResolvedPlacement.FallbackRewardType,
+			ResolvedPlacement.FallbackRewardAmount
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();

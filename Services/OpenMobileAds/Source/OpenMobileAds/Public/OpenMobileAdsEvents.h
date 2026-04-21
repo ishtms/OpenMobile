@@ -36,7 +36,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsReward
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString Type;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Normalized reward amount from 1 through MAX_int64. Zero is not grantable.")
+	)
 	int64 Amount = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
