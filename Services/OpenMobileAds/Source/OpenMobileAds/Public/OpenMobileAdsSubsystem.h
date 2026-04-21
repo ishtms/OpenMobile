@@ -212,11 +212,10 @@ private:
 	void HandleApplicationHasReactivated();
 	void HandleApplicationWillEnterBackground();
 	void HandleApplicationHasEnteredForeground();
-	void HandleAdLoaded();
-	void HandleAdShown();
-	void HandleRewardEarned(int32 NetworkAmount, FString NetworkRewardType);
-	void HandleAdClosed();
-	void HandleAdFailed(FOpenMobileError Error);
+	FName ResolveConvenienceRewardedPlacement(FOpenMobileError& OutError) const;
+	bool StartConvenienceRewardedShow();
+	void HandleConvenienceRewardedEvent(const FOpenMobileAdsEvent& Event);
+	void ResetConvenienceRewardedOperation();
 	void ReportAdFailure(FOpenMobileError Error);
 
 	UPROPERTY(Transient)
@@ -244,8 +243,10 @@ private:
 	FTSTicker::FDelegateHandle CacheExpirationTickerHandle;
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 	FName SelectedProviderName;
+	FName ActiveConvenienceRewardedPlacement;
 	FGuid InitializationRequestId;
-	FGuid LegacyFullscreenRequestId;
+	FGuid ConvenienceRewardedLoadRequestId;
+	FGuid ConvenienceRewardedShowRequestId;
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;

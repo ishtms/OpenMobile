@@ -44,7 +44,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=3</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=1</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=2</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -82,9 +82,11 @@ dependencies {
         <insert>
 import com.google.android.gms.ads.AdError;
 import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.AdValue;
 import com.google.android.gms.ads.FullScreenContentCallback;
 import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.MobileAds;
+import com.google.android.gms.ads.OnPaidEventListener;
 import com.google.android.gms.ads.OnUserEarnedRewardListener;
 import com.google.android.gms.ads.RequestConfiguration;
 import com.google.android.gms.ads.initialization.AdapterStatus;
@@ -93,6 +95,7 @@ import com.google.android.gms.ads.initialization.OnInitializationCompleteListene
 import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
+import com.google.android.gms.ads.rewarded.ServerSideVerificationOptions;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -108,6 +111,7 @@ import java.util.Set;
     private boolean openMobileRewardedAdsInitialized = false;
     private boolean openMobileRewardedAdsInitializing = false;
     private InitializationStatus openMobileRewardedAdsInitializationStatus = null;
+    private long openMobileActiveRewardedShowRequestId = 0;
     private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
 
@@ -122,6 +126,14 @@ import java.util.Set;
     );
     public native void nativeOpenMobileRewardedAdLoaded(long requestId);
     public native void nativeOpenMobileRewardedAdShown(long requestId);
+    public native void nativeOpenMobileRewardedAdImpression(long requestId);
+    public native void nativeOpenMobileRewardedAdClicked(long requestId);
+    public native void nativeOpenMobileRewardedAdRevenuePaid(
+        long requestId,
+        long valueMicros,
+        String currencyCode,
+        int precision
+    );
     public native void nativeOpenMobileRewardedAdEarned(
         long requestId,
         int networkAmount,
@@ -251,6 +263,7 @@ import java.util.Set;
             {
                 openMobileRewardedAd = null;
                 openMobileRewardedAdLoading = false;
+                openMobileActiveRewardedShowRequestId = 0;
                 openMobileLoadedRewardedAds.clear();
                 openMobileRewardedAdLoadRequests.clear();
             }
@@ -356,6 +369,145 @@ import java.util.Set;
         });
     }
 
+    public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
+        final long loadedRequestId,
+        final long showRequestId,
+        final String serverVerificationCustomData
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (
+                        openMobileActiveRewardedShowRequestId != 0
+                        || openMobileRewardedAdLoading
+                        || openMobileRewardedAd != null
+                    )
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "A rewarded ad is already loading or showing."
+                        );
+                        return;
+                    }
+
+                    final RewardedAd rewardedAd = openMobileLoadedRewardedAds.remove(
+                        loadedRequestId
+                    );
+                    if (rewardedAd == null)
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "The cached Android rewarded ad is unavailable or already consumed."
+                        );
+                        return;
+                    }
+
+                    openMobileActiveRewardedShowRequestId = showRequestId;
+                    try
+                    {
+                        if (
+                            serverVerificationCustomData != null
+                            &amp;&amp; serverVerificationCustomData.length() > 0
+                        )
+                        {
+                            rewardedAd.setServerSideVerificationOptions(
+                                new ServerSideVerificationOptions.Builder()
+                                    .setCustomData(serverVerificationCustomData)
+                                    .build()
+                            );
+                        }
+                        rewardedAd.setFullScreenContentCallback(
+                            new FullScreenContentCallback()
+                            {
+                                @Override
+                                public void onAdShowedFullScreenContent()
+                                {
+                                    nativeOpenMobileRewardedAdShown(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdImpression()
+                                {
+                                    nativeOpenMobileRewardedAdImpression(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdClicked()
+                                {
+                                    nativeOpenMobileRewardedAdClicked(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdDismissedFullScreenContent()
+                                {
+                                    openMobileActiveRewardedShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdClosed(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToShowFullScreenContent(AdError adError)
+                                {
+                                    openMobileActiveRewardedShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdFailed(
+                                        showRequestId,
+                                        "Rewarded ad failed to show: " + adError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                        rewardedAd.setOnPaidEventListener(new OnPaidEventListener()
+                        {
+                            @Override
+                            public void onPaidEvent(AdValue adValue)
+                            {
+                                nativeOpenMobileRewardedAdRevenuePaid(
+                                    showRequestId,
+                                    adValue.getValueMicros(),
+                                    adValue.getCurrencyCode(),
+                                    adValue.getPrecisionType()
+                                );
+                            }
+                        });
+                        rewardedAd.show(
+                            GameActivity.this,
+                            new OnUserEarnedRewardListener()
+                            {
+                                @Override
+                                public void onUserEarnedReward(RewardItem rewardItem)
+                                {
+                                    nativeOpenMobileRewardedAdEarned(
+                                        showRequestId,
+                                        rewardItem.getAmount(),
+                                        rewardItem.getType()
+                                    );
+                                }
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileActiveRewardedShowRequestId = 0;
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "Rewarded ad could not be presented: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile cached rewarded ad could not be scheduled: " + exception.getMessage());
+            return false;
+        }
+    }
+
     public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
         final String adUnitId,
         final long requestId
@@ -368,7 +520,11 @@ import java.util.Set;
                 @Override
                 public void run()
                 {
-                    if (openMobileRewardedAdLoading || openMobileRewardedAd != null)
+                    if (
+                        openMobileRewardedAdLoading
+                        || openMobileRewardedAd != null
+                        || openMobileActiveRewardedShowRequestId != 0
+                    )
                     {
                         nativeOpenMobileRewardedAdFailed(
                             requestId,
@@ -497,6 +653,11 @@ import java.util.Set;
         long
     );
     public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(long);
+    public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
+        long,
+        long,
+        java.lang.String
+    );
     public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
         java.lang.String,
         long
@@ -512,6 +673,14 @@ import java.util.Set;
     );
     public native void nativeOpenMobileRewardedAdLoaded(long);
     public native void nativeOpenMobileRewardedAdShown(long);
+    public native void nativeOpenMobileRewardedAdImpression(long);
+    public native void nativeOpenMobileRewardedAdClicked(long);
+    public native void nativeOpenMobileRewardedAdRevenuePaid(
+        long,
+        long,
+        java.lang.String,
+        int
+    );
     public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);
     public native void nativeOpenMobileRewardedAdClosed(long);
     public native void nativeOpenMobileRewardedAdFailed(long, java.lang.String);

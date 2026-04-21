@@ -255,7 +255,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidRetryPolicy,
 	UnsafeShippingTestMode,
 	InvalidTestDeviceIdentifier,
-	UnsafeShippingTestDeviceIdentifier
+	UnsafeShippingTestDeviceIdentifier,
+	InvalidConvenienceRewardedPlacement
 };
 
 USTRUCT(BlueprintType)
@@ -354,6 +355,15 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Placements")
 	TArray<FOpenMobileAdsPlacementSettings> Placements;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Placements",
+		meta = (ToolTip = "Rewarded placement used by RequestAndShowRewardedAd. Leave empty only when exactly one enabled rewarded placement exists.")
+	)
+	FName ConvenienceRewardedPlacement;
 
 	const FOpenMobileAdsPlacementSettings* FindPlacement(FName Placement) const;
 };

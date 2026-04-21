@@ -640,6 +640,45 @@ namespace OpenMobileAdsPrivate
 		}
 	}
 
+	EOpenMobileErrorCode ToLegacyErrorCode(EOpenMobileAdsErrorCode Code)
+	{
+		switch (Code)
+		{
+		case EOpenMobileAdsErrorCode::NotConfigured:
+			return EOpenMobileErrorCode::NotConfigured;
+		case EOpenMobileAdsErrorCode::ProviderUnavailable:
+		case EOpenMobileAdsErrorCode::NotReady:
+		case EOpenMobileAdsErrorCode::PrivacyBlocked:
+			return EOpenMobileErrorCode::Unavailable;
+		case EOpenMobileAdsErrorCode::UnsupportedPlatform:
+		case EOpenMobileAdsErrorCode::UnsupportedFormat:
+			return EOpenMobileErrorCode::NotSupported;
+		case EOpenMobileAdsErrorCode::UnknownPlacement:
+		case EOpenMobileAdsErrorCode::InvalidPlacement:
+		case EOpenMobileAdsErrorCode::DisabledPlacement:
+			return EOpenMobileErrorCode::InvalidArgument;
+		case EOpenMobileAdsErrorCode::Busy:
+			return EOpenMobileErrorCode::Busy;
+		case EOpenMobileAdsErrorCode::Cancelled:
+			return EOpenMobileErrorCode::Cancelled;
+		case EOpenMobileAdsErrorCode::ProviderFailure:
+		case EOpenMobileAdsErrorCode::NativeFailure:
+			return EOpenMobileErrorCode::NativeFailure;
+		default:
+			return EOpenMobileErrorCode::Internal;
+		}
+	}
+
+	FOpenMobileError ToLegacyError(const FOpenMobileAdsError& Error)
+	{
+		return FOpenMobileError::Make(
+			ToLegacyErrorCode(Error.Code),
+			Error.Explanation,
+			Error.NativeDiagnostics.NativeCode,
+			Error.Provider.ToString()
+		);
+	}
+
 	IOpenMobileAdsProvider* FindRegisteredProvider(FName ProviderName)
 	{
 		const TArray<IOpenMobileAdsProvider*> Providers =
@@ -2369,6 +2408,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		HandleConvenienceRewardedEvent(Event);
 		return;
 	}
 
@@ -2739,6 +2779,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		HandleConvenienceRewardedEvent(Event);
 	}
 }
 
@@ -2888,21 +2929,6 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 			}
 		}
 	}
-	if (
-		ProviderName == SelectedProviderName
-		&& LegacyFullscreenRequestId.IsValid()
-	)
-	{
-		if (FullscreenLifecycle)
-		{
-			FullscreenLifecycle->End(
-				EOpenMobileAdsFullscreenSurface::Ad,
-				LegacyFullscreenRequestId
-			);
-		}
-		LegacyFullscreenRequestId.Invalidate();
-		State = EOpenMobileRewardedAdState::Idle;
-	}
 	for (FGuid RequestId : ServiceWideRequests)
 	{
 		FOpenMobileAdsEvent Failed;
@@ -2981,7 +3007,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		FullscreenLifecycle->Shutdown();
 		FullscreenLifecycle.Reset();
 	}
-	LegacyFullscreenRequestId.Invalidate();
+	ResetConvenienceRewardedOperation();
 	if (CacheExpirationTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(CacheExpirationTickerHandle);
@@ -3074,6 +3100,14 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 
 bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 {
+	if (!IsInGameThread())
+	{
+		ReportAdFailure(FOpenMobileError::Make(
+			EOpenMobileErrorCode::Internal,
+			TEXT("Rewarded ads must be requested on the Unreal game thread.")
+		));
+		return false;
+	}
 	EnsureRuntime();
 	if (ServiceState != EOpenMobileAdsServiceState::Ready)
 	{
@@ -3082,10 +3116,7 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 			ServiceState,
 			InitializationError
 		);
-		ReportAdFailure(FOpenMobileError::Make(
-			EOpenMobileErrorCode::NotSupported,
-			Error.Explanation
-		));
+		ReportAdFailure(OpenMobileAdsPrivate::ToLegacyError(Error));
 		return false;
 	}
 	if (State != EOpenMobileRewardedAdState::Idle)
@@ -3097,72 +3128,30 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 		return false;
 	}
 
-	FOpenMobileAdsError ProviderError;
-	IOpenMobileAdsProvider* Provider = FindProvider(&ProviderError);
-	if (!Provider)
+	FOpenMobileError PlacementError;
+	const FName Placement = ResolveConvenienceRewardedPlacement(PlacementError);
+	if (Placement.IsNone())
 	{
-		ReportAdFailure(FOpenMobileError::Make(
-			EOpenMobileErrorCode::NotSupported,
-			ProviderError.Explanation
-		));
-		return false;
-	}
-	const FGuid RequestId = FGuid::NewGuid();
-	if (
-		!FullscreenLifecycle
-		|| !FullscreenLifecycle->TryReserve(
-			EOpenMobileAdsFullscreenSurface::Ad,
-			RequestId
-		)
-	)
-	{
-		ReportAdFailure(FOpenMobileError::Make(
-			EOpenMobileErrorCode::Busy,
-			TEXT("Another full-screen ad, consent form, or inspector is active.")
-		));
+		ReportAdFailure(MoveTemp(PlacementError));
 		return false;
 	}
 
-	LegacyFullscreenRequestId = RequestId;
+	ActiveConvenienceRewardedPlacement = Placement;
 	State = EOpenMobileRewardedAdState::Loading;
-	FOpenMobileRewardedAdCallbacks Callbacks;
-	Callbacks.OnLoaded = FOpenMobileRewardedAdLoadedCallback::CreateUObject(
-		this,
-		&UOpenMobileAdsSubsystem::HandleAdLoaded
-	);
-	Callbacks.OnShown = FOpenMobileRewardedAdShownCallback::CreateUObject(
-		this,
-		&UOpenMobileAdsSubsystem::HandleAdShown
-	);
-	Callbacks.OnEarned = FOpenMobileRewardedAdEarnedCallback::CreateUObject(
-		this,
-		&UOpenMobileAdsSubsystem::HandleRewardEarned
-	);
-	Callbacks.OnClosed = FOpenMobileRewardedAdClosedCallback::CreateUObject(
-		this,
-		&UOpenMobileAdsSubsystem::HandleAdClosed
-	);
-	Callbacks.OnFailed = FOpenMobileRewardedAdFailedCallback::CreateUObject(
-		this,
-		&UOpenMobileAdsSubsystem::HandleAdFailed
-	);
-
-	FOpenMobileError Error;
-	if (!Provider->RequestAndShowRewardedAd(MoveTemp(Callbacks), Error))
+	if (IsReady(Placement))
 	{
-		if (!Error.IsSet())
-		{
-			Error = FOpenMobileError::Make(
-				EOpenMobileErrorCode::Internal,
-				TEXT("The ads provider rejected the request without returning an error."),
-				FString(),
-				Provider->GetProviderName().ToString()
-			);
-		}
-		HandleAdFailed(MoveTemp(Error));
-		return false;
+		OnAdLoaded.Broadcast();
+		return StartConvenienceRewardedShow();
 	}
 
+	const FOpenMobileAdsOperationResult LoadResult = LoadAd(Placement);
+	if (!LoadResult.bAccepted)
+	{
+		ResetConvenienceRewardedOperation();
+		ReportAdFailure(OpenMobileAdsPrivate::ToLegacyError(LoadResult.Error));
+		return false;
+	}
+	ConvenienceRewardedLoadRequestId = LoadResult.RequestId;
 	return true;
 }
 
@@ -3177,83 +3166,148 @@ FName UOpenMobileAdsSubsystem::GetActiveProviderName() const
 	return Provider ? Provider->GetProviderName() : NAME_None;
 }
 
-void UOpenMobileAdsSubsystem::HandleAdLoaded()
+FName UOpenMobileAdsSubsystem::ResolveConvenienceRewardedPlacement(
+	FOpenMobileError& OutError
+) const
 {
-	if (State == EOpenMobileRewardedAdState::Loading)
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	if (!Settings->ConvenienceRewardedPlacement.IsNone())
 	{
-		OnAdLoaded.Broadcast();
-	}
-}
-
-void UOpenMobileAdsSubsystem::HandleAdShown()
-{
-	if (
-		State != EOpenMobileRewardedAdState::Loading
-		|| !LegacyFullscreenRequestId.IsValid()
-	)
-	{
-		return;
-	}
-	if (
-		!FullscreenLifecycle
-		|| !FullscreenLifecycle->BeginPresentation(
-			EOpenMobileAdsFullscreenSurface::Ad,
-			LegacyFullscreenRequestId
+		const FOpenMobileAdsPlacementSettings* Placement = Settings->FindPlacement(
+			Settings->ConvenienceRewardedPlacement
+		);
+		if (
+			Placement
+			&& Placement->Format == EOpenMobileAdFormat::Rewarded
+			&& Placement->Resolve(OpenMobileAdsGetCurrentPlatform()).bEnabled
 		)
-	)
-	{
-		HandleAdFailed(FOpenMobileError::Make(
-			EOpenMobileErrorCode::Internal,
-			TEXT("The rewarded ad lost its full-screen lifecycle reservation.")
-		));
-		return;
+		{
+			return Placement->Placement;
+		}
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotConfigured,
+			TEXT("The configured convenience rewarded placement is missing, disabled, or not rewarded.")
+		);
+		return NAME_None;
 	}
-	State = EOpenMobileRewardedAdState::Showing;
-	OnAdShown.Broadcast();
+
+	FName ResolvedPlacement;
+	for (const FOpenMobileAdsPlacementSettings& Placement : Settings->Placements)
+	{
+		if (
+			Placement.Format != EOpenMobileAdFormat::Rewarded
+			|| !Placement.Resolve(OpenMobileAdsGetCurrentPlatform()).bEnabled
+		)
+		{
+			continue;
+		}
+		if (!ResolvedPlacement.IsNone())
+		{
+			OutError = FOpenMobileError::Make(
+				EOpenMobileErrorCode::NotConfigured,
+				TEXT("More than one enabled rewarded placement exists. Set Convenience Rewarded Placement in OpenMobile Ads settings.")
+			);
+			return NAME_None;
+		}
+		ResolvedPlacement = Placement.Placement;
+	}
+	if (ResolvedPlacement.IsNone())
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotConfigured,
+			TEXT("Configure one enabled rewarded placement before requesting a convenience rewarded ad.")
+		);
+	}
+	return ResolvedPlacement;
 }
 
-void UOpenMobileAdsSubsystem::HandleRewardEarned(
-	int32 NetworkAmount,
-	FString NetworkRewardType
+bool UOpenMobileAdsSubsystem::StartConvenienceRewardedShow()
+{
+	const FOpenMobileAdsOperationResult ShowResult = ShowAd(
+		ActiveConvenienceRewardedPlacement
+	);
+	if (!ShowResult.bAccepted)
+	{
+		ResetConvenienceRewardedOperation();
+		ReportAdFailure(OpenMobileAdsPrivate::ToLegacyError(ShowResult.Error));
+		return false;
+	}
+	ConvenienceRewardedShowRequestId = ShowResult.RequestId;
+	return true;
+}
+
+void UOpenMobileAdsSubsystem::HandleConvenienceRewardedEvent(
+	const FOpenMobileAdsEvent& Event
 )
 {
-	OnRewardEarned.Broadcast(NetworkAmount, NetworkRewardType);
-}
-
-void UOpenMobileAdsSubsystem::HandleAdClosed()
-{
-	if (!LegacyFullscreenRequestId.IsValid())
+	if (Event.RequestId == ConvenienceRewardedLoadRequestId)
+	{
+		if (Event.Type == EOpenMobileAdsEventType::Loaded)
+		{
+			ConvenienceRewardedLoadRequestId.Invalidate();
+			OnAdLoaded.Broadcast();
+			StartConvenienceRewardedShow();
+		}
+		else if (
+			Event.Type == EOpenMobileAdsEventType::LoadFailed
+			|| Event.Type == EOpenMobileAdsEventType::Failed
+		)
+		{
+			const FOpenMobileError Error = OpenMobileAdsPrivate::ToLegacyError(
+				Event.Error
+			);
+			ResetConvenienceRewardedOperation();
+			OnAdFailed.Broadcast(Error);
+		}
+		return;
+	}
+	if (Event.RequestId != ConvenienceRewardedShowRequestId)
 	{
 		return;
 	}
-	if (FullscreenLifecycle)
+
+	switch (Event.Type)
 	{
-		FullscreenLifecycle->End(
-			EOpenMobileAdsFullscreenSurface::Ad,
-			LegacyFullscreenRequestId
-		);
+	case EOpenMobileAdsEventType::Shown:
+		State = EOpenMobileRewardedAdState::Showing;
+		OnAdShown.Broadcast();
+		break;
+	case EOpenMobileAdsEventType::RewardEarned:
+		if (Event.bHasReward)
+		{
+			const int64 Amount = FMath::Clamp<int64>(
+				Event.Reward.Amount,
+				1,
+				MAX_int32
+			);
+			OnRewardEarned.Broadcast(
+				static_cast<int32>(Amount),
+				Event.Reward.Type
+			);
+		}
+		break;
+	case EOpenMobileAdsEventType::Dismissed:
+		ResetConvenienceRewardedOperation();
+		OnAdClosed.Broadcast();
+		break;
+	case EOpenMobileAdsEventType::Failed:
+	{
+		const FOpenMobileError Error = OpenMobileAdsPrivate::ToLegacyError(Event.Error);
+		ResetConvenienceRewardedOperation();
+		OnAdFailed.Broadcast(Error);
+		break;
 	}
-	LegacyFullscreenRequestId.Invalidate();
-	State = EOpenMobileRewardedAdState::Idle;
-	OnAdClosed.Broadcast();
+	default:
+		break;
+	}
 }
 
-void UOpenMobileAdsSubsystem::HandleAdFailed(FOpenMobileError Error)
+void UOpenMobileAdsSubsystem::ResetConvenienceRewardedOperation()
 {
-	if (!LegacyFullscreenRequestId.IsValid())
-	{
-		return;
-	}
-	if (FullscreenLifecycle)
-	{
-		FullscreenLifecycle->End(
-			EOpenMobileAdsFullscreenSurface::Ad,
-			LegacyFullscreenRequestId
-		);
-	}
-	LegacyFullscreenRequestId.Invalidate();
+	ActiveConvenienceRewardedPlacement = NAME_None;
+	ConvenienceRewardedLoadRequestId.Invalidate();
+	ConvenienceRewardedShowRequestId.Invalidate();
 	State = EOpenMobileRewardedAdState::Idle;
-	ReportAdFailure(MoveTemp(Error));
 }
 
 void UOpenMobileAdsSubsystem::ReportAdFailure(FOpenMobileError Error)

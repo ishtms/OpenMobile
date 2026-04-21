@@ -92,10 +92,21 @@ static NSMutableSet<NSNumber*>* GOpenMobileRewardedAdLoadRequests = nil;
 	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
 }
 
+- (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
+{
+	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
+}
+
+- (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
+{
+	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
+}
+
 - (void)ad:(id<GADFullScreenPresentingAd>)ad
 	didFailToPresentFullScreenContentWithError:(NSError*)error
 {
 	const int64_t failedRequestId = self.requestId;
+	self.rewardedAd.paidEventHandler = nil;
 	self.rewardedAd = nil;
 	if (GOpenMobileRewardedAdDelegate == self)
 	{
@@ -114,6 +125,7 @@ static NSMutableSet<NSNumber*>* GOpenMobileRewardedAdLoadRequests = nil;
 - (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	const int64_t closedRequestId = self.requestId;
+	self.rewardedAd.paidEventHandler = nil;
 	self.rewardedAd = nil;
 	if (GOpenMobileRewardedAdDelegate == self)
 	{
@@ -272,6 +284,101 @@ void FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd(const int64 RequestId)
 		[GOpenMobileRewardedAdLoadRequests removeObject:Key];
 		[GOpenMobileLoadedRewardedAds removeObjectForKey:Key];
 	});
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FString& ServerVerificationCustomData,
+	FString& OutError
+)
+{
+	const FString VerificationData = ServerVerificationCustomData;
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		if (GOpenMobileRewardedAdDelegate != nil)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				TEXT("An iOS rewarded ad is already loading or showing.")
+			);
+			return;
+		}
+
+		NSNumber* Key = @(LoadedRequestId);
+		GADRewardedAd* RewardedAd = GOpenMobileLoadedRewardedAds[Key];
+		[GOpenMobileLoadedRewardedAds removeObjectForKey:Key];
+		if (!RewardedAd)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				TEXT("The cached iOS rewarded ad is unavailable or already consumed.")
+			);
+			return;
+		}
+
+		OpenMobileRewardedAdDelegate* Handler =
+			[[OpenMobileRewardedAdDelegate alloc] init];
+		Handler.requestId = ShowRequestId;
+		Handler.rewardedAd = RewardedAd;
+		GOpenMobileRewardedAdDelegate = Handler;
+		RewardedAd.fullScreenContentDelegate = Handler;
+		if (!VerificationData.IsEmpty())
+		{
+			GADServerSideVerificationOptions* Options =
+				[[GADServerSideVerificationOptions alloc] init];
+			Options.customRewardString =
+				FAppleStringUtils::ConvertToNSString(VerificationData);
+			RewardedAd.serverSideVerificationOptions = Options;
+		}
+		RewardedAd.paidEventHandler = ^(GADAdValue* AdValue)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+				ShowRequestId,
+				AdValue.value.longLongValue,
+				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
+				static_cast<int32>(AdValue.precision)
+			);
+		};
+
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		NSError* PresentationError = nil;
+		if (![RewardedAd canPresentFromRootViewController:RootController error:&PresentationError])
+		{
+			RewardedAd.paidEventHandler = nil;
+			Handler.rewardedAd = nil;
+			GOpenMobileRewardedAdDelegate = nil;
+			NSString* Detail = PresentationError.localizedDescription
+				?: @"No presenter is available.";
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				OpenMobileAdsAdMobIOS::ToFString(
+					[@"Rewarded ad could not be presented: " stringByAppendingString:Detail]
+				)
+			);
+			return;
+		}
+
+		__weak OpenMobileRewardedAdDelegate* WeakHandler = Handler;
+		[RewardedAd presentFromRootViewController:RootController
+						 userDidEarnRewardHandler:^
+		{
+			OpenMobileRewardedAdDelegate* StrongHandler = WeakHandler;
+			if (!StrongHandler || GOpenMobileRewardedAdDelegate != StrongHandler)
+			{
+				return;
+			}
+			GADAdReward* Reward = StrongHandler.rewardedAd.adReward;
+			FOpenMobileAdsAdMobPlatform::NativeEarned(
+				ShowRequestId,
+				Reward.amount.intValue,
+				OpenMobileAdsAdMobIOS::ToFString(Reward.type)
+			);
+		}];
+	});
+	return true;
 }
 
 bool FOpenMobileAdsAdMobIOSBackend::LaunchRewardedAd(

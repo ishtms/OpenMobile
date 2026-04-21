@@ -351,6 +351,30 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 {
 	using namespace OpenMobileAdsConfigurationPrivate;
 	TArray<FOpenMobileAdsConfigurationIssue> Issues = Validate(Settings.Placements);
+	if (!Settings.ConvenienceRewardedPlacement.IsNone())
+	{
+		const FOpenMobileAdsPlacementSettings* Placement = Settings.FindPlacement(
+			Settings.ConvenienceRewardedPlacement
+		);
+		const bool bEnabledOnAnyMobilePlatform = Placement
+			&& (
+				Placement->Resolve(EOpenMobileAdsPlatform::Android).bEnabled
+				|| Placement->Resolve(EOpenMobileAdsPlatform::IOS).bEnabled
+			);
+		if (
+			!Placement
+			|| Placement->Format != EOpenMobileAdFormat::Rewarded
+			|| !bEnabledOnAnyMobilePlatform
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidConvenienceRewardedPlacement,
+				Settings.ConvenienceRewardedPlacement,
+				TEXT("Convenience Rewarded Placement must reference an enabled rewarded placement.")
+			);
+		}
+	}
 	if (!Settings.RetryPolicy.IsValid())
 	{
 		AddIssue(

@@ -48,6 +48,20 @@ namespace OpenMobileAdsAdMobTestAdTests
 			CancelledRequestIds.Add(RequestId);
 		}
 
+		virtual bool ShowRewardedAd(
+			int64 LoadedRequestId,
+			int64 InShowRequestId,
+			const FString& ServerVerificationCustomData,
+			FString& OutError
+		) override
+		{
+			++ShowCalls;
+			ShownLoadedRequestId = LoadedRequestId;
+			ShowRequestId = InShowRequestId;
+			ShownServerVerificationCustomData = ServerVerificationCustomData;
+			return true;
+		}
+
 		virtual bool LaunchRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -63,10 +77,14 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 InitializationCalls = 0;
 		int32 ShutdownCalls = 0;
 		int32 LaunchCalls = 0;
+		int32 ShowCalls = 0;
 		int64 InitializationRequestId = 0;
 		int64 LaunchRequestId = 0;
+		int64 ShownLoadedRequestId = 0;
+		int64 ShowRequestId = 0;
 		FOpenMobileAdsInitializationRequest InitializationRequest;
 		FString LaunchedAdUnitId;
+		FString ShownServerVerificationCustomData;
 		TArray<FString> LoadedAdUnitIds;
 		TArray<int64> LoadRequestIds;
 		TArray<int64> CancelledRequestIds;
@@ -382,6 +400,169 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 			TEXT("Native load failure is typed"),
 			FailedSink->Events[0].Error.Code,
 			EOpenMobileAdsErrorCode::NativeFailure
+		);
+	}
+
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobShowContractTest,
+	"OpenMobile.Ads.AdMob.Show.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const FOpenMobileAdsProviderCapabilities Capabilities = Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Rewarded =
+		Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded);
+	TestNotNull(TEXT("AdMob reports rewarded capabilities"), Rewarded);
+	if (Rewarded)
+	{
+		TestTrue(TEXT("AdMob advertises reusable rewarded showing"), Rewarded->bCanShow);
+		TestTrue(TEXT("AdMob reports rewarded impressions"), Rewarded->bReportsImpression);
+		TestTrue(TEXT("AdMob reports rewarded clicks"), Rewarded->bReportsClick);
+		TestTrue(TEXT("AdMob reports rewarded revenue"), Rewarded->bReportsRevenue);
+		TestTrue(
+			TEXT("AdMob supports rewarded server verification"),
+			Rewarded->bSupportsServerVerification
+		);
+	}
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError InitializationError;
+	TestTrue(
+		TEXT("AdMob initializes before reusable rewarded showing"),
+		Provider->Initialize(Initialization, InitializationSink, InitializationError)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("ReusableReward");
+	Load.Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Load.Placement.AdUnitId = TEXT("production-reusable-reward");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError LoadError;
+	TestTrue(
+		TEXT("The reusable rewarded ad starts loading"),
+		Provider->Load(Load, LoadSink, LoadError)
+	);
+	if (!Backend.LoadRequestIds.IsEmpty())
+	{
+		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(
+			Backend.LoadRequestIds.Last()
+		);
+	}
+	TestEqual(TEXT("The reusable load completes once"), LoadSink->Events.Num(), 1);
+	if (LoadSink->Events.IsEmpty())
+	{
+		Provider->Shutdown();
+		return false;
+	}
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = LoadSink->Events[0].CachedAdId;
+	Show.Placement = TEXT("ReusableReward");
+	Show.Format = EOpenMobileAdFormat::Rewarded;
+	Show.Options.ServerVerificationCustomData = TEXT("player-42");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError ShowError;
+	TestTrue(
+		TEXT("AdMob presents the exact cached rewarded ad"),
+		Provider->Show(Show, ShowSink, ShowError)
+	);
+	TestEqual(TEXT("Reusable show reaches the backend once"), Backend.ShowCalls, 1);
+	if (!Backend.LoadRequestIds.IsEmpty())
+	{
+		TestEqual(
+			TEXT("Reusable show consumes the matching native cache"),
+			Backend.ShownLoadedRequestId,
+			Backend.LoadRequestIds.Last()
+		);
+	}
+	TestEqual(
+		TEXT("Reusable show forwards server verification custom data"),
+		Backend.ShownServerVerificationCustomData,
+		FString(TEXT("player-42"))
+	);
+
+	FOpenMobileAdsAdMobPlatform::NativeShown(Backend.ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeImpression(Backend.ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeClicked(Backend.ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		Backend.ShowRequestId,
+		12345,
+		TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeEarned(
+		Backend.ShowRequestId,
+		7,
+		TEXT("coin")
+	);
+	FOpenMobileAdsAdMobPlatform::NativeEarned(
+		Backend.ShowRequestId,
+		99,
+		TEXT("duplicate")
+	);
+	FOpenMobileAdsAdMobPlatform::NativeClosed(Backend.ShowRequestId);
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::RewardEarned,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	TestEqual(
+		TEXT("Reusable show emits one normalized callback lifecycle"),
+		ShowSink->Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes))
+	);
+	if (ShowSink->Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)))
+	{
+		for (int32 Index = 0; Index < ShowSink->Events.Num(); ++Index)
+		{
+			TestEqual(
+				TEXT("Reusable show preserves callback order"),
+				ShowSink->Events[Index].Type,
+				ExpectedTypes[Index]
+			);
+		}
+		TestEqual(
+			TEXT("Reusable show preserves reward amount"),
+			ShowSink->Events[4].Reward.Amount,
+			static_cast<int64>(7)
+		);
+		TestEqual(
+			TEXT("Reusable show preserves revenue micros"),
+			ShowSink->Events[3].Revenue.ValueMicros,
+			static_cast<int64>(12345)
 		);
 	}
 

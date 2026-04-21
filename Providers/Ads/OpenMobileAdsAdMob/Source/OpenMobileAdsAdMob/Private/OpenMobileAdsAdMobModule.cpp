@@ -18,8 +18,13 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdFormatCapabilities Rewarded;
 			Rewarded.Format = EOpenMobileAdFormat::Rewarded;
 			Rewarded.bCanLoad = true;
+			Rewarded.bCanShow = true;
+			Rewarded.bReportsImpression = true;
+			Rewarded.bReportsClick = true;
 			Rewarded.bReportsDismiss = true;
 			Rewarded.bReportsReward = true;
+			Rewarded.bReportsRevenue = true;
+			Rewarded.bSupportsServerVerification = true;
 			Rewarded.MaxCachedAdsPerPlacement = 1;
 			Rewarded.CacheLifetimeSeconds = 60.0 * 60.0;
 
@@ -197,9 +202,48 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		virtual bool Show(
+			const FOpenMobileAdsShowRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			if (Request.Format != EOpenMobileAdFormat::Rewarded)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Show,
+					Request.Placement,
+					TEXT("AdMob does not support showing this placement format yet."),
+					GetProviderName()
+				);
+				return false;
+			}
+
+			FString NativeError;
+			const bool bStarted = FOpenMobileAdsAdMobPlatform::BeginShow(
+				Request,
+				EventSink,
+				NativeError
+			);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Show,
+					Request.Placement,
+					NativeError.IsEmpty()
+						? TEXT("AdMob could not present the cached rewarded ad.")
+						: MoveTemp(NativeError),
+					GetProviderName()
+				);
+			}
+			return bStarted;
+		}
+
 		virtual void Cancel(FGuid RequestId) override
 		{
-			FOpenMobileAdsAdMobPlatform::CancelLoad(RequestId);
+			FOpenMobileAdsAdMobPlatform::Cancel(RequestId);
 		}
 
 		virtual bool Destroy(

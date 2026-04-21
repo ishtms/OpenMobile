@@ -156,7 +156,27 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=3", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=1", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=2", build_settings)
+		game_activity_additions = ElementTree.tostring(
+			root.find("gameActivityClassAdditions"),
+			encoding="unicode",
+		)
+		for token in (
+			"AndroidThunkJava_ShowOpenMobileRewardedAd",
+			"openMobileLoadedRewardedAds.remove",
+			"setServerSideVerificationOptions",
+			"nativeOpenMobileRewardedAdImpression",
+			"nativeOpenMobileRewardedAdClicked",
+			"nativeOpenMobileRewardedAdRevenuePaid",
+		):
+			self.assertIn(token, game_activity_additions)
+		for token in (
+			"AndroidThunkJava_ShowOpenMobileRewardedAd",
+			"nativeOpenMobileRewardedAdImpression",
+			"nativeOpenMobileRewardedAdClicked",
+			"nativeOpenMobileRewardedAdRevenuePaid",
+		):
+			self.assertIn(token, proguard_additions)
 		copy_destinations = {
 			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
 		}

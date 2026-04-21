@@ -275,6 +275,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
 	SavedSettings->RequestConfiguration.MaxAdContentRating =
 		EOpenMobileAdsMaxAdContentRating::Teen;
+	SavedSettings->ConvenienceRewardedPlacement = TEXT("ConfiguredReward");
 	FOpenMobileAdsPlacementSettings Placement =
 		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
 			TEXT("ConfiguredReward"),
@@ -326,6 +327,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TEXT("Maximum ad content rating survives restart"),
 		SettingsAfterRestart->RequestConfiguration.MaxAdContentRating,
 		EOpenMobileAdsMaxAdContentRating::Teen
+	);
+	TestEqual(
+		TEXT("Convenience rewarded placement survives restart"),
+		SettingsAfterRestart->ConvenienceRewardedPlacement,
+		FName(TEXT("ConfiguredReward"))
 	);
 	TestEqual(TEXT("One placement survives restart"), SettingsAfterRestart->Placements.Num(), 1);
 	if (SettingsAfterRestart->Placements.Num() == 1)
@@ -381,6 +387,43 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	TestTrue(
 		TEXT("Default project settings are valid"),
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false).IsEmpty()
+	);
+
+	Settings->ConvenienceRewardedPlacement = TEXT("MissingReward");
+	const TArray<FOpenMobileAdsConfigurationIssue> ConvenienceIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Missing convenience rewarded placements are rejected"),
+		HasIssue(
+			ConvenienceIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidConvenienceRewardedPlacement
+		)
+	);
+	Settings->ConvenienceRewardedPlacement = TEXT("ContinueReward");
+	Settings->Placements[0].Format = EOpenMobileAdFormat::Interstitial;
+	TestTrue(
+		TEXT("Non-rewarded convenience placements are rejected"),
+		HasIssue(
+			FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false),
+			EOpenMobileAdsConfigurationIssueCode::InvalidConvenienceRewardedPlacement
+		)
+	);
+	Settings->Placements[0].Format = EOpenMobileAdFormat::Rewarded;
+	Settings->Placements[0].bEnabled = false;
+	TestTrue(
+		TEXT("Disabled convenience rewarded placements are rejected"),
+		HasIssue(
+			FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false),
+			EOpenMobileAdsConfigurationIssueCode::InvalidConvenienceRewardedPlacement
+		)
+	);
+	Settings->Placements[0].bEnabled = true;
+	TestFalse(
+		TEXT("An enabled rewarded convenience placement is valid"),
+		HasIssue(
+			FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false),
+			EOpenMobileAdsConfigurationIssueCode::InvalidConvenienceRewardedPlacement
+		)
 	);
 
 	Settings->RetryPolicy.MaxRetryAttempts = -1;

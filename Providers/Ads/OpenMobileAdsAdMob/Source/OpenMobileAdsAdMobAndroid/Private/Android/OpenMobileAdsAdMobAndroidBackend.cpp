@@ -188,6 +188,52 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedAd(const int64 RequestId)
 	}
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FString& ServerVerificationCustomData,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID ShowMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ShowOpenMobileRewardedAd",
+		"(JJLjava/lang/String;)Z",
+		false
+	);
+	if (!ShowMethod)
+	{
+		OutError = TEXT("The Android rewarded-ad show bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaCustomData = FJavaHelper::ToJavaString(
+		Env,
+		ServerVerificationCustomData
+	);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ShowMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(ShowRequestId),
+		*JavaCustomData
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached rewarded-ad presentation.");
+	}
+	return bScheduled;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LaunchRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -313,6 +359,41 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeShown(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdImpression(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeImpression(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdClicked(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeClicked(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdRevenuePaid(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jlong ValueMicros,
+	jstring CurrencyCode,
+	jint Precision
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		static_cast<int64>(RequestId),
+		static_cast<int64>(ValueMicros),
+		CurrencyCode ? FJavaHelper::FStringFromParam(Env, CurrencyCode) : FString(),
+		static_cast<int32>(Precision)
+	);
 }
 
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdEarned(

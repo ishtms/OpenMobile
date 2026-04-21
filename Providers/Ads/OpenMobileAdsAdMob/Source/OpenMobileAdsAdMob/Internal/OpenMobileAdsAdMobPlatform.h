@@ -5,6 +5,8 @@
 #include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
 
+class IOpenMobileAdsProviderEventSink;
+
 DECLARE_DELEGATE_OneParam(
 	FOnOpenMobileAdMobInitializationStatus,
 	const FOpenMobileAdsInitializationComponentStatus&
@@ -34,7 +36,12 @@ public:
 		FOnOpenMobileAdMobRewardedFailed&& OnFailed,
 		FString& OutError
 	);
-	static void CancelLoad(FGuid RequestId);
+	static bool BeginShow(
+		const FOpenMobileAdsShowRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FString& OutError
+	);
+	static void Cancel(FGuid RequestId);
 	static void ReleaseCachedAd(FGuid CachedAdId);
 
 	static bool BeginRequest(
@@ -60,6 +67,14 @@ public:
 	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeLoaded(int64 RequestId);
 	static void NativeShown(int64 RequestId);
+	static void NativeImpression(int64 RequestId);
+	static void NativeClicked(int64 RequestId);
+	static void NativeRevenuePaid(
+		int64 RequestId,
+		int64 ValueMicros,
+		FString CurrencyCode,
+		int32 Precision
+	);
 	static void NativeEarned(int64 RequestId, int32 NetworkAmount, FString NetworkRewardType);
 	static void NativeClosed(int64 RequestId);
 	static void NativeFailed(int64 RequestId, FString ErrorMessage);

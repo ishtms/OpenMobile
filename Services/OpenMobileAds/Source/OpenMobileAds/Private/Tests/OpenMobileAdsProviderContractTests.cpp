@@ -131,6 +131,7 @@ namespace OpenMobileAdsProviderContractTests
 			FOpenMobileError& OutError
 		) override
 		{
+			++LegacyRewardedRequestCalls;
 			return false;
 		}
 
@@ -177,6 +178,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
 		int32 DestroyCalls = 0;
+		int32 LegacyRewardedRequestCalls = 0;
 		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
@@ -242,6 +244,8 @@ namespace OpenMobileAdsProviderContractTests
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
+			SavedConvenienceRewardedPlacement =
+				Settings->ConvenienceRewardedPlacement;
 		}
 
 		~FScopedSettings()
@@ -252,6 +256,8 @@ namespace OpenMobileAdsProviderContractTests
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
+			Settings->ConvenienceRewardedPlacement =
+				SavedConvenienceRewardedPlacement;
 		}
 
 		UOpenMobileAdsSettings* Settings = nullptr;
@@ -263,6 +269,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
+		FName SavedConvenienceRewardedPlacement;
 	};
 
 	void DrainGameThreadTasks()
@@ -448,6 +455,7 @@ bool FOpenMobileAdsReadinessPolicyContractTest::RunTest(const FString& Parameter
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
 	ScopedSettings.Settings->Placements.Reset();
+	ScopedSettings.Settings->ConvenienceRewardedPlacement = NAME_None;
 	FOpenMobileAdsPlacementSettings& Placement =
 		ScopedSettings.Settings->Placements.Emplace_GetRef();
 	Placement.Placement = TEXT("ReadyReward");
@@ -1234,6 +1242,292 @@ bool FOpenMobileAdsFullscreenCoordinatorContractTest::RunTest(
 	TestFalse(TEXT("Shutdown releases the shared surface"), Coordinator.IsOccupied());
 	TestEqual(TEXT("Shutdown restores owned gameplay state"), TargetState->RestoreGameplayCalls, 2);
 	TestEqual(TEXT("Shutdown restores captured focus state"), TargetState->RestoreFocusCalls, 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardedConvenienceContractTest,
+	"OpenMobile.Ads.ProviderContract.Rewarded.Convenience",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardedConvenienceContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	ScopedSettings.Settings->ConvenienceRewardedPlacement = NAME_None;
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ConvenienceReward");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-convenience-reward");
+	Placement.IOS.AdUnitId = TEXT("ios-convenience-reward");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before convenience checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Placement == TEXT("ConvenienceReward"))
+			{
+				Events.Add(Event);
+			}
+		}
+	);
+	TestTrue(
+		TEXT("The rewarded convenience operation starts"),
+		Subsystem->RequestAndShowRewardedAd()
+	);
+	TestEqual(
+		TEXT("The convenience operation uses reusable loading"),
+		Provider.LoadCalls,
+		1
+	);
+	TestEqual(
+		TEXT("The convenience operation bypasses the provider combined API"),
+		Provider.LegacyRewardedRequestCalls,
+		0
+	);
+
+	if (Provider.LoadSink)
+	{
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("The reusable load advances into one reusable show"),
+		Provider.ShowCalls,
+		1
+	);
+	TestEqual(
+		TEXT("The convenience operation waits for native presentation"),
+		Subsystem->GetState(),
+		EOpenMobileRewardedAdState::Loading
+	);
+
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent Shown;
+		Shown.Type = EOpenMobileAdsEventType::Shown;
+		Provider.ShowSink->Submit(MoveTemp(Shown));
+		DrainGameThreadTasks();
+		TestEqual(
+			TEXT("Native presentation updates the convenience state"),
+			Subsystem->GetState(),
+			EOpenMobileRewardedAdState::Showing
+		);
+
+		FOpenMobileAdsEvent Reward;
+		Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+		Reward.bHasReward = true;
+		Reward.Reward.Type = TEXT("coin");
+		Reward.Reward.Amount = 5;
+		Provider.ShowSink->Submit(Reward);
+		Provider.ShowSink->Submit(MoveTemp(Reward));
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("Dismissal finishes the convenience operation"),
+		Subsystem->GetState(),
+		EOpenMobileRewardedAdState::Idle
+	);
+	TestEqual(
+		TEXT("Completed rewarded flow emits one ordered reward"),
+		Events.Num(),
+		6
+	);
+	if (Events.Num() == 6)
+	{
+		const EOpenMobileAdsEventType ExpectedTypes[] = {
+			EOpenMobileAdsEventType::LoadStarted,
+			EOpenMobileAdsEventType::Loaded,
+			EOpenMobileAdsEventType::ShowAccepted,
+			EOpenMobileAdsEventType::Shown,
+			EOpenMobileAdsEventType::RewardEarned,
+			EOpenMobileAdsEventType::Dismissed
+		};
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(ExpectedTypes); ++Index)
+		{
+			TestEqual(
+				TEXT("Completed rewarded callbacks retain contract order"),
+				Events[Index].Type,
+				ExpectedTypes[Index]
+			);
+		}
+	}
+
+	FOpenMobileAdsPlacementSettings& OtherPlacement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	OtherPlacement.Placement = TEXT("OtherReward");
+	OtherPlacement.Format = EOpenMobileAdFormat::Rewarded;
+	OtherPlacement.Android.AdUnitId = TEXT("android-other-reward");
+	OtherPlacement.IOS.AdUnitId = TEXT("ios-other-reward");
+	AddExpectedError(
+		TEXT("More than one enabled rewarded placement exists."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	TestFalse(
+		TEXT("Multiple rewarded placements require an explicit convenience choice"),
+		Subsystem->RequestAndShowRewardedAd()
+	);
+	TestEqual(
+		TEXT("Ambiguous convenience selection does not start native loading"),
+		Provider.LoadCalls,
+		1
+	);
+	ScopedSettings.Settings->ConvenienceRewardedPlacement =
+		TEXT("ConvenienceReward");
+	TestTrue(
+		TEXT("Configured convenience placement starts among multiple rewards"),
+		Subsystem->RequestAndShowRewardedAd()
+	);
+	TestEqual(
+		TEXT("Configured convenience placement is selected deterministically"),
+		Provider.LastLoadRequest.Placement.Placement,
+		FName(TEXT("ConvenienceReward"))
+	);
+	if (Provider.LoadSink)
+	{
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	}
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent Shown;
+		Shown.Type = EOpenMobileAdsEventType::Shown;
+		Provider.ShowSink->Submit(MoveTemp(Shown));
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("Skipped rewarded flow emits no reward callback"),
+		Events.Num(),
+		11
+	);
+	if (Events.Num() == 11)
+	{
+		TestEqual(
+			TEXT("Skipped rewarded flow ends with dismissal"),
+			Events.Last().Type,
+			EOpenMobileAdsEventType::Dismissed
+		);
+	}
+	TestEqual(
+		TEXT("Skipped rewarded flow returns convenience state to idle"),
+		Subsystem->GetState(),
+		EOpenMobileRewardedAdState::Idle
+	);
+
+	TestTrue(
+		TEXT("Convenience flow accepts a load that later fails"),
+		Subsystem->RequestAndShowRewardedAd()
+	);
+	AddExpectedError(
+		TEXT("Convenience rewarded load failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	if (Provider.LoadSink)
+	{
+		FOpenMobileAdsEvent LoadFailed;
+		LoadFailed.Type = EOpenMobileAdsEventType::LoadFailed;
+		LoadFailed.Error = FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::NativeFailure,
+			EOpenMobileAdsFailureStage::Load,
+			TEXT("ConvenienceReward"),
+			TEXT("Convenience rewarded load failed."),
+			Provider.Name
+		);
+		Provider.LoadSink->Submit(MoveTemp(LoadFailed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(TEXT("Load failure emits its terminal callback"), Events.Num(), 13);
+	if (Events.Num() == 13)
+	{
+		TestEqual(
+			TEXT("Load failure is terminal for its convenience attempt"),
+			Events.Last().Type,
+			EOpenMobileAdsEventType::LoadFailed
+		);
+	}
+	TestEqual(
+		TEXT("Load failure returns convenience state to idle"),
+		Subsystem->GetState(),
+		EOpenMobileRewardedAdState::Idle
+	);
+
+	TestTrue(
+		TEXT("Convenience flow accepts a show that later fails"),
+		Subsystem->RequestAndShowRewardedAd()
+	);
+	if (Provider.LoadSink)
+	{
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	}
+	AddExpectedError(
+		TEXT("Convenience rewarded show failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent ShowFailed;
+		ShowFailed.Type = EOpenMobileAdsEventType::Failed;
+		ShowFailed.Error = FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::NativeFailure,
+			EOpenMobileAdsFailureStage::Show,
+			TEXT("ConvenienceReward"),
+			TEXT("Convenience rewarded show failed."),
+			Provider.Name
+		);
+		Provider.ShowSink->Submit(MoveTemp(ShowFailed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(TEXT("Show failure emits its terminal callback"), Events.Num(), 17);
+	if (Events.Num() == 17)
+	{
+		TestEqual(
+			TEXT("Show failure is terminal for its convenience attempt"),
+			Events.Last().Type,
+			EOpenMobileAdsEventType::Failed
+		);
+	}
+	TestEqual(
+		TEXT("Show failure returns convenience state to idle"),
+		Subsystem->GetState(),
+		EOpenMobileRewardedAdState::Idle
+	);
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
 	return true;
 }
 
