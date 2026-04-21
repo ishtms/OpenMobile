@@ -5,17 +5,32 @@
 #include "Features/IModularFeatures.h"
 #include "HAL/PlatformMisc.h"
 #include "IOpenMobileAdsProvider.h"
+#include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CoreDelegates.h"
 #include "OpenMobileAdsAsyncAction.h"
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsConfiguration.h"
+#include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsSubsystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace OpenMobileAdsProviderContractTests
 {
+	class FMockFullscreenLifecycleTarget final
+		: public IOpenMobileAdsFullscreenLifecycleTarget
+	{
+	public:
+		virtual void Apply() override { ++ApplyCalls; }
+		virtual void RestoreGameplay() override { ++RestoreGameplayCalls; }
+		virtual void RestoreFocus() override { ++RestoreFocusCalls; }
+
+		int32 ApplyCalls = 0;
+		int32 RestoreGameplayCalls = 0;
+		int32 RestoreFocusCalls = 0;
+	};
+
 	class FMockProvider final : public IOpenMobileAdsProvider
 	{
 	public:
@@ -963,6 +978,262 @@ bool FOpenMobileAdsShowPolicyContractTest::RunTest(const FString& Parameters)
 
 	Subsystem->Deinitialize();
 	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsFullscreenLifecycleContractTest,
+	"OpenMobile.Ads.ProviderContract.Fullscreen.Lifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsFullscreenLifecycleContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("LifecycleReward");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-lifecycle-reward");
+	Placement.IOS.AdUnitId = TEXT("ios-lifecycle-reward");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before full-screen lifecycle checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	auto LoadReady = [this, Subsystem, &Provider]()
+	{
+		TestTrue(
+			TEXT("The lifecycle placement starts loading"),
+			Subsystem->LoadAd(TEXT("LifecycleReward")).bAccepted
+		);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		TestTrue(
+			TEXT("The lifecycle placement becomes ready"),
+			Subsystem->IsReady(TEXT("LifecycleReward"))
+		);
+	};
+	auto Dismiss = [&Provider]()
+	{
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+	};
+
+	const float PreviousVolume = FApp::GetVolumeMultiplier();
+	FApp::SetVolumeMultiplier(0.37f);
+	bool bVolumeRestoredBeforeDismiss = false;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&bVolumeRestoredBeforeDismiss](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::Dismissed)
+			{
+				bVolumeRestoredBeforeDismiss = FMath::IsNearlyEqual(
+					FApp::GetVolumeMultiplier(),
+					0.37f
+				);
+			}
+		}
+	);
+
+	LoadReady();
+	const FOpenMobileAdsOperationResult Show =
+		Subsystem->ShowAd(TEXT("LifecycleReward"));
+	TestTrue(TEXT("The lifecycle show is accepted"), Show.bAccepted);
+	TestTrue(
+		TEXT("Accepted full-screen presentation mutes Unreal audio"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
+	);
+	FCoreDelegates::ApplicationWillDeactivateDelegate.Broadcast();
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestTrue(
+		TEXT("Reactivation cannot resume audio over an active ad"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
+	);
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestTrue(
+		TEXT("Foreground entry cannot resume audio over an active ad"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
+	);
+	Dismiss();
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("Dismissal restores the prior audio level"),
+		FMath::IsNearlyEqual(FApp::GetVolumeMultiplier(), 0.37f)
+	);
+	TestTrue(
+		TEXT("Lifecycle restoration precedes the dismiss event"),
+		bVolumeRestoredBeforeDismiss
+	);
+
+	FApp::SetVolumeMultiplier(0.0f);
+	LoadReady();
+	TestTrue(
+		TEXT("A show can start while gameplay audio is already muted"),
+		Subsystem->ShowAd(TEXT("LifecycleReward")).bAccepted
+	);
+	Dismiss();
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("Dismissal preserves a pre-existing mute"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
+	);
+
+	FApp::SetVolumeMultiplier(0.42f);
+	LoadReady();
+	const FOpenMobileAdsOperationResult MissingDismiss =
+		Subsystem->ShowAd(TEXT("LifecycleReward"));
+	TestTrue(TEXT("The missing-dismiss show starts"), MissingDismiss.bAccepted);
+	TestTrue(
+		TEXT("The missing-dismiss show owns the audio mute"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
+	);
+	TestTrue(
+		TEXT("Explicit cancellation recovers a missing dismiss"),
+		Subsystem->CancelRequest(MissingDismiss.RequestId).bAccepted
+	);
+	TestTrue(
+		TEXT("Cancellation restores only the ads-owned mute"),
+		FMath::IsNearlyEqual(FApp::GetVolumeMultiplier(), 0.42f)
+	);
+	DrainGameThreadTasks();
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	FApp::SetVolumeMultiplier(PreviousVolume);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsFullscreenCoordinatorContractTest,
+	"OpenMobile.Ads.ProviderContract.Fullscreen.Coordinator",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsFullscreenCoordinatorContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	TUniquePtr<FMockFullscreenLifecycleTarget> Target =
+		MakeUnique<FMockFullscreenLifecycleTarget>();
+	FMockFullscreenLifecycleTarget* TargetState = Target.Get();
+	FOpenMobileAdsFullscreenLifecycleCoordinator Coordinator(MoveTemp(Target));
+
+	const FGuid ConsentOwner = FGuid::NewGuid();
+	TestTrue(
+		TEXT("Consent can reserve the shared full-screen surface"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			ConsentOwner
+		)
+	);
+	TestFalse(
+		TEXT("An ad cannot overlap reserved consent UI"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			FGuid::NewGuid()
+		)
+	);
+	TestTrue(
+		TEXT("Reserved consent can end before presentation"),
+		Coordinator.End(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			ConsentOwner
+		)
+	);
+	TestEqual(TEXT("Reservation alone does not alter gameplay"), TargetState->ApplyCalls, 0);
+
+	const FGuid AdOwner = FGuid::NewGuid();
+	TestTrue(
+		TEXT("An ad can reserve the released full-screen surface"),
+		Coordinator.TryReserve(EOpenMobileAdsFullscreenSurface::Ad, AdOwner)
+	);
+	TestTrue(
+		TEXT("The owning ad can begin presentation"),
+		Coordinator.BeginPresentation(EOpenMobileAdsFullscreenSurface::Ad, AdOwner)
+	);
+	TestEqual(TEXT("Presentation applies lifecycle state once"), TargetState->ApplyCalls, 1);
+	Coordinator.SetApplicationActive(false);
+	TestEqual(TEXT("Interruption reapplies lifecycle state"), TargetState->ApplyCalls, 2);
+	TestFalse(
+		TEXT("A mismatched owner cannot restore another surface"),
+		Coordinator.End(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			FGuid::NewGuid()
+		)
+	);
+	TestTrue(
+		TEXT("The owning ad can end while interrupted"),
+		Coordinator.End(EOpenMobileAdsFullscreenSurface::Ad, AdOwner)
+	);
+	TestEqual(TEXT("Ending restores gameplay while interrupted"), TargetState->RestoreGameplayCalls, 1);
+	TestEqual(TEXT("Focus waits until the application is active"), TargetState->RestoreFocusCalls, 0);
+	TestFalse(
+		TEXT("Inactive applications reject new full-screen reservations"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Inspector,
+			FGuid::NewGuid()
+		)
+	);
+	Coordinator.SetApplicationActive(true);
+	TestEqual(TEXT("Reactivation restores deferred focus"), TargetState->RestoreFocusCalls, 1);
+	TestFalse(
+		TEXT("Duplicate terminal callbacks do not restore twice"),
+		Coordinator.End(EOpenMobileAdsFullscreenSurface::Ad, AdOwner)
+	);
+
+	const FGuid InspectorOwner = FGuid::NewGuid();
+	TestTrue(
+		TEXT("Inspector UI can reserve the shared full-screen surface"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Inspector,
+			InspectorOwner
+		)
+	);
+	TestTrue(
+		TEXT("Inspector reservation can end without presentation"),
+		Coordinator.End(
+			EOpenMobileAdsFullscreenSurface::Inspector,
+			InspectorOwner
+		)
+	);
+	TestEqual(TEXT("Unused reservations do not restore gameplay"), TargetState->RestoreGameplayCalls, 1);
+
+	const FGuid ShutdownOwner = FGuid::NewGuid();
+	TestTrue(
+		TEXT("A final ad can reserve before teardown"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			ShutdownOwner
+		)
+	);
+	TestTrue(
+		TEXT("A final ad can present before teardown"),
+		Coordinator.BeginPresentation(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			ShutdownOwner
+		)
+	);
+	Coordinator.Shutdown();
+	TestFalse(TEXT("Shutdown releases the shared surface"), Coordinator.IsOccupied());
+	TestEqual(TEXT("Shutdown restores owned gameplay state"), TargetState->RestoreGameplayCalls, 2);
+	TestEqual(TEXT("Shutdown restores captured focus state"), TargetState->RestoreFocusCalls, 2);
 	return true;
 }
 

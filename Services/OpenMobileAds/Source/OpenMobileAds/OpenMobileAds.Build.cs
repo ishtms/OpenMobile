@@ -23,6 +23,12 @@ public class OpenMobileAds : ModuleRules
 			"OpenMobileCore"
 		});
 
+		PrivateDependencyModuleNames.AddRange(new[]
+		{
+			"Slate",
+			"SlateCore"
+		});
+
 		if (Target.Configuration == UnrealTargetConfiguration.Shipping && Target.ProjectFile != null)
 		{
 			ConfigCache.ReadSettings(

@@ -9,6 +9,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
+#include "OpenMobileAdsFullscreenLifecycle.h"
 
 class FOpenMobileAdsEventDispatcher final
 	: public TSharedFromThis<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>
@@ -625,6 +626,20 @@ struct FOpenMobileAdsActiveRequestContext
 
 namespace OpenMobileAdsPrivate
 {
+	bool UsesFullscreenLifecycle(EOpenMobileAdFormat Format)
+	{
+		switch (Format)
+		{
+		case EOpenMobileAdFormat::Interstitial:
+		case EOpenMobileAdFormat::Rewarded:
+		case EOpenMobileAdFormat::RewardedInterstitial:
+		case EOpenMobileAdFormat::AppOpen:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	IOpenMobileAdsProvider* FindRegisteredProvider(FName ProviderName)
 	{
 		const TArray<IOpenMobileAdsProvider*> Providers =
@@ -1074,6 +1089,11 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 	}
 
 	EventDispatcher = MakeShared<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>(*this);
+	UGameInstance* GameInstance = GetGameInstance();
+	check(GameInstance);
+	FullscreenLifecycle = MakeShared<FOpenMobileAdsFullscreenLifecycleCoordinator>(
+		OpenMobileAdsCreateUnrealFullscreenLifecycleTarget(*GameInstance)
+	);
 	ProviderUnregisteredHandle = IModularFeatures::Get().OnModularFeatureUnregistered().AddUObject(
 		this,
 		&UOpenMobileAdsSubsystem::HandleProviderUnregistered
@@ -1136,21 +1156,37 @@ void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
 void UOpenMobileAdsSubsystem::HandleApplicationWillDeactivate()
 {
 	bApplicationActive = false;
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->SetApplicationActive(false);
+	}
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
 {
 	bApplicationActive = true;
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->SetApplicationActive(true);
+	}
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
 {
 	bApplicationInForeground = false;
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->SetApplicationInForeground(false);
+	}
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground()
 {
 	bApplicationInForeground = true;
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->SetApplicationInForeground(true);
+	}
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -1511,6 +1547,41 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 	Request.Placement = Placement;
 	Request.Format = Status->Format;
 	Request.Options = MoveTemp(Options);
+	const bool bUsesFullscreenLifecycle =
+		OpenMobileAdsPrivate::UsesFullscreenLifecycle(Request.Format);
+	const bool bReserved = !bUsesFullscreenLifecycle || (FullscreenLifecycle
+		&& FullscreenLifecycle->TryReserve(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			Request.RequestId
+		));
+	if (
+		!bReserved
+		|| (
+			bUsesFullscreenLifecycle
+			&& !FullscreenLifecycle->BeginPresentation(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			Request.RequestId
+			)
+		)
+	)
+	{
+		if (bUsesFullscreenLifecycle && bReserved)
+		{
+			FullscreenLifecycle->End(
+				EOpenMobileAdsFullscreenSurface::Ad,
+				Request.RequestId
+			);
+		}
+		*Status = PreviousStatus;
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Show,
+			Placement,
+			TEXT("Another full-screen surface owns the application lifecycle."),
+			Provider->GetProviderName(),
+			TEXT("Wait for the current ad, consent form, or inspector to close before showing another ad.")
+		));
+	}
 	const TSharedRef<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe> Sink =
 		MakeShared<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe>(
 			EventDispatcher.ToSharedRef(),
@@ -1535,6 +1606,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 
 	if (!Provider->Show(Request, Sink, Error))
 	{
+		if (bUsesFullscreenLifecycle)
+		{
+			FullscreenLifecycle->End(
+				EOpenMobileAdsFullscreenSurface::Ad,
+				Request.RequestId
+			);
+		}
 		Sink->Invalidate();
 		ActiveRequests.Remove(Status->ActiveRequestId);
 		*Status = PreviousStatus;
@@ -1804,6 +1882,13 @@ void UOpenMobileAdsSubsystem::CancelSupersededRequest(FGuid RequestId)
 		return;
 	}
 	ForgetShowRewardContext(RequestId);
+	if (Context->Stage == EOpenMobileAdsFailureStage::Show && FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			RequestId
+		);
+	}
 	Context->EventSink->Invalidate();
 	if (IOpenMobileAdsProvider* Provider =
 		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
@@ -1839,6 +1924,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::CancelRequest(FGuid Reque
 	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		FoundContext->ToSharedRef();
 	ForgetShowRewardContext(RequestId);
+	if (Context->Stage == EOpenMobileAdsFailureStage::Show && FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			RequestId
+		);
+	}
 	Context->EventSink->Invalidate();
 	if (IOpenMobileAdsProvider* Provider =
 		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
@@ -2020,15 +2112,21 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 	}
 	Context.bOffline = bPlatformOffline.Load();
 	Context.bLifecycleConflict = !bApplicationActive || !bApplicationInForeground;
-	for (const TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
+	if (OpenMobileAdsPrivate::UsesFullscreenLifecycle(Resolved.Format))
 	{
-		if (
-			Pair.Key != Placement
-			&& Pair.Value.State == EOpenMobileAdPlacementState::Showing
-		)
+		Context.bLifecycleConflict = Context.bLifecycleConflict
+			|| (FullscreenLifecycle && FullscreenLifecycle->IsOccupied());
+		for (const TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 		{
-			Context.bLifecycleConflict = true;
-			break;
+			if (
+				Pair.Key != Placement
+				&& Pair.Value.State == EOpenMobileAdPlacementState::Showing
+				&& OpenMobileAdsPrivate::UsesFullscreenLifecycle(Pair.Value.Format)
+			)
+			{
+				Context.bLifecycleConflict = true;
+				break;
+			}
 		}
 	}
 
@@ -2560,6 +2658,13 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			&& Status->ActiveRequestId == Event.RequestId
 		)
 		{
+			if (FullscreenLifecycle)
+			{
+				FullscreenLifecycle->End(
+					EOpenMobileAdsFullscreenSurface::Ad,
+					Event.RequestId
+				);
+			}
 			RememberDismissedShow(Event.RequestId, Status->CachedAdId);
 			ReleaseCachedAd(*Status);
 			Status->State = EOpenMobileAdPlacementState::Idle;
@@ -2583,6 +2688,13 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 	case EOpenMobileAdsEventType::Failed:
 		if (Status->ActiveRequestId == Event.RequestId)
 		{
+			if (FullscreenLifecycle)
+			{
+				FullscreenLifecycle->End(
+					EOpenMobileAdsFullscreenSurface::Ad,
+					Event.RequestId
+				);
+			}
 			ForgetShowRewardContext(Event.RequestId);
 			ReleaseCachedAd(*Status);
 			Status->State = EOpenMobileAdPlacementState::Failed;
@@ -2758,6 +2870,16 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	{
 		if (Pair.Value && Pair.Value->Provider == ProviderName)
 		{
+			if (
+				Pair.Value->Stage == EOpenMobileAdsFailureStage::Show
+				&& FullscreenLifecycle
+			)
+			{
+				FullscreenLifecycle->End(
+					EOpenMobileAdsFullscreenSurface::Ad,
+					Pair.Key
+				);
+			}
 			Pair.Value->EventSink->Invalidate();
 			if (Pair.Value->Placement.IsNone())
 			{
@@ -2765,6 +2887,21 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 				ServiceWideRequests.Add(Pair.Key);
 			}
 		}
+	}
+	if (
+		ProviderName == SelectedProviderName
+		&& LegacyFullscreenRequestId.IsValid()
+	)
+	{
+		if (FullscreenLifecycle)
+		{
+			FullscreenLifecycle->End(
+				EOpenMobileAdsFullscreenSurface::Ad,
+				LegacyFullscreenRequestId
+			);
+		}
+		LegacyFullscreenRequestId.Invalidate();
+		State = EOpenMobileRewardedAdState::Idle;
 	}
 	for (FGuid RequestId : ServiceWideRequests)
 	{
@@ -2839,6 +2976,12 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 void UOpenMobileAdsSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->Shutdown();
+		FullscreenLifecycle.Reset();
+	}
+	LegacyFullscreenRequestId.Invalidate();
 	if (CacheExpirationTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(CacheExpirationTickerHandle);
@@ -2931,6 +3074,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 
 bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 {
+	EnsureRuntime();
 	if (ServiceState != EOpenMobileAdsServiceState::Ready)
 	{
 		const FOpenMobileAdsError Error = OpenMobileAdsPrivate::MakeServiceNotReadyError(
@@ -2938,7 +3082,7 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 			ServiceState,
 			InitializationError
 		);
-		HandleAdFailed(FOpenMobileError::Make(
+		ReportAdFailure(FOpenMobileError::Make(
 			EOpenMobileErrorCode::NotSupported,
 			Error.Explanation
 		));
@@ -2946,7 +3090,7 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 	}
 	if (State != EOpenMobileRewardedAdState::Idle)
 	{
-		HandleAdFailed(FOpenMobileError::Make(
+		ReportAdFailure(FOpenMobileError::Make(
 			EOpenMobileErrorCode::Busy,
 			TEXT("A rewarded ad is already loading or showing.")
 		));
@@ -2957,13 +3101,29 @@ bool UOpenMobileAdsSubsystem::RequestAndShowRewardedAd()
 	IOpenMobileAdsProvider* Provider = FindProvider(&ProviderError);
 	if (!Provider)
 	{
-		HandleAdFailed(FOpenMobileError::Make(
+		ReportAdFailure(FOpenMobileError::Make(
 			EOpenMobileErrorCode::NotSupported,
 			ProviderError.Explanation
 		));
 		return false;
 	}
+	const FGuid RequestId = FGuid::NewGuid();
+	if (
+		!FullscreenLifecycle
+		|| !FullscreenLifecycle->TryReserve(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			RequestId
+		)
+	)
+	{
+		ReportAdFailure(FOpenMobileError::Make(
+			EOpenMobileErrorCode::Busy,
+			TEXT("Another full-screen ad, consent form, or inspector is active.")
+		));
+		return false;
+	}
 
+	LegacyFullscreenRequestId = RequestId;
 	State = EOpenMobileRewardedAdState::Loading;
 	FOpenMobileRewardedAdCallbacks Callbacks;
 	Callbacks.OnLoaded = FOpenMobileRewardedAdLoadedCallback::CreateUObject(
@@ -3027,6 +3187,27 @@ void UOpenMobileAdsSubsystem::HandleAdLoaded()
 
 void UOpenMobileAdsSubsystem::HandleAdShown()
 {
+	if (
+		State != EOpenMobileRewardedAdState::Loading
+		|| !LegacyFullscreenRequestId.IsValid()
+	)
+	{
+		return;
+	}
+	if (
+		!FullscreenLifecycle
+		|| !FullscreenLifecycle->BeginPresentation(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			LegacyFullscreenRequestId
+		)
+	)
+	{
+		HandleAdFailed(FOpenMobileError::Make(
+			EOpenMobileErrorCode::Internal,
+			TEXT("The rewarded ad lost its full-screen lifecycle reservation.")
+		));
+		return;
+	}
 	State = EOpenMobileRewardedAdState::Showing;
 	OnAdShown.Broadcast();
 }
@@ -3041,13 +3222,42 @@ void UOpenMobileAdsSubsystem::HandleRewardEarned(
 
 void UOpenMobileAdsSubsystem::HandleAdClosed()
 {
+	if (!LegacyFullscreenRequestId.IsValid())
+	{
+		return;
+	}
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			LegacyFullscreenRequestId
+		);
+	}
+	LegacyFullscreenRequestId.Invalidate();
 	State = EOpenMobileRewardedAdState::Idle;
 	OnAdClosed.Broadcast();
 }
 
 void UOpenMobileAdsSubsystem::HandleAdFailed(FOpenMobileError Error)
 {
+	if (!LegacyFullscreenRequestId.IsValid())
+	{
+		return;
+	}
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::Ad,
+			LegacyFullscreenRequestId
+		);
+	}
+	LegacyFullscreenRequestId.Invalidate();
 	State = EOpenMobileRewardedAdState::Idle;
+	ReportAdFailure(MoveTemp(Error));
+}
+
+void UOpenMobileAdsSubsystem::ReportAdFailure(FOpenMobileError Error)
+{
 	FOpenMobileAdsLog::Write(
 		EOpenMobileAdsLogLevel::Warning,
 		Error.Message,

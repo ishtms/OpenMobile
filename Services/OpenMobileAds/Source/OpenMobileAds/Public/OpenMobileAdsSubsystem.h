@@ -16,6 +16,7 @@ class IOpenMobileAdsProvider;
 class IOpenMobileAdsProviderInitializationSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
+class FOpenMobileAdsFullscreenLifecycleCoordinator;
 struct FOpenMobileAdsActiveRequestContext;
 enum class ENetworkConnectionType : uint8;
 
@@ -216,6 +217,7 @@ private:
 	void HandleRewardEarned(int32 NetworkAmount, FString NetworkRewardType);
 	void HandleAdClosed();
 	void HandleAdFailed(FOpenMobileError Error);
+	void ReportAdFailure(FOpenMobileError Error);
 
 	UPROPERTY(Transient)
 	EOpenMobileRewardedAdState State = EOpenMobileRewardedAdState::Idle;
@@ -230,6 +232,7 @@ private:
 	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
+	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
@@ -242,6 +245,7 @@ private:
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 	FName SelectedProviderName;
 	FGuid InitializationRequestId;
+	FGuid LegacyFullscreenRequestId;
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
