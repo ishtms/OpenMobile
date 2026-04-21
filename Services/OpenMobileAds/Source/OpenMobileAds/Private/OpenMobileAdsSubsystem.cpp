@@ -274,6 +274,60 @@ namespace OpenMobileAdsPrivate
 		return Error;
 	}
 
+	FOpenMobileAdsError NormalizeConsentError(
+		FOpenMobileAdsError Error,
+		FName Source
+	)
+	{
+		if (!Error.IsSet() && Error.NativeDiagnostics.IsSet())
+		{
+			FOpenMobileAdsErrorMappingContext Context;
+			Context.Domain = EOpenMobileAdsErrorDomain::Consent;
+			Context.Stage = EOpenMobileAdsFailureStage::Consent;
+			Context.Provider = Source;
+			Context.NativeCode = Error.NativeDiagnostics.NativeCode;
+			Context.NativeMessage = Error.NativeDiagnostics.NativeMessage;
+			Error = FOpenMobileAdsErrorMapper::FromNative(Context);
+		}
+		else if (!Error.IsSet())
+		{
+			Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::NativeFailure,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The consent provider operation failed."),
+				Source,
+				TEXT("Check the consent provider diagnostics and retry when allowed.")
+			);
+		}
+		Error.Stage = EOpenMobileAdsFailureStage::Consent;
+		Error.Provider = Source;
+		if (Error.Explanation.IsEmpty())
+		{
+			Error.Explanation = TEXT("The consent provider operation failed.");
+		}
+		if (Error.LikelyCause.IsEmpty())
+		{
+			Error.LikelyCause = Error.Explanation;
+		}
+		if (Error.SuggestedCorrection.IsEmpty())
+		{
+			Error.SuggestedCorrection =
+				TEXT("Check the consent provider diagnostics and retry when allowed.");
+		}
+		if (Error.NativeDiagnostics.IsSet())
+		{
+			Error.NativeDiagnostics.Provider = Source;
+		}
+		return Error;
+	}
+
+	bool ConsentStatusAllowsAdRequests(EOpenMobileAdsConsentStatus Status)
+	{
+		return Status == EOpenMobileAdsConsentStatus::Granted
+			|| Status == EOpenMobileAdsConsentStatus::NotRequired;
+	}
+
 	class FContextualEventSink final : public IOpenMobileAdsProviderEventSink
 	{
 	public:
@@ -1106,6 +1160,13 @@ void UOpenMobileAdsSubsystem::BroadcastInitializationStatus()
 	OnInitializationStatusChanged.Broadcast(InitializationStatus);
 }
 
+void UOpenMobileAdsSubsystem::BroadcastConsentStatus()
+{
+	check(IsInGameThread());
+	NativeConsentStatusChanged.Broadcast(PrivacySnapshot);
+	OnConsentStatusChanged.Broadcast(PrivacySnapshot);
+}
+
 void UOpenMobileAdsSubsystem::EnsureRuntime()
 {
 	if (!bPrivacySnapshotInitialized)
@@ -1180,6 +1241,93 @@ void UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	}
 	PrivacySnapshot = MoveTemp(Snapshot);
 	bPrivacySnapshotInitialized = true;
+	BroadcastConsentStatus();
+}
+
+void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdate(
+	FOpenMobileAdsConsentStatusUpdate Update
+)
+{
+	if (IsInGameThread())
+	{
+		ApplyConsentStatusUpdateOnGameThread(MoveTemp(Update));
+		return;
+	}
+
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	AsyncTask(
+		ENamedThreads::GameThread,
+		[WeakThis, Update = MoveTemp(Update)]() mutable
+		{
+			if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+			{
+				Subsystem->ApplyConsentStatusUpdateOnGameThread(MoveTemp(Update));
+			}
+		}
+	);
+}
+
+void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
+	FOpenMobileAdsConsentStatusUpdate Update
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized)
+	{
+		return;
+	}
+	if (!Update.Source.IsNone())
+	{
+		PrivacySnapshot.Source = Update.Source;
+	}
+
+	switch (Update.Type)
+	{
+	case EOpenMobileAdsConsentStatusUpdateType::RefreshStarted:
+		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Refreshing;
+		PrivacySnapshot.Error = FOpenMobileAdsError();
+		break;
+
+	case EOpenMobileAdsConsentStatusUpdateType::FormPresentationStarted:
+		PrivacySnapshot.ConsentActivity =
+			EOpenMobileAdsConsentActivity::PresentingForm;
+		PrivacySnapshot.Error = FOpenMobileAdsError();
+		break;
+
+	case EOpenMobileAdsConsentStatusUpdateType::ResetStarted:
+		PrivacySnapshot.ConsentStatus = EOpenMobileAdsConsentStatus::Unknown;
+		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Resetting;
+		PrivacySnapshot.bCanRequestAds = false;
+		PrivacySnapshot.ProviderDetails = FOpenMobileAdsConsentProviderDetails();
+		PrivacySnapshot.Error = FOpenMobileAdsError();
+		break;
+
+	case EOpenMobileAdsConsentStatusUpdateType::Completed:
+		PrivacySnapshot.ConsentStatus = Update.Status;
+		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
+		PrivacySnapshot.bCanRequestAds =
+			OpenMobileAdsPrivate::ConsentStatusAllowsAdRequests(Update.Status);
+		PrivacySnapshot.ProviderDetails = MoveTemp(Update.ProviderDetails);
+		if (!PrivacySnapshot.ProviderDetails.bIsAvailable)
+		{
+			PrivacySnapshot.ProviderDetails.RawStatus.Reset();
+			PrivacySnapshot.ProviderDetails.RawMessage.Reset();
+		}
+		PrivacySnapshot.Error = FOpenMobileAdsError();
+		break;
+
+	case EOpenMobileAdsConsentStatusUpdateType::Failed:
+		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
+		PrivacySnapshot.Error = OpenMobileAdsPrivate::NormalizeConsentError(
+			MoveTemp(Update.Error),
+			PrivacySnapshot.Source
+		);
+		break;
+	}
+
+	PrivacySnapshot.LastUpdated = FDateTime::UtcNow();
+	bPrivacySnapshotInitialized = true;
+	BroadcastConsentStatus();
 }
 
 void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(

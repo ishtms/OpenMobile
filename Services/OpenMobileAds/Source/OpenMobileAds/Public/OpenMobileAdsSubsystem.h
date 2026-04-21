@@ -73,12 +73,24 @@ public:
 		return NativeInitializationStatusChanged;
 	}
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Consent Status"))
+	FOpenMobileAdsPrivacySnapshot GetConsentStatus() const
+	{
+		return PrivacySnapshot;
+	}
+
 	const FOpenMobileAdsPrivacySnapshot& GetPrivacySnapshot() const
 	{
 		return PrivacySnapshot;
 	}
 
+	FOpenMobileAdsConsentStatusNativeEvent& OnNativeConsentStatusChanged()
+	{
+		return NativeConsentStatusChanged;
+	}
+
 	void UpdatePrivacySnapshot(FOpenMobileAdsPrivacySnapshot Snapshot);
+	void ApplyConsentStatusUpdate(FOpenMobileAdsConsentStatusUpdate Update);
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
 	FOpenMobileAdsOperationResult LoadAd(
@@ -162,6 +174,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
 	FOpenMobileAdsInitializationStatusDynamicEvent OnInitializationStatusChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	FOpenMobileAdsConsentStatusDynamicEvent OnConsentStatusChanged;
+
 private:
 	friend class FOpenMobileAdsEventDispatcher;
 
@@ -191,6 +206,10 @@ private:
 		FOpenMobileAdsInitializationComponentStatus Status
 	);
 	void BroadcastInitializationStatus();
+	void BroadcastConsentStatus();
+	void ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate Update
+	);
 	void UpsertInitializationComponent(
 		FOpenMobileAdsInitializationComponentStatus Status
 	);
@@ -234,6 +253,7 @@ private:
 	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
+	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
 	FDelegateHandle NetworkConnectionChangedHandle;
 	FDelegateHandle ApplicationWillDeactivateHandle;
