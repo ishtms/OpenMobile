@@ -14,6 +14,8 @@ struct FOpenMobileAdsCanRequestAdsContext
 		EOpenMobileAdsConsentStatus::Unknown;
 	EOpenMobileAdsConsentActivity ConsentActivity =
 		EOpenMobileAdsConsentActivity::Idle;
+	EOpenMobileAdsConsentRequestState ConsentRequestState =
+		EOpenMobileAdsConsentRequestState::Unknown;
 	bool bConsentStatusFresh = false;
 	FOpenMobileAdsProviderRequestPolicy ProviderPolicy;
 };

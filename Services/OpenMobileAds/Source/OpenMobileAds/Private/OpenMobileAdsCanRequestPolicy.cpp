@@ -160,7 +160,26 @@ FOpenMobileAdsCanRequestAdsResult FOpenMobileAdsCanRequestPolicy::Evaluate(
 
 	case EOpenMobileAdsConsentStatus::Granted:
 	case EOpenMobileAdsConsentStatus::NotRequired:
+	case EOpenMobileAdsConsentStatus::Obtained:
 		break;
+	}
+	if (
+		Context.ConsentRequestState == EOpenMobileAdsConsentRequestState::Blocked
+		|| (
+			Context.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained
+			&& Context.ConsentRequestState
+				!= EOpenMobileAdsConsentRequestState::Allowed
+		)
+	)
+	{
+		return Blocked(
+			Context,
+			EOpenMobileAdsCanRequestAdsBlockReason::ConsentProviderBlocked,
+			EOpenMobileAdsCanRequestAdsBlockType::Temporary,
+			Context.ConsentRequestState == EOpenMobileAdsConsentRequestState::Blocked
+				? TEXT("The consent provider currently does not allow ad requests.")
+				: TEXT("The consent provider has not confirmed ad-request eligibility.")
+		);
 	}
 
 	switch (Context.ProviderPolicy.State)

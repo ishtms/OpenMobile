@@ -11,7 +11,32 @@ enum class EOpenMobileAdsConsentStatus : uint8
 	Required,
 	Granted,
 	Denied,
-	NotRequired
+	NotRequired,
+	Obtained
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsGdprApplicability : uint8
+{
+	Unknown,
+	NotApplicable,
+	Applicable
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConsentRequirement : uint8
+{
+	Unknown,
+	NotRequired,
+	Required
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConsentRequestState : uint8
+{
+	Unknown,
+	Blocked,
+	Allowed
 };
 
 UENUM(BlueprintType)
@@ -136,6 +161,18 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 	EOpenMobileAdsConsentActivity ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsGdprApplicability GdprApplicability =
+		EOpenMobileAdsGdprApplicability::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentRequirement ConsentRequirement =
+		EOpenMobileAdsConsentRequirement::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentRequestState ConsentRequestState =
+		EOpenMobileAdsConsentRequestState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsAgeTreatment ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Unspecified;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
@@ -154,10 +191,25 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 	FDateTime LastUpdated;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime ConsentExpiresAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bRestoredFromProviderStorage = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsConsentProviderDetails ProviderDetails;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError Error;
+
+	bool IsConsentStatusFreshAt(FDateTime Now) const
+	{
+		return bConsentStatusFresh
+			&& (
+				ConsentExpiresAt == FDateTime()
+				|| Now < ConsentExpiresAt
+			);
+	}
 };
 
 UENUM(BlueprintType)
@@ -176,7 +228,8 @@ enum class EOpenMobileAdsCanRequestAdsBlockReason : uint8
 	ConsentUnknown,
 	ConsentRequired,
 	ConsentDenied,
-	ProviderPolicy
+	ProviderPolicy,
+	ConsentProviderBlocked
 };
 
 UENUM(BlueprintType)
@@ -240,10 +293,18 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 	EOpenMobileAdsConsentStatusUpdateType Type =
 		EOpenMobileAdsConsentStatusUpdateType::Completed;
 	EOpenMobileAdsConsentStatus Status = EOpenMobileAdsConsentStatus::Unknown;
+	EOpenMobileAdsGdprApplicability GdprApplicability =
+		EOpenMobileAdsGdprApplicability::Unknown;
+	EOpenMobileAdsConsentRequirement Requirement =
+		EOpenMobileAdsConsentRequirement::Unknown;
+	EOpenMobileAdsConsentRequestState RequestState =
+		EOpenMobileAdsConsentRequestState::Unknown;
 	FName Source;
 	FOpenMobileAdsConsentProviderDetails ProviderDetails;
 	FOpenMobileAdsError Error;
 	bool bStatusFresh = true;
+	FDateTime ExpiresAt;
+	bool bRestoredFromProviderStorage = false;
 
 	static FOpenMobileAdsConsentStatusUpdate BeginRefresh(FName Source);
 	static FOpenMobileAdsConsentStatusUpdate BeginFormPresentation(FName Source);
@@ -252,7 +313,20 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 		EOpenMobileAdsConsentStatus Status,
 		FName Source,
 		FOpenMobileAdsConsentProviderDetails ProviderDetails = {},
-		bool bStatusFresh = true
+		bool bStatusFresh = true,
+		FDateTime ExpiresAt = {},
+		bool bRestoredFromProviderStorage = false
+	);
+	static FOpenMobileAdsConsentStatusUpdate CompleteProviderState(
+		EOpenMobileAdsConsentStatus Status,
+		EOpenMobileAdsGdprApplicability GdprApplicability,
+		EOpenMobileAdsConsentRequirement Requirement,
+		EOpenMobileAdsConsentRequestState RequestState,
+		FName Source,
+		FOpenMobileAdsConsentProviderDetails ProviderDetails = {},
+		bool bStatusFresh = true,
+		FDateTime ExpiresAt = {},
+		bool bRestoredFromProviderStorage = false
 	);
 	static FOpenMobileAdsConsentStatusUpdate Fail(
 		FName Source,

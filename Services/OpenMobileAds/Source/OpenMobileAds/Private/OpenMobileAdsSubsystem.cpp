@@ -1190,7 +1190,9 @@ FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::EvaluateCanRequestAds
 	Context.Provider = SelectedProviderName;
 	Context.ConsentStatus = PrivacySnapshot.ConsentStatus;
 	Context.ConsentActivity = PrivacySnapshot.ConsentActivity;
-	Context.bConsentStatusFresh = PrivacySnapshot.bConsentStatusFresh;
+	Context.ConsentRequestState = PrivacySnapshot.ConsentRequestState;
+	Context.bConsentStatusFresh =
+		PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow());
 	IOpenMobileAdsProvider* Provider = nullptr;
 	if (ServiceState == EOpenMobileAdsServiceState::Ready)
 	{
@@ -1250,6 +1252,14 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		PrivacySnapshot.ConsentStatus = Privacy.bDelayProviderInitializationUntilConsent
 			? EOpenMobileAdsConsentStatus::Unknown
 			: EOpenMobileAdsConsentStatus::NotRequired;
+		PrivacySnapshot.ConsentRequirement =
+			Privacy.bDelayProviderInitializationUntilConsent
+				? EOpenMobileAdsConsentRequirement::Unknown
+				: EOpenMobileAdsConsentRequirement::NotRequired;
+		PrivacySnapshot.ConsentRequestState =
+			Privacy.bDelayProviderInitializationUntilConsent
+				? EOpenMobileAdsConsentRequestState::Unknown
+				: EOpenMobileAdsConsentRequestState::Allowed;
 		PrivacySnapshot.bConsentStatusFresh =
 			!Privacy.bDelayProviderInitializationUntilConsent;
 		PrivacySnapshot.ChildDirectedTreatment = Privacy.ChildDirectedTreatment;
@@ -1416,7 +1426,15 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 	case EOpenMobileAdsConsentStatusUpdateType::ResetStarted:
 		PrivacySnapshot.ConsentStatus = EOpenMobileAdsConsentStatus::Unknown;
 		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Resetting;
+		PrivacySnapshot.GdprApplicability =
+			EOpenMobileAdsGdprApplicability::Unknown;
+		PrivacySnapshot.ConsentRequirement =
+			EOpenMobileAdsConsentRequirement::Unknown;
+		PrivacySnapshot.ConsentRequestState =
+			EOpenMobileAdsConsentRequestState::Unknown;
 		PrivacySnapshot.bConsentStatusFresh = false;
+		PrivacySnapshot.ConsentExpiresAt = FDateTime();
+		PrivacySnapshot.bRestoredFromProviderStorage = false;
 		PrivacySnapshot.ProviderDetails = FOpenMobileAdsConsentProviderDetails();
 		PrivacySnapshot.Error = FOpenMobileAdsError();
 		break;
@@ -1424,7 +1442,13 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 	case EOpenMobileAdsConsentStatusUpdateType::Completed:
 		PrivacySnapshot.ConsentStatus = Update.Status;
 		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
+		PrivacySnapshot.GdprApplicability = Update.GdprApplicability;
+		PrivacySnapshot.ConsentRequirement = Update.Requirement;
+		PrivacySnapshot.ConsentRequestState = Update.RequestState;
 		PrivacySnapshot.bConsentStatusFresh = Update.bStatusFresh;
+		PrivacySnapshot.ConsentExpiresAt = Update.ExpiresAt;
+		PrivacySnapshot.bRestoredFromProviderStorage =
+			Update.bRestoredFromProviderStorage;
 		PrivacySnapshot.ProviderDetails = MoveTemp(Update.ProviderDetails);
 		if (!PrivacySnapshot.ProviderDetails.bIsAvailable)
 		{

@@ -3694,6 +3694,117 @@ bool FOpenMobileAdsUnderAgeContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsGdprRequestGateContractTest,
+	"OpenMobile.Ads.Privacy.Gdpr.RequestGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsGdprRequestGateContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before GDPR request gating"),
+		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+
+	auto ApplyState = [Subsystem](
+		EOpenMobileAdsConsentStatus Status,
+		EOpenMobileAdsGdprApplicability Applicability,
+		EOpenMobileAdsConsentRequirement Requirement,
+		EOpenMobileAdsConsentRequestState RequestState,
+		FDateTime ExpiresAt = FDateTime()
+	)
+	{
+		Subsystem->ApplyConsentStatusUpdate(
+			FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+				Status,
+				Applicability,
+				Requirement,
+				RequestState,
+				TEXT("MockGdpr"),
+				{},
+				true,
+				ExpiresAt
+			)
+		);
+	};
+
+	ApplyState(
+		EOpenMobileAdsConsentStatus::Obtained,
+		EOpenMobileAdsGdprApplicability::Applicable,
+		EOpenMobileAdsConsentRequirement::Required,
+		EOpenMobileAdsConsentRequestState::Allowed,
+		FDateTime::UtcNow() - FTimespan::FromSeconds(1.0)
+	);
+	TestEqual(
+		TEXT("Expired GDPR state blocks as stale"),
+		Subsystem->CanRequestAds().BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentStale
+	);
+
+	ApplyState(
+		EOpenMobileAdsConsentStatus::Obtained,
+		EOpenMobileAdsGdprApplicability::Applicable,
+		EOpenMobileAdsConsentRequirement::Required,
+		EOpenMobileAdsConsentRequestState::Allowed,
+		FDateTime::UtcNow() + FTimespan::FromHours(1.0)
+	);
+	TestTrue(
+		TEXT("Fresh provider-approved GDPR state allows requests"),
+		Subsystem->CanRequestAds().bCanRequestAds
+	);
+
+	ApplyState(
+		EOpenMobileAdsConsentStatus::Obtained,
+		EOpenMobileAdsGdprApplicability::Applicable,
+		EOpenMobileAdsConsentRequirement::Required,
+		EOpenMobileAdsConsentRequestState::Blocked
+	);
+	TestEqual(
+		TEXT("Provider-blocked GDPR state has a structured reason"),
+		Subsystem->CanRequestAds().BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentProviderBlocked
+	);
+
+	ApplyState(
+		EOpenMobileAdsConsentStatus::Required,
+		EOpenMobileAdsGdprApplicability::Applicable,
+		EOpenMobileAdsConsentRequirement::Required,
+		EOpenMobileAdsConsentRequestState::Blocked
+	);
+	TestEqual(
+		TEXT("A required GDPR decision remains a user-decision block"),
+		Subsystem->CanRequestAds().BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentRequired
+	);
+
+	ApplyState(
+		EOpenMobileAdsConsentStatus::NotRequired,
+		EOpenMobileAdsGdprApplicability::NotApplicable,
+		EOpenMobileAdsConsentRequirement::NotRequired,
+		EOpenMobileAdsConsentRequestState::Allowed
+	);
+	TestTrue(
+		TEXT("A fresh not-required result allows requests"),
+		Subsystem->CanRequestAds().bCanRequestAds
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsInitializationIdempotencyContractTest,
 	"OpenMobile.Ads.ProviderContract.Initialization.IdempotencyAndConfiguration",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

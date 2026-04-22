@@ -2,6 +2,7 @@
 #include "IOpenMobileAdsAdMobBackend.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileAdsAdMobConsentMapper.h"
 #include "OpenMobileAdsAdMobPlatform.h"
 #include "OpenMobileAdsAdMobSettings.h"
 
@@ -328,6 +329,86 @@ bool FOpenMobileAdsAdMobUnderAgePropagationTest::RunTest(
 		Backend.InitializationCalls,
 		static_cast<int32>(UE_ARRAY_COUNT(Treatments))
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobGdprMappingTest,
+	"OpenMobile.Ads.AdMob.Privacy.GdprMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobGdprMappingTest::RunTest(const FString& Parameters)
+{
+	struct FCase
+	{
+		EOpenMobileAdsAdMobUMPConsentStatus Input;
+		bool bCanRequestAds;
+		EOpenMobileAdsConsentStatus Status;
+		EOpenMobileAdsGdprApplicability Applicability;
+		EOpenMobileAdsConsentRequirement Requirement;
+		EOpenMobileAdsConsentRequestState RequestState;
+	};
+	const FCase Cases[] = {
+		{
+			EOpenMobileAdsAdMobUMPConsentStatus::Unknown,
+			false,
+			EOpenMobileAdsConsentStatus::Unknown,
+			EOpenMobileAdsGdprApplicability::Unknown,
+			EOpenMobileAdsConsentRequirement::Unknown,
+			EOpenMobileAdsConsentRequestState::Blocked
+		},
+		{
+			EOpenMobileAdsAdMobUMPConsentStatus::NotRequired,
+			true,
+			EOpenMobileAdsConsentStatus::NotRequired,
+			EOpenMobileAdsGdprApplicability::NotApplicable,
+			EOpenMobileAdsConsentRequirement::NotRequired,
+			EOpenMobileAdsConsentRequestState::Allowed
+		},
+		{
+			EOpenMobileAdsAdMobUMPConsentStatus::Required,
+			false,
+			EOpenMobileAdsConsentStatus::Required,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Blocked
+		},
+		{
+			EOpenMobileAdsAdMobUMPConsentStatus::Obtained,
+			true,
+			EOpenMobileAdsConsentStatus::Obtained,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Allowed
+		},
+		{
+			EOpenMobileAdsAdMobUMPConsentStatus::Obtained,
+			false,
+			EOpenMobileAdsConsentStatus::Obtained,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Blocked
+		}
+	};
+
+	for (const FCase& Case : Cases)
+	{
+		const FOpenMobileAdsConsentStatusUpdate Update =
+			FOpenMobileAdsAdMobConsentMapper::MapGdprState(
+				Case.Input,
+				Case.bCanRequestAds,
+				TEXT("GoogleUMP")
+			);
+		TestEqual(TEXT("UMP status is normalized without overclaiming"), Update.Status, Case.Status);
+		TestEqual(TEXT("UMP GDPR applicability is normalized"), Update.GdprApplicability, Case.Applicability);
+		TestEqual(TEXT("UMP consent requirement is normalized"), Update.Requirement, Case.Requirement);
+		TestEqual(TEXT("UMP ad-request eligibility is normalized"), Update.RequestState, Case.RequestState);
+		TestEqual(TEXT("UMP mapping retains its provider source"), Update.Source, FName(TEXT("GoogleUMP")));
+		TestTrue(TEXT("A successful UMP update is fresh"), Update.bStatusFresh);
+		TestTrue(TEXT("UMP raw status is available for diagnostics"), Update.ProviderDetails.bIsAvailable);
+		TestFalse(TEXT("UMP raw status is not empty"), Update.ProviderDetails.RawStatus.IsEmpty());
+	}
 	return true;
 }
 

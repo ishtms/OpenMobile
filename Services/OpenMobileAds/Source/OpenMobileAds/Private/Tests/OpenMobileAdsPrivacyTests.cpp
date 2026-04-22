@@ -144,6 +144,16 @@ bool FOpenMobileAdsConsentStatusTransitionTest::RunTest(const FString& Parameter
 	Provider.Complete(EOpenMobileAdsConsentStatus::Granted);
 	Snapshot = Subsystem->GetConsentStatus();
 	TestEqual(TEXT("Granted is normalized"), Snapshot.ConsentStatus, EOpenMobileAdsConsentStatus::Granted);
+	TestEqual(
+		TEXT("Granted retains its required consent requirement"),
+		Snapshot.ConsentRequirement,
+		EOpenMobileAdsConsentRequirement::Required
+	);
+	TestEqual(
+		TEXT("Granted retains legacy request eligibility"),
+		Snapshot.ConsentRequestState,
+		EOpenMobileAdsConsentRequestState::Allowed
+	);
 	TestFalse(TEXT("Granted still requires initialized ads"), Snapshot.bCanRequestAds);
 	TestFalse(TEXT("A completed status clears stale raw details"), Snapshot.ProviderDetails.bIsAvailable);
 	TestFalse(TEXT("A completed status clears the prior failure"), Snapshot.Error.IsSet());
@@ -155,12 +165,32 @@ bool FOpenMobileAdsConsentStatusTransitionTest::RunTest(const FString& Parameter
 	Provider.Complete(EOpenMobileAdsConsentStatus::Denied);
 	Snapshot = Subsystem->GetConsentStatus();
 	TestEqual(TEXT("Denied is normalized"), Snapshot.ConsentStatus, EOpenMobileAdsConsentStatus::Denied);
+	TestEqual(
+		TEXT("Denied remains a required consent decision"),
+		Snapshot.ConsentRequirement,
+		EOpenMobileAdsConsentRequirement::Required
+	);
+	TestEqual(
+		TEXT("Denied blocks legacy request eligibility"),
+		Snapshot.ConsentRequestState,
+		EOpenMobileAdsConsentRequestState::Blocked
+	);
 	TestFalse(TEXT("Denied does not allow requests"), Snapshot.bCanRequestAds);
 
 	Provider.BeginRefresh();
 	Provider.Complete(EOpenMobileAdsConsentStatus::NotRequired);
 	Snapshot = Subsystem->GetConsentStatus();
 	TestEqual(TEXT("NotRequired is normalized"), Snapshot.ConsentStatus, EOpenMobileAdsConsentStatus::NotRequired);
+	TestEqual(
+		TEXT("NotRequired has an explicit consent requirement"),
+		Snapshot.ConsentRequirement,
+		EOpenMobileAdsConsentRequirement::NotRequired
+	);
+	TestEqual(
+		TEXT("NotRequired allows legacy request eligibility"),
+		Snapshot.ConsentRequestState,
+		EOpenMobileAdsConsentRequestState::Allowed
+	);
 	TestFalse(TEXT("NotRequired still requires initialized ads"), Snapshot.bCanRequestAds);
 	Provider.BeginRefresh();
 	Provider.Fail();
@@ -194,6 +224,144 @@ bool FOpenMobileAdsConsentStatusTransitionTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("Every accepted transition broadcasts once"), Events.Num(), 14);
 	TestEqual(TEXT("The final native event matches polling"), Events.Last().ConsentStatus, Snapshot.ConsentStatus);
 	Subsystem->OnNativeConsentStatusChanged().Remove(EventHandle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsGdprStateContractTest,
+	"OpenMobile.Ads.Privacy.Gdpr.StateAndFreshness",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsGdprStateContractTest::RunTest(const FString& Parameters)
+{
+	const FOpenMobileAdsConsentStatusUpdate GenericObtained =
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::Obtained,
+			TEXT("GenericConsent")
+		);
+	TestEqual(
+		TEXT("A generic obtained status does not imply request eligibility"),
+		GenericObtained.RequestState,
+		EOpenMobileAdsConsentRequestState::Unknown
+	);
+
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const FDateTime Now(2026, 8, 21, 12, 0, 0);
+	const FDateTime ExpiresAt = Now + FTimespan::FromHours(1.0);
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Obtained,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockGdpr"),
+			{},
+			true,
+			ExpiresAt,
+			true
+		)
+	);
+
+	FOpenMobileAdsPrivacySnapshot Snapshot = Subsystem->GetConsentStatus();
+	TestEqual(
+		TEXT("Obtained remains distinct from granted consent"),
+		Snapshot.ConsentStatus,
+		EOpenMobileAdsConsentStatus::Obtained
+	);
+	TestEqual(
+		TEXT("GDPR applicability is explicit"),
+		Snapshot.GdprApplicability,
+		EOpenMobileAdsGdprApplicability::Applicable
+	);
+	TestEqual(
+		TEXT("Consent requirement is separate from the decision"),
+		Snapshot.ConsentRequirement,
+		EOpenMobileAdsConsentRequirement::Required
+	);
+	TestEqual(
+		TEXT("Provider ad-request eligibility is explicit"),
+		Snapshot.ConsentRequestState,
+		EOpenMobileAdsConsentRequestState::Allowed
+	);
+	TestFalse(TEXT("A restored provider result starts stale"), Snapshot.bConsentStatusFresh);
+	TestEqual(TEXT("Provider expiry is retained"), Snapshot.ConsentExpiresAt, ExpiresAt);
+	TestTrue(
+		TEXT("Provider-owned persisted state is identified"),
+		Snapshot.bRestoredFromProviderStorage
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::BeginRefresh(TEXT("MockGdpr"))
+	);
+	Snapshot = Subsystem->GetConsentStatus();
+	TestEqual(
+		TEXT("Refreshing preserves the restored decision"),
+		Snapshot.ConsentStatus,
+		EOpenMobileAdsConsentStatus::Obtained
+	);
+	TestEqual(
+		TEXT("Refreshing preserves provider expiry"),
+		Snapshot.ConsentExpiresAt,
+		ExpiresAt
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Obtained,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockGdpr"),
+			{},
+			true,
+			ExpiresAt
+		)
+	);
+	Snapshot = Subsystem->GetConsentStatus();
+	TestTrue(TEXT("A completed session refresh is fresh"), Snapshot.bConsentStatusFresh);
+	TestFalse(
+		TEXT("A refreshed result is no longer marked restored"),
+		Snapshot.bRestoredFromProviderStorage
+	);
+	TestTrue(
+		TEXT("Consent is fresh immediately before its provider expiry"),
+		Snapshot.IsConsentStatusFreshAt(ExpiresAt - FTimespan(1))
+	);
+	TestFalse(
+		TEXT("Consent expires at the exact provider deadline"),
+		Snapshot.IsConsentStatusFreshAt(ExpiresAt)
+	);
+	TestFalse(
+		TEXT("Consent stays expired after its provider deadline"),
+		Snapshot.IsConsentStatusFreshAt(ExpiresAt + FTimespan(1))
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Fail(
+			TEXT("MockGdpr"),
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::NativeFailure,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The GDPR refresh failed.")
+			)
+		)
+	);
+	Snapshot = Subsystem->GetConsentStatus();
+	TestEqual(
+		TEXT("A refresh error preserves the last provider decision"),
+		Snapshot.ConsentStatus,
+		EOpenMobileAdsConsentStatus::Obtained
+	);
+	TestEqual(
+		TEXT("A refresh error preserves the provider expiry"),
+		Snapshot.ConsentExpiresAt,
+		ExpiresAt
+	);
+	TestTrue(TEXT("A refresh error remains observable"), Snapshot.Error.IsSet());
 	return true;
 }
 
@@ -352,6 +520,26 @@ bool FOpenMobileAdsCanRequestPolicyTest::RunTest(const FString& Parameters)
 		EOpenMobileAdsCanRequestAdsBlockReason::ProviderPolicy,
 		EOpenMobileAdsCanRequestAdsBlockType::Configuration,
 		TEXT("A terminal provider policy is classified")
+	);
+
+	Context.ProviderPolicy = FOpenMobileAdsProviderRequestPolicy();
+	Context.ConsentStatus = EOpenMobileAdsConsentStatus::Obtained;
+	Context.ConsentRequestState = EOpenMobileAdsConsentRequestState::Unknown;
+	ExpectBlock(
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentProviderBlocked,
+		EOpenMobileAdsCanRequestAdsBlockType::Temporary,
+		TEXT("Obtained consent does not imply ad-request eligibility")
+	);
+	Context.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	TestTrue(
+		TEXT("Provider-approved obtained consent allows requests"),
+		FOpenMobileAdsCanRequestPolicy::Evaluate(Context).bCanRequestAds
+	);
+	Context.ConsentRequestState = EOpenMobileAdsConsentRequestState::Blocked;
+	ExpectBlock(
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentProviderBlocked,
+		EOpenMobileAdsCanRequestAdsBlockType::Temporary,
+		TEXT("Provider-blocked obtained consent remains blocked")
 	);
 	return true;
 }
