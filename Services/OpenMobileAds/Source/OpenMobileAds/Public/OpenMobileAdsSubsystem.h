@@ -293,6 +293,7 @@ private:
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
 	bool bChildDirectedTreatmentLocked = false;
+	bool bUnderAgeOfConsentLocked = false;
 	bool bPrivacySnapshotInitialized = false;
 	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;

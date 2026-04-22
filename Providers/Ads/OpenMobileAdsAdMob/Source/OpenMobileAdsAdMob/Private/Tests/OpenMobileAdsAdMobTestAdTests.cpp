@@ -267,6 +267,71 @@ bool FOpenMobileAdsAdMobCoppaPropagationTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobUnderAgePropagationTest,
+	"OpenMobile.Ads.AdMob.Privacy.UnderAgePropagation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobUnderAgePropagationTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const EOpenMobileAdsAgeTreatment Treatments[] = {
+		EOpenMobileAdsAgeTreatment::Unspecified,
+		EOpenMobileAdsAgeTreatment::No,
+		EOpenMobileAdsAgeTreatment::Yes
+	};
+	for (const EOpenMobileAdsAgeTreatment Treatment : Treatments)
+	{
+		FOpenMobileAdsInitializationRequest Request;
+		Request.Platform = EOpenMobileAdsPlatform::Android;
+		Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+		Request.Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+		Request.Privacy.UnderAgeOfConsent = Treatment;
+		const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> Sink =
+			MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+		FOpenMobileAdsError Error;
+		TestTrue(
+			TEXT("AdMob accepts under-age configuration"),
+			Provider->Initialize(Request, Sink, Error)
+		);
+		TestEqual(
+			TEXT("AdMob forwards under-age configuration to its native backend"),
+			Backend.InitializationRequest.Privacy.UnderAgeOfConsent,
+			Treatment
+		);
+		TestEqual(
+			TEXT("AdMob keeps under-age treatment separate from COPPA"),
+			Backend.InitializationRequest.Privacy.ChildDirectedTreatment,
+			EOpenMobileAdsAgeTreatment::No
+		);
+		FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+			Backend.InitializationRequestId
+		);
+		Provider->Shutdown();
+	}
+
+	TestEqual(
+		TEXT("Each under-age state initializes the native backend once"),
+		Backend.InitializationCalls,
+		static_cast<int32>(UE_ARRAY_COUNT(Treatments))
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobLoadContractTest,
 	"OpenMobile.Ads.AdMob.Load.Contract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

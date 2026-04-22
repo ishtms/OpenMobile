@@ -98,7 +98,16 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacyConfiguration
 	EOpenMobileAdsAgeTreatment ChildDirectedTreatment =
 		EOpenMobileAdsAgeTreatment::Unspecified;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (
+			DisplayName = "Under-Age-of-Consent Treatment (TFUA)",
+			ToolTip = "Specifies under-age-of-consent treatment independently from the COPPA child-directed setting."
+		)
+	)
 	EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
 		EOpenMobileAdsAgeTreatment::Unspecified;
 

@@ -281,6 +281,47 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			ios_backend.index("startWithCompletionHandler"),
 		)
 
+	def test_admob_applies_under_age_before_sdk_initialization(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			"Request.Privacy.UnderAgeOfConsent",
+			android_backend,
+		)
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertLess(
+			android_upl.index(".setTagForUnderAgeOfConsent"),
+			android_upl.index("MobileAds.initialize"),
+		)
+		self.assertLess(
+			android_upl.index("MobileAds.setRequestConfiguration"),
+			android_upl.index("MobileAds.initialize"),
+		)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("Request.Privacy.UnderAgeOfConsent", ios_backend)
+		self.assertLess(
+			ios_backend.index("Configuration.tagForUnderAgeOfConsent"),
+			ios_backend.index("startWithCompletionHandler"),
+		)
+
 	def test_admob_ios_upl_owns_safe_plist_merging(self) -> None:
 		upl_path = (
 			ADMOB_PLUGIN

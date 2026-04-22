@@ -886,6 +886,14 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	Request.Privacy = Settings->Privacy;
 	Request.Privacy.ChildDirectedTreatment =
 		PrivacySnapshot.ChildDirectedTreatment;
+	Request.Privacy.UnderAgeOfConsent = PrivacySnapshot.UnderAgeOfConsent;
+	if (
+		Request.Privacy.UnderAgeOfConsent
+			== EOpenMobileAdsAgeTreatment::Yes
+	)
+	{
+		Request.Development.bEnableConsentDebug = false;
+	}
 	Request.RequestConfiguration = Settings->RequestConfiguration;
 
 	const FGuid RequestId = InitializationRequestId;
@@ -966,6 +974,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 
 	bProviderInitializationStarted = true;
 	bChildDirectedTreatmentLocked = true;
+	bUnderAgeOfConsentLocked = true;
 	Sink->Commit();
 	return FOpenMobileAdsOperationResult::Accepted(InitializationRequestId);
 }
@@ -1328,6 +1337,20 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 			TEXT("Child-directed treatment cannot change after provider initialization starts."),
 			SelectedProviderName,
 			TEXT("Set child-directed treatment before initializing ads, or restart the ads subsystem with the new value.")
+		));
+	}
+	if (
+		bUnderAgeOfConsentLocked
+		&& Snapshot.UnderAgeOfConsent != PrivacySnapshot.UnderAgeOfConsent
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("Under-age-of-consent treatment cannot change after provider initialization starts."),
+			SelectedProviderName,
+			TEXT("Set under-age-of-consent treatment before initializing ads, or restart the ads subsystem with the new value.")
 		));
 	}
 	if (Snapshot.LastUpdated == FDateTime())

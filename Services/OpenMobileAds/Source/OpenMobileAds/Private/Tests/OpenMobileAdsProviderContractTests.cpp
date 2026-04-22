@@ -69,6 +69,17 @@ namespace OpenMobileAdsProviderContractTests
 					TEXT("The mock provider does not accept child-directed requests.");
 				return Policy;
 			}
+			if (
+				bBlockUnderAgeRequests
+				&& Context.UnderAgeOfConsent == EOpenMobileAdsAgeTreatment::Yes
+			)
+			{
+				FOpenMobileAdsProviderRequestPolicy Policy;
+				Policy.State = EOpenMobileAdsProviderRequestPolicyState::Blocked;
+				Policy.Explanation =
+					TEXT("The mock provider does not accept under-age requests.");
+				return Policy;
+			}
 			return RequestPolicy;
 		}
 
@@ -192,6 +203,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptShow = true;
 		bool bAcceptDestroy = true;
 		bool bBlockChildDirectedRequests = false;
+		bool bBlockUnderAgeRequests = false;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
@@ -3545,6 +3557,133 @@ bool FOpenMobileAdsCoppaContractTest::RunTest(const FString& Parameters)
 	);
 	TestEqual(
 		TEXT("A rejected COPPA update does not broadcast a privacy change"),
+		PrivacyChanges,
+		0
+	);
+
+	Subsystem->OnNativeConsentStatusChanged().Remove(PrivacyHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsUnderAgeContractTest,
+	"OpenMobile.Ads.Privacy.UnderAge.ConfigurationLock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsUnderAgeContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	ScopedSettings.Settings->Privacy.ChildDirectedTreatment =
+		EOpenMobileAdsAgeTreatment::No;
+
+	const EOpenMobileAdsAgeTreatment Treatments[] = {
+		EOpenMobileAdsAgeTreatment::Unspecified,
+		EOpenMobileAdsAgeTreatment::No,
+		EOpenMobileAdsAgeTreatment::Yes
+	};
+	for (const EOpenMobileAdsAgeTreatment Treatment : Treatments)
+	{
+		ScopedSettings.Settings->Privacy.UnderAgeOfConsent = Treatment;
+		FMockProvider Provider(TEXT("MockAds"));
+		FScopedProviderRegistration Registration(Provider);
+		UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+			NewObject<UGameInstance>()
+		);
+
+		const FOpenMobileAdsOperationResult Started = Subsystem->InitializeAds();
+		TestTrue(TEXT("Under-age configuration is accepted"), Started.bAccepted);
+		TestEqual(
+			TEXT("Under-age configuration reaches the provider unchanged"),
+			Provider.LastInitializationRequest.Privacy.UnderAgeOfConsent,
+			Treatment
+		);
+		TestEqual(
+			TEXT("Under-age configuration does not change COPPA treatment"),
+			Provider.LastInitializationRequest.Privacy.ChildDirectedTreatment,
+			EOpenMobileAdsAgeTreatment::No
+		);
+		TestEqual(
+			TEXT("Under-age treatment restricts consent debug intent"),
+			Provider.LastInitializationRequest.Development.bEnableConsentDebug,
+			Treatment != EOpenMobileAdsAgeTreatment::Yes
+		);
+		Subsystem->Deinitialize();
+	}
+
+	ScopedSettings.Settings->bDevelopmentTestMode = false;
+	ScopedSettings.Settings->Privacy.UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::No;
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Privacy.bConsentStatusFresh = true;
+	Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+	Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::Yes;
+	TestTrue(
+		TEXT("A pre-start under-age update is accepted"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+	TestTrue(
+		TEXT("Initialization accepts a pre-start under-age update"),
+		Subsystem->InitializeAds().bAccepted
+	);
+	TestEqual(
+		TEXT("The pre-start under-age value reaches provider initialization"),
+		Provider.LastInitializationRequest.Privacy.UnderAgeOfConsent,
+		EOpenMobileAdsAgeTreatment::Yes
+	);
+
+	Provider.CompleteInitialization();
+	DrainGameThreadTasks();
+	Provider.bBlockUnderAgeRequests = true;
+	TestEqual(
+		TEXT("Under-age treatment reaches ad-request policy"),
+		Subsystem->CanRequestAds().BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ProviderPolicy
+	);
+
+	int32 PrivacyChanges = 0;
+	const FDelegateHandle PrivacyHandle =
+		Subsystem->OnNativeConsentStatusChanged().AddLambda(
+			[&PrivacyChanges](const FOpenMobileAdsPrivacySnapshot& Snapshot)
+			{
+				++PrivacyChanges;
+			}
+		);
+	Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	const FOpenMobileAdsOperationResult RejectedUpdate =
+		Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestFalse(
+		TEXT("A post-start under-age update is rejected"),
+		RejectedUpdate.bAccepted
+	);
+	TestEqual(
+		TEXT("A post-start under-age update returns an invalid-state error"),
+		RejectedUpdate.Error.Code,
+		EOpenMobileAdsErrorCode::InvalidState
+	);
+	TestEqual(
+		TEXT("A post-start under-age update identifies the consent stage"),
+		RejectedUpdate.Error.Stage,
+		EOpenMobileAdsFailureStage::Consent
+	);
+	TestEqual(
+		TEXT("Under-age configuration stays fixed after initialization starts"),
+		Subsystem->GetPrivacySnapshot().UnderAgeOfConsent,
+		EOpenMobileAdsAgeTreatment::Yes
+	);
+	TestEqual(
+		TEXT("A rejected under-age update does not broadcast a privacy change"),
 		PrivacyChanges,
 		0
 	);
