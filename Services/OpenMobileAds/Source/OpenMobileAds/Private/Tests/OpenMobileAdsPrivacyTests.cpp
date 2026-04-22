@@ -541,6 +541,140 @@ bool FOpenMobileAdsCanRequestPolicyTest::RunTest(const FString& Parameters)
 		EOpenMobileAdsCanRequestAdsBlockType::Temporary,
 		TEXT("Provider-blocked obtained consent remains blocked")
 	);
+
+	Context.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Context.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	Context.UsPrivacy.Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	Context.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	Context.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
+	ExpectBlock(
+		EOpenMobileAdsCanRequestAdsBlockReason::PrivacySignalInvalid,
+		EOpenMobileAdsCanRequestAdsBlockType::Configuration,
+		TEXT("An opt-out cannot use standard data processing")
+	);
+	Context.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Unspecified;
+	ExpectBlock(
+		EOpenMobileAdsCanRequestAdsBlockReason::PrivacySignalInvalid,
+		EOpenMobileAdsCanRequestAdsBlockType::Configuration,
+		TEXT("An opt-out requires an explicit provider signal")
+	);
+	Context.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::ProviderManaged;
+	TestTrue(
+		TEXT("A provider-managed opt-out can request ads"),
+		FOpenMobileAdsCanRequestPolicy::Evaluate(Context).bCanRequestAds
+	);
+	Context.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	TestTrue(
+		TEXT("A restricted opt-out can request ads"),
+		FOpenMobileAdsCanRequestPolicy::Evaluate(Context).bCanRequestAds
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsUsPrivacyStateContractTest,
+	"OpenMobile.Ads.Privacy.UsState.StateAndChoiceChanges",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsUsPrivacyStateContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	FOpenMobileAdsPrivacySnapshot Snapshot = Subsystem->GetPrivacySnapshot();
+	TestEqual(
+		TEXT("US-state applicability starts unknown"),
+		Snapshot.UsPrivacy.Applicability,
+		EOpenMobileAdsUsPrivacyApplicability::Unknown
+	);
+	TestEqual(
+		TEXT("The US-state choice starts unknown"),
+		Snapshot.UsPrivacy.Choice,
+		EOpenMobileAdsUsPrivacyChoice::Unknown
+	);
+	TestEqual(
+		TEXT("Privacy-options requirements start unknown"),
+		Snapshot.UsPrivacy.PrivacyOptionsRequirement,
+		EOpenMobileAdsPrivacyOptionsRequirement::Unknown
+	);
+
+	TArray<FOpenMobileAdsUsPrivacyState> Events;
+	const FDelegateHandle EventHandle =
+		Subsystem->OnNativeConsentStatusChanged().AddLambda(
+			[&Events](const FOpenMobileAdsPrivacySnapshot& Event)
+			{
+				Events.Add(Event.UsPrivacy);
+			}
+		);
+	auto ApplyState = [Subsystem](FOpenMobileAdsUsPrivacyState UsPrivacy)
+	{
+		FOpenMobileAdsConsentStatusUpdate Update =
+			FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+				EOpenMobileAdsConsentStatus::NotRequired,
+				EOpenMobileAdsGdprApplicability::Unknown,
+				EOpenMobileAdsConsentRequirement::NotRequired,
+				EOpenMobileAdsConsentRequestState::Allowed,
+				TEXT("MockUsPrivacy")
+			);
+		Update.UsPrivacy = UsPrivacy;
+		Subsystem->ApplyConsentStatusUpdate(MoveTemp(Update));
+	};
+
+	FOpenMobileAdsUsPrivacyState State;
+	State.Applicability = EOpenMobileAdsUsPrivacyApplicability::NotApplicable;
+	State.PrivacyOptionsRequirement =
+		EOpenMobileAdsPrivacyOptionsRequirement::NotRequired;
+	State.DataProcessingMode = EOpenMobileAdsDataProcessingMode::Standard;
+	ApplyState(State);
+	Snapshot = Subsystem->GetPrivacySnapshot();
+	TestEqual(
+		TEXT("A not-applicable provider result is represented explicitly"),
+		Snapshot.UsPrivacy.Applicability,
+		EOpenMobileAdsUsPrivacyApplicability::NotApplicable
+	);
+
+	State.Applicability = EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	State.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	State.PrivacyOptionsRequirement =
+		EOpenMobileAdsPrivacyOptionsRequirement::Required;
+	ApplyState(State);
+	Snapshot = Subsystem->GetPrivacySnapshot();
+	TestEqual(
+		TEXT("An opted-in choice is normalized"),
+		Snapshot.UsPrivacy.Choice,
+		EOpenMobileAdsUsPrivacyChoice::OptedIn
+	);
+	TestEqual(
+		TEXT("A required privacy-options path is exposed"),
+		Snapshot.UsPrivacy.PrivacyOptionsRequirement,
+		EOpenMobileAdsPrivacyOptionsRequirement::Required
+	);
+
+	State.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	State.DataProcessingMode = EOpenMobileAdsDataProcessingMode::Restricted;
+	ApplyState(State);
+	Snapshot = Subsystem->GetPrivacySnapshot();
+	TestEqual(
+		TEXT("A changed opt-out choice replaces the prior choice"),
+		Snapshot.UsPrivacy.Choice,
+		EOpenMobileAdsUsPrivacyChoice::OptedOut
+	);
+	TestEqual(
+		TEXT("The changed choice carries its provider request signal"),
+		Snapshot.UsPrivacy.DataProcessingMode,
+		EOpenMobileAdsDataProcessingMode::Restricted
+	);
+	TestEqual(TEXT("Each completed choice broadcasts once"), Events.Num(), 3);
+
+	Subsystem->OnNativeConsentStatusChanged().Remove(EventHandle);
 	return true;
 }
 

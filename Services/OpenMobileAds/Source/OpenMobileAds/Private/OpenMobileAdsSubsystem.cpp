@@ -96,6 +96,20 @@ namespace OpenMobileAdsPrivate
 {
 	constexpr int32 MaxDismissedShowRewardContexts = 64;
 
+	FOpenMobileAdsProviderRequestContext MakeProviderPrivacyContext(
+		const FOpenMobileAdsPrivacySnapshot& Snapshot
+	)
+	{
+		FOpenMobileAdsProviderRequestContext Context;
+		Context.ConsentStatus = Snapshot.ConsentStatus;
+		Context.bConsentStatusFresh =
+			Snapshot.IsConsentStatusFreshAt(FDateTime::UtcNow());
+		Context.ChildDirectedTreatment = Snapshot.ChildDirectedTreatment;
+		Context.UnderAgeOfConsent = Snapshot.UnderAgeOfConsent;
+		Context.UsPrivacy = Snapshot.UsPrivacy;
+		return Context;
+	}
+
 	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
 	{
 	public:
@@ -887,6 +901,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	Request.Privacy.ChildDirectedTreatment =
 		PrivacySnapshot.ChildDirectedTreatment;
 	Request.Privacy.UnderAgeOfConsent = PrivacySnapshot.UnderAgeOfConsent;
+	Request.PrivacyContext =
+		OpenMobileAdsPrivate::MakeProviderPrivacyContext(PrivacySnapshot);
 	if (
 		Request.Privacy.UnderAgeOfConsent
 			== EOpenMobileAdsAgeTreatment::Yes
@@ -1191,6 +1207,7 @@ FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::EvaluateCanRequestAds
 	Context.ConsentStatus = PrivacySnapshot.ConsentStatus;
 	Context.ConsentActivity = PrivacySnapshot.ConsentActivity;
 	Context.ConsentRequestState = PrivacySnapshot.ConsentRequestState;
+	Context.UsPrivacy = PrivacySnapshot.UsPrivacy;
 	Context.bConsentStatusFresh =
 		PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow());
 	IOpenMobileAdsProvider* Provider = nullptr;
@@ -1215,12 +1232,8 @@ FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::EvaluateCanRequestAds
 		return Decision;
 	}
 
-	FOpenMobileAdsProviderRequestContext ProviderContext;
-	ProviderContext.ConsentStatus = PrivacySnapshot.ConsentStatus;
-	ProviderContext.bConsentStatusFresh = PrivacySnapshot.bConsentStatusFresh;
-	ProviderContext.ChildDirectedTreatment =
-		PrivacySnapshot.ChildDirectedTreatment;
-	ProviderContext.UnderAgeOfConsent = PrivacySnapshot.UnderAgeOfConsent;
+	const FOpenMobileAdsProviderRequestContext ProviderContext =
+		OpenMobileAdsPrivate::MakeProviderPrivacyContext(PrivacySnapshot);
 	Context.ProviderPolicy = Provider->GetRequestPolicy(ProviderContext);
 	return FOpenMobileAdsCanRequestPolicy::Evaluate(Context);
 }
@@ -1432,6 +1445,7 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 			EOpenMobileAdsConsentRequirement::Unknown;
 		PrivacySnapshot.ConsentRequestState =
 			EOpenMobileAdsConsentRequestState::Unknown;
+		PrivacySnapshot.UsPrivacy = FOpenMobileAdsUsPrivacyState();
 		PrivacySnapshot.bConsentStatusFresh = false;
 		PrivacySnapshot.ConsentExpiresAt = FDateTime();
 		PrivacySnapshot.bRestoredFromProviderStorage = false;
@@ -1445,6 +1459,7 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 		PrivacySnapshot.GdprApplicability = Update.GdprApplicability;
 		PrivacySnapshot.ConsentRequirement = Update.Requirement;
 		PrivacySnapshot.ConsentRequestState = Update.RequestState;
+		PrivacySnapshot.UsPrivacy = Update.UsPrivacy;
 		PrivacySnapshot.bConsentStatusFresh = Update.bStatusFresh;
 		PrivacySnapshot.ConsentExpiresAt = Update.ExpiresAt;
 		PrivacySnapshot.bRestoredFromProviderStorage =
@@ -1757,6 +1772,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	Request.RequestId = Status.ActiveRequestId;
 	Request.Placement = MoveTemp(ResolvedPlacement);
 	Request.Options = MoveTemp(Options);
+	Request.PrivacyContext =
+		OpenMobileAdsPrivate::MakeProviderPrivacyContext(PrivacySnapshot);
 	const TSharedRef<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe> Sink =
 		MakeShared<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe>(
 			EventDispatcher.ToSharedRef(),

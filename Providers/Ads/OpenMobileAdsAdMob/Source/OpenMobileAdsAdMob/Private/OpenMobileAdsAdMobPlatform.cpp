@@ -269,6 +269,7 @@ bool FOpenMobileAdsAdMobPlatform::BeginLoad(
 	if (!Backend->LoadRewardedAd(
 		Request.Placement.AdUnitId,
 		NativeRequestId,
+		Request.PrivacyContext.UsPrivacy.DataProcessingMode,
 		OutError
 	))
 	{

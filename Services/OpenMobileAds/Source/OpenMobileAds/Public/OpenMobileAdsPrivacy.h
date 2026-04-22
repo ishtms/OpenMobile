@@ -40,6 +40,61 @@ enum class EOpenMobileAdsConsentRequestState : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileAdsUsPrivacyApplicability : uint8
+{
+	Unknown,
+	NotApplicable,
+	Applicable
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsUsPrivacyChoice : uint8
+{
+	Unknown,
+	OptedIn,
+	OptedOut
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsPrivacyOptionsRequirement : uint8
+{
+	Unknown,
+	NotRequired,
+	Required
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsDataProcessingMode : uint8
+{
+	Unspecified = 0,
+	ProviderManaged = 1,
+	Standard = 2,
+	Restricted = 3
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsUsPrivacyState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsUsPrivacyApplicability Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsUsPrivacyChoice Choice =
+		EOpenMobileAdsUsPrivacyChoice::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsPrivacyOptionsRequirement PrivacyOptionsRequirement =
+		EOpenMobileAdsPrivacyOptionsRequirement::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsDataProcessingMode DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Unspecified;
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileAdsConsentActivity : uint8
 {
 	Idle,
@@ -84,6 +139,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsProviderRequestContext
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
 		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsUsPrivacyState UsPrivacy;
 };
 
 USTRUCT(BlueprintType)
@@ -173,6 +231,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 		EOpenMobileAdsConsentRequestState::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsUsPrivacyState UsPrivacy;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsAgeTreatment ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Unspecified;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
@@ -229,7 +290,8 @@ enum class EOpenMobileAdsCanRequestAdsBlockReason : uint8
 	ConsentRequired,
 	ConsentDenied,
 	ProviderPolicy,
-	ConsentProviderBlocked
+	ConsentProviderBlocked,
+	PrivacySignalInvalid
 };
 
 UENUM(BlueprintType)
@@ -299,6 +361,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 		EOpenMobileAdsConsentRequirement::Unknown;
 	EOpenMobileAdsConsentRequestState RequestState =
 		EOpenMobileAdsConsentRequestState::Unknown;
+	FOpenMobileAdsUsPrivacyState UsPrivacy;
 	FName Source;
 	FOpenMobileAdsConsentProviderDetails ProviderDetails;
 	FOpenMobileAdsError Error;

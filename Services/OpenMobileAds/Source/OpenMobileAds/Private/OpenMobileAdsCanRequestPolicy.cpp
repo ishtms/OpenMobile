@@ -181,6 +181,21 @@ FOpenMobileAdsCanRequestAdsResult FOpenMobileAdsCanRequestPolicy::Evaluate(
 				: TEXT("The consent provider has not confirmed ad-request eligibility.")
 		);
 	}
+	if (
+		Context.UsPrivacy.Choice == EOpenMobileAdsUsPrivacyChoice::OptedOut
+		&& Context.UsPrivacy.DataProcessingMode
+			!= EOpenMobileAdsDataProcessingMode::ProviderManaged
+		&& Context.UsPrivacy.DataProcessingMode
+			!= EOpenMobileAdsDataProcessingMode::Restricted
+	)
+	{
+		return Blocked(
+			Context,
+			EOpenMobileAdsCanRequestAdsBlockReason::PrivacySignalInvalid,
+			EOpenMobileAdsCanRequestAdsBlockType::Configuration,
+			TEXT("The current opt-out has no restricted or provider-managed ad-request signal.")
+		);
+	}
 
 	switch (Context.ProviderPolicy.State)
 	{

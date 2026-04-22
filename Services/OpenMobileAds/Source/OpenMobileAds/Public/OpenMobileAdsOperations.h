@@ -91,6 +91,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsInitializationRequest
 
 	FOpenMobileAdsPrivacyConfiguration Privacy;
 
+	FOpenMobileAdsProviderRequestContext PrivacyContext;
+
 	FOpenMobileAdsRequestConfiguration RequestConfiguration;
 };
 
@@ -119,6 +121,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsLoadRequest
 	FOpenMobileAdsResolvedPlacement Placement;
 
 	FOpenMobileAdsLoadOptions Options;
+
+	FOpenMobileAdsProviderRequestContext PrivacyContext;
 };
 
 struct OPENMOBILEADS_API FOpenMobileAdsShowRequest

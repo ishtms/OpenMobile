@@ -16,6 +16,7 @@ public:
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,
+		EOpenMobileAdsDataProcessingMode DataProcessingMode,
 		FString& OutError
 	) override;
 	virtual void CancelRewardedAd(int64 RequestId) override;

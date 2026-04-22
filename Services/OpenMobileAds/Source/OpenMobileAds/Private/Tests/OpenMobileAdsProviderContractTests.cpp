@@ -3805,6 +3805,98 @@ bool FOpenMobileAdsGdprRequestGateContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsUsPrivacyPropagationContractTest,
+	"OpenMobile.Ads.Privacy.UsState.ProviderPropagation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsUsPrivacyPropagationContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("UsPrivacyReward");
+	Placement.Android.AdUnitId = TEXT("android-us-privacy");
+	Placement.IOS.AdUnitId = TEXT("ios-us-privacy");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	FOpenMobileAdsPrivacySnapshot Privacy;
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Privacy.ConsentRequirement = EOpenMobileAdsConsentRequirement::NotRequired;
+	Privacy.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	Privacy.bConsentStatusFresh = true;
+	Privacy.UsPrivacy.Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	Privacy.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	Privacy.UsPrivacy.PrivacyOptionsRequirement =
+		EOpenMobileAdsPrivacyOptionsRequirement::Required;
+	Privacy.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	Privacy.Source = TEXT("MockUsPrivacy");
+	TestTrue(
+		TEXT("US-state privacy can be set before initialization"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+	TestTrue(
+		TEXT("The provider initializes after US-state privacy is set"),
+		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+	TestEqual(
+		TEXT("US-state applicability reaches provider initialization"),
+		Provider.LastInitializationRequest.PrivacyContext.UsPrivacy.Applicability,
+		EOpenMobileAdsUsPrivacyApplicability::Applicable
+	);
+	TestEqual(
+		TEXT("The opt-out reaches provider initialization"),
+		Provider.LastInitializationRequest.PrivacyContext.UsPrivacy.Choice,
+		EOpenMobileAdsUsPrivacyChoice::OptedOut
+	);
+	TestEqual(
+		TEXT("Restricted processing reaches provider initialization"),
+		Provider.LastInitializationRequest.PrivacyContext.UsPrivacy.DataProcessingMode,
+		EOpenMobileAdsDataProcessingMode::Restricted
+	);
+
+	Privacy.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	Privacy.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
+	TestTrue(
+		TEXT("A changed US-state choice is accepted after initialization"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+	const FOpenMobileAdsOperationResult LoadResult =
+		Subsystem->LoadAd(TEXT("UsPrivacyReward"));
+	TestTrue(
+		TEXT("The changed choice allows an ad load"),
+		LoadResult.bAccepted
+	);
+	TestEqual(
+		TEXT("The changed opt-in reaches the provider load"),
+		Provider.LastLoadRequest.PrivacyContext.UsPrivacy.Choice,
+		EOpenMobileAdsUsPrivacyChoice::OptedIn
+	);
+	TestEqual(
+		TEXT("Standard processing reaches the provider load"),
+		Provider.LastLoadRequest.PrivacyContext.UsPrivacy.DataProcessingMode,
+		EOpenMobileAdsDataProcessingMode::Standard
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsInitializationIdempotencyContractTest,
 	"OpenMobile.Ads.ProviderContract.Initialization.IdempotencyAndConfiguration",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

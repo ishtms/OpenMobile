@@ -80,6 +80,7 @@ dependencies {
 
     <gameActivityImportAdditions>
         <insert>
+import android.preference.PreferenceManager;
 import com.google.android.gms.ads.AdError;
 import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.AdValue;
@@ -109,6 +110,8 @@ import java.util.Set;
     private RewardedAd openMobileRewardedAd = null;
     private boolean openMobileRewardedAdLoading = false;
     private boolean openMobileRewardedAdsInitialized = false;
+    private static final int OPEN_MOBILE_DATA_PROCESSING_STANDARD = 2;
+    private static final int OPEN_MOBILE_DATA_PROCESSING_RESTRICTED = 3;
     private boolean openMobileRewardedAdsInitializing = false;
     private InitializationStatus openMobileRewardedAdsInitializationStatus = null;
     private long openMobileActiveRewardedShowRequestId = 0;
@@ -272,7 +275,8 @@ import java.util.Set;
 
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         final String adUnitId,
-        final long requestId
+        final long requestId,
+        final int dataProcessingMode
     )
     {
         try
@@ -303,6 +307,16 @@ import java.util.Set;
                     }
 
                     openMobileRewardedAdLoadRequests.add(requestId);
+                    if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_RESTRICTED)
+                    {
+                        PreferenceManager.getDefaultSharedPreferences(activityContext)
+                            .edit().putInt("gad_rdp", 1).apply();
+                    }
+                    else if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_STANDARD)
+                    {
+                        PreferenceManager.getDefaultSharedPreferences(activityContext)
+                            .edit().remove("gad_rdp").apply();
+                    }
                     try
                     {
                         RewardedAd.load(
@@ -650,7 +664,8 @@ import java.util.Set;
     public void AndroidThunkJava_ShutdownOpenMobileRewardedAds();
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         java.lang.String,
-        long
+        long,
+        int
     );
     public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(long);
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(

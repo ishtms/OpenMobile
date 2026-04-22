@@ -36,11 +36,13 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual bool LoadRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
+			EOpenMobileAdsDataProcessingMode DataProcessingMode,
 			FString& OutError
 		) override
 		{
 			LoadedAdUnitIds.Add(AdUnitId);
 			LoadRequestIds.Add(RequestId);
+			LoadDataProcessingModes.Add(DataProcessingMode);
 			return true;
 		}
 
@@ -88,6 +90,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FString ShownServerVerificationCustomData;
 		TArray<FString> LoadedAdUnitIds;
 		TArray<int64> LoadRequestIds;
+		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<int64> CancelledRequestIds;
 	};
 
@@ -409,6 +412,81 @@ bool FOpenMobileAdsAdMobGdprMappingTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("UMP raw status is available for diagnostics"), Update.ProviderDetails.bIsAvailable);
 		TestFalse(TEXT("UMP raw status is not empty"), Update.ProviderDetails.RawStatus.IsEmpty());
 	}
+	const FOpenMobileAdsConsentStatusUpdate CombinedUpdate =
+		FOpenMobileAdsAdMobConsentMapper::MapGdprState(
+			EOpenMobileAdsAdMobUMPConsentStatus::Obtained,
+			true,
+			TEXT("GoogleUMP"),
+			EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Required
+		);
+	TestEqual(
+		TEXT("One UMP update includes its privacy-options requirement"),
+		CombinedUpdate.UsPrivacy.PrivacyOptionsRequirement,
+		EOpenMobileAdsPrivacyOptionsRequirement::Required
+	);
+	TestEqual(
+		TEXT("One UMP update preserves provider-managed GPP"),
+		CombinedUpdate.UsPrivacy.DataProcessingMode,
+		EOpenMobileAdsDataProcessingMode::ProviderManaged
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobUsPrivacyMappingTest,
+	"OpenMobile.Ads.AdMob.Privacy.UsStateMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobUsPrivacyMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	struct FCase
+	{
+		EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement Input;
+		EOpenMobileAdsPrivacyOptionsRequirement Expected;
+	};
+	const FCase Cases[] = {
+		{
+			EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Unknown,
+			EOpenMobileAdsPrivacyOptionsRequirement::Unknown
+		},
+		{
+			EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::NotRequired,
+			EOpenMobileAdsPrivacyOptionsRequirement::NotRequired
+		},
+		{
+			EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Required,
+			EOpenMobileAdsPrivacyOptionsRequirement::Required
+		}
+	};
+
+	for (const FCase& Case : Cases)
+	{
+		const FOpenMobileAdsUsPrivacyState State =
+			FOpenMobileAdsAdMobConsentMapper::MapUsPrivacyState(Case.Input);
+		TestEqual(
+			TEXT("UMP privacy-options requirements are normalized"),
+			State.PrivacyOptionsRequirement,
+			Case.Expected
+		);
+		TestEqual(
+			TEXT("UMP does not imply a US-state region"),
+			State.Applicability,
+			EOpenMobileAdsUsPrivacyApplicability::Unknown
+		);
+		TestEqual(
+			TEXT("UMP does not expose an opt-in or opt-out choice directly"),
+			State.Choice,
+			EOpenMobileAdsUsPrivacyChoice::Unknown
+		);
+		TestEqual(
+			TEXT("UMP-owned GPP remains provider managed"),
+			State.DataProcessingMode,
+			EOpenMobileAdsDataProcessingMode::ProviderManaged
+		);
+	}
 	return true;
 }
 
@@ -464,6 +542,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	First.Placement.Placement = TEXT("RewardOne");
 	First.Placement.Format = EOpenMobileAdFormat::Rewarded;
 	First.Placement.AdUnitId = TEXT("production-unit-one");
+	First.PrivacyContext.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FirstSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError FirstError;
@@ -477,6 +557,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	Second.Placement.Placement = TEXT("RewardTwo");
 	Second.Placement.Format = EOpenMobileAdFormat::Rewarded;
 	Second.Placement.AdUnitId = TEXT("production-unit-two");
+	Second.PrivacyContext.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::ProviderManaged;
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> SecondSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError SecondError;
@@ -485,6 +567,24 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 		Provider->Load(Second, SecondSink, SecondError)
 	);
 	TestEqual(TEXT("Both loads reach the backend"), Backend.LoadRequestIds.Num(), 2);
+	TestEqual(
+		TEXT("Each load carries one data-processing mode"),
+		Backend.LoadDataProcessingModes.Num(),
+		2
+	);
+	if (Backend.LoadDataProcessingModes.Num() == 2)
+	{
+		TestEqual(
+			TEXT("An opt-out requests restricted processing"),
+			Backend.LoadDataProcessingModes[0],
+			EOpenMobileAdsDataProcessingMode::Restricted
+		);
+		TestEqual(
+			TEXT("UMP-owned GPP stays provider managed"),
+			Backend.LoadDataProcessingModes[1],
+			EOpenMobileAdsDataProcessingMode::ProviderManaged
+		);
+	}
 	for (const FString& AdUnitId : Backend.LoadedAdUnitIds)
 	{
 		TestEqual(
@@ -531,6 +631,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	FOpenMobileAdsLoadRequest Replacement = First;
 	Replacement.RequestId = FGuid::NewGuid();
 	Replacement.Options.bForceReload = true;
+	Replacement.PrivacyContext.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ReplacementSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError ReplacementError;
@@ -538,6 +640,14 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 		TEXT("A placement can replace its completed native load"),
 		Provider->Load(Replacement, ReplacementSink, ReplacementError)
 	);
+	if (Backend.LoadDataProcessingModes.Num() == 3)
+	{
+		TestEqual(
+			TEXT("A changed opt-in clears restricted processing"),
+			Backend.LoadDataProcessingModes[2],
+			EOpenMobileAdsDataProcessingMode::Standard
+		);
+	}
 	if (Backend.LoadRequestIds.Num() == 3)
 	{
 		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(

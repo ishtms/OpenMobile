@@ -208,6 +208,7 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
+	const EOpenMobileAdsDataProcessingMode DataProcessingMode,
 	FString& OutError
 )
 {
@@ -248,6 +249,14 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 		}
 
 		[GOpenMobileRewardedAdLoadRequests addObject:Key];
+		if (DataProcessingMode == EOpenMobileAdsDataProcessingMode::Restricted)
+		{
+			[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"gad_rdp"];
+		}
+		else if (DataProcessingMode == EOpenMobileAdsDataProcessingMode::Standard)
+		{
+			[NSUserDefaults.standardUserDefaults removeObjectForKey:@"gad_rdp"];
+		}
 		[GADRewardedAd loadWithAdUnitID:IOSAdUnitId
 						   request:[GADRequest request]
 					completionHandler:^(GADRewardedAd* RewardedAd, NSError* Error)

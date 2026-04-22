@@ -124,6 +124,7 @@ void FOpenMobileAdsAdMobAndroidBackend::Shutdown()
 bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
 	FString& OutError
 )
 {
@@ -138,7 +139,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_LoadOpenMobileRewardedAd",
-		"(Ljava/lang/String;J)Z",
+		"(Ljava/lang/String;JI)Z",
 		false
 	);
 	if (!LoadMethod)
@@ -153,7 +154,8 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 		FJavaWrapper::GameActivityThis,
 		LoadMethod,
 		*JavaAdUnitId,
-		static_cast<jlong>(RequestId)
+		static_cast<jlong>(RequestId),
+		static_cast<jint>(DataProcessingMode)
 	);
 	if (!bScheduled)
 	{

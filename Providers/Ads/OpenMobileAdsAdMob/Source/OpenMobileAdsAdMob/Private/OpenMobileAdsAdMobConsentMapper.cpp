@@ -54,14 +54,16 @@ FOpenMobileAdsConsentStatusUpdate
 FOpenMobileAdsAdMobConsentMapper::MapGdprState(
 	EOpenMobileAdsAdMobUMPConsentStatus Status,
 	bool bCanRequestAds,
-	FName Source
+	FName Source,
+	EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement PrivacyOptions
 )
 {
 	const FNormalizedStatus Normalized = Normalize(Status);
 	FOpenMobileAdsConsentProviderDetails Details;
 	Details.bIsAvailable = true;
 	Details.RawStatus = Normalized.RawStatus;
-	return FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+	FOpenMobileAdsConsentStatusUpdate Update =
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
 		Normalized.Status,
 		Normalized.Applicability,
 		Normalized.Requirement,
@@ -71,4 +73,33 @@ FOpenMobileAdsAdMobConsentMapper::MapGdprState(
 		Source,
 		MoveTemp(Details)
 	);
+	Update.UsPrivacy = MapUsPrivacyState(PrivacyOptions);
+	return Update;
+}
+
+FOpenMobileAdsUsPrivacyState
+FOpenMobileAdsAdMobConsentMapper::MapUsPrivacyState(
+	EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement Requirement
+)
+{
+	FOpenMobileAdsUsPrivacyState State;
+	State.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::ProviderManaged;
+	switch (Requirement)
+	{
+	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::NotRequired:
+		State.PrivacyOptionsRequirement =
+			EOpenMobileAdsPrivacyOptionsRequirement::NotRequired;
+		break;
+
+	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Required:
+		State.PrivacyOptionsRequirement =
+			EOpenMobileAdsPrivacyOptionsRequirement::Required;
+		break;
+
+	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Unknown:
+	default:
+		break;
+	}
+	return State;
 }

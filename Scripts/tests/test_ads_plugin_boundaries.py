@@ -322,6 +322,60 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			ios_backend.index("startWithCompletionHandler"),
 		)
 
+	def test_admob_applies_explicit_us_privacy_mode_before_ad_load(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_load = android_upl[
+			android_upl.index("AndroidThunkJava_LoadOpenMobileRewardedAd"):
+			android_upl.index("AndroidThunkJava_CancelOpenMobileRewardedAdLoad")
+		]
+		self.assertIn("final int dataProcessingMode", android_load)
+		self.assertIn('putInt("gad_rdp", 1)', android_load)
+		self.assertIn('remove("gad_rdp")', android_load)
+		self.assertLess(
+			android_load.index('putInt("gad_rdp", 1)'),
+			android_load.index("RewardedAd.load"),
+		)
+		self.assertLess(
+			android_load.index('remove("gad_rdp")'),
+			android_load.index("RewardedAd.load"),
+		)
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('"(Ljava/lang/String;JI)Z"', android_backend)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		ios_load = ios_backend[
+			ios_backend.index("FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd"):
+			ios_backend.index("FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd")
+		]
+		self.assertIn('setBool:YES forKey:@"gad_rdp"', ios_load)
+		self.assertIn('removeObjectForKey:@"gad_rdp"', ios_load)
+		self.assertLess(
+			ios_load.index('setBool:YES forKey:@"gad_rdp"'),
+			ios_load.index("GADRewardedAd loadWithAdUnitID"),
+		)
+		self.assertLess(
+			ios_load.index('removeObjectForKey:@"gad_rdp"'),
+			ios_load.index("GADRewardedAd loadWithAdUnitID"),
+		)
+
 	def test_admob_ios_upl_owns_safe_plist_merging(self) -> None:
 		upl_path = (
 			ADMOB_PLUGIN
