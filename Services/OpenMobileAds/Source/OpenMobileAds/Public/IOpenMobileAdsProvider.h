@@ -7,6 +7,7 @@
 #include "OpenMobileAdsEvents.h"
 #include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
+#include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileCoreTypes.h"
 
 DECLARE_DELEGATE(FOpenMobileRewardedAdLoadedCallback);
@@ -57,6 +58,9 @@ public:
 	virtual int32 GetPriority() const { return 0; }
 	virtual bool IsSupported() const = 0;
 	virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const;
+	virtual FOpenMobileAdsProviderRequestPolicy GetRequestPolicy(
+		const FOpenMobileAdsProviderRequestContext& Context
+	) const;
 
 	virtual bool Initialize(
 		const FOpenMobileAdsInitializationRequest& Request,

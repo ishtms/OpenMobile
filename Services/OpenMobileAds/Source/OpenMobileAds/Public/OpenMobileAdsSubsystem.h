@@ -89,6 +89,14 @@ public:
 		return NativeConsentStatusChanged;
 	}
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	FOpenMobileAdsCanRequestAdsResult CanRequestAds() const;
+
+	FOpenMobileAdsCanRequestAdsNativeEvent& OnNativeCanRequestAdsChanged()
+	{
+		return NativeCanRequestAdsChanged;
+	}
+
 	void UpdatePrivacySnapshot(FOpenMobileAdsPrivacySnapshot Snapshot);
 	void ApplyConsentStatusUpdate(FOpenMobileAdsConsentStatusUpdate Update);
 
@@ -177,6 +185,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
 	FOpenMobileAdsConsentStatusDynamicEvent OnConsentStatusChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	FOpenMobileAdsCanRequestAdsDynamicEvent OnCanRequestAdsChanged;
+
 private:
 	friend class FOpenMobileAdsEventDispatcher;
 
@@ -194,6 +205,9 @@ private:
 		IOpenMobileAdsProvider* KnownProvider,
 		const FOpenMobileAdsResolvedPlacement* KnownPlacement
 	) const;
+	FOpenMobileAdsCanRequestAdsResult EvaluateCanRequestAds(
+		IOpenMobileAdsProvider* KnownProvider
+	) const;
 	void SubmitServiceEvent(FOpenMobileAdsEvent Event);
 	void HandleInitializationCompleted(
 		FGuid RequestId,
@@ -207,6 +221,7 @@ private:
 	);
 	void BroadcastInitializationStatus();
 	void BroadcastConsentStatus();
+	void RefreshCanRequestAdsDecision();
 	void ApplyConsentStatusUpdateOnGameThread(
 		FOpenMobileAdsConsentStatusUpdate Update
 	);
@@ -254,6 +269,7 @@ private:
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
+	FOpenMobileAdsCanRequestAdsNativeEvent NativeCanRequestAdsChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
 	FDelegateHandle NetworkConnectionChangedHandle;
 	FDelegateHandle ApplicationWillDeactivateHandle;
@@ -270,10 +286,12 @@ private:
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
+	FOpenMobileAdsCanRequestAdsResult LastCanRequestAdsDecision;
 	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
 	bool bPrivacySnapshotInitialized = false;
+	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;
 	bool bDeinitialized = false;
 	bool bApplicationActive = true;

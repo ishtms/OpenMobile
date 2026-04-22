@@ -7,6 +7,7 @@
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileAdsCanRequestPolicy.h"
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
@@ -320,12 +321,6 @@ namespace OpenMobileAdsPrivate
 			Error.NativeDiagnostics.Provider = Source;
 		}
 		return Error;
-	}
-
-	bool ConsentStatusAllowsAdRequests(EOpenMobileAdsConsentStatus Status)
-	{
-		return Status == EOpenMobileAdsConsentStatus::Granted
-			|| Status == EOpenMobileAdsConsentStatus::NotRequired;
 	}
 
 	class FContextualEventSink final : public IOpenMobileAdsProviderEventSink
@@ -1156,6 +1151,7 @@ void UOpenMobileAdsSubsystem::BroadcastInitializationStatus()
 	check(IsInGameThread());
 	InitializationStatus.ServiceState = ServiceState;
 	InitializationStatus.LastUpdated = FDateTime::UtcNow();
+	RefreshCanRequestAdsDecision();
 	NativeInitializationStatusChanged.Broadcast(InitializationStatus);
 	OnInitializationStatusChanged.Broadcast(InitializationStatus);
 }
@@ -1163,8 +1159,74 @@ void UOpenMobileAdsSubsystem::BroadcastInitializationStatus()
 void UOpenMobileAdsSubsystem::BroadcastConsentStatus()
 {
 	check(IsInGameThread());
+	RefreshCanRequestAdsDecision();
 	NativeConsentStatusChanged.Broadcast(PrivacySnapshot);
 	OnConsentStatusChanged.Broadcast(PrivacySnapshot);
+}
+
+FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::CanRequestAds() const
+{
+	return EvaluateCanRequestAds(nullptr);
+}
+
+FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::EvaluateCanRequestAds(
+	IOpenMobileAdsProvider* KnownProvider
+) const
+{
+	FOpenMobileAdsCanRequestAdsContext Context;
+	Context.ServiceState = ServiceState;
+	Context.Provider = SelectedProviderName;
+	Context.ConsentStatus = PrivacySnapshot.ConsentStatus;
+	Context.ConsentActivity = PrivacySnapshot.ConsentActivity;
+	Context.bConsentStatusFresh = PrivacySnapshot.bConsentStatusFresh;
+	IOpenMobileAdsProvider* Provider = nullptr;
+	if (ServiceState == EOpenMobileAdsServiceState::Ready)
+	{
+		Provider = KnownProvider;
+		if (!Provider)
+		{
+			Provider = OpenMobileAdsPrivate::FindRegisteredProvider(
+				SelectedProviderName
+			);
+		}
+		if (Provider && Provider->GetProviderName() == SelectedProviderName)
+		{
+			Context.bProviderAvailable = true;
+		}
+	}
+	FOpenMobileAdsCanRequestAdsResult Decision =
+		FOpenMobileAdsCanRequestPolicy::Evaluate(Context);
+	if (!Decision.bCanRequestAds || !Provider)
+	{
+		return Decision;
+	}
+
+	FOpenMobileAdsProviderRequestContext ProviderContext;
+	ProviderContext.ConsentStatus = PrivacySnapshot.ConsentStatus;
+	ProviderContext.bConsentStatusFresh = PrivacySnapshot.bConsentStatusFresh;
+	ProviderContext.ChildDirectedTreatment =
+		PrivacySnapshot.ChildDirectedTreatment;
+	ProviderContext.UnderAgeOfConsent = PrivacySnapshot.UnderAgeOfConsent;
+	Context.ProviderPolicy = Provider->GetRequestPolicy(ProviderContext);
+	return FOpenMobileAdsCanRequestPolicy::Evaluate(Context);
+}
+
+void UOpenMobileAdsSubsystem::RefreshCanRequestAdsDecision()
+{
+	check(IsInGameThread());
+	FOpenMobileAdsCanRequestAdsResult Decision = CanRequestAds();
+	PrivacySnapshot.bCanRequestAds = Decision.bCanRequestAds;
+	if (
+		bCanRequestAdsDecisionInitialized
+		&& Decision == LastCanRequestAdsDecision
+	)
+	{
+		return;
+	}
+	LastCanRequestAdsDecision = MoveTemp(Decision);
+	bCanRequestAdsDecisionInitialized = true;
+	NativeCanRequestAdsChanged.Broadcast(LastCanRequestAdsDecision);
+	OnCanRequestAdsChanged.Broadcast(LastCanRequestAdsDecision);
 }
 
 void UOpenMobileAdsSubsystem::EnsureRuntime()
@@ -1176,9 +1238,11 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		PrivacySnapshot.ConsentStatus = Privacy.bDelayProviderInitializationUntilConsent
 			? EOpenMobileAdsConsentStatus::Unknown
 			: EOpenMobileAdsConsentStatus::NotRequired;
+		PrivacySnapshot.bConsentStatusFresh =
+			!Privacy.bDelayProviderInitializationUntilConsent;
 		PrivacySnapshot.ChildDirectedTreatment = Privacy.ChildDirectedTreatment;
 		PrivacySnapshot.UnderAgeOfConsent = Privacy.UnderAgeOfConsent;
-		PrivacySnapshot.bCanRequestAds = !Privacy.bDelayProviderInitializationUntilConsent;
+		PrivacySnapshot.bCanRequestAds = false;
 		PrivacySnapshot.Source = TEXT("ProjectSettings");
 		PrivacySnapshot.LastUpdated = FDateTime::UtcNow();
 		bPrivacySnapshotInitialized = true;
@@ -1297,7 +1361,7 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 	case EOpenMobileAdsConsentStatusUpdateType::ResetStarted:
 		PrivacySnapshot.ConsentStatus = EOpenMobileAdsConsentStatus::Unknown;
 		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Resetting;
-		PrivacySnapshot.bCanRequestAds = false;
+		PrivacySnapshot.bConsentStatusFresh = false;
 		PrivacySnapshot.ProviderDetails = FOpenMobileAdsConsentProviderDetails();
 		PrivacySnapshot.Error = FOpenMobileAdsError();
 		break;
@@ -1305,8 +1369,7 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 	case EOpenMobileAdsConsentStatusUpdateType::Completed:
 		PrivacySnapshot.ConsentStatus = Update.Status;
 		PrivacySnapshot.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
-		PrivacySnapshot.bCanRequestAds =
-			OpenMobileAdsPrivate::ConsentStatusAllowsAdRequests(Update.Status);
+		PrivacySnapshot.bConsentStatusFresh = Update.bStatusFresh;
 		PrivacySnapshot.ProviderDetails = MoveTemp(Update.ProviderDetails);
 		if (!PrivacySnapshot.ProviderDetails.bIsAvailable)
 		{
@@ -1525,13 +1588,15 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	{
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
-	if (!PrivacySnapshot.bCanRequestAds)
+	const FOpenMobileAdsCanRequestAdsResult RequestDecision =
+		EvaluateCanRequestAds(Provider);
+	if (!RequestDecision.bCanRequestAds)
 	{
 		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
 			EOpenMobileAdsErrorCode::PrivacyBlocked,
 			EOpenMobileAdsFailureStage::Consent,
 			Placement,
-			TEXT("The current privacy state does not allow ad requests."),
+			RequestDecision.Explanation,
 			Provider->GetProviderName(),
 			TEXT("Wait for the consent source to allow ad requests before loading this placement.")
 		));
@@ -2249,7 +2314,7 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
 		ProviderCapabilities.FindFormat(Resolved.Format);
 	Context.bFormatSupported = FormatCapabilities && FormatCapabilities->bCanShow;
-	Context.bPrivacyAllowed = PrivacySnapshot.bCanRequestAds;
+	Context.bPrivacyAllowed = EvaluateCanRequestAds(Provider).bCanRequestAds;
 
 	const FDateTime Now = FDateTime::UtcNow();
 	const FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);

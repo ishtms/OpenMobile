@@ -26,6 +26,13 @@ FOpenMobileAdsProviderCapabilities IOpenMobileAdsProvider::GetCapabilities() con
 	return Capabilities;
 }
 
+FOpenMobileAdsProviderRequestPolicy IOpenMobileAdsProvider::GetRequestPolicy(
+	const FOpenMobileAdsProviderRequestContext&
+) const
+{
+	return FOpenMobileAdsProviderRequestPolicy();
+}
+
 bool IOpenMobileAdsProvider::Initialize(
 	const FOpenMobileAdsInitializationRequest& Request,
 	TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,

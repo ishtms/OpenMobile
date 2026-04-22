@@ -54,6 +54,23 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return Capabilities;
 		}
+		virtual FOpenMobileAdsProviderRequestPolicy GetRequestPolicy(
+			const FOpenMobileAdsProviderRequestContext& Context
+		) const override
+		{
+			if (
+				bBlockChildDirectedRequests
+				&& Context.ChildDirectedTreatment == EOpenMobileAdsAgeTreatment::Yes
+			)
+			{
+				FOpenMobileAdsProviderRequestPolicy Policy;
+				Policy.State = EOpenMobileAdsProviderRequestPolicyState::Blocked;
+				Policy.Explanation =
+					TEXT("The mock provider does not accept child-directed requests.");
+				return Policy;
+			}
+			return RequestPolicy;
+		}
 
 		virtual bool Initialize(
 			const FOpenMobileAdsInitializationRequest& Request,
@@ -174,6 +191,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptLoad = true;
 		bool bAcceptShow = true;
 		bool bAcceptDestroy = true;
+		bool bBlockChildDirectedRequests = false;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
@@ -181,6 +199,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 LegacyRewardedRequestCalls = 0;
 		int32 ShutdownCalls = 0;
 		FOpenMobileAdsProviderCapabilities Capabilities;
+		FOpenMobileAdsProviderRequestPolicy RequestPolicy;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
 		FOpenMobileAdsError InitializationRejection;
 		FOpenMobileAdsError LoadRejection;
@@ -4420,6 +4439,169 @@ bool FOpenMobileAdsAsyncWorldCleanupTest::RunTest(const FString& Parameters)
 	}
 	TestFalse(TEXT("World cleanup leaves no ready ad"), Subsystem->IsReady(TEXT("WorldCleanupReward")));
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCanRequestAdsSubsystemTest,
+	"OpenMobile.Ads.Privacy.CanRequestAds.Subsystem",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCanRequestAdsSubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = true;
+	ScopedSettings.Settings->Privacy.ChildDirectedTreatment =
+		EOpenMobileAdsAgeTreatment::No;
+	ScopedSettings.Settings->Privacy.UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::No;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("CanRequestReward");
+	Placement.Android.AdUnitId = TEXT("android-can-request");
+	Placement.IOS.AdUnitId = TEXT("ios-can-request");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before policy evaluation"),
+		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+	TestNotNull(
+		TEXT("Blueprints can evaluate ad-request policy"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAdsSubsystem, CanRequestAds)
+		)
+	);
+	TestNotNull(
+		TEXT("Blueprints can bind ad-request policy changes"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindPropertyByName(
+			GET_MEMBER_NAME_CHECKED(UOpenMobileAdsSubsystem, OnCanRequestAdsChanged)
+		)
+	);
+	TestEqual(
+		TEXT("Ready service still waits for a consent result"),
+		Subsystem->CanRequestAds().BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentUnknown
+	);
+
+	TArray<FOpenMobileAdsCanRequestAdsResult> Events;
+	const FDelegateHandle EventHandle =
+		Subsystem->OnNativeCanRequestAdsChanged().AddLambda(
+			[&Events](const FOpenMobileAdsCanRequestAdsResult& Result)
+			{
+				Events.Add(Result);
+			}
+		);
+
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Privacy.bConsentStatusFresh = true;
+	Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
+	Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	Privacy.Source = TEXT("MockConsent");
+	Provider.bBlockChildDirectedRequests = true;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	FOpenMobileAdsCanRequestAdsResult Decision = Subsystem->CanRequestAds();
+	TestEqual(
+		TEXT("Age treatment reaches provider request policy"),
+		Decision.BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ProviderPolicy
+	);
+	TestEqual(
+		TEXT("The provider classifies its age policy"),
+		Decision.BlockType,
+		EOpenMobileAdsCanRequestAdsBlockType::Configuration
+	);
+	TestFalse(
+		TEXT("The privacy snapshot mirrors the full request decision"),
+		Subsystem->GetPrivacySnapshot().bCanRequestAds
+	);
+
+	Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestTrue(
+		TEXT("Supported age treatment allows the request"),
+		Subsystem->CanRequestAds().bCanRequestAds
+	);
+	TestTrue(
+		TEXT("The privacy snapshot mirrors an allowed decision"),
+		Subsystem->GetPrivacySnapshot().bCanRequestAds
+	);
+
+	Privacy.ProviderDetails.bIsAvailable = true;
+	Privacy.ProviderDetails.RawStatus = TEXT("UNCHANGED_POLICY");
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	TestEqual(
+		TEXT("A privacy update reevaluates without duplicate decision events"),
+		Events.Num(),
+		2
+	);
+
+	Privacy.bConsentStatusFresh = false;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	Decision = Subsystem->CanRequestAds();
+	TestEqual(
+		TEXT("Stale consent blocks with a temporary reason"),
+		Decision.BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ConsentStale
+	);
+	TestEqual(
+		TEXT("Stale consent is temporary"),
+		Decision.BlockType,
+		EOpenMobileAdsCanRequestAdsBlockType::Temporary
+	);
+
+	Privacy.bConsentStatusFresh = true;
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Required;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	Decision = Subsystem->CanRequestAds();
+	TestEqual(
+		TEXT("Required consent blocks for a user decision"),
+		Decision.BlockType,
+		EOpenMobileAdsCanRequestAdsBlockType::UserDecision
+	);
+
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	Provider.RequestPolicy.State =
+		EOpenMobileAdsProviderRequestPolicyState::TemporarilyBlocked;
+	Subsystem->UpdatePrivacySnapshot(Privacy);
+	Decision = Subsystem->CanRequestAds();
+	TestEqual(
+		TEXT("Provider request policy is reevaluated"),
+		Decision.BlockReason,
+		EOpenMobileAdsCanRequestAdsBlockReason::ProviderPolicy
+	);
+	TestEqual(
+		TEXT("Provider temporary policy remains temporary"),
+		Decision.BlockType,
+		EOpenMobileAdsCanRequestAdsBlockType::Temporary
+	);
+	const FOpenMobileAdsOperationResult RejectedLoad =
+		Subsystem->LoadAd(TEXT("CanRequestReward"));
+	TestFalse(TEXT("Provider policy blocks loading"), RejectedLoad.bAccepted);
+	TestEqual(
+		TEXT("A blocked load returns a privacy error"),
+		RejectedLoad.Error.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+	TestEqual(TEXT("A blocked load does not reach the provider"), Provider.LoadCalls, 0);
+	TestEqual(
+		TEXT("Provider policy also blocks showing"),
+		Subsystem->CanShow(TEXT("CanRequestReward")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::PrivacyBlocked
+	);
+	TestEqual(TEXT("Each changed decision broadcasts once"), Events.Num(), 5);
+	Subsystem->OnNativeCanRequestAdsChanged().Remove(EventHandle);
 	return true;
 }
 

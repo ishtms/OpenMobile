@@ -38,7 +38,8 @@ FOpenMobileAdsConsentStatusUpdate::BeginReset(FName Source)
 FOpenMobileAdsConsentStatusUpdate FOpenMobileAdsConsentStatusUpdate::Complete(
 	EOpenMobileAdsConsentStatus Status,
 	FName Source,
-	FOpenMobileAdsConsentProviderDetails ProviderDetails
+	FOpenMobileAdsConsentProviderDetails ProviderDetails,
+	bool bStatusFresh
 )
 {
 	FOpenMobileAdsConsentStatusUpdate Update;
@@ -46,6 +47,7 @@ FOpenMobileAdsConsentStatusUpdate FOpenMobileAdsConsentStatusUpdate::Complete(
 	Update.Status = Status;
 	Update.Source = Source;
 	Update.ProviderDetails = MoveTemp(ProviderDetails);
+	Update.bStatusFresh = bStatusFresh;
 	return Update;
 }
 

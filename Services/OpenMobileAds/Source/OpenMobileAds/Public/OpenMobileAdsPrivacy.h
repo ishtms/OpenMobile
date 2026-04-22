@@ -31,6 +31,49 @@ enum class EOpenMobileAdsAgeTreatment : uint8
 	Yes
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsProviderRequestPolicyState : uint8
+{
+	Allowed,
+	TemporarilyBlocked,
+	UserDecisionRequired,
+	Blocked
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsProviderRequestContext
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentStatus ConsentStatus =
+		EOpenMobileAdsConsentStatus::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bConsentStatusFresh = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment ChildDirectedTreatment =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsProviderRequestPolicy
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsProviderRequestPolicyState State =
+		EOpenMobileAdsProviderRequestPolicyState::Allowed;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString Explanation;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsConsentProviderDetails
 {
@@ -93,6 +136,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 	bool bCanRequestAds = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bConsentStatusFresh = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FName Source;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
@@ -103,6 +149,72 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError Error;
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsCanRequestAdsBlockReason : uint8
+{
+	None,
+	InitializationNotStarted,
+	InitializationPending,
+	InitializationFailed,
+	ShuttingDown,
+	ProviderUnavailable,
+	ConsentResetting,
+	ConsentFormPresenting,
+	ConsentRefreshing,
+	ConsentStale,
+	ConsentUnknown,
+	ConsentRequired,
+	ConsentDenied,
+	ProviderPolicy
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsCanRequestAdsBlockType : uint8
+{
+	None,
+	Temporary,
+	UserDecision,
+	Configuration,
+	Terminal
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsCanRequestAdsResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bCanRequestAds = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsCanRequestAdsBlockReason BlockReason =
+		EOpenMobileAdsCanRequestAdsBlockReason::InitializationNotStarted;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsCanRequestAdsBlockType BlockType =
+		EOpenMobileAdsCanRequestAdsBlockType::Temporary;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString Explanation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Provider;
+
+	bool operator==(const FOpenMobileAdsCanRequestAdsResult& Other) const
+	{
+		return bCanRequestAds == Other.bCanRequestAds
+			&& BlockReason == Other.BlockReason
+			&& BlockType == Other.BlockType
+			&& Explanation == Other.Explanation
+			&& Provider == Other.Provider;
+	}
+
+	bool operator!=(const FOpenMobileAdsCanRequestAdsResult& Other) const
+	{
+		return !(*this == Other);
+	}
 };
 
 enum class EOpenMobileAdsConsentStatusUpdateType : uint8
@@ -122,6 +234,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 	FName Source;
 	FOpenMobileAdsConsentProviderDetails ProviderDetails;
 	FOpenMobileAdsError Error;
+	bool bStatusFresh = true;
 
 	static FOpenMobileAdsConsentStatusUpdate BeginRefresh(FName Source);
 	static FOpenMobileAdsConsentStatusUpdate BeginFormPresentation(FName Source);
@@ -129,7 +242,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 	static FOpenMobileAdsConsentStatusUpdate Complete(
 		EOpenMobileAdsConsentStatus Status,
 		FName Source,
-		FOpenMobileAdsConsentProviderDetails ProviderDetails = {}
+		FOpenMobileAdsConsentProviderDetails ProviderDetails = {},
+		bool bStatusFresh = true
 	);
 	static FOpenMobileAdsConsentStatusUpdate Fail(
 		FName Source,
@@ -146,4 +260,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAdsConsentStatusDynamicEvent,
 	const FOpenMobileAdsPrivacySnapshot&,
 	Status
+);
+
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsCanRequestAdsNativeEvent,
+	const FOpenMobileAdsCanRequestAdsResult&
+);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsCanRequestAdsDynamicEvent,
+	const FOpenMobileAdsCanRequestAdsResult&,
+	Result
 );
