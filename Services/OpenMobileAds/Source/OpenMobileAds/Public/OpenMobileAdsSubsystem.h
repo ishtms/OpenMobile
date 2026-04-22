@@ -97,7 +97,9 @@ public:
 		return NativeCanRequestAdsChanged;
 	}
 
-	void UpdatePrivacySnapshot(FOpenMobileAdsPrivacySnapshot Snapshot);
+	FOpenMobileAdsOperationResult UpdatePrivacySnapshot(
+		FOpenMobileAdsPrivacySnapshot Snapshot
+	);
 	void ApplyConsentStatusUpdate(FOpenMobileAdsConsentStatusUpdate Update);
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
@@ -290,6 +292,7 @@ private:
 	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
+	bool bChildDirectedTreatmentLocked = false;
 	bool bPrivacySnapshotInitialized = false;
 	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;

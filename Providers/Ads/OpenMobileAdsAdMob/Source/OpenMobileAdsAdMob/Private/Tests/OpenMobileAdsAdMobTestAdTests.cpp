@@ -210,6 +210,63 @@ namespace OpenMobileAdsAdMobTestAdTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobCoppaPropagationTest,
+	"OpenMobile.Ads.AdMob.Privacy.CoppaPropagation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobCoppaPropagationTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const EOpenMobileAdsAgeTreatment Treatments[] = {
+		EOpenMobileAdsAgeTreatment::Unspecified,
+		EOpenMobileAdsAgeTreatment::Yes,
+		EOpenMobileAdsAgeTreatment::No
+	};
+	for (const EOpenMobileAdsAgeTreatment Treatment : Treatments)
+	{
+		FOpenMobileAdsInitializationRequest Request;
+		Request.Platform = EOpenMobileAdsPlatform::Android;
+		Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+		Request.Privacy.ChildDirectedTreatment = Treatment;
+		const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> Sink =
+			MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+		FOpenMobileAdsError Error;
+		TestTrue(
+			TEXT("AdMob accepts COPPA configuration"),
+			Provider->Initialize(Request, Sink, Error)
+		);
+		TestEqual(
+			TEXT("AdMob forwards COPPA configuration to its native backend"),
+			Backend.InitializationRequest.Privacy.ChildDirectedTreatment,
+			Treatment
+		);
+		FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+			Backend.InitializationRequestId
+		);
+		Provider->Shutdown();
+	}
+
+	TestEqual(
+		TEXT("Each COPPA state initializes the native backend once"),
+		Backend.InitializationCalls,
+		static_cast<int32>(UE_ARRAY_COUNT(Treatments))
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobLoadContractTest,
 	"OpenMobile.Ads.AdMob.Load.Contract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

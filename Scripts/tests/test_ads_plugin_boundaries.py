@@ -218,6 +218,69 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("AndroidManifest.xml", dependency_validation)
 		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
 
+	def test_admob_applies_coppa_before_sdk_initialization(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		android_age_mapping = android_backend[
+			android_backend.index("int32 ToNativeAgeTreatment"):
+			android_backend.index("FString ToNativeMaxAdContentRating")
+		]
+		self.assertRegex(
+			android_age_mapping,
+			r"case EOpenMobileAdsAgeTreatment::No:\s+return 0;",
+		)
+		self.assertRegex(
+			android_age_mapping,
+			r"case EOpenMobileAdsAgeTreatment::Yes:\s+return 1;",
+		)
+		self.assertRegex(android_age_mapping, r"default:\s+return -1;")
+
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertLess(
+			android_upl.index(".setTagForChildDirectedTreatment"),
+			android_upl.index("MobileAds.initialize"),
+		)
+		self.assertLess(
+			android_upl.index("MobileAds.setRequestConfiguration"),
+			android_upl.index("MobileAds.initialize"),
+		)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		ios_age_mapping = ios_backend[
+			ios_backend.index("NSNumber* ToNSNumber"):
+			ios_backend.index("GADMaxAdContentRating ToMaxAdContentRating")
+		]
+		self.assertRegex(
+			ios_age_mapping,
+			r"case EOpenMobileAdsAgeTreatment::No:\s+return @NO;",
+		)
+		self.assertRegex(
+			ios_age_mapping,
+			r"case EOpenMobileAdsAgeTreatment::Yes:\s+return @YES;",
+		)
+		self.assertRegex(ios_age_mapping, r"default:\s+return nil;")
+		self.assertLess(
+			ios_backend.index("Configuration.tagForChildDirectedTreatment"),
+			ios_backend.index("startWithCompletionHandler"),
+		)
+
 	def test_admob_ios_upl_owns_safe_plist_merging(self) -> None:
 		upl_path = (
 			ADMOB_PLUGIN

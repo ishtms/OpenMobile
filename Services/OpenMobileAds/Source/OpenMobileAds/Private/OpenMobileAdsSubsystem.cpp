@@ -884,6 +884,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 			Settings->TestDeviceIdentifiers
 		);
 	Request.Privacy = Settings->Privacy;
+	Request.Privacy.ChildDirectedTreatment =
+		PrivacySnapshot.ChildDirectedTreatment;
 	Request.RequestConfiguration = Settings->RequestConfiguration;
 
 	const FGuid RequestId = InitializationRequestId;
@@ -963,6 +965,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	}
 
 	bProviderInitializationStarted = true;
+	bChildDirectedTreatmentLocked = true;
 	Sink->Commit();
 	return FOpenMobileAdsOperationResult::Accepted(InitializationRequestId);
 }
@@ -1290,14 +1293,42 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 	bRuntimeInitialized = true;
 }
 
-void UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
+FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	FOpenMobileAdsPrivacySnapshot Snapshot
 )
 {
-	check(IsInGameThread());
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::Consent
+			)
+		);
+	}
 	if (bDeinitialized)
 	{
-		return;
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Cancelled,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("The ads subsystem has been deinitialized.")
+		));
+	}
+	if (
+		bChildDirectedTreatmentLocked
+		&& Snapshot.ChildDirectedTreatment
+			!= PrivacySnapshot.ChildDirectedTreatment
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("Child-directed treatment cannot change after provider initialization starts."),
+			SelectedProviderName,
+			TEXT("Set child-directed treatment before initializing ads, or restart the ads subsystem with the new value.")
+		));
 	}
 	if (Snapshot.LastUpdated == FDateTime())
 	{
@@ -1306,6 +1337,7 @@ void UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	PrivacySnapshot = MoveTemp(Snapshot);
 	bPrivacySnapshotInitialized = true;
 	BroadcastConsentStatus();
+	return FOpenMobileAdsOperationResult::Accepted(FGuid());
 }
 
 void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdate(
