@@ -442,6 +442,34 @@ bool FOpenMobileAdsAdMobIOSBackend::PresentPrivacyOptionsForm(
 	return true;
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::ResetConsentForTesting(
+	FString& OutError
+)
+{
+	__block bool bResetConfirmed = false;
+	void (^ResetBlock)(void) = ^
+	{
+		[UMPConsentInformation.sharedInstance reset];
+		bResetConfirmed =
+			UMPConsentInformation.sharedInstance.consentStatus
+			== UMPConsentStatusUnknown;
+		[NSUserDefaults.standardUserDefaults removeObjectForKey:@"gad_rdp"];
+	};
+	if (NSThread.isMainThread)
+	{
+		ResetBlock();
+	}
+	else
+	{
+		dispatch_sync(dispatch_get_main_queue(), ResetBlock);
+	}
+	if (!bResetConfirmed)
+	{
+		OutError = TEXT("iOS Google UMP consent state did not reset to unknown.");
+	}
+	return bResetConfirmed;
+}
+
 bool FOpenMobileAdsAdMobIOSBackend::ApplyConsentSignals(
 	const FOpenMobileAdsConsentSignals& Signals,
 	int32 SignalMask,

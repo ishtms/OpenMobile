@@ -56,6 +56,7 @@ public:
 		FOnOpenMobileAdMobConsentFailed&& OnFailed,
 		FString& OutError
 	);
+	static bool ResetConsentForTesting(FString& OutError);
 	static bool ApplyConsentSignals(
 		const FOpenMobileAdsConsentSignals& Signals,
 		int32 SignalMask,

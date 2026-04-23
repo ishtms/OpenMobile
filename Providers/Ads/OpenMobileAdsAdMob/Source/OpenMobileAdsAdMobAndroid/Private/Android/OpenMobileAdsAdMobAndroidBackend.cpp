@@ -253,6 +253,40 @@ bool FOpenMobileAdsAdMobAndroidBackend::PresentPrivacyOptionsForm(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::ResetConsentForTesting(
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable during UMP consent reset.");
+		return false;
+	}
+	static jmethodID ResetMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ResetOpenMobileUMPConsent",
+		"()Z",
+		false
+	);
+	if (!ResetMethod)
+	{
+		OutError = TEXT("The Android Google UMP reset bridge was not packaged into GameActivity.");
+		return false;
+	}
+	const bool bReset = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ResetMethod
+	);
+	if (!bReset)
+	{
+		OutError = TEXT("Android could not reset Google UMP consent state.");
+	}
+	return bReset;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::ApplyConsentSignals(
 	const FOpenMobileAdsConsentSignals& Signals,
 	int32 SignalMask,

@@ -114,6 +114,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Refresh Consent"))
 	FOpenMobileAdsOperationResult RefreshConsent();
 
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "Open Mobile|Ads",
+		meta = (DisplayName = "Reset Consent for Testing", DevelopmentOnly)
+	)
+	FOpenMobileAdsOperationResult ResetConsentForTesting();
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
 	bool IsPrivacyOptionsFormRequired() const
 	{

@@ -26,6 +26,7 @@ public:
 		int64 RequestId,
 		FString& OutError
 	) override;
+	virtual bool ResetConsentForTesting(FString& OutError) override;
 	virtual bool ApplyConsentSignals(
 		const FOpenMobileAdsConsentSignals& Signals,
 		int32 SignalMask,

@@ -91,6 +91,22 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return bSupportsPrivacyOptionsForm;
 		}
+		virtual bool SupportsConsentResetForTesting() const override
+		{
+			return bSupportsConsentResetForTesting;
+		}
+		virtual bool ResetConsentForTesting(
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++ConsentResetCalls;
+			if (!bAcceptConsentReset)
+			{
+				OutError = ConsentResetError;
+				return false;
+			}
+			return true;
+		}
 		virtual int32 GetSupportedConsentSignalMask() const override
 		{
 			return SupportedConsentSignalMask;
@@ -353,6 +369,8 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptConsentForm = true;
 		bool bSupportsPrivacyOptionsForm = false;
 		bool bAcceptPrivacyOptionsForm = true;
+		bool bSupportsConsentResetForTesting = false;
+		bool bAcceptConsentReset = true;
 		int32 SupportedConsentSignalMask = 0;
 		int32 ConfirmableConsentSignalMask = 0;
 		int32 RuntimeConsentSignalMask = 0;
@@ -368,6 +386,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
 		int32 PrivacyOptionsFormCalls = 0;
+		int32 ConsentResetCalls = 0;
 		int32 ConsentSignalCalls = 0;
 		int32 LastConsentSignalMask = 0;
 		FName ConsentProviderName;
@@ -386,6 +405,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsConsentRequest LastPrivacyOptionsRequest;
 		FOpenMobileAdsConsentSignals LastConsentSignals;
 		FOpenMobileAdsError ConsentRejection;
+		FOpenMobileAdsError ConsentResetError;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
@@ -4596,6 +4616,223 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsConsentResetContractTest,
+	"OpenMobile.Ads.Privacy.ConsentReset.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsConsentResetContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	Provider.bSupportsConsentResetForTesting = true;
+	FScopedProviderRegistration ProviderRegistration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	FOpenMobileAdsOperationResult ReentrantReset;
+	bool bAttemptedReentrantReset = false;
+	const FDelegateHandle ConsentHandle =
+		Subsystem->OnNativeConsentStatusChanged().AddLambda(
+			[Subsystem, &ReentrantReset, &bAttemptedReentrantReset](
+				const FOpenMobileAdsPrivacySnapshot& Snapshot
+			)
+			{
+				if (
+					!bAttemptedReentrantReset
+					&& Snapshot.ConsentActivity
+						== EOpenMobileAdsConsentActivity::Resetting
+				)
+				{
+					bAttemptedReentrantReset = true;
+					ReentrantReset = Subsystem->ResetConsentForTesting();
+				}
+			}
+		);
+
+	const EOpenMobileAdsConsentStatus States[] = {
+		EOpenMobileAdsConsentStatus::Unknown,
+		EOpenMobileAdsConsentStatus::Required,
+		EOpenMobileAdsConsentStatus::Granted,
+		EOpenMobileAdsConsentStatus::Denied,
+		EOpenMobileAdsConsentStatus::NotRequired,
+		EOpenMobileAdsConsentStatus::Obtained
+	};
+	int32 ExpectedResetCalls = 0;
+	for (const EOpenMobileAdsConsentStatus State : States)
+	{
+		FOpenMobileAdsConsentProviderDetails Details;
+		Details.bIsAvailable = true;
+		Details.RawStatus = TEXT("CACHED");
+		Subsystem->ApplyConsentStatusUpdate(
+			FOpenMobileAdsConsentStatusUpdate::Complete(
+				State,
+				TEXT("MockConsent"),
+				MoveTemp(Details)
+			)
+		);
+
+		const FOpenMobileAdsOperationResult Result =
+			Subsystem->ResetConsentForTesting();
+		++ExpectedResetCalls;
+		TestTrue(TEXT("Development consent reset is accepted"), Result.bAccepted);
+		TestTrue(TEXT("A reset returns an operation ID"), Result.RequestId.IsValid());
+		TestEqual(
+			TEXT("Every consent state reaches the provider reset API"),
+			Provider.ConsentResetCalls,
+			ExpectedResetCalls
+		);
+		const FOpenMobileAdsPrivacySnapshot& Snapshot =
+			Subsystem->GetPrivacySnapshot();
+		TestEqual(
+			TEXT("Reset clears the local consent status"),
+			Snapshot.ConsentStatus,
+			EOpenMobileAdsConsentStatus::Unknown
+		);
+		TestEqual(
+			TEXT("Successful reset returns consent activity to idle"),
+			Snapshot.ConsentActivity,
+			EOpenMobileAdsConsentActivity::Idle
+		);
+		TestFalse(
+			TEXT("Reset consent state is no longer fresh"),
+			Snapshot.bConsentStatusFresh
+		);
+		TestFalse(
+			TEXT("Reset clears cached provider details"),
+			Snapshot.ProviderDetails.bIsAvailable
+		);
+		TestFalse(TEXT("Successful reset has no error"), Snapshot.Error.IsSet());
+	}
+	TestTrue(
+		TEXT("A reset event attempts the reentrant contract"),
+		bAttemptedReentrantReset
+	);
+	TestFalse(TEXT("A reentrant reset is rejected"), ReentrantReset.bAccepted);
+	TestEqual(
+		TEXT("A reentrant reset reports a busy operation"),
+		ReentrantReset.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::Granted,
+			TEXT("MockConsent")
+		)
+	);
+	ScopedSettings.Settings->bDevelopmentTestMode = false;
+	const FOpenMobileAdsOperationResult DisabledReset =
+		Subsystem->ResetConsentForTesting();
+	TestFalse(TEXT("Reset requires Development/Test Mode"), DisabledReset.bAccepted);
+	TestEqual(
+		TEXT("Disabled reset reports invalid state"),
+		DisabledReset.Error.Code,
+		EOpenMobileAdsErrorCode::InvalidState
+	);
+	TestEqual(
+		TEXT("Disabled reset preserves local consent"),
+		Subsystem->GetPrivacySnapshot().ConsentStatus,
+		EOpenMobileAdsConsentStatus::Granted
+	);
+	TestEqual(
+		TEXT("Disabled reset does not call the provider"),
+		Provider.ConsentResetCalls,
+		ExpectedResetCalls
+	);
+
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	Provider.bSupportsConsentResetForTesting = false;
+	const FOpenMobileAdsOperationResult UnsupportedReset =
+		Subsystem->ResetConsentForTesting();
+	TestFalse(TEXT("Unsupported provider reset is rejected"), UnsupportedReset.bAccepted);
+	TestEqual(
+		TEXT("Unsupported reset reports provider availability"),
+		UnsupportedReset.Error.Code,
+		EOpenMobileAdsErrorCode::ProviderUnavailable
+	);
+	TestEqual(
+		TEXT("Unsupported reset still clears service-owned state"),
+		Subsystem->GetPrivacySnapshot().ConsentStatus,
+		EOpenMobileAdsConsentStatus::Unknown
+	);
+	TestTrue(
+		TEXT("Unsupported reset records its failure"),
+		Subsystem->GetPrivacySnapshot().Error.IsSet()
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::Denied,
+			TEXT("MockConsent")
+		)
+	);
+	Provider.bSupportsConsentResetForTesting = true;
+	Provider.bAcceptConsentReset = false;
+	Provider.ConsentResetError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The mock provider could not clear persistent consent."),
+		TEXT("MockConsent")
+	);
+	const FOpenMobileAdsOperationResult FailedReset =
+		Subsystem->ResetConsentForTesting();
+	++ExpectedResetCalls;
+	TestFalse(TEXT("Provider reset failure is rejected"), FailedReset.bAccepted);
+	TestEqual(
+		TEXT("Provider reset keeps its native failure"),
+		FailedReset.Error.Code,
+		EOpenMobileAdsErrorCode::NativeFailure
+	);
+	TestEqual(
+		TEXT("Failed reset clears service-owned consent"),
+		Subsystem->GetPrivacySnapshot().ConsentStatus,
+		EOpenMobileAdsConsentStatus::Unknown
+	);
+	TestEqual(
+		TEXT("Failed reset reaches the provider once"),
+		Provider.ConsentResetCalls,
+		ExpectedResetCalls
+	);
+
+	Provider.bAcceptConsentReset = true;
+	const FOpenMobileAdsOperationResult Refresh = Subsystem->RefreshConsent();
+	TestTrue(TEXT("Consent refresh starts before the busy reset check"), Refresh.bAccepted);
+	const FOpenMobileAdsOperationResult BusyReset =
+		Subsystem->ResetConsentForTesting();
+	TestFalse(TEXT("Reset is blocked during consent refresh"), BusyReset.bAccepted);
+	TestEqual(
+		TEXT("An active refresh makes reset busy"),
+		BusyReset.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+	TestEqual(
+		TEXT("Busy reset does not reach the provider"),
+		Provider.ConsentResetCalls,
+		ExpectedResetCalls
+	);
+	Provider.FailConsentRefresh(FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The mock refresh was cancelled."),
+		TEXT("MockConsent")
+	));
+	DrainGameThreadTasks();
+
+	Subsystem->OnNativeConsentStatusChanged().Remove(ConsentHandle);
 	Subsystem->Deinitialize();
 	return true;
 }

@@ -33,6 +33,21 @@ FOpenMobileAdsProviderRequestPolicy IOpenMobileAdsProvider::GetRequestPolicy(
 	return FOpenMobileAdsProviderRequestPolicy();
 }
 
+bool IOpenMobileAdsProvider::ResetConsentForTesting(
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderUnavailable,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The selected consent provider does not support test resets."),
+		GetProviderName(),
+		TEXT("Use a consent provider with a development reset implementation.")
+	);
+	return false;
+}
+
 FOpenMobileAdsConsentSignalApplyResult
 IOpenMobileAdsProvider::ApplyConsentSignals(
 	const FOpenMobileAdsConsentSignals&,

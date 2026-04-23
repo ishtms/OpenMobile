@@ -158,7 +158,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=5", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=6", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -460,6 +460,20 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn('"(Ljava/lang/String;JI)Z"', android_backend)
 		self.assertIn('"(I)Z"', android_backend)
+		self.assertIn('"AndroidThunkJava_ResetOpenMobileUMPConsent"', android_backend)
+		self.assertIn('"()Z"', android_backend)
+		self.assertIn(
+			"AndroidThunkJava_ResetOpenMobileUMPConsent",
+			android_consent_signals,
+		)
+		self.assertIn(
+			"UserMessagingPlatform.getConsentInformation(activityContext).reset()",
+			android_consent_signals,
+		)
+		self.assertIn("getConsentStatus()", android_consent_signals)
+		self.assertIn("ConsentInformation.ConsentStatus.UNKNOWN", android_consent_signals)
+		self.assertIn('remove("gad_rdp")', android_consent_signals)
+		self.assertIn(".commit()", android_consent_signals)
 
 		ios_backend = (
 			ADMOB_PLUGIN
@@ -479,6 +493,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		]
 		self.assertIn('setBool:YES forKey:@"gad_rdp"', ios_consent_signals)
 		self.assertIn('removeObjectForKey:@"gad_rdp"', ios_consent_signals)
+		self.assertIn("FOpenMobileAdsAdMobIOSBackend::ResetConsentForTesting", ios_consent_signals)
+		self.assertIn("[UMPConsentInformation.sharedInstance reset]", ios_consent_signals)
+		self.assertIn("consentStatus", ios_consent_signals)
+		self.assertIn("UMPConsentStatusUnknown", ios_consent_signals)
 		self.assertIn("ApplyDataProcessingMode(DataProcessingMode)", ios_load)
 		self.assertLess(
 			ios_load.index("ApplyDataProcessingMode(DataProcessingMode)"),
@@ -572,6 +590,22 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		dependencies = set(re.findall(r'"([A-Za-z0-9]+)"', consumer_rules))
 		self.assertEqual({"Core", "CoreUObject", "OpenMobileAds"}, dependencies)
+
+	def test_consent_reset_is_guarded_from_shipping(self) -> None:
+		subsystem = (
+			ADS_PLUGIN
+			/ "Source"
+			/ "OpenMobileAds"
+			/ "Private"
+			/ "OpenMobileAdsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		reset = subsystem[
+			subsystem.index("UOpenMobileAdsSubsystem::ResetConsentForTesting"):
+			subsystem.index("UOpenMobileAdsSubsystem::PresentPrivacyOptionsForm")
+		]
+		self.assertIn("#if UE_BUILD_SHIPPING", reset)
+		self.assertIn("Consent reset is disabled in Shipping builds", reset)
+		self.assertIn("IsDevelopmentTestModeEnabled", reset)
 
 
 if __name__ == "__main__":

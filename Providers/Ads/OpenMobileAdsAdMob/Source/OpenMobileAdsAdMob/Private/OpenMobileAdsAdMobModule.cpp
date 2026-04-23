@@ -49,6 +49,33 @@ namespace OpenMobileAdsAdMobPrivate
 			return true;
 		}
 
+		virtual bool SupportsConsentResetForTesting() const override
+		{
+			return true;
+		}
+
+		virtual bool ResetConsentForTesting(
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FString NativeError;
+			if (!FOpenMobileAdsAdMobPlatform::ResetConsentForTesting(NativeError))
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("Google UMP consent state could not be reset.")
+						: MoveTemp(NativeError),
+					GetConsentProviderName()
+				);
+				return false;
+			}
+			LastConsentSignals = FOpenMobileAdsConsentSignals();
+			return true;
+		}
+
 		virtual int32 GetSupportedConsentSignalMask() const override
 		{
 			return FOpenMobileAdsConsentSignals::AllSignalMask;

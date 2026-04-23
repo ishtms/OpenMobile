@@ -77,6 +77,17 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool ResetConsentForTesting(FString& OutError) override
+		{
+			++ConsentResetCalls;
+			if (!bAcceptConsentReset)
+			{
+				OutError = ConsentResetError;
+				return false;
+			}
+			return true;
+		}
+
 		virtual bool LoadRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -129,6 +140,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 ConsentFormCalls = 0;
 		int32 PrivacyOptionsFormCalls = 0;
 		int32 ConsentSignalCalls = 0;
+		int32 ConsentResetCalls = 0;
 		int32 LastConsentSignalMask = 0;
 		int64 InitializationRequestId = 0;
 		int64 LaunchRequestId = 0;
@@ -141,8 +153,10 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FOpenMobileAdsConsentRequest ConsentRequest;
 		FOpenMobileAdsConsentSignals LastConsentSignals;
 		FString LaunchedAdUnitId;
+		FString ConsentResetError;
 		FString ShownServerVerificationCustomData;
 		TArray<FString> LoadedAdUnitIds;
+		bool bAcceptConsentReset = true;
 		TArray<int64> LoadRequestIds;
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<int64> CancelledRequestIds;
@@ -784,6 +798,96 @@ bool FOpenMobileAdsAdMobPrivacyOptionsTest::RunTest(
 	FOpenMobileAdsAdMobPlatform::Shutdown();
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobConsentResetTest,
+	"OpenMobile.Ads.AdMob.Privacy.ConsentReset",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobConsentResetTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	TestTrue(
+		TEXT("AdMob advertises a development consent reset"),
+		Provider->SupportsConsentResetForTesting()
+	);
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob accepts a development consent reset"),
+		Provider->ResetConsentForTesting(Error)
+	);
+	TestEqual(
+		TEXT("AdMob calls the native reset boundary once"),
+		Backend.ConsentResetCalls,
+		1
+	);
+	TestFalse(TEXT("Successful AdMob reset has no error"), Error.IsSet());
+
+	Backend.bAcceptConsentReset = false;
+	Backend.ConsentResetError = TEXT("mock reset failure");
+	TestFalse(
+		TEXT("AdMob reports native reset rejection"),
+		Provider->ResetConsentForTesting(Error)
+	);
+	TestEqual(
+		TEXT("AdMob maps reset rejection to native failure"),
+		Error.Code,
+		EOpenMobileAdsErrorCode::NativeFailure
+	);
+	TestTrue(
+		TEXT("AdMob preserves reset diagnostics"),
+		Error.Explanation.Contains(TEXT("mock reset failure"))
+	);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	return true;
+}
+
+#if PLATFORM_ANDROID || PLATFORM_IOS
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobConsentResetDeviceTest,
+	"OpenMobile.Ads.AdMob.Privacy.ConsentReset.Device",
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobConsentResetDeviceTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The device AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	TestTrue(
+		TEXT("The device AdMob provider supports consent reset"),
+		Provider->SupportsConsentResetForTesting()
+	);
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("The device resets UMP consent state to unknown"),
+		Provider->ResetConsentForTesting(Error)
+	);
+	TestFalse(TEXT("The device reset has no native error"), Error.IsSet());
+	return true;
+}
+
+#endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobConsentSignalsTest,

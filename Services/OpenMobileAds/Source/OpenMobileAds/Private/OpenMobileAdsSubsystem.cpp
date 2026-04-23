@@ -1126,6 +1126,174 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
 	return FOpenMobileAdsOperationResult::Accepted(RequestId);
 }
 
+FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ResetConsentForTesting()
+{
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::Consent
+			)
+		);
+	}
+
+#if UE_BUILD_SHIPPING
+	return FOpenMobileAdsOperationResult::Rejected(
+		FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("Consent reset is disabled in Shipping builds."),
+			NAME_None,
+			TEXT("Use a non-shipping build with Development/Test Mode enabled.")
+		)
+	);
+#else
+	EnsureRuntime();
+	if (bDeinitialized)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Cancelled,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The ads subsystem has been deinitialized.")
+			)
+		);
+	}
+
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	if (!Settings->IsDevelopmentTestModeEnabled())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::InvalidState,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("Consent reset requires Development/Test Mode."),
+				NAME_None,
+				TEXT("Enable Development/Test Mode in a non-shipping build.")
+			)
+		);
+	}
+	if (
+		ActiveConsentRequestId.IsValid()
+		|| (FullscreenLifecycle && FullscreenLifecycle->IsOccupied())
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Busy,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("Consent cannot reset during another consent or full-screen operation."),
+				ActiveConsentProviderName,
+				TEXT("Retry after the active consent or ad operation finishes."),
+				true
+			)
+		);
+	}
+
+	FOpenMobileAdsError SelectionError;
+	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
+	if (!Provider)
+	{
+		SelectionError.Stage = EOpenMobileAdsFailureStage::Consent;
+		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(SelectionError));
+	}
+	const FName AdsProviderName = Provider->GetProviderName();
+	const FName ConsentProviderName = Provider->GetConsentProviderName();
+	if (ConsentProviderName.IsNone())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The selected ads provider does not supply a consent provider."),
+				AdsProviderName,
+				TEXT("Enable a provider plugin with a supported consent implementation.")
+			)
+		);
+	}
+
+	const FGuid RequestId = FGuid::NewGuid();
+	ActiveConsentRequestId = RequestId;
+	ActiveConsentAdsProviderName = AdsProviderName;
+	ActiveConsentProviderName = ConsentProviderName;
+	ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate::BeginReset(ConsentProviderName)
+	);
+	if (
+		bDeinitialized
+		|| ActiveConsentRequestId != RequestId
+		|| ActiveConsentAdsProviderName != AdsProviderName
+		|| ActiveConsentProviderName != ConsentProviderName
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Cancelled,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("Consent reset was cancelled before reaching the provider."),
+				ConsentProviderName
+			)
+		);
+	}
+
+	Provider = OpenMobileAdsPrivate::FindRegisteredProvider(AdsProviderName);
+	FOpenMobileAdsError ProviderError;
+	if (
+		!Provider
+		|| !Provider->IsSupported()
+		|| Provider->GetConsentProviderName() != ConsentProviderName
+		|| !Provider->SupportsConsentResetForTesting()
+		|| !Provider->ResetConsentForTesting(ProviderError)
+	)
+	{
+		if (!ProviderError.IsSet())
+		{
+			ProviderError = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The selected consent provider cannot reset persistent state."),
+				ConsentProviderName,
+				TEXT("Use a provider with a development consent reset implementation.")
+			);
+		}
+		FOpenMobileAdsError Error = OpenMobileAdsPrivate::NormalizeConsentError(
+			MoveTemp(ProviderError),
+			ConsentProviderName
+		);
+		ClearConsentOperation(false);
+		ApplyConsentStatusUpdateOnGameThread(
+			FOpenMobileAdsConsentStatusUpdate::Fail(
+				ConsentProviderName,
+				Error
+			)
+		);
+		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
+	}
+
+	ClearConsentOperation(false);
+	ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Unknown,
+			EOpenMobileAdsGdprApplicability::Unknown,
+			EOpenMobileAdsConsentRequirement::Unknown,
+			EOpenMobileAdsConsentRequestState::Unknown,
+			ConsentProviderName,
+			{},
+			false
+		)
+	);
+	return FOpenMobileAdsOperationResult::Accepted(RequestId);
+#endif
+}
+
 FOpenMobileAdsOperationResult
 UOpenMobileAdsSubsystem::PresentPrivacyOptionsForm()
 {

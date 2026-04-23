@@ -431,6 +431,19 @@ bool FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
 	);
 }
 
+bool FOpenMobileAdsAdMobPlatform::ResetConsentForTesting(FString& OutError)
+{
+	check(IsInGameThread());
+	IOpenMobileAdsAdMobBackend* Backend =
+		OpenMobileAdsAdMobPlatformPrivate::FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for consent reset.");
+		return false;
+	}
+	return Backend->ResetConsentForTesting(OutError);
+}
+
 bool FOpenMobileAdsAdMobPlatform::ApplyConsentSignals(
 	const FOpenMobileAdsConsentSignals& Signals,
 	int32 SignalMask,

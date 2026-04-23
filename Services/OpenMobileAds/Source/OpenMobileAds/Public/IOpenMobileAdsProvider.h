@@ -72,6 +72,8 @@ public:
 	) const;
 	virtual FName GetConsentProviderName() const { return NAME_None; }
 	virtual bool SupportsPrivacyOptionsForm() const { return false; }
+	virtual bool SupportsConsentResetForTesting() const { return false; }
+	virtual bool ResetConsentForTesting(FOpenMobileAdsError& OutError);
 	virtual int32 GetSupportedConsentSignalMask() const { return 0; }
 	virtual int32 GetConfirmableConsentSignalMask() const { return 0; }
 	virtual int32 GetRuntimeUpdatableConsentSignalMask() const { return 0; }

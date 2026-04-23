@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=5</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=6</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -526,6 +526,34 @@ import java.util.Set;
         }
     }
 
+    public boolean AndroidThunkJava_ResetOpenMobileUMPConsent()
+    {
+        try
+        {
+            boolean preferencesCleared = PreferenceManager
+                .getDefaultSharedPreferences(activityContext)
+                .edit().remove("gad_rdp").commit();
+            if (!preferencesCleared)
+            {
+                Log.error("OpenMobile could not clear AdMob data-processing state.");
+                return false;
+            }
+            UserMessagingPlatform.getConsentInformation(activityContext).reset();
+            if (UserMessagingPlatform.getConsentInformation(activityContext)
+                .getConsentStatus() != ConsentInformation.ConsentStatus.UNKNOWN)
+            {
+                Log.error("OpenMobile UMP consent state did not reset to unknown.");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile UMP consent reset failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
     public boolean AndroidThunkJava_ApplyOpenMobileAdsConsentSignals(
         final int dataProcessingMode
     )
@@ -929,6 +957,7 @@ import java.util.Set;
     );
     public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(long);
     public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(long);
+    public boolean AndroidThunkJava_ResetOpenMobileUMPConsent();
     public boolean AndroidThunkJava_ApplyOpenMobileAdsConsentSignals(int);
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         java.lang.String,
