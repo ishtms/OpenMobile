@@ -4,6 +4,7 @@
 #include "Features/IModularFeatures.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
+#include "IOpenMobileAdsConsentSignalConsumer.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
@@ -96,6 +97,24 @@ namespace OpenMobileAdsPrivate
 {
 	constexpr int32 MaxDismissedShowRewardContexts = 64;
 
+	FOpenMobileAdsConsentSignals MakeConsentSignals(
+		const FOpenMobileAdsPrivacySnapshot& Snapshot
+	)
+	{
+		FOpenMobileAdsConsentSignals Signals;
+		Signals.ConsentStatus = Snapshot.ConsentStatus;
+		Signals.GdprApplicability = Snapshot.GdprApplicability;
+		Signals.ConsentRequirement = Snapshot.ConsentRequirement;
+		Signals.ConsentRequestState = Snapshot.ConsentRequestState;
+		Signals.bConsentStatusFresh =
+			Snapshot.IsConsentStatusFreshAt(FDateTime::UtcNow());
+		Signals.UsPrivacy = Snapshot.UsPrivacy;
+		Signals.ChildDirectedTreatment = Snapshot.ChildDirectedTreatment;
+		Signals.UnderAgeOfConsent = Snapshot.UnderAgeOfConsent;
+		Signals.Source = Snapshot.Source;
+		return Signals;
+	}
+
 	FOpenMobileAdsProviderRequestContext MakeProviderPrivacyContext(
 		const FOpenMobileAdsPrivacySnapshot& Snapshot
 	)
@@ -107,6 +126,7 @@ namespace OpenMobileAdsPrivate
 		Context.ChildDirectedTreatment = Snapshot.ChildDirectedTreatment;
 		Context.UnderAgeOfConsent = Snapshot.UnderAgeOfConsent;
 		Context.UsPrivacy = Snapshot.UsPrivacy;
+		Context.ConsentSignals = MakeConsentSignals(Snapshot);
 		return Context;
 	}
 
@@ -1345,6 +1365,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 		Request.Development.bEnableConsentDebug = false;
 	}
 	Request.RequestConfiguration = Settings->RequestConfiguration;
+	PropagateConsentSignals(*Provider, false);
 
 	const FGuid RequestId = InitializationRequestId;
 	const FName ProviderName = SelectedProviderName;
@@ -1626,6 +1647,218 @@ void UOpenMobileAdsSubsystem::BroadcastConsentStatus()
 	OnConsentStatusChanged.Broadcast(PrivacySnapshot);
 }
 
+void UOpenMobileAdsSubsystem::PropagateConsentSignals(
+	IOpenMobileAdsProvider& Provider,
+	bool bRuntimeUpdate
+)
+{
+	check(IsInGameThread());
+	const FOpenMobileAdsConsentSignals Signals =
+		OpenMobileAdsPrivate::MakeConsentSignals(PrivacySnapshot);
+	const int32 ChangedSignals = bConsentSignalsPropagated
+		? Signals.GetChangedSignalMask(LastPropagatedConsentSignals)
+		: Signals.GetConfiguredSignalMask();
+	if (bRuntimeUpdate && ChangedSignals == 0)
+	{
+		return;
+	}
+
+	const int32 ConfiguredSignals = Signals.GetConfiguredSignalMask();
+	const int32 RequiredSignals = Signals.GetRequiredSignalMask();
+	const int32 OperationSignals = bRuntimeUpdate
+		? ChangedSignals
+		: ConfiguredSignals;
+	const FOpenMobileAdsConsentSignalDeliverySnapshot PreviousStatus =
+		ConsentSignalDeliveryStatus;
+	FOpenMobileAdsConsentSignalDeliverySnapshot NextStatus;
+
+	auto ApplyToConsumer = [
+		&Signals,
+		bRuntimeUpdate,
+		ConfiguredSignals,
+		RequiredSignals,
+		ChangedSignals,
+		OperationSignals,
+		&PreviousStatus,
+		&NextStatus
+	](
+		EOpenMobileAdsConsentSignalConsumerType Type,
+		FName Name,
+		FName Parent,
+		int32 SupportedSignals,
+		int32 ConfirmableSignals,
+		int32 RuntimeSignals,
+		auto&& Apply
+	)
+	{
+		FOpenMobileAdsConsentSignalDeliveryStatus Status;
+		Status.Type = Type;
+		Status.Name = Name;
+		Status.Parent = Parent;
+		Status.ConfiguredSignals = ConfiguredSignals;
+		Status.RequiredSignals = RequiredSignals;
+		Status.bRuntimeUpdate = bRuntimeUpdate;
+		if (const FOpenMobileAdsConsentSignalDeliveryStatus* Previous =
+			PreviousStatus.Find(Type, Name, Parent))
+		{
+			Status.AppliedSignals = Previous->AppliedSignals;
+			Status.ConfirmedSignals = Previous->ConfirmedSignals;
+		}
+
+		const int32 EligibleSignals = OperationSignals
+			& SupportedSignals
+			& (bRuntimeUpdate
+				? RuntimeSignals
+				: FOpenMobileAdsConsentSignals::AllSignalMask);
+		FOpenMobileAdsConsentSignalApplyResult Result;
+		if (!bRuntimeUpdate || EligibleSignals != 0)
+		{
+			Result = Apply(Signals, EligibleSignals);
+		}
+		if (bRuntimeUpdate)
+		{
+			Status.AppliedSignals &= ~ChangedSignals;
+			Status.ConfirmedSignals &= ~ChangedSignals;
+		}
+		else
+		{
+			Status.AppliedSignals = 0;
+			Status.ConfirmedSignals = 0;
+		}
+		const int32 AppliedSignals = Result.AppliedSignals
+			& EligibleSignals
+			& SupportedSignals;
+		Status.AppliedSignals |= AppliedSignals;
+		Status.ConfirmedSignals |= Result.ConfirmedSignals
+			& AppliedSignals
+			& ConfirmableSignals;
+		Status.AppliedSignals &= ConfiguredSignals;
+		Status.ConfirmedSignals &= Status.AppliedSignals;
+		Status.Error = MoveTemp(Result.Error);
+
+		const int32 MissingSupport = RequiredSignals & ~SupportedSignals;
+		const int32 MissingRuntimeSupport = bRuntimeUpdate
+			? RequiredSignals & ChangedSignals & ~RuntimeSignals
+			: 0;
+		const int32 MissingApplication =
+			RequiredSignals & ~Status.AppliedSignals;
+		const int32 MissingConfirmation =
+			RequiredSignals & ~Status.ConfirmedSignals;
+		if (Status.Error.IsSet() || Status.Error.NativeDiagnostics.IsSet())
+		{
+			Status.State = EOpenMobileAdsConsentSignalDeliveryState::Failed;
+		}
+		else if (
+			MissingSupport != 0
+			|| MissingRuntimeSupport != 0
+			|| MissingApplication != 0
+		)
+		{
+			Status.State = EOpenMobileAdsConsentSignalDeliveryState::Unsupported;
+		}
+		else if (MissingConfirmation != 0)
+		{
+			Status.State = EOpenMobileAdsConsentSignalDeliveryState::Unconfirmed;
+		}
+		else
+		{
+			Status.State = RequiredSignals == 0
+				? EOpenMobileAdsConsentSignalDeliveryState::NotRequired
+				: EOpenMobileAdsConsentSignalDeliveryState::Applied;
+		}
+		NextStatus.Consumers.Add(MoveTemp(Status));
+	};
+
+	ApplyToConsumer(
+		EOpenMobileAdsConsentSignalConsumerType::Provider,
+		Provider.GetProviderName(),
+		NAME_None,
+		Provider.GetSupportedConsentSignalMask(),
+		Provider.GetConfirmableConsentSignalMask(),
+		Provider.GetRuntimeUpdatableConsentSignalMask(),
+		[&Provider](
+			const FOpenMobileAdsConsentSignals& CurrentSignals,
+			int32 SignalMask
+		)
+		{
+			return Provider.ApplyConsentSignals(CurrentSignals, SignalMask);
+		}
+	);
+
+	TArray<IOpenMobileAdsConsentSignalConsumer*> Consumers =
+		IModularFeatures::Get().GetModularFeatureImplementations<
+			IOpenMobileAdsConsentSignalConsumer
+		>(IOpenMobileAdsConsentSignalConsumer::GetModularFeatureName());
+	Consumers.RemoveAll(
+		[&Provider](const IOpenMobileAdsConsentSignalConsumer* Consumer)
+		{
+			if (!Consumer)
+			{
+				return true;
+			}
+			const EOpenMobileAdsConsentSignalConsumerType Type =
+				Consumer->GetConsumerType();
+			return Consumer->GetOwningProviderName()
+					!= Provider.GetProviderName()
+				|| Consumer->GetConsumerName().IsNone()
+				|| (
+					Type != EOpenMobileAdsConsentSignalConsumerType::Network
+					&& Type != EOpenMobileAdsConsentSignalConsumerType::Adapter
+				);
+		}
+	);
+	Consumers.Sort(
+		[](const IOpenMobileAdsConsentSignalConsumer& Left,
+			const IOpenMobileAdsConsentSignalConsumer& Right)
+		{
+			if (Left.GetConsumerType() != Right.GetConsumerType())
+			{
+				return static_cast<uint8>(Left.GetConsumerType())
+					< static_cast<uint8>(Right.GetConsumerType());
+			}
+			if (Left.GetParentName() != Right.GetParentName())
+			{
+				return Left.GetParentName().LexicalLess(Right.GetParentName());
+			}
+			return Left.GetConsumerName().LexicalLess(Right.GetConsumerName());
+		}
+	);
+	for (IOpenMobileAdsConsentSignalConsumer* Consumer : Consumers)
+	{
+		ApplyToConsumer(
+			Consumer->GetConsumerType(),
+			Consumer->GetConsumerName(),
+			Consumer->GetParentName(),
+			Consumer->GetSupportedConsentSignalMask(),
+			Consumer->GetConfirmableConsentSignalMask(),
+			Consumer->GetRuntimeUpdatableConsentSignalMask(),
+			[Consumer](
+				const FOpenMobileAdsConsentSignals& CurrentSignals,
+				int32 SignalMask
+			)
+			{
+				return Consumer->ApplyConsentSignals(
+					CurrentSignals,
+					SignalMask
+				);
+			}
+		);
+	}
+
+	NextStatus.LastUpdated = FDateTime::UtcNow();
+	ConsentSignalDeliveryStatus = MoveTemp(NextStatus);
+	LastPropagatedConsentSignals = Signals;
+	bConsentSignalsPropagated = true;
+	BroadcastConsentSignalDeliveryStatus();
+}
+
+void UOpenMobileAdsSubsystem::BroadcastConsentSignalDeliveryStatus()
+{
+	check(IsInGameThread());
+	NativeConsentSignalDeliveryChanged.Broadcast(ConsentSignalDeliveryStatus);
+	OnConsentSignalDeliveryChanged.Broadcast(ConsentSignalDeliveryStatus);
+}
+
 FOpenMobileAdsCanRequestAdsResult UOpenMobileAdsSubsystem::CanRequestAds() const
 {
 	return EvaluateCanRequestAds(nullptr);
@@ -1816,6 +2049,14 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	}
 	PrivacySnapshot = MoveTemp(Snapshot);
 	bPrivacySnapshotInitialized = true;
+	if (bProviderInitializationStarted)
+	{
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(SelectedProviderName))
+		{
+			PropagateConsentSignals(*Provider, true);
+		}
+	}
 	BroadcastConsentStatus();
 	return FOpenMobileAdsOperationResult::Accepted(FGuid());
 }
@@ -2231,6 +2472,17 @@ void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdateOnGameThread(
 
 	PrivacySnapshot.LastUpdated = FDateTime::UtcNow();
 	bPrivacySnapshotInitialized = true;
+	if (
+		Update.Type == EOpenMobileAdsConsentStatusUpdateType::Completed
+		&& bProviderInitializationStarted
+	)
+	{
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(SelectedProviderName))
+		{
+			PropagateConsentSignals(*Provider, true);
+		}
+	}
 	BroadcastConsentStatus();
 }
 
@@ -4183,6 +4435,10 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	InitializationError = FOpenMobileAdsError();
 	InitializationStartedSeconds = 0.0;
 	bProviderInitializationStarted = false;
+	ConsentSignalDeliveryStatus =
+		FOpenMobileAdsConsentSignalDeliverySnapshot();
+	LastPropagatedConsentSignals = FOpenMobileAdsConsentSignals();
+	bConsentSignalsPropagated = false;
 	State = EOpenMobileRewardedAdState::Idle;
 	Super::Deinitialize();
 }

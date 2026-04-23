@@ -158,7 +158,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=4", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=5", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -443,21 +443,23 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			android_upl.index("AndroidThunkJava_LoadOpenMobileRewardedAd"):
 			android_upl.index("AndroidThunkJava_CancelOpenMobileRewardedAdLoad")
 		]
+		android_consent_signals = android_upl[
+			android_upl.index("applyOpenMobileDataProcessingMode"):
+			android_upl.index("AndroidThunkJava_LoadOpenMobileRewardedAd")
+		]
 		self.assertIn("final int dataProcessingMode", android_load)
-		self.assertIn('putInt("gad_rdp", 1)', android_load)
-		self.assertIn('remove("gad_rdp")', android_load)
+		self.assertIn("applyOpenMobileDataProcessingMode", android_load)
+		self.assertIn('putInt("gad_rdp", 1)', android_consent_signals)
+		self.assertIn('remove("gad_rdp")', android_consent_signals)
 		self.assertLess(
-			android_load.index('putInt("gad_rdp", 1)'),
-			android_load.index("RewardedAd.load"),
-		)
-		self.assertLess(
-			android_load.index('remove("gad_rdp")'),
+			android_load.index("applyOpenMobileDataProcessingMode"),
 			android_load.index("RewardedAd.load"),
 		)
 		android_backend = (
 			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
 		self.assertIn('"(Ljava/lang/String;JI)Z"', android_backend)
+		self.assertIn('"(I)Z"', android_backend)
 
 		ios_backend = (
 			ADMOB_PLUGIN
@@ -467,18 +469,19 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			/ "IOS"
 			/ "OpenMobileAdsAdMobIOSBackend.mm"
 		).read_text(encoding="utf-8")
+		ios_consent_signals = ios_backend[
+			ios_backend.index("void ApplyDataProcessingMode"):
+			ios_backend.index("FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd")
+		]
 		ios_load = ios_backend[
 			ios_backend.index("FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd"):
 			ios_backend.index("FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd")
 		]
-		self.assertIn('setBool:YES forKey:@"gad_rdp"', ios_load)
-		self.assertIn('removeObjectForKey:@"gad_rdp"', ios_load)
+		self.assertIn('setBool:YES forKey:@"gad_rdp"', ios_consent_signals)
+		self.assertIn('removeObjectForKey:@"gad_rdp"', ios_consent_signals)
+		self.assertIn("ApplyDataProcessingMode(DataProcessingMode)", ios_load)
 		self.assertLess(
-			ios_load.index('setBool:YES forKey:@"gad_rdp"'),
-			ios_load.index("GADRewardedAd loadWithAdUnitID"),
-		)
-		self.assertLess(
-			ios_load.index('removeObjectForKey:@"gad_rdp"'),
+			ios_load.index("ApplyDataProcessingMode(DataProcessingMode)"),
 			ios_load.index("GADRewardedAd loadWithAdUnitID"),
 		)
 

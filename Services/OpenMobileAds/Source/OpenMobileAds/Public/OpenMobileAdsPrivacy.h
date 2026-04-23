@@ -114,6 +114,187 @@ enum class EOpenMobileAdsAgeTreatment : uint8
 	Yes
 };
 
+UENUM(BlueprintType, meta = (Bitflags))
+enum class EOpenMobileAdsConsentSignal : uint8
+{
+	None = 0,
+	Gdpr = 1 << 0,
+	UsPrivacy = 1 << 1,
+	ChildDirected = 1 << 2,
+	UnderAgeOfConsent = 1 << 3
+};
+ENUM_CLASS_FLAGS(EOpenMobileAdsConsentSignal)
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsConsentSignals
+{
+	GENERATED_BODY()
+
+	static constexpr int32 AllSignalMask =
+		static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr)
+		| static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy)
+		| static_cast<int32>(EOpenMobileAdsConsentSignal::ChildDirected)
+		| static_cast<int32>(EOpenMobileAdsConsentSignal::UnderAgeOfConsent);
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentStatus ConsentStatus =
+		EOpenMobileAdsConsentStatus::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsGdprApplicability GdprApplicability =
+		EOpenMobileAdsGdprApplicability::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentRequirement ConsentRequirement =
+		EOpenMobileAdsConsentRequirement::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentRequestState ConsentRequestState =
+		EOpenMobileAdsConsentRequestState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bConsentStatusFresh = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsUsPrivacyState UsPrivacy;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment ChildDirectedTreatment =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsAgeTreatment UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::Unspecified;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Source;
+
+	int32 GetConfiguredSignalMask() const;
+	int32 GetRequiredSignalMask() const;
+	int32 GetChangedSignalMask(
+		const FOpenMobileAdsConsentSignals& Other
+	) const;
+
+	bool operator==(const FOpenMobileAdsConsentSignals& Other) const;
+	bool operator!=(const FOpenMobileAdsConsentSignals& Other) const
+	{
+		return !(*this == Other);
+	}
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConsentSignalConsumerType : uint8
+{
+	Provider,
+	Network,
+	Adapter
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsConsentSignalDeliveryState : uint8
+{
+	NotRequired,
+	Applied,
+	Unconfirmed,
+	Unsupported,
+	Failed
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsConsentSignalDeliveryStatus
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentSignalConsumerType Type =
+		EOpenMobileAdsConsentSignalConsumerType::Provider;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Name;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FName Parent;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileAds.EOpenMobileAdsConsentSignal")
+	)
+	int32 ConfiguredSignals = 0;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileAds.EOpenMobileAdsConsentSignal")
+	)
+	int32 RequiredSignals = 0;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileAds.EOpenMobileAdsConsentSignal")
+	)
+	int32 AppliedSignals = 0;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileAds.EOpenMobileAdsConsentSignal")
+	)
+	int32 ConfirmedSignals = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bRuntimeUpdate = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsConsentSignalDeliveryState State =
+		EOpenMobileAdsConsentSignalDeliveryState::NotRequired;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsError Error;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsConsentSignalDeliverySnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime LastUpdated;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	TArray<FOpenMobileAdsConsentSignalDeliveryStatus> Consumers;
+
+	const FOpenMobileAdsConsentSignalDeliveryStatus* Find(
+		EOpenMobileAdsConsentSignalConsumerType Type,
+		FName Name,
+		FName Parent = NAME_None
+	) const;
+};
+
+struct OPENMOBILEADS_API FOpenMobileAdsConsentSignalApplyResult
+{
+	int32 AppliedSignals = 0;
+	int32 ConfirmedSignals = 0;
+	FOpenMobileAdsError Error;
+
+	static FOpenMobileAdsConsentSignalApplyResult Applied(
+		int32 AppliedSignals,
+		int32 ConfirmedSignals
+	);
+};
+
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsConsentSignalDeliveryNativeEvent,
+	const FOpenMobileAdsConsentSignalDeliverySnapshot&
+);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsConsentSignalDeliveryDynamicEvent,
+	const FOpenMobileAdsConsentSignalDeliverySnapshot&,
+	Status
+);
+
 UENUM(BlueprintType)
 enum class EOpenMobileAdsProviderRequestPolicyState : uint8
 {
@@ -145,6 +326,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsProviderRequestContext
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsUsPrivacyState UsPrivacy;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsConsentSignals ConsentSignals;
 };
 
 USTRUCT(BlueprintType)

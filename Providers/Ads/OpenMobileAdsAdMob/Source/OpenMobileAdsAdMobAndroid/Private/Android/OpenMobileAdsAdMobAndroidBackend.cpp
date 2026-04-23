@@ -253,6 +253,51 @@ bool FOpenMobileAdsAdMobAndroidBackend::PresentPrivacyOptionsForm(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::ApplyConsentSignals(
+	const FOpenMobileAdsConsentSignals& Signals,
+	int32 SignalMask,
+	FString& OutError
+)
+{
+	if (
+		(SignalMask & static_cast<int32>(
+			EOpenMobileAdsConsentSignal::UsPrivacy
+		)) == 0
+	)
+	{
+		return true;
+	}
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable while applying consent signals.");
+		return false;
+	}
+	static jmethodID ApplyMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ApplyOpenMobileAdsConsentSignals",
+		"(I)Z",
+		false
+	);
+	if (!ApplyMethod)
+	{
+		OutError = TEXT("The Android AdMob consent-signal bridge was not packaged into GameActivity.");
+		return false;
+	}
+	const bool bApplied = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ApplyMethod,
+		static_cast<jint>(Signals.UsPrivacy.DataProcessingMode)
+	);
+	if (!bApplied)
+	{
+		OutError = TEXT("Android could not apply AdMob consent signals.");
+	}
+	return bApplied;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,

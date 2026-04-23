@@ -56,6 +56,157 @@ namespace
 	}
 }
 
+int32 FOpenMobileAdsConsentSignals::GetConfiguredSignalMask() const
+{
+	int32 Result = 0;
+	if (
+		bConsentStatusFresh
+		&& (
+			ConsentStatus != EOpenMobileAdsConsentStatus::Unknown
+			|| GdprApplicability != EOpenMobileAdsGdprApplicability::Unknown
+			|| ConsentRequirement != EOpenMobileAdsConsentRequirement::Unknown
+			|| ConsentRequestState != EOpenMobileAdsConsentRequestState::Unknown
+		)
+	)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr);
+	}
+	if (
+		bConsentStatusFresh
+		&& (
+			UsPrivacy.Applicability
+				!= EOpenMobileAdsUsPrivacyApplicability::Unknown
+			|| UsPrivacy.Choice != EOpenMobileAdsUsPrivacyChoice::Unknown
+			|| UsPrivacy.DataProcessingMode
+				!= EOpenMobileAdsDataProcessingMode::Unspecified
+		)
+	)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
+	}
+	if (ChildDirectedTreatment != EOpenMobileAdsAgeTreatment::Unspecified)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::ChildDirected);
+	}
+	if (UnderAgeOfConsent != EOpenMobileAdsAgeTreatment::Unspecified)
+	{
+		Result |= static_cast<int32>(
+			EOpenMobileAdsConsentSignal::UnderAgeOfConsent
+		);
+	}
+	return Result;
+}
+
+int32 FOpenMobileAdsConsentSignals::GetRequiredSignalMask() const
+{
+	const int32 Configured = GetConfiguredSignalMask();
+	int32 Result = Configured & (
+		static_cast<int32>(EOpenMobileAdsConsentSignal::ChildDirected)
+		| static_cast<int32>(EOpenMobileAdsConsentSignal::UnderAgeOfConsent)
+	);
+	if (
+		GdprApplicability == EOpenMobileAdsGdprApplicability::Applicable
+		|| ConsentRequirement == EOpenMobileAdsConsentRequirement::Required
+		|| ConsentStatus == EOpenMobileAdsConsentStatus::Required
+		|| ConsentStatus == EOpenMobileAdsConsentStatus::Granted
+		|| ConsentStatus == EOpenMobileAdsConsentStatus::Denied
+		|| ConsentStatus == EOpenMobileAdsConsentStatus::Obtained
+	)
+	{
+		Result |= Configured
+			& static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr);
+	}
+	if (
+		UsPrivacy.Applicability
+			== EOpenMobileAdsUsPrivacyApplicability::Applicable
+		|| UsPrivacy.Choice != EOpenMobileAdsUsPrivacyChoice::Unknown
+		|| UsPrivacy.DataProcessingMode
+			== EOpenMobileAdsDataProcessingMode::Restricted
+	)
+	{
+		Result |= Configured
+			& static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
+	}
+	return Result;
+}
+
+int32 FOpenMobileAdsConsentSignals::GetChangedSignalMask(
+	const FOpenMobileAdsConsentSignals& Other
+) const
+{
+	int32 Result = 0;
+	if (
+		ConsentStatus != Other.ConsentStatus
+		|| GdprApplicability != Other.GdprApplicability
+		|| ConsentRequirement != Other.ConsentRequirement
+		|| ConsentRequestState != Other.ConsentRequestState
+		|| bConsentStatusFresh != Other.bConsentStatusFresh
+		|| Source != Other.Source
+	)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr);
+	}
+	if (
+		UsPrivacy.Applicability != Other.UsPrivacy.Applicability
+		|| UsPrivacy.Choice != Other.UsPrivacy.Choice
+		|| UsPrivacy.DataProcessingMode != Other.UsPrivacy.DataProcessingMode
+		|| bConsentStatusFresh != Other.bConsentStatusFresh
+		|| Source != Other.Source
+	)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
+	}
+	if (ChildDirectedTreatment != Other.ChildDirectedTreatment)
+	{
+		Result |= static_cast<int32>(EOpenMobileAdsConsentSignal::ChildDirected);
+	}
+	if (UnderAgeOfConsent != Other.UnderAgeOfConsent)
+	{
+		Result |= static_cast<int32>(
+			EOpenMobileAdsConsentSignal::UnderAgeOfConsent
+		);
+	}
+	return Result;
+}
+
+bool FOpenMobileAdsConsentSignals::operator==(
+	const FOpenMobileAdsConsentSignals& Other
+) const
+{
+	return GetChangedSignalMask(Other) == 0;
+}
+
+const FOpenMobileAdsConsentSignalDeliveryStatus*
+FOpenMobileAdsConsentSignalDeliverySnapshot::Find(
+	EOpenMobileAdsConsentSignalConsumerType Type,
+	FName Name,
+	FName Parent
+) const
+{
+	return Consumers.FindByPredicate(
+		[Type, Name, Parent](
+			const FOpenMobileAdsConsentSignalDeliveryStatus& Candidate
+		)
+		{
+			return Candidate.Type == Type
+				&& Candidate.Name == Name
+				&& Candidate.Parent == Parent;
+		}
+	);
+}
+
+FOpenMobileAdsConsentSignalApplyResult
+FOpenMobileAdsConsentSignalApplyResult::Applied(
+	int32 AppliedSignals,
+	int32 ConfirmedSignals
+)
+{
+	FOpenMobileAdsConsentSignalApplyResult Result;
+	Result.AppliedSignals = AppliedSignals;
+	Result.ConfirmedSignals = ConfirmedSignals;
+	return Result;
+}
+
 FOpenMobileAdsConsentStatusUpdate
 FOpenMobileAdsConsentStatusUpdate::BeginRefresh(FName Source)
 {

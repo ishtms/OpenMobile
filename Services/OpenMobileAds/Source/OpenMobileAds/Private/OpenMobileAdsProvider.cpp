@@ -33,6 +33,15 @@ FOpenMobileAdsProviderRequestPolicy IOpenMobileAdsProvider::GetRequestPolicy(
 	return FOpenMobileAdsProviderRequestPolicy();
 }
 
+FOpenMobileAdsConsentSignalApplyResult
+IOpenMobileAdsProvider::ApplyConsentSignals(
+	const FOpenMobileAdsConsentSignals&,
+	int32
+)
+{
+	return FOpenMobileAdsConsentSignalApplyResult();
+}
+
 bool IOpenMobileAdsProvider::RefreshConsent(
 	const FOpenMobileAdsConsentRequest& Request,
 	TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,

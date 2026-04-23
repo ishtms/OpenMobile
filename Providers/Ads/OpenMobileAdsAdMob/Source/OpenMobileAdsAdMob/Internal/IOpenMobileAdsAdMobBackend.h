@@ -37,6 +37,11 @@ public:
 		int64 RequestId,
 		FString& OutError
 	) = 0;
+	virtual bool ApplyConsentSignals(
+		const FOpenMobileAdsConsentSignals& Signals,
+		int32 SignalMask,
+		FString& OutError
+	) = 0;
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,

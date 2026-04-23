@@ -431,6 +431,27 @@ bool FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
 	);
 }
 
+bool FOpenMobileAdsAdMobPlatform::ApplyConsentSignals(
+	const FOpenMobileAdsConsentSignals& Signals,
+	int32 SignalMask,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	if (SignalMask == 0)
+	{
+		return true;
+	}
+	IOpenMobileAdsAdMobBackend* Backend =
+		OpenMobileAdsAdMobPlatformPrivate::FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for consent signals.");
+		return false;
+	}
+	return Backend->ApplyConsentSignals(Signals, SignalMask, OutError);
+}
+
 void FOpenMobileAdsAdMobPlatform::CancelConsent(FGuid RequestId)
 {
 	check(IsInGameThread());

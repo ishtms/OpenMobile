@@ -1,3 +1,4 @@
+#include "IOpenMobileAdsConsentSignalConsumer.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/AutomationTest.h"
 #include "Modules/ModuleManager.h"
@@ -42,6 +43,10 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 		EOpenMobileAdsMaxAdContentRating::General;
 	FOpenMobileAdsConsentRequest ConsentRequest;
 	ConsentRequest.RequestId = FGuid::NewGuid();
+	FOpenMobileAdsConsentSignals ConsentSignals;
+	ConsentSignals.ConsentStatus = EOpenMobileAdsConsentStatus::Obtained;
+	const int32 ConsentSignalMask = ConsentSignals.GetConfiguredSignalMask();
+	FOpenMobileAdsConsentSignalDeliverySnapshot ConsentSignalDelivery;
 
 	FOpenMobileAdsEvent Event;
 	Event.Type = EOpenMobileAdsEventType::LoadStarted;
@@ -59,6 +64,9 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Public request IDs use Unreal GUIDs"), LoadRequest.RequestId.IsValid());
 	TestTrue(TEXT("Public initialization requests use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
 	TestTrue(TEXT("Public consent requests use Unreal GUIDs"), ConsentRequest.RequestId.IsValid());
+	TestEqual(TEXT("Public consent signals preserve normalized state"), ConsentSignals.ConsentStatus, EOpenMobileAdsConsentStatus::Obtained);
+	TestEqual(TEXT("Unknown consent signals remain unconfigured"), ConsentSignalMask, 0);
+	TestTrue(TEXT("Public consent-signal reports default empty"), ConsentSignalDelivery.Consumers.IsEmpty());
 	TestTrue(TEXT("Unknown public errors stay typed"), Error.IsSet());
 	UClass* SubsystemClass = UOpenMobileAdsSubsystem::StaticClass();
 	TestNotNull(TEXT("Subsystem type is public"), SubsystemClass);
@@ -67,6 +75,8 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Privacy-options requirement is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormRequired")));
 	TestNotNull(TEXT("Privacy-options availability is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormAvailable")));
 	TestNotNull(TEXT("Privacy options are callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("PresentPrivacyOptionsForm")));
+	TestNotNull(TEXT("Consent-signal delivery is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetConsentSignalDeliveryStatus")));
+	TestNotNull(TEXT("Consent-signal changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnConsentSignalDeliveryChanged")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));
 	TestNotNull(TEXT("Initialization status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetInitializationStatus")));
 	TestNotNull(TEXT("Initialization changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnInitializationStatusChanged")));

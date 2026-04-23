@@ -49,6 +49,54 @@ namespace OpenMobileAdsAdMobPrivate
 			return true;
 		}
 
+		virtual int32 GetSupportedConsentSignalMask() const override
+		{
+			return FOpenMobileAdsConsentSignals::AllSignalMask;
+		}
+
+		virtual int32 GetConfirmableConsentSignalMask() const override
+		{
+			return FOpenMobileAdsConsentSignals::AllSignalMask;
+		}
+
+		virtual int32 GetRuntimeUpdatableConsentSignalMask() const override
+		{
+			return static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr)
+				| static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
+		}
+
+		virtual FOpenMobileAdsConsentSignalApplyResult ApplyConsentSignals(
+			const FOpenMobileAdsConsentSignals& Signals,
+			int32 SignalMask
+		) override
+		{
+			SignalMask &= FOpenMobileAdsConsentSignals::AllSignalMask;
+			FString NativeError;
+			if (!FOpenMobileAdsAdMobPlatform::ApplyConsentSignals(
+				Signals,
+				SignalMask,
+				NativeError
+			))
+			{
+				FOpenMobileAdsConsentSignalApplyResult Result;
+				Result.Error = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("AdMob could not apply consent signals.")
+						: MoveTemp(NativeError),
+					GetProviderName()
+				);
+				return Result;
+			}
+			LastConsentSignals = Signals;
+			return FOpenMobileAdsConsentSignalApplyResult::Applied(
+				SignalMask,
+				SignalMask
+			);
+		}
+
 		virtual bool RefreshConsent(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -476,6 +524,7 @@ namespace OpenMobileAdsAdMobPrivate
 	private:
 		bool bUseTestAdUnitIds = false;
 		EOpenMobileAdsPlatform InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
+		FOpenMobileAdsConsentSignals LastConsentSignals;
 	};
 }
 

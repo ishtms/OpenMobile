@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=4</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=5</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -512,6 +512,36 @@ import java.util.Set;
         });
     }
 
+    private void applyOpenMobileDataProcessingMode(final int dataProcessingMode)
+    {
+        if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_RESTRICTED)
+        {
+            PreferenceManager.getDefaultSharedPreferences(activityContext)
+                .edit().putInt("gad_rdp", 1).apply();
+        }
+        else if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_STANDARD)
+        {
+            PreferenceManager.getDefaultSharedPreferences(activityContext)
+                .edit().remove("gad_rdp").apply();
+        }
+    }
+
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsConsentSignals(
+        final int dataProcessingMode
+    )
+    {
+        try
+        {
+            applyOpenMobileDataProcessingMode(dataProcessingMode);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile consent signals could not be applied: " + exception.getMessage());
+            return false;
+        }
+    }
+
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         final String adUnitId,
         final long requestId,
@@ -546,16 +576,7 @@ import java.util.Set;
                     }
 
                     openMobileRewardedAdLoadRequests.add(requestId);
-                    if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_RESTRICTED)
-                    {
-                        PreferenceManager.getDefaultSharedPreferences(activityContext)
-                            .edit().putInt("gad_rdp", 1).apply();
-                    }
-                    else if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_STANDARD)
-                    {
-                        PreferenceManager.getDefaultSharedPreferences(activityContext)
-                            .edit().remove("gad_rdp").apply();
-                    }
+                    applyOpenMobileDataProcessingMode(dataProcessingMode);
                     try
                     {
                         RewardedAd.load(
@@ -908,6 +929,7 @@ import java.util.Set;
     );
     public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(long);
     public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(long);
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsConsentSignals(int);
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         java.lang.String,
         long,

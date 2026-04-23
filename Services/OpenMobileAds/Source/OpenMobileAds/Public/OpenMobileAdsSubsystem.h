@@ -91,6 +91,19 @@ public:
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	FOpenMobileAdsConsentSignalDeliverySnapshot
+	GetConsentSignalDeliveryStatus() const
+	{
+		return ConsentSignalDeliveryStatus;
+	}
+
+	FOpenMobileAdsConsentSignalDeliveryNativeEvent&
+	OnNativeConsentSignalDeliveryChanged()
+	{
+		return NativeConsentSignalDeliveryChanged;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
 	FOpenMobileAdsCanRequestAdsResult CanRequestAds() const;
 
 	FOpenMobileAdsCanRequestAdsNativeEvent& OnNativeCanRequestAdsChanged()
@@ -214,6 +227,10 @@ public:
 	FOpenMobileAdsConsentStatusDynamicEvent OnConsentStatusChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	FOpenMobileAdsConsentSignalDeliveryDynamicEvent
+	OnConsentSignalDeliveryChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
 	FOpenMobileAdsCanRequestAdsDynamicEvent OnCanRequestAdsChanged;
 
 private:
@@ -249,6 +266,11 @@ private:
 	);
 	void BroadcastInitializationStatus();
 	void BroadcastConsentStatus();
+	void PropagateConsentSignals(
+		IOpenMobileAdsProvider& Provider,
+		bool bRuntimeUpdate
+	);
+	void BroadcastConsentSignalDeliveryStatus();
 	void RefreshCanRequestAdsDecision();
 	void ApplyConsentStatusUpdateOnGameThread(
 		FOpenMobileAdsConsentStatusUpdate Update
@@ -320,6 +342,8 @@ private:
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
+	FOpenMobileAdsConsentSignalDeliveryNativeEvent
+		NativeConsentSignalDeliveryChanged;
 	FOpenMobileAdsCanRequestAdsNativeEvent NativeCanRequestAdsChanged;
 	FDelegateHandle ProviderUnregisteredHandle;
 	FDelegateHandle NetworkConnectionChangedHandle;
@@ -342,6 +366,8 @@ private:
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
+	FOpenMobileAdsConsentSignalDeliverySnapshot ConsentSignalDeliveryStatus;
+	FOpenMobileAdsConsentSignals LastPropagatedConsentSignals;
 	FOpenMobileAdsCanRequestAdsResult LastCanRequestAdsDecision;
 	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
@@ -350,6 +376,7 @@ private:
 	bool bUnderAgeOfConsentLocked = false;
 	bool bPrivacyOptionsPresentationActive = false;
 	bool bPrivacySnapshotInitialized = false;
+	bool bConsentSignalsPropagated = false;
 	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;
 	bool bDeinitialized = false;

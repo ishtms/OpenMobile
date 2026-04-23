@@ -72,6 +72,13 @@ public:
 	) const;
 	virtual FName GetConsentProviderName() const { return NAME_None; }
 	virtual bool SupportsPrivacyOptionsForm() const { return false; }
+	virtual int32 GetSupportedConsentSignalMask() const { return 0; }
+	virtual int32 GetConfirmableConsentSignalMask() const { return 0; }
+	virtual int32 GetRuntimeUpdatableConsentSignalMask() const { return 0; }
+	virtual FOpenMobileAdsConsentSignalApplyResult ApplyConsentSignals(
+		const FOpenMobileAdsConsentSignals& Signals,
+		int32 SignalMask
+	);
 	virtual bool RefreshConsent(
 		const FOpenMobileAdsConsentRequest& Request,
 		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,

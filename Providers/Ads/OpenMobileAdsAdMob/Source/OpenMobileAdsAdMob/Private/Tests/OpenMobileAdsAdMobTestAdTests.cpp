@@ -65,6 +65,18 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool ApplyConsentSignals(
+			const FOpenMobileAdsConsentSignals& Signals,
+			int32 SignalMask,
+			FString& OutError
+		) override
+		{
+			++ConsentSignalCalls;
+			LastConsentSignals = Signals;
+			LastConsentSignalMask = SignalMask;
+			return true;
+		}
+
 		virtual bool LoadRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -116,6 +128,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
 		int32 PrivacyOptionsFormCalls = 0;
+		int32 ConsentSignalCalls = 0;
+		int32 LastConsentSignalMask = 0;
 		int64 InitializationRequestId = 0;
 		int64 LaunchRequestId = 0;
 		int64 ShownLoadedRequestId = 0;
@@ -125,6 +139,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int64 PrivacyOptionsFormRequestId = 0;
 		FOpenMobileAdsInitializationRequest InitializationRequest;
 		FOpenMobileAdsConsentRequest ConsentRequest;
+		FOpenMobileAdsConsentSignals LastConsentSignals;
 		FString LaunchedAdUnitId;
 		FString ShownServerVerificationCustomData;
 		TArray<FString> LoadedAdUnitIds;
@@ -766,6 +781,85 @@ bool FOpenMobileAdsAdMobPrivacyOptionsTest::RunTest(
 		2
 	);
 	TestEqual(TEXT("A late privacy-options callback is ignored"), Completions, 1);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobConsentSignalsTest,
+	"OpenMobile.Ads.AdMob.Privacy.ConsentSignals",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobConsentSignalsTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	const int32 AllSignals = FOpenMobileAdsConsentSignals::AllSignalMask;
+	const int32 GdprSignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::Gdpr
+	);
+	const int32 UsPrivacySignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::UsPrivacy
+	);
+	TestEqual(
+		TEXT("AdMob accepts every normalized consent signal"),
+		Provider->GetSupportedConsentSignalMask(),
+		AllSignals
+	);
+	TestEqual(
+		TEXT("AdMob confirms every accepted signal"),
+		Provider->GetConfirmableConsentSignalMask(),
+		AllSignals
+	);
+	TestEqual(
+		TEXT("AdMob updates consent and US privacy choices at runtime"),
+		Provider->GetRuntimeUpdatableConsentSignalMask(),
+		GdprSignal | UsPrivacySignal
+	);
+
+	FOpenMobileAdsConsentSignals Signals;
+	Signals.ConsentStatus = EOpenMobileAdsConsentStatus::Obtained;
+	Signals.GdprApplicability = EOpenMobileAdsGdprApplicability::Applicable;
+	Signals.ConsentRequirement = EOpenMobileAdsConsentRequirement::Required;
+	Signals.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	Signals.bConsentStatusFresh = true;
+	Signals.UsPrivacy.Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	Signals.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
+	Signals.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+	Signals.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	Signals.Source = TEXT("GoogleUMP");
+	const FOpenMobileAdsConsentSignalApplyResult InitialResult =
+		Provider->ApplyConsentSignals(Signals, AllSignals);
+	TestEqual(TEXT("AdMob applies the initial signal set"), InitialResult.AppliedSignals, AllSignals);
+	TestEqual(TEXT("AdMob confirms the initial signal set"), InitialResult.ConfirmedSignals, AllSignals);
+	TestEqual(TEXT("The native boundary receives the initial signals"), Backend.ConsentSignalCalls, 1);
+	TestEqual(TEXT("The native boundary receives standard processing"), Backend.LastConsentSignals.UsPrivacy.DataProcessingMode, EOpenMobileAdsDataProcessingMode::Standard);
+
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	Signals.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	const FOpenMobileAdsConsentSignalApplyResult ChangedResult =
+		Provider->ApplyConsentSignals(Signals, UsPrivacySignal);
+	TestEqual(TEXT("AdMob applies the changed US privacy signal"), ChangedResult.AppliedSignals, UsPrivacySignal);
+	TestEqual(TEXT("AdMob confirms the changed US privacy signal"), ChangedResult.ConfirmedSignals, UsPrivacySignal);
+	TestEqual(TEXT("The native boundary receives the changed signal"), Backend.ConsentSignalCalls, 2);
+	TestEqual(TEXT("The native boundary receives restricted processing"), Backend.LastConsentSignals.UsPrivacy.DataProcessingMode, EOpenMobileAdsDataProcessingMode::Restricted);
+
 	FOpenMobileAdsAdMobPlatform::Shutdown();
 	return true;
 }

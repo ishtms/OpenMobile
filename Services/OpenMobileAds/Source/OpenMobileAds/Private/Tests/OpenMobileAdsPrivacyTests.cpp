@@ -687,4 +687,92 @@ bool FOpenMobileAdsUsPrivacyStateContractTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsConsentSignalsContractTest,
+	"OpenMobile.Ads.Privacy.ConsentSignals.Normalization",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsConsentSignalsContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	const int32 GdprSignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::Gdpr
+	);
+	const int32 UsPrivacySignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::UsPrivacy
+	);
+	const int32 ChildDirectedSignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::ChildDirected
+	);
+	const int32 UnderAgeSignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::UnderAgeOfConsent
+	);
+
+	FOpenMobileAdsConsentSignals Signals;
+	TestEqual(TEXT("Unknown signals are not configured"), Signals.GetConfiguredSignalMask(), 0);
+	TestEqual(TEXT("Unknown signals are not required"), Signals.GetRequiredSignalMask(), 0);
+
+	Signals.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+	Signals.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::Yes;
+	TestEqual(
+		TEXT("Explicit age signals are configured and required"),
+		Signals.GetRequiredSignalMask(),
+		ChildDirectedSignal | UnderAgeSignal
+	);
+
+	Signals.bConsentStatusFresh = true;
+	Signals.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Signals.GdprApplicability =
+		EOpenMobileAdsGdprApplicability::NotApplicable;
+	Signals.ConsentRequirement =
+		EOpenMobileAdsConsentRequirement::NotRequired;
+	Signals.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	TestTrue(
+		TEXT("A fresh not-applicable GDPR result is configured"),
+		(Signals.GetConfiguredSignalMask() & GdprSignal) != 0
+	);
+	TestFalse(
+		TEXT("A not-applicable GDPR result is not required"),
+		(Signals.GetRequiredSignalMask() & GdprSignal) != 0
+	);
+
+	Signals.GdprApplicability = EOpenMobileAdsGdprApplicability::Applicable;
+	Signals.ConsentStatus = EOpenMobileAdsConsentStatus::Obtained;
+	Signals.ConsentRequirement = EOpenMobileAdsConsentRequirement::Required;
+	Signals.UsPrivacy.Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	Signals.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
+	TestEqual(
+		TEXT("Applicable consent state requires every configured signal"),
+		Signals.GetRequiredSignalMask(),
+		FOpenMobileAdsConsentSignals::AllSignalMask
+	);
+
+	FOpenMobileAdsConsentSignals Changed = Signals;
+	Changed.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	Changed.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	TestEqual(
+		TEXT("A changed US choice produces one propagation delta"),
+		Changed.GetChangedSignalMask(Signals),
+		UsPrivacySignal
+	);
+	Changed.bConsentStatusFresh = false;
+	TestEqual(
+		TEXT("Consent freshness changes both regional signals"),
+		Changed.GetChangedSignalMask(Signals),
+		GdprSignal | UsPrivacySignal
+	);
+	TestEqual(
+		TEXT("Stale regional state leaves only explicit age signals required"),
+		Changed.GetRequiredSignalMask(),
+		ChildDirectedSignal | UnderAgeSignal
+	);
+	return true;
+}
+
 #endif

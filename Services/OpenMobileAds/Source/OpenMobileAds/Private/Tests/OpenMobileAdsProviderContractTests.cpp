@@ -4,6 +4,7 @@
 #include "Engine/GameInstance.h"
 #include "Features/IModularFeatures.h"
 #include "HAL/PlatformMisc.h"
+#include "IOpenMobileAdsConsentSignalConsumer.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
@@ -90,6 +91,35 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return bSupportsPrivacyOptionsForm;
 		}
+		virtual int32 GetSupportedConsentSignalMask() const override
+		{
+			return SupportedConsentSignalMask;
+		}
+		virtual int32 GetConfirmableConsentSignalMask() const override
+		{
+			return ConfirmableConsentSignalMask;
+		}
+		virtual int32 GetRuntimeUpdatableConsentSignalMask() const override
+		{
+			return RuntimeConsentSignalMask;
+		}
+		virtual FOpenMobileAdsConsentSignalApplyResult ApplyConsentSignals(
+			const FOpenMobileAdsConsentSignals& Signals,
+			int32 SignalMask
+		) override
+		{
+			++ConsentSignalCalls;
+			LastConsentSignals = Signals;
+			LastConsentSignalMask = SignalMask;
+			if (Sequence)
+			{
+				ConsentSignalSequence = ++*Sequence;
+			}
+			return FOpenMobileAdsConsentSignalApplyResult::Applied(
+				SignalMask,
+				SignalMask & ConfirmableConsentSignalMask
+			);
+		}
 		virtual bool RefreshConsent(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -153,6 +183,10 @@ namespace OpenMobileAdsProviderContractTests
 		) override
 		{
 			++InitializationCalls;
+			if (Sequence)
+			{
+				InitializationSequence = ++*Sequence;
+			}
 			LastInitializationRequest = Request;
 			InitializationSink = CompletionSink;
 			if (!bAcceptInitialization)
@@ -319,6 +353,12 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptConsentForm = true;
 		bool bSupportsPrivacyOptionsForm = false;
 		bool bAcceptPrivacyOptionsForm = true;
+		int32 SupportedConsentSignalMask = 0;
+		int32 ConfirmableConsentSignalMask = 0;
+		int32 RuntimeConsentSignalMask = 0;
+		int32* Sequence = nullptr;
+		int32 ConsentSignalSequence = 0;
+		int32 InitializationSequence = 0;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
@@ -328,6 +368,8 @@ namespace OpenMobileAdsProviderContractTests
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
 		int32 PrivacyOptionsFormCalls = 0;
+		int32 ConsentSignalCalls = 0;
+		int32 LastConsentSignalMask = 0;
 		FName ConsentProviderName;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsProviderRequestPolicy RequestPolicy;
@@ -342,6 +384,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsConsentRequest LastConsentRequest;
 		FOpenMobileAdsConsentRequest LastConsentFormRequest;
 		FOpenMobileAdsConsentRequest LastPrivacyOptionsRequest;
+		FOpenMobileAdsConsentSignals LastConsentSignals;
 		FOpenMobileAdsError ConsentRejection;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
@@ -353,6 +396,107 @@ namespace OpenMobileAdsProviderContractTests
 		TArray<FGuid> CancelledRequests;
 		TArray<FGuid> CancelledConsentRequests;
 		TArray<FGuid> ReleasedCachedAds;
+	};
+
+	class FMockConsentSignalConsumer final
+		: public IOpenMobileAdsConsentSignalConsumer
+	{
+	public:
+		FMockConsentSignalConsumer(
+			FName InProvider,
+			EOpenMobileAdsConsentSignalConsumerType InType,
+			FName InName,
+			FName InParent = NAME_None
+		)
+			: Provider(InProvider)
+			, Type(InType)
+			, Name(InName)
+			, Parent(InParent)
+		{
+		}
+
+		virtual FName GetOwningProviderName() const override { return Provider; }
+		virtual EOpenMobileAdsConsentSignalConsumerType GetConsumerType() const override
+		{
+			return Type;
+		}
+		virtual FName GetConsumerName() const override { return Name; }
+		virtual FName GetParentName() const override { return Parent; }
+		virtual int32 GetSupportedConsentSignalMask() const override
+		{
+			return SupportedSignalMask;
+		}
+		virtual int32 GetConfirmableConsentSignalMask() const override
+		{
+			return ConfirmableSignalMask;
+		}
+		virtual int32 GetRuntimeUpdatableConsentSignalMask() const override
+		{
+			return RuntimeSignalMask;
+		}
+		virtual FOpenMobileAdsConsentSignalApplyResult ApplyConsentSignals(
+			const FOpenMobileAdsConsentSignals& Signals,
+			int32 SignalMask
+		) override
+		{
+			++Calls;
+			LastSignals = Signals;
+			LastSignalMask = SignalMask;
+			if (Sequence)
+			{
+				LastSequence = ++*Sequence;
+			}
+			if (ConsentSignalError.IsSet())
+			{
+				FOpenMobileAdsConsentSignalApplyResult Result;
+				Result.Error = ConsentSignalError;
+				return Result;
+			}
+			return FOpenMobileAdsConsentSignalApplyResult::Applied(
+				SignalMask,
+				SignalMask & ConfirmableSignalMask
+			);
+		}
+
+		FName Provider;
+		EOpenMobileAdsConsentSignalConsumerType Type;
+		FName Name;
+		FName Parent;
+		int32 SupportedSignalMask = 0;
+		int32 ConfirmableSignalMask = 0;
+		int32 RuntimeSignalMask = 0;
+		int32 Calls = 0;
+		int32 LastSignalMask = 0;
+		int32* Sequence = nullptr;
+		int32 LastSequence = 0;
+		FOpenMobileAdsConsentSignals LastSignals;
+		FOpenMobileAdsError ConsentSignalError;
+	};
+
+	class FScopedConsentSignalConsumerRegistration
+	{
+	public:
+		explicit FScopedConsentSignalConsumerRegistration(
+			IOpenMobileAdsConsentSignalConsumer& InConsumer
+		)
+			: Consumer(InConsumer)
+		{
+			IModularFeatures::Get().RegisterModularFeature(
+				IOpenMobileAdsConsentSignalConsumer::GetModularFeatureName(),
+				&Consumer
+			);
+		}
+
+		~FScopedConsentSignalConsumerRegistration()
+		{
+			IModularFeatures::Get().UnregisterModularFeature(
+				IOpenMobileAdsConsentSignalConsumer::GetModularFeatureName(),
+				&Consumer
+			);
+		}
+
+	private:
+		IOpenMobileAdsConsentSignalConsumer& Consumer;
 	};
 
 	class FScopedProviderRegistration
@@ -4452,6 +4596,310 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsConsentSignalPropagationContractTest,
+	"OpenMobile.Ads.Privacy.ConsentSignals.Propagation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsConsentSignalPropagationContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	const int32 GdprSignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::Gdpr
+	);
+	const int32 UsPrivacySignal = static_cast<int32>(
+		EOpenMobileAdsConsentSignal::UsPrivacy
+	);
+	const int32 AllSignals = FOpenMobileAdsConsentSignals::AllSignalMask;
+
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	int32 Sequence = 0;
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.SupportedConsentSignalMask = AllSignals;
+	Provider.ConfirmableConsentSignalMask = AllSignals;
+	Provider.RuntimeConsentSignalMask = GdprSignal | UsPrivacySignal;
+	Provider.Sequence = &Sequence;
+	FScopedProviderRegistration ProviderRegistration(Provider);
+
+	FMockConsentSignalConsumer AppliedAdapter(
+		TEXT("MockAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Adapter,
+		TEXT("AppliedAdapter"),
+		TEXT("MockNetwork")
+	);
+	AppliedAdapter.SupportedSignalMask = AllSignals;
+	AppliedAdapter.ConfirmableSignalMask = AllSignals;
+	AppliedAdapter.RuntimeSignalMask = UsPrivacySignal;
+	AppliedAdapter.Sequence = &Sequence;
+	FScopedConsentSignalConsumerRegistration AppliedRegistration(AppliedAdapter);
+
+	FMockConsentSignalConsumer UnconfirmedAdapter(
+		TEXT("MockAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Adapter,
+		TEXT("UnconfirmedAdapter"),
+		TEXT("MockNetwork")
+	);
+	UnconfirmedAdapter.SupportedSignalMask = AllSignals;
+	UnconfirmedAdapter.ConfirmableSignalMask = AllSignals & ~UsPrivacySignal;
+	UnconfirmedAdapter.RuntimeSignalMask = UsPrivacySignal;
+	UnconfirmedAdapter.Sequence = &Sequence;
+	FScopedConsentSignalConsumerRegistration UnconfirmedRegistration(
+		UnconfirmedAdapter
+	);
+
+	FMockConsentSignalConsumer UnsupportedNetwork(
+		TEXT("MockAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Network,
+		TEXT("UnsupportedNetwork")
+	);
+	UnsupportedNetwork.SupportedSignalMask = GdprSignal;
+	UnsupportedNetwork.ConfirmableSignalMask = GdprSignal;
+	UnsupportedNetwork.Sequence = &Sequence;
+	FScopedConsentSignalConsumerRegistration UnsupportedRegistration(
+		UnsupportedNetwork
+	);
+
+	FMockConsentSignalConsumer FailedAdapter(
+		TEXT("MockAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Adapter,
+		TEXT("FailedAdapter"),
+		TEXT("FailedNetwork")
+	);
+	FailedAdapter.SupportedSignalMask = AllSignals;
+	FailedAdapter.ConfirmableSignalMask = AllSignals;
+	FailedAdapter.RuntimeSignalMask = UsPrivacySignal;
+	FailedAdapter.ConsentSignalError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The adapter rejected the consent signal."),
+		TEXT("MockAds")
+	);
+	FScopedConsentSignalConsumerRegistration FailedRegistration(FailedAdapter);
+
+	FMockConsentSignalConsumer OtherProviderAdapter(
+		TEXT("OtherAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Adapter,
+		TEXT("OtherAdapter")
+	);
+	OtherProviderAdapter.SupportedSignalMask = AllSignals;
+	OtherProviderAdapter.ConfirmableSignalMask = AllSignals;
+	FScopedConsentSignalConsumerRegistration OtherRegistration(
+		OtherProviderAdapter
+	);
+
+	FMockConsentSignalConsumer InvalidProviderConsumer(
+		TEXT("MockAds"),
+		EOpenMobileAdsConsentSignalConsumerType::Provider,
+		TEXT("DuplicateProvider")
+	);
+	InvalidProviderConsumer.SupportedSignalMask = AllSignals;
+	InvalidProviderConsumer.ConfirmableSignalMask = AllSignals;
+	FScopedConsentSignalConsumerRegistration InvalidProviderRegistration(
+		InvalidProviderConsumer
+	);
+
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	int32 DeliveryBroadcasts = 0;
+	const FDelegateHandle DeliveryHandle =
+		Subsystem->OnNativeConsentSignalDeliveryChanged().AddLambda(
+			[&DeliveryBroadcasts](
+				const FOpenMobileAdsConsentSignalDeliverySnapshot& Snapshot
+			)
+			{
+				++DeliveryBroadcasts;
+			}
+		);
+
+	FOpenMobileAdsPrivacySnapshot Privacy;
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Obtained;
+	Privacy.GdprApplicability = EOpenMobileAdsGdprApplicability::Applicable;
+	Privacy.ConsentRequirement = EOpenMobileAdsConsentRequirement::Required;
+	Privacy.ConsentRequestState = EOpenMobileAdsConsentRequestState::Allowed;
+	Privacy.UsPrivacy.Applicability =
+		EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	Privacy.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	Privacy.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Standard;
+	Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::No;
+	Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
+	Privacy.bConsentStatusFresh = true;
+	Privacy.Source = TEXT("MockConsent");
+	Privacy.LastUpdated = FDateTime::UtcNow();
+	TestTrue(
+		TEXT("A normalized privacy snapshot is accepted before initialization"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+
+	TestTrue(
+		TEXT("Initialization starts after signal propagation"),
+		Subsystem->InitializeAds().bAccepted
+	);
+	TestEqual(
+		TEXT("The direct provider receives signals once"),
+		Provider.ConsentSignalCalls,
+		1
+	);
+	TestTrue(
+		TEXT("The direct provider receives every configured signal"),
+		Provider.LastConsentSignalMask == AllSignals
+	);
+	TestTrue(
+		TEXT("Direct-provider propagation precedes SDK initialization"),
+		Provider.ConsentSignalSequence < Provider.InitializationSequence
+	);
+	TestEqual(TEXT("A matching adapter receives signals"), AppliedAdapter.Calls, 1);
+	TestTrue(
+		TEXT("Adapter propagation precedes SDK initialization"),
+		AppliedAdapter.LastSequence < Provider.InitializationSequence
+	);
+	TestEqual(TEXT("Adapters for other providers are isolated"), OtherProviderAdapter.Calls, 0);
+	TestEqual(
+		TEXT("The adapter SPI cannot register another direct provider"),
+		InvalidProviderConsumer.Calls,
+		0
+	);
+	TestEqual(
+		TEXT("The initialization request carries the normalized signals"),
+		Provider.LastInitializationRequest.PrivacyContext.ConsentSignals,
+		Provider.LastConsentSignals
+	);
+
+	const FOpenMobileAdsConsentSignalDeliverySnapshot InitialDelivery =
+		Subsystem->GetConsentSignalDeliveryStatus();
+	TestEqual(
+		TEXT("The report lists the provider and matching consumers"),
+		InitialDelivery.Consumers.Num(),
+		5
+	);
+	const FOpenMobileAdsConsentSignalDeliveryStatus* ProviderDelivery =
+		InitialDelivery.Find(
+			EOpenMobileAdsConsentSignalConsumerType::Provider,
+			TEXT("MockAds")
+		);
+	const FOpenMobileAdsConsentSignalDeliveryStatus* AppliedDelivery =
+		InitialDelivery.Find(
+			EOpenMobileAdsConsentSignalConsumerType::Adapter,
+			TEXT("AppliedAdapter"),
+			TEXT("MockNetwork")
+		);
+	const FOpenMobileAdsConsentSignalDeliveryStatus* UnconfirmedDelivery =
+		InitialDelivery.Find(
+			EOpenMobileAdsConsentSignalConsumerType::Adapter,
+			TEXT("UnconfirmedAdapter"),
+			TEXT("MockNetwork")
+		);
+	const FOpenMobileAdsConsentSignalDeliveryStatus* UnsupportedDelivery =
+		InitialDelivery.Find(
+			EOpenMobileAdsConsentSignalConsumerType::Network,
+			TEXT("UnsupportedNetwork")
+		);
+	const FOpenMobileAdsConsentSignalDeliveryStatus* FailedDelivery =
+		InitialDelivery.Find(
+			EOpenMobileAdsConsentSignalConsumerType::Adapter,
+			TEXT("FailedAdapter"),
+			TEXT("FailedNetwork")
+		);
+	TestNotNull(TEXT("The direct-provider delivery is reported"), ProviderDelivery);
+	TestNotNull(TEXT("The applied adapter delivery is reported"), AppliedDelivery);
+	TestNotNull(TEXT("The unconfirmed adapter delivery is reported"), UnconfirmedDelivery);
+	TestNotNull(TEXT("The unsupported network delivery is reported"), UnsupportedDelivery);
+	TestNotNull(TEXT("The failed adapter delivery is reported"), FailedDelivery);
+	if (ProviderDelivery)
+	{
+		TestEqual(
+			TEXT("The provider confirms required signals"),
+			ProviderDelivery->State,
+			EOpenMobileAdsConsentSignalDeliveryState::Applied
+		);
+	}
+	if (AppliedDelivery)
+	{
+		TestEqual(
+			TEXT("A capable adapter confirms required signals"),
+			AppliedDelivery->State,
+			EOpenMobileAdsConsentSignalDeliveryState::Applied
+		);
+	}
+	if (UnconfirmedDelivery)
+	{
+		TestEqual(
+			TEXT("Missing confirmation is reported"),
+			UnconfirmedDelivery->State,
+			EOpenMobileAdsConsentSignalDeliveryState::Unconfirmed
+		);
+	}
+	if (UnsupportedDelivery)
+	{
+		TestEqual(
+			TEXT("Unsupported required signals are reported"),
+			UnsupportedDelivery->State,
+			EOpenMobileAdsConsentSignalDeliveryState::Unsupported
+		);
+	}
+	if (FailedDelivery)
+	{
+		TestEqual(
+			TEXT("A rejected signal is reported as failed"),
+			FailedDelivery->State,
+			EOpenMobileAdsConsentSignalDeliveryState::Failed
+		);
+		TestEqual(
+			TEXT("A failed delivery keeps the typed error"),
+			FailedDelivery->Error.Code,
+			EOpenMobileAdsErrorCode::NativeFailure
+		);
+	}
+
+	Provider.CompleteInitialization();
+	DrainGameThreadTasks();
+	Privacy.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	Privacy.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	Privacy.LastUpdated = FDateTime::UtcNow();
+	TestTrue(
+		TEXT("A changed choice is accepted after initialization"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+	TestEqual(TEXT("The provider receives the changed choice"), Provider.ConsentSignalCalls, 2);
+	TestEqual(TEXT("Only the changed provider signal is applied"), Provider.LastConsentSignalMask, UsPrivacySignal);
+	TestEqual(
+		TEXT("A runtime-capable adapter receives the changed choice"),
+		AppliedAdapter.Calls,
+		2
+	);
+	TestEqual(
+		TEXT("An unconfirmed adapter still receives supported updates"),
+		UnconfirmedAdapter.Calls,
+		2
+	);
+	TestEqual(
+		TEXT("A network without runtime support is not called again"),
+		UnsupportedNetwork.Calls,
+		1
+	);
+	TestEqual(TEXT("Initial and changed deliveries are broadcast"), DeliveryBroadcasts, 2);
+
+	TestTrue(
+		TEXT("An identical snapshot remains accepted"),
+		Subsystem->UpdatePrivacySnapshot(Privacy).bAccepted
+	);
+	TestEqual(TEXT("Identical signals do not reapply to the provider"), Provider.ConsentSignalCalls, 2);
+	TestEqual(TEXT("Identical signals do not rebroadcast delivery"), DeliveryBroadcasts, 2);
+
+	Subsystem->OnNativeConsentSignalDeliveryChanged().Remove(DeliveryHandle);
 	Subsystem->Deinitialize();
 	return true;
 }

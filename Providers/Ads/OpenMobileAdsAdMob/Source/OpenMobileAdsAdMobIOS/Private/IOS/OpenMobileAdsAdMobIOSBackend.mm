@@ -137,6 +137,18 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	void ApplyDataProcessingMode(EOpenMobileAdsDataProcessingMode Mode)
+	{
+		if (Mode == EOpenMobileAdsDataProcessingMode::Restricted)
+		{
+			[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"gad_rdp"];
+		}
+		else if (Mode == EOpenMobileAdsDataProcessingMode::Standard)
+		{
+			[NSUserDefaults.standardUserDefaults removeObjectForKey:@"gad_rdp"];
+		}
+	}
+
 	void CompleteConsentInfo(int64 RequestId, bool bFormDismissed)
 	{
 		UMPConsentInformation* ConsentInformation =
@@ -430,6 +442,25 @@ bool FOpenMobileAdsAdMobIOSBackend::PresentPrivacyOptionsForm(
 	return true;
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::ApplyConsentSignals(
+	const FOpenMobileAdsConsentSignals& Signals,
+	int32 SignalMask,
+	FString& OutError
+)
+{
+	if (
+		(SignalMask & static_cast<int32>(
+			EOpenMobileAdsConsentSignal::UsPrivacy
+		)) != 0
+	)
+	{
+		OpenMobileAdsAdMobIOS::ApplyDataProcessingMode(
+			Signals.UsPrivacy.DataProcessingMode
+		);
+	}
+	return true;
+}
+
 bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -474,14 +505,7 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 		}
 
 		[GOpenMobileRewardedAdLoadRequests addObject:Key];
-		if (DataProcessingMode == EOpenMobileAdsDataProcessingMode::Restricted)
-		{
-			[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"gad_rdp"];
-		}
-		else if (DataProcessingMode == EOpenMobileAdsDataProcessingMode::Standard)
-		{
-			[NSUserDefaults.standardUserDefaults removeObjectForKey:@"gad_rdp"];
-		}
+		OpenMobileAdsAdMobIOS::ApplyDataProcessingMode(DataProcessingMode);
 		[GADRewardedAd loadWithAdUnitID:IOSAdUnitId
 						   request:[GADRequest request]
 					completionHandler:^(GADRewardedAd* RewardedAd, NSError* Error)
