@@ -101,6 +101,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Refresh Consent"))
 	FOpenMobileAdsOperationResult RefreshConsent();
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	bool IsPrivacyOptionsFormRequired() const
+	{
+		return PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
+			&& PrivacySnapshot.UsPrivacy.PrivacyOptionsRequirement
+			== EOpenMobileAdsPrivacyOptionsRequirement::Required;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	bool IsPrivacyOptionsFormAvailable() const
+	{
+		return PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
+			&& PrivacySnapshot.UsPrivacy.bPrivacyOptionsFormAvailable;
+	}
+
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "Open Mobile|Ads",
+		meta = (DisplayName = "Present Privacy Options Form")
+	)
+	FOpenMobileAdsOperationResult PresentPrivacyOptionsForm();
+
 	FOpenMobileAdsOperationResult UpdatePrivacySnapshot(
 		FOpenMobileAdsPrivacySnapshot Snapshot
 	);
@@ -249,7 +271,10 @@ private:
 		FName ConsentProviderName,
 		FOpenMobileAdsError Error
 	);
-	bool StartRequiredConsentForm(IOpenMobileAdsProvider& Provider);
+	bool StartConsentForm(
+		IOpenMobileAdsProvider& Provider,
+		bool bPrivacyOptions
+	);
 	void ClearConsentOperation(bool bEndPresentation);
 	void UpsertInitializationComponent(
 		FOpenMobileAdsInitializationComponentStatus Status
@@ -323,6 +348,7 @@ private:
 	bool bProviderInitializationStarted = false;
 	bool bChildDirectedTreatmentLocked = false;
 	bool bUnderAgeOfConsentLocked = false;
+	bool bPrivacyOptionsPresentationActive = false;
 	bool bPrivacySnapshotInitialized = false;
 	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;

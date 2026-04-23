@@ -22,6 +22,10 @@ public:
 		int64 RequestId,
 		FString& OutError
 	) override;
+	virtual bool PresentPrivacyOptionsForm(
+		int64 RequestId,
+		FString& OutError
+	) override;
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,

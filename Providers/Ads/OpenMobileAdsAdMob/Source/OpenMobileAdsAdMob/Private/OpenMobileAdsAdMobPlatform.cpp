@@ -228,6 +228,54 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 		return nullptr;
 	}
+
+	bool BeginConsentFormOperation(
+		const FOpenMobileAdsConsentRequest& Request,
+		FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+		FOnOpenMobileAdMobConsentFailed&& OnFailed,
+		bool bPrivacyOptions,
+		FString& OutError
+	)
+	{
+		IOpenMobileAdsAdMobBackend* Backend = FindBackend();
+		if (!Backend)
+		{
+			OutError = TEXT("The AdMob provider has no native backend for UMP.");
+			return false;
+		}
+		if (!Request.RequestId.IsValid())
+		{
+			OutError = TEXT("The Google UMP form request ID is invalid.");
+			return false;
+		}
+		if (NativeConsentRequestIds.Contains(Request.RequestId))
+		{
+			OutError = TEXT("The Google UMP consent request is already active.");
+			return false;
+		}
+
+		++NextRequestId;
+		if (NextRequestId <= 0)
+		{
+			NextRequestId = 1;
+		}
+		const int64 NativeRequestId = NextRequestId;
+		FConsentOperation Operation;
+		Operation.RequestId = Request.RequestId;
+		Operation.Completed = MoveTemp(OnCompleted);
+		Operation.Failed = MoveTemp(OnFailed);
+		ConsentOperations.Add(NativeRequestId, MoveTemp(Operation));
+		NativeConsentRequestIds.Add(Request.RequestId, NativeRequestId);
+		const bool bStarted = bPrivacyOptions
+			? Backend->PresentPrivacyOptionsForm(NativeRequestId, OutError)
+			: Backend->PresentRequiredConsentForm(NativeRequestId, OutError);
+		if (!bStarted)
+		{
+			FConsentOperation Removed;
+			RemoveConsentOperation(NativeRequestId, Removed);
+		}
+		return bStarted;
+	}
 }
 
 bool FOpenMobileAdsAdMobPlatform::IsSupported()
@@ -357,43 +405,30 @@ bool FOpenMobileAdsAdMobPlatform::BeginRequiredConsentForm(
 )
 {
 	check(IsInGameThread());
-	using namespace OpenMobileAdsAdMobPlatformPrivate;
-	IOpenMobileAdsAdMobBackend* Backend = FindBackend();
-	if (!Backend)
-	{
-		OutError = TEXT("The AdMob provider has no native backend for UMP.");
-		return false;
-	}
-	if (!Request.RequestId.IsValid())
-	{
-		OutError = TEXT("The Google UMP form request ID is invalid.");
-		return false;
-	}
-	if (NativeConsentRequestIds.Contains(Request.RequestId))
-	{
-		OutError = TEXT("The Google UMP consent request is already active.");
-		return false;
-	}
+	return OpenMobileAdsAdMobPlatformPrivate::BeginConsentFormOperation(
+		Request,
+		MoveTemp(OnCompleted),
+		MoveTemp(OnFailed),
+		false,
+		OutError
+	);
+}
 
-	++NextRequestId;
-	if (NextRequestId <= 0)
-	{
-		NextRequestId = 1;
-	}
-	const int64 NativeRequestId = NextRequestId;
-	FConsentOperation Operation;
-	Operation.RequestId = Request.RequestId;
-	Operation.Completed = MoveTemp(OnCompleted);
-	Operation.Failed = MoveTemp(OnFailed);
-	ConsentOperations.Add(NativeRequestId, MoveTemp(Operation));
-	NativeConsentRequestIds.Add(Request.RequestId, NativeRequestId);
-	if (!Backend->PresentRequiredConsentForm(NativeRequestId, OutError))
-	{
-		FConsentOperation Removed;
-		RemoveConsentOperation(NativeRequestId, Removed);
-		return false;
-	}
-	return true;
+bool FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
+	const FOpenMobileAdsConsentRequest& Request,
+	FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+	FOnOpenMobileAdMobConsentFailed&& OnFailed,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	return OpenMobileAdsAdMobPlatformPrivate::BeginConsentFormOperation(
+		Request,
+		MoveTemp(OnCompleted),
+		MoveTemp(OnFailed),
+		true,
+		OutError
+	);
 }
 
 void FOpenMobileAdsAdMobPlatform::CancelConsent(FGuid RequestId)

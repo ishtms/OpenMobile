@@ -71,12 +71,18 @@ public:
 		const FOpenMobileAdsProviderRequestContext& Context
 	) const;
 	virtual FName GetConsentProviderName() const { return NAME_None; }
+	virtual bool SupportsPrivacyOptionsForm() const { return false; }
 	virtual bool RefreshConsent(
 		const FOpenMobileAdsConsentRequest& Request,
 		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
 		FOpenMobileAdsError& OutError
 	);
 	virtual bool PresentRequiredConsentForm(
+		const FOpenMobileAdsConsentRequest& Request,
+		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+		FOpenMobileAdsError& OutError
+	);
+	virtual bool PresentPrivacyOptionsForm(
 		const FOpenMobileAdsConsentRequest& Request,
 		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
 		FOpenMobileAdsError& OutError

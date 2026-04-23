@@ -9,6 +9,7 @@ enum class EOpenMobileAdsFullscreenSurface : uint8
 	None,
 	Ad,
 	Consent,
+	TrackingAuthorization,
 	Inspector
 };
 

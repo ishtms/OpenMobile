@@ -55,6 +55,16 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool PresentPrivacyOptionsForm(
+			int64 RequestId,
+			FString& OutError
+		) override
+		{
+			++PrivacyOptionsFormCalls;
+			PrivacyOptionsFormRequestId = RequestId;
+			return true;
+		}
+
 		virtual bool LoadRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -105,12 +115,14 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 ShowCalls = 0;
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
+		int32 PrivacyOptionsFormCalls = 0;
 		int64 InitializationRequestId = 0;
 		int64 LaunchRequestId = 0;
 		int64 ShownLoadedRequestId = 0;
 		int64 ShowRequestId = 0;
 		int64 ConsentRefreshRequestId = 0;
 		int64 ConsentFormRequestId = 0;
+		int64 PrivacyOptionsFormRequestId = 0;
 		FOpenMobileAdsInitializationRequest InitializationRequest;
 		FOpenMobileAdsConsentRequest ConsentRequest;
 		FString LaunchedAdUnitId;
@@ -637,6 +649,123 @@ bool FOpenMobileAdsAdMobConsentFlowTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("A native UMP failure completes once"), Failures, 1);
 	TestTrue(TEXT("UMP network failures are retryable"), ConsentError.bRetryable);
 	TestEqual(TEXT("UMP failure diagnostics retain their code"), ConsentError.NativeDiagnostics.NativeCode, FString(TEXT("ump_network")));
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobPrivacyOptionsTest,
+	"OpenMobile.Ads.AdMob.Privacy.PrivacyOptions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobPrivacyOptionsTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (Provider)
+	{
+		TestTrue(
+			TEXT("AdMob advertises privacy-options support"),
+			Provider->SupportsPrivacyOptionsForm()
+		);
+	}
+
+	FOpenMobileAdsConsentRequest Request;
+	Request.RequestId = FGuid::NewGuid();
+	Request.Platform = EOpenMobileAdsPlatform::Android;
+	FOpenMobileAdsConsentStatusUpdate Update;
+	FOpenMobileAdsError Error;
+	int32 Completions = 0;
+	int32 Failures = 0;
+	FString ImmediateError;
+	TestTrue(
+		TEXT("AdMob starts the privacy-options form"),
+		FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+				[&Completions, &Update](
+					FOpenMobileAdsConsentStatusUpdate Result
+				)
+				{
+					++Completions;
+					Update = MoveTemp(Result);
+				}
+			),
+			FOnOpenMobileAdMobConsentFailed::CreateLambda(
+				[&Failures, &Error](FOpenMobileAdsError Result)
+				{
+					++Failures;
+					Error = MoveTemp(Result);
+				}
+			),
+			ImmediateError
+		)
+	);
+	TestEqual(TEXT("The native privacy-options form starts once"), Backend.PrivacyOptionsFormCalls, 1);
+	FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+		Backend.PrivacyOptionsFormRequestId,
+		3,
+		true,
+		2
+	);
+	TestEqual(TEXT("Privacy-options dismissal completes once"), Completions, 1);
+	TestEqual(TEXT("Privacy-options dismissal refreshes consent"), Update.Status, EOpenMobileAdsConsentStatus::Obtained);
+	TestTrue(TEXT("Privacy-options dismissal preserves availability"), Update.UsPrivacy.bPrivacyOptionsFormAvailable);
+
+	Request.RequestId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("Privacy options can start again"),
+		FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted(),
+			FOnOpenMobileAdMobConsentFailed::CreateLambda(
+				[&Failures, &Error](FOpenMobileAdsError Result)
+				{
+					++Failures;
+					Error = MoveTemp(Result);
+				}
+			),
+			ImmediateError
+		)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+		Backend.PrivacyOptionsFormRequestId,
+		TEXT("form_unavailable"),
+		TEXT("mock privacy-options form unavailable")
+	);
+	TestEqual(TEXT("Privacy-options failure completes once"), Failures, 1);
+	TestEqual(TEXT("Unavailable privacy options are typed"), Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+
+	Request.RequestId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("A cancellable privacy-options request starts"),
+		FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+				[&Completions](FOpenMobileAdsConsentStatusUpdate Result)
+				{
+					++Completions;
+				}
+			),
+			FOnOpenMobileAdMobConsentFailed(),
+			ImmediateError
+		)
+	);
+	FOpenMobileAdsAdMobPlatform::CancelConsent(Request.RequestId);
+	FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+		Backend.PrivacyOptionsFormRequestId,
+		3,
+		true,
+		2
+	);
+	TestEqual(TEXT("A late privacy-options callback is ignored"), Completions, 1);
 	FOpenMobileAdsAdMobPlatform::Shutdown();
 	return true;
 }

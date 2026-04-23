@@ -67,6 +67,23 @@ bool IOpenMobileAdsProvider::PresentRequiredConsentForm(
 	return false;
 }
 
+bool IOpenMobileAdsProvider::PresentPrivacyOptionsForm(
+	const FOpenMobileAdsConsentRequest& Request,
+	TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderUnavailable,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The selected ads provider cannot present a privacy-options form."),
+		GetProviderName(),
+		TEXT("Enable and configure a consent provider with privacy-options support.")
+	);
+	return false;
+}
+
 bool IOpenMobileAdsProvider::Initialize(
 	const FOpenMobileAdsInitializationRequest& Request,
 	TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,

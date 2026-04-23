@@ -158,7 +158,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=3", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=4", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -240,6 +240,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		]
 		form_method = android_upl[
 			android_upl.index("AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm"):
+			android_upl.index("AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm")
+		]
+		privacy_options_method = android_upl[
+			android_upl.index("AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm"):
 			android_upl.index("AndroidThunkJava_InitializeOpenMobileRewardedAds")
 		]
 		self.assertIn("setTagForUnderAgeOfConsent", request_method)
@@ -250,6 +254,13 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("loadAndShowConsentFormIfRequired", form_method)
 		self.assertIn("nativeOpenMobileUMPConsentFormDismissed", form_method)
 		self.assertIn("nativeOpenMobileUMPConsentFailed", form_method)
+		self.assertIn("showPrivacyOptionsForm", privacy_options_method)
+		self.assertIn("nativeOpenMobileUMPConsentFormDismissed", privacy_options_method)
+		self.assertIn("nativeOpenMobileUMPConsentFailed", privacy_options_method)
+		self.assertIn(
+			"AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(long)",
+			android_upl,
+		)
 		self.assertRegex(
 			android_upl,
 			r'case 3:\s+return "ump_invalid_operation";',
@@ -285,6 +296,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("bEnableConsentDebug && !bUnderAgeOfConsent", ios_backend)
 		self.assertIn("FOpenMobileAdsAdMobIOSBackend::PresentRequiredConsentForm", ios_backend)
 		self.assertIn("loadAndPresentIfRequiredFromViewController", ios_backend)
+		self.assertIn("FOpenMobileAdsAdMobIOSBackend::PresentPrivacyOptionsForm", ios_backend)
+		self.assertIn("presentPrivacyOptionsFormFromViewController", ios_backend)
 		self.assertIn("NativeConsentInfoUpdated", ios_backend)
 		self.assertIn("NativeConsentFormDismissed", ios_backend)
 		self.assertIn("NativeConsentFailed", ios_backend)

@@ -44,6 +44,11 @@ namespace OpenMobileAdsAdMobPrivate
 			return TEXT("GoogleUMP");
 		}
 
+		virtual bool SupportsPrivacyOptionsForm() const override
+		{
+			return true;
+		}
+
 		virtual bool RefreshConsent(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -128,6 +133,47 @@ namespace OpenMobileAdsAdMobPrivate
 					NAME_None,
 					NativeError.IsEmpty()
 						? TEXT("Google UMP could not present its required consent form.")
+						: MoveTemp(NativeError),
+					GetConsentProviderName()
+				);
+			}
+			return bStarted;
+		}
+
+		virtual bool PresentPrivacyOptionsForm(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FString NativeError;
+			const bool bStarted =
+				FOpenMobileAdsAdMobPlatform::BeginPrivacyOptionsForm(
+					Request,
+					FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+						[CompletionSink](
+							FOpenMobileAdsConsentStatusUpdate Update
+						) mutable
+						{
+							CompletionSink->Complete(MoveTemp(Update));
+						}
+					),
+					FOnOpenMobileAdMobConsentFailed::CreateLambda(
+						[CompletionSink](FOpenMobileAdsError Error) mutable
+						{
+							CompletionSink->Fail(MoveTemp(Error));
+						}
+					),
+					NativeError
+				);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("Google UMP could not present its privacy-options form.")
 						: MoveTemp(NativeError),
 					GetConsentProviderName()
 				);

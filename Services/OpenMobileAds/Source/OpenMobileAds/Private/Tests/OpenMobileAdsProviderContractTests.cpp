@@ -86,6 +86,10 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return ConsentProviderName;
 		}
+		virtual bool SupportsPrivacyOptionsForm() const override
+		{
+			return bSupportsPrivacyOptionsForm;
+		}
 		virtual bool RefreshConsent(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -116,6 +120,23 @@ namespace OpenMobileAdsProviderContractTests
 			{
 				OutError = ConsentRejection;
 				ConsentFormSink.Reset();
+				return false;
+			}
+			return true;
+		}
+		virtual bool PresentPrivacyOptionsForm(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++PrivacyOptionsFormCalls;
+			LastPrivacyOptionsRequest = Request;
+			PrivacyOptionsFormSink = CompletionSink;
+			if (!bAcceptPrivacyOptionsForm)
+			{
+				OutError = ConsentRejection;
+				PrivacyOptionsFormSink.Reset();
 				return false;
 			}
 			return true;
@@ -270,6 +291,22 @@ namespace OpenMobileAdsProviderContractTests
 			}
 		}
 
+		void CompletePrivacyOptionsForm(FOpenMobileAdsConsentStatusUpdate Update)
+		{
+			if (PrivacyOptionsFormSink)
+			{
+				PrivacyOptionsFormSink->Complete(MoveTemp(Update));
+			}
+		}
+
+		void FailPrivacyOptionsForm(FOpenMobileAdsError Error)
+		{
+			if (PrivacyOptionsFormSink)
+			{
+				PrivacyOptionsFormSink->Fail(MoveTemp(Error));
+			}
+		}
+
 		FName Name;
 		bool bSupported = true;
 		bool bAcceptInitialization = true;
@@ -280,6 +317,8 @@ namespace OpenMobileAdsProviderContractTests
 		bool bBlockUnderAgeRequests = false;
 		bool bAcceptConsentRefresh = true;
 		bool bAcceptConsentForm = true;
+		bool bSupportsPrivacyOptionsForm = false;
+		bool bAcceptPrivacyOptionsForm = true;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
@@ -288,6 +327,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 ShutdownCalls = 0;
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
+		int32 PrivacyOptionsFormCalls = 0;
 		FName ConsentProviderName;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsProviderRequestPolicy RequestPolicy;
@@ -301,6 +341,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
 		FOpenMobileAdsConsentRequest LastConsentRequest;
 		FOpenMobileAdsConsentRequest LastConsentFormRequest;
+		FOpenMobileAdsConsentRequest LastPrivacyOptionsRequest;
 		FOpenMobileAdsError ConsentRejection;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
@@ -308,6 +349,7 @@ namespace OpenMobileAdsProviderContractTests
 		TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentRefreshSink;
 		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentFormSink;
+		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> PrivacyOptionsFormSink;
 		TArray<FGuid> CancelledRequests;
 		TArray<FGuid> CancelledConsentRequests;
 		TArray<FGuid> ReleasedCachedAds;
@@ -1274,6 +1316,20 @@ bool FOpenMobileAdsFullscreenCoordinatorContractTest::RunTest(
 			FGuid::NewGuid()
 		)
 	);
+	TestFalse(
+		TEXT("Another consent form cannot overlap reserved consent UI"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			FGuid::NewGuid()
+		)
+	);
+	TestFalse(
+		TEXT("Inspector UI cannot overlap reserved consent UI"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Inspector,
+			FGuid::NewGuid()
+		)
+	);
 	TestTrue(
 		TEXT("Reserved consent can end before presentation"),
 		Coordinator.End(
@@ -1338,6 +1394,29 @@ bool FOpenMobileAdsFullscreenCoordinatorContractTest::RunTest(
 		)
 	);
 	TestEqual(TEXT("Unused reservations do not restore gameplay"), TargetState->RestoreGameplayCalls, 1);
+
+	const FGuid TrackingAuthorizationOwner = FGuid::NewGuid();
+	TestTrue(
+		TEXT("Tracking authorization can reserve the shared full-screen surface"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			TrackingAuthorizationOwner
+		)
+	);
+	TestFalse(
+		TEXT("Consent UI cannot overlap tracking authorization"),
+		Coordinator.TryReserve(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			FGuid::NewGuid()
+		)
+	);
+	TestTrue(
+		TEXT("Tracking authorization releases its reservation"),
+		Coordinator.End(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			TrackingAuthorizationOwner
+		)
+	);
 
 	const FGuid ShutdownOwner = FGuid::NewGuid();
 	TestTrue(
@@ -4178,6 +4257,202 @@ bool FOpenMobileAdsConsentProviderFailureContractTest::RunTest(
 	}
 	DrainGameThreadTasks();
 	TestNotEqual(TEXT("A late callback cannot replace consent after teardown"), Subsystem->GetPrivacySnapshot().ConsentStatus, EOpenMobileAdsConsentStatus::NotRequired);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsPrivacyOptionsEntryPointContractTest,
+	"OpenMobile.Ads.Privacy.PrivacyOptions.EntryPoint",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	Provider.bSupportsPrivacyOptionsForm = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+
+	auto MakeUpdate = [](EOpenMobileAdsUsPrivacyChoice Choice)
+	{
+		FOpenMobileAdsConsentStatusUpdate Update =
+			FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+				EOpenMobileAdsConsentStatus::Obtained,
+				EOpenMobileAdsGdprApplicability::Applicable,
+				EOpenMobileAdsConsentRequirement::Required,
+				EOpenMobileAdsConsentRequestState::Allowed,
+				TEXT("MockConsent")
+			);
+		Update.UsPrivacy.Applicability =
+			EOpenMobileAdsUsPrivacyApplicability::Applicable;
+		Update.UsPrivacy.Choice = Choice;
+		Update.UsPrivacy.PrivacyOptionsRequirement =
+			EOpenMobileAdsPrivacyOptionsRequirement::Required;
+		Update.UsPrivacy.bPrivacyOptionsFormAvailable = true;
+		Update.UsPrivacy.DataProcessingMode =
+			EOpenMobileAdsDataProcessingMode::ProviderManaged;
+		return Update;
+	};
+
+	Subsystem->ApplyConsentStatusUpdate(
+		MakeUpdate(EOpenMobileAdsUsPrivacyChoice::OptedIn)
+	);
+	TestTrue(
+		TEXT("A required privacy-options path is queryable"),
+		Subsystem->IsPrivacyOptionsFormRequired()
+	);
+	TestTrue(
+		TEXT("An available privacy-options form is queryable"),
+		Subsystem->IsPrivacyOptionsFormAvailable()
+	);
+	TestNotNull(
+		TEXT("Blueprints can query privacy-options requirements"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileAdsSubsystem,
+				IsPrivacyOptionsFormRequired
+			)
+		)
+	);
+	TestNotNull(
+		TEXT("Blueprints can query privacy-options availability"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileAdsSubsystem,
+				IsPrivacyOptionsFormAvailable
+			)
+		)
+	);
+	TestNotNull(
+		TEXT("Blueprints can present privacy options"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileAdsSubsystem,
+				PresentPrivacyOptionsForm
+			)
+		)
+	);
+	FOpenMobileAdsConsentStatusUpdate ExpiredUpdate =
+		MakeUpdate(EOpenMobileAdsUsPrivacyChoice::OptedIn);
+	ExpiredUpdate.ExpiresAt = FDateTime::UtcNow() - FTimespan::FromSeconds(1.0);
+	Subsystem->ApplyConsentStatusUpdate(MoveTemp(ExpiredUpdate));
+	TestFalse(
+		TEXT("An expired privacy-options requirement is not current"),
+		Subsystem->IsPrivacyOptionsFormRequired()
+	);
+	TestFalse(
+		TEXT("An expired privacy-options form is not available"),
+		Subsystem->IsPrivacyOptionsFormAvailable()
+	);
+	TestFalse(
+		TEXT("An expired privacy-options form cannot open"),
+		Subsystem->PresentPrivacyOptionsForm().bAccepted
+	);
+	Subsystem->ApplyConsentStatusUpdate(
+		MakeUpdate(EOpenMobileAdsUsPrivacyChoice::OptedIn)
+	);
+
+	TFuture<FOpenMobileAdsOperationResult> OffThreadResult = Async(
+		EAsyncExecution::ThreadPool,
+		[Subsystem]()
+		{
+			return Subsystem->PresentPrivacyOptionsForm();
+		}
+	);
+	OffThreadResult.Wait();
+	TestFalse(
+		TEXT("Privacy options reject off-thread presentation"),
+		OffThreadResult.Get().bAccepted
+	);
+
+	const FOpenMobileAdsOperationResult Refresh = Subsystem->RefreshConsent();
+	TestTrue(TEXT("Consent refresh starts before the overlap check"), Refresh.bAccepted);
+	const FOpenMobileAdsOperationResult RefreshConflict =
+		Subsystem->PresentPrivacyOptionsForm();
+	TestFalse(
+		TEXT("Privacy options cannot overlap consent refresh"),
+		RefreshConflict.bAccepted
+	);
+	TestEqual(
+		TEXT("Consent overlap is a busy failure"),
+		RefreshConflict.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+	Provider.CompleteConsentRefresh(
+		MakeUpdate(EOpenMobileAdsUsPrivacyChoice::OptedIn)
+	);
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsOperationResult Started =
+		Subsystem->PresentPrivacyOptionsForm();
+	TestTrue(TEXT("An available privacy-options form starts"), Started.bAccepted);
+	TestTrue(TEXT("Privacy-options presentation gets a request ID"), Started.RequestId.IsValid());
+	TestEqual(TEXT("The provider presents privacy options once"), Provider.PrivacyOptionsFormCalls, 1);
+	TestEqual(
+		TEXT("Privacy options enter form presentation state"),
+		Subsystem->GetPrivacySnapshot().ConsentActivity,
+		EOpenMobileAdsConsentActivity::PresentingForm
+	);
+	const FOpenMobileAdsOperationResult Duplicate =
+		Subsystem->PresentPrivacyOptionsForm();
+	TestTrue(TEXT("A duplicate privacy-options call is idempotent"), Duplicate.bAccepted);
+	TestEqual(TEXT("A duplicate keeps the request ID"), Duplicate.RequestId, Started.RequestId);
+	TestEqual(TEXT("A duplicate does not present another form"), Provider.PrivacyOptionsFormCalls, 1);
+	const FOpenMobileAdsOperationResult PrivacyConflict =
+		Subsystem->RefreshConsent();
+	TestFalse(
+		TEXT("Consent refresh cannot replace active privacy options"),
+		PrivacyConflict.bAccepted
+	);
+	TestEqual(
+		TEXT("Privacy-options overlap is a busy failure"),
+		PrivacyConflict.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+
+	Provider.CompletePrivacyOptionsForm(
+		MakeUpdate(EOpenMobileAdsUsPrivacyChoice::OptedOut)
+	);
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPrivacySnapshot Changed =
+		Subsystem->GetPrivacySnapshot();
+	TestEqual(TEXT("Privacy-options dismissal returns idle"), Changed.ConsentActivity, EOpenMobileAdsConsentActivity::Idle);
+	TestEqual(TEXT("A changed privacy choice is applied"), Changed.UsPrivacy.Choice, EOpenMobileAdsUsPrivacyChoice::OptedOut);
+	TestTrue(TEXT("The privacy-options form remains reopenable"), Changed.UsPrivacy.bPrivacyOptionsFormAvailable);
+
+	const FOpenMobileAdsOperationResult Reopened =
+		Subsystem->PresentPrivacyOptionsForm();
+	TestTrue(TEXT("Privacy options can reopen after dismissal"), Reopened.bAccepted);
+	TestNotEqual(TEXT("A reopened form gets a new request ID"), Reopened.RequestId, Started.RequestId);
+	TestEqual(TEXT("Reopening reaches the provider again"), Provider.PrivacyOptionsFormCalls, 2);
+	FOpenMobileAdsError NativeFailure;
+	NativeFailure.NativeDiagnostics.NativeCode = TEXT("form_unavailable");
+	NativeFailure.NativeDiagnostics.NativeMessage =
+		TEXT("mock privacy-options form unavailable");
+	Provider.FailPrivacyOptionsForm(MoveTemp(NativeFailure));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("An unavailable privacy-options form returns idle"),
+		Subsystem->GetPrivacySnapshot().ConsentActivity,
+		EOpenMobileAdsConsentActivity::Idle
+	);
+	TestEqual(
+		TEXT("Privacy-options failure is normalized"),
+		Subsystem->GetPrivacySnapshot().Error.Code,
+		EOpenMobileAdsErrorCode::ProviderUnavailable
+	);
+
+	Subsystem->Deinitialize();
 	return true;
 }
 

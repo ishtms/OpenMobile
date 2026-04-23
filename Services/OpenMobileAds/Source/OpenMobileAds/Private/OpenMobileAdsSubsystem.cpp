@@ -953,6 +953,20 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
 	}
 	if (ActiveConsentRequestId.IsValid())
 	{
+		if (bPrivacyOptionsPresentationActive)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::Busy,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					TEXT("Consent cannot refresh while privacy options are open."),
+					ActiveConsentProviderName,
+					TEXT("Retry after the privacy-options form closes."),
+					true
+				)
+			);
+		}
 		return FOpenMobileAdsOperationResult::Accepted(ActiveConsentRequestId);
 	}
 	if (
@@ -1089,6 +1103,148 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 	Sink->Commit();
+	return FOpenMobileAdsOperationResult::Accepted(RequestId);
+}
+
+FOpenMobileAdsOperationResult
+UOpenMobileAdsSubsystem::PresentPrivacyOptionsForm()
+{
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::Consent
+			)
+		);
+	}
+
+	EnsureRuntime();
+	if (bDeinitialized)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Cancelled,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The ads subsystem has been deinitialized.")
+			)
+		);
+	}
+	if (ActiveConsentRequestId.IsValid())
+	{
+		if (bPrivacyOptionsPresentationActive)
+		{
+			return FOpenMobileAdsOperationResult::Accepted(
+				ActiveConsentRequestId
+			);
+		}
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Busy,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("Privacy options cannot open during another consent operation."),
+				ActiveConsentProviderName,
+				TEXT("Retry after the active consent operation finishes."),
+				true
+			)
+		);
+	}
+	if (
+		!PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
+		|| !PrivacySnapshot.UsPrivacy.bPrivacyOptionsFormAvailable
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("A current privacy-options form is not available."),
+				PrivacySnapshot.Source,
+				TEXT("Refresh consent information before opening privacy options.")
+			)
+		);
+	}
+	if (
+		!bApplicationActive
+		|| !bApplicationInForeground
+		|| (FullscreenLifecycle && FullscreenLifecycle->IsOccupied())
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Busy,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("Privacy options cannot open while another full-screen surface is active."),
+				PrivacySnapshot.Source,
+				TEXT("Retry after the application is active and the current full-screen surface closes."),
+				true
+			)
+		);
+	}
+
+	FOpenMobileAdsError SelectionError;
+	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
+	if (!Provider)
+	{
+		SelectionError.Stage = EOpenMobileAdsFailureStage::Consent;
+		return FOpenMobileAdsOperationResult::Rejected(
+			MoveTemp(SelectionError)
+		);
+	}
+	const FName ConsentProviderName = Provider->GetConsentProviderName();
+	if (
+		ConsentProviderName.IsNone()
+		|| !Provider->SupportsPrivacyOptionsForm()
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The selected consent provider does not support privacy options."),
+				Provider->GetProviderName(),
+				TEXT("Enable a consent provider with a privacy-options form.")
+			)
+		);
+	}
+
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	ActiveConsentRequest = FOpenMobileAdsConsentRequest();
+	ActiveConsentRequest.RequestId = FGuid::NewGuid();
+	ActiveConsentRequest.Platform = OpenMobileAdsGetCurrentPlatform();
+	ActiveConsentRequest.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			Settings->IsDevelopmentTestModeEnabled(),
+			Settings->TestDeviceIdentifiers
+		);
+	ActiveConsentRequest.Privacy = Settings->Privacy;
+	ActiveConsentRequest.Privacy.ChildDirectedTreatment =
+		PrivacySnapshot.ChildDirectedTreatment;
+	ActiveConsentRequest.Privacy.UnderAgeOfConsent =
+		PrivacySnapshot.UnderAgeOfConsent;
+	if (
+		ActiveConsentRequest.Privacy.UnderAgeOfConsent
+			== EOpenMobileAdsAgeTreatment::Yes
+	)
+	{
+		ActiveConsentRequest.Development.bEnableConsentDebug = false;
+	}
+	ActiveConsentRequestId = ActiveConsentRequest.RequestId;
+	ActiveConsentAdsProviderName = Provider->GetProviderName();
+	ActiveConsentProviderName = ConsentProviderName;
+	bPrivacyOptionsPresentationActive = true;
+	const FGuid RequestId = ActiveConsentRequestId;
+	if (!StartConsentForm(*Provider, true))
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			PrivacySnapshot.Error
+		);
+	}
 	return FOpenMobileAdsOperationResult::Accepted(RequestId);
 }
 
@@ -1745,11 +1901,12 @@ void UOpenMobileAdsSubsystem::HandleConsentRefreshCompleted(
 		);
 		return;
 	}
-	StartRequiredConsentForm(*Provider);
+	StartConsentForm(*Provider, false);
 }
 
-bool UOpenMobileAdsSubsystem::StartRequiredConsentForm(
-	IOpenMobileAdsProvider& Provider
+bool UOpenMobileAdsSubsystem::StartConsentForm(
+	IOpenMobileAdsProvider& Provider,
+	bool bPrivacyOptions
 )
 {
 	check(IsInGameThread());
@@ -1784,7 +1941,9 @@ bool UOpenMobileAdsSubsystem::StartRequiredConsentForm(
 				EOpenMobileAdsErrorCode::Busy,
 				EOpenMobileAdsFailureStage::Consent,
 				NAME_None,
-				TEXT("The required consent form conflicts with another full-screen surface."),
+				bPrivacyOptions
+					? TEXT("The privacy-options form conflicts with another full-screen surface.")
+					: TEXT("The required consent form conflicts with another full-screen surface."),
 				ConsentProviderName,
 				TEXT("Retry consent after the current full-screen surface closes."),
 				true
@@ -1846,11 +2005,18 @@ bool UOpenMobileAdsSubsystem::StartRequiredConsentForm(
 		);
 	ConsentOperationSink = Sink;
 	FOpenMobileAdsError ProviderError;
-	if (!Provider.PresentRequiredConsentForm(
-		ActiveConsentRequest,
-		Sink,
-		ProviderError
-	))
+	const bool bStarted = bPrivacyOptions
+		? Provider.PresentPrivacyOptionsForm(
+			ActiveConsentRequest,
+			Sink,
+			ProviderError
+		)
+		: Provider.PresentRequiredConsentForm(
+			ActiveConsentRequest,
+			Sink,
+			ProviderError
+		);
+	if (!bStarted)
 	{
 		Sink->Invalidate();
 		ConsentOperationSink.Reset();
@@ -1964,6 +2130,7 @@ void UOpenMobileAdsSubsystem::ClearConsentOperation(bool bEndPresentation)
 	ActiveConsentRequest = FOpenMobileAdsConsentRequest();
 	ActiveConsentAdsProviderName = NAME_None;
 	ActiveConsentProviderName = NAME_None;
+	bPrivacyOptionsPresentationActive = false;
 }
 
 void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdate(

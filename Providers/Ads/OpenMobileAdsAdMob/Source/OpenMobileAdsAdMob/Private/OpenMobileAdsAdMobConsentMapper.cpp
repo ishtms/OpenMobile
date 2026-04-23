@@ -90,11 +90,13 @@ FOpenMobileAdsAdMobConsentMapper::MapUsPrivacyState(
 	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::NotRequired:
 		State.PrivacyOptionsRequirement =
 			EOpenMobileAdsPrivacyOptionsRequirement::NotRequired;
+		State.bPrivacyOptionsFormAvailable = false;
 		break;
 
 	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Required:
 		State.PrivacyOptionsRequirement =
 			EOpenMobileAdsPrivacyOptionsRequirement::Required;
+		State.bPrivacyOptionsFormAvailable = true;
 		break;
 
 	case EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Unknown:

@@ -393,6 +393,43 @@ bool FOpenMobileAdsAdMobIOSBackend::PresentRequiredConsentForm(
 	return true;
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::PresentPrivacyOptionsForm(
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	if (RequestId <= 0)
+	{
+		OutError = TEXT("The iOS Google UMP privacy-options request ID is invalid.");
+		return false;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		[UMPConsentForm
+			presentPrivacyOptionsFormFromViewController:RootController
+			completionHandler:^(NSError* Error)
+		{
+			if (Error)
+			{
+				FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToUMPErrorCode(Error, true),
+					OpenMobileAdsAdMobIOS::ToFString(
+						Error.localizedDescription ?: @"Unknown UMP privacy-options error."
+					)
+				);
+				return;
+			}
+			OpenMobileAdsAdMobIOS::CompleteConsentInfo(RequestId, true);
+		}];
+	});
+	return true;
+}
+
 bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,

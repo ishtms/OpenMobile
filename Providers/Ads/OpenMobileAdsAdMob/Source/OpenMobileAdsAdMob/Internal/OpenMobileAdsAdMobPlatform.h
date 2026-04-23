@@ -50,6 +50,12 @@ public:
 		FOnOpenMobileAdMobConsentFailed&& OnFailed,
 		FString& OutError
 	);
+	static bool BeginPrivacyOptionsForm(
+		const FOpenMobileAdsConsentRequest& Request,
+		FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+		FOnOpenMobileAdMobConsentFailed&& OnFailed,
+		FString& OutError
+	);
 	static void CancelConsent(FGuid RequestId);
 	static bool BeginLoad(
 		const FOpenMobileAdsLoadRequest& Request,

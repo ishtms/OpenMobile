@@ -90,6 +90,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsUsPrivacyState
 		EOpenMobileAdsPrivacyOptionsRequirement::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bPrivacyOptionsFormAvailable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsDataProcessingMode DataProcessingMode =
 		EOpenMobileAdsDataProcessingMode::Unspecified;
 };

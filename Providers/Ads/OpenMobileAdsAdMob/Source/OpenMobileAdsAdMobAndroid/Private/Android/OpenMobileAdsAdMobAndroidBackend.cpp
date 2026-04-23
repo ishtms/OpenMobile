@@ -217,6 +217,42 @@ bool FOpenMobileAdsAdMobAndroidBackend::PresentRequiredConsentForm(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::PresentPrivacyOptionsForm(
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable during UMP privacy-options presentation.");
+		return false;
+	}
+	static jmethodID PresentMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm",
+		"(J)Z",
+		false
+	);
+	if (!PresentMethod)
+	{
+		OutError = TEXT("The Android Google UMP privacy-options bridge was not packaged into GameActivity.");
+		return false;
+	}
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		PresentMethod,
+		static_cast<jlong>(RequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the Google UMP privacy-options form.");
+	}
+	return bScheduled;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,

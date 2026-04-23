@@ -64,6 +64,9 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Subsystem type is public"), SubsystemClass);
 	TestNotNull(TEXT("Initialization is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("InitializeAds")));
 	TestNotNull(TEXT("Consent refresh is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("RefreshConsent")));
+	TestNotNull(TEXT("Privacy-options requirement is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormRequired")));
+	TestNotNull(TEXT("Privacy-options availability is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormAvailable")));
+	TestNotNull(TEXT("Privacy options are callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("PresentPrivacyOptionsForm")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));
 	TestNotNull(TEXT("Initialization status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetInitializationStatus")));
 	TestNotNull(TEXT("Initialization changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnInitializationStatusChanged")));

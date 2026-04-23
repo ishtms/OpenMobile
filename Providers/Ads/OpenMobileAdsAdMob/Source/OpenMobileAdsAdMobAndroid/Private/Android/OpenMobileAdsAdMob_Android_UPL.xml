@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=3</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=4</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -353,6 +353,62 @@ import java.util.Set;
         catch (Exception exception)
         {
             Log.error("OpenMobile UMP form could not be scheduled: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(
+        final long requestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    try
+                    {
+                        final ConsentInformation consentInformation =
+                            UserMessagingPlatform.getConsentInformation(GameActivity.this);
+                        UserMessagingPlatform.showPrivacyOptionsForm(
+                            GameActivity.this,
+                            error ->
+                            {
+                                if (error != null)
+                                {
+                                    nativeOpenMobileUMPConsentFailed(
+                                        requestId,
+                                        normalizeOpenMobileUMPErrorCode(error),
+                                        error.getMessage()
+                                    );
+                                    return;
+                                }
+                                nativeOpenMobileUMPConsentFormDismissed(
+                                    requestId,
+                                    consentInformation.getConsentStatus(),
+                                    consentInformation.canRequestAds(),
+                                    normalizeOpenMobileUMPPrivacyOptions(consentInformation)
+                                );
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        nativeOpenMobileUMPConsentFailed(
+                            requestId,
+                            "ump_internal",
+                            exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile UMP privacy-options form could not be scheduled: " + exception.getMessage());
             return false;
         }
     }
@@ -851,6 +907,7 @@ import java.util.Set;
         java.lang.String[]
     );
     public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(long);
+    public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(long);
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         java.lang.String,
         long,

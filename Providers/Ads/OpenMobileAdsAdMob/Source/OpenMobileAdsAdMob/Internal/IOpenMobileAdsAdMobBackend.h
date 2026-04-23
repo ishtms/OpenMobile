@@ -33,6 +33,10 @@ public:
 		int64 RequestId,
 		FString& OutError
 	) = 0;
+	virtual bool PresentPrivacyOptionsForm(
+		int64 RequestId,
+		FString& OutError
+	) = 0;
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,

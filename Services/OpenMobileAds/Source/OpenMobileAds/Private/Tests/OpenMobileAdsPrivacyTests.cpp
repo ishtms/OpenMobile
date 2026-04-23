@@ -605,6 +605,10 @@ bool FOpenMobileAdsUsPrivacyStateContractTest::RunTest(
 		Snapshot.UsPrivacy.PrivacyOptionsRequirement,
 		EOpenMobileAdsPrivacyOptionsRequirement::Unknown
 	);
+	TestFalse(
+		TEXT("Privacy-options availability starts false"),
+		Snapshot.UsPrivacy.bPrivacyOptionsFormAvailable
+	);
 
 	TArray<FOpenMobileAdsUsPrivacyState> Events;
 	const FDelegateHandle EventHandle =
@@ -645,6 +649,7 @@ bool FOpenMobileAdsUsPrivacyStateContractTest::RunTest(
 	State.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
 	State.PrivacyOptionsRequirement =
 		EOpenMobileAdsPrivacyOptionsRequirement::Required;
+	State.bPrivacyOptionsFormAvailable = true;
 	ApplyState(State);
 	Snapshot = Subsystem->GetPrivacySnapshot();
 	TestEqual(
@@ -656,6 +661,10 @@ bool FOpenMobileAdsUsPrivacyStateContractTest::RunTest(
 		TEXT("A required privacy-options path is exposed"),
 		Snapshot.UsPrivacy.PrivacyOptionsRequirement,
 		EOpenMobileAdsPrivacyOptionsRequirement::Required
+	);
+	TestTrue(
+		TEXT("An available privacy-options form is exposed"),
+		Snapshot.UsPrivacy.bPrivacyOptionsFormAvailable
 	);
 
 	State.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
