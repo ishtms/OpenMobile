@@ -39,6 +39,107 @@ namespace OpenMobileAdsAdMobPrivate
 			return Capabilities;
 		}
 
+		virtual FName GetConsentProviderName() const override
+		{
+			return TEXT("GoogleUMP");
+		}
+
+		virtual bool RefreshConsent(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FOpenMobileAdsConsentRequest ProviderRequest = Request;
+			const UOpenMobileAdsAdMobSettings* Settings =
+				GetDefault<UOpenMobileAdsAdMobSettings>();
+			ProviderRequest.Development.TestDeviceIdentifiers =
+				Request.Development.bEnableConsentDebug
+					? Settings->ResolveTestDeviceIdentifiers(
+						Request.Development.TestDeviceIdentifiers
+					)
+					: TArray<FString>();
+			FString NativeError;
+			const bool bStarted =
+				FOpenMobileAdsAdMobPlatform::BeginConsentRefresh(
+					ProviderRequest,
+					FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+						[CompletionSink](
+							FOpenMobileAdsConsentStatusUpdate Update
+						) mutable
+						{
+							CompletionSink->Complete(MoveTemp(Update));
+						}
+					),
+					FOnOpenMobileAdMobConsentFailed::CreateLambda(
+						[CompletionSink](FOpenMobileAdsError Error) mutable
+						{
+							CompletionSink->Fail(MoveTemp(Error));
+						}
+					),
+					NativeError
+				);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("Google UMP could not start its consent-info update.")
+						: MoveTemp(NativeError),
+					GetConsentProviderName()
+				);
+			}
+			return bStarted;
+		}
+
+		virtual bool PresentRequiredConsentForm(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			FString NativeError;
+			const bool bStarted =
+				FOpenMobileAdsAdMobPlatform::BeginRequiredConsentForm(
+					Request,
+					FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+						[CompletionSink](
+							FOpenMobileAdsConsentStatusUpdate Update
+						) mutable
+						{
+							CompletionSink->Complete(MoveTemp(Update));
+						}
+					),
+					FOnOpenMobileAdMobConsentFailed::CreateLambda(
+						[CompletionSink](FOpenMobileAdsError Error) mutable
+						{
+							CompletionSink->Fail(MoveTemp(Error));
+						}
+					),
+					NativeError
+				);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Consent,
+					NAME_None,
+					NativeError.IsEmpty()
+						? TEXT("Google UMP could not present its required consent form.")
+						: MoveTemp(NativeError),
+					GetConsentProviderName()
+				);
+			}
+			return bStarted;
+		}
+
+		virtual void CancelConsent(FGuid RequestId) override
+		{
+			FOpenMobileAdsAdMobPlatform::CancelConsent(RequestId);
+		}
+
 		virtual bool Initialize(
 			const FOpenMobileAdsInitializationRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,

@@ -137,6 +137,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("mavenCentral()", gradle_additions)
 		self.assertIn("com.google.android.gms:play-services-ads", gradle_additions)
 		self.assertIn("strictly '25.4.0'", gradle_additions)
+		self.assertIn("com.google.android.ump:user-messaging-platform", gradle_additions)
+		self.assertIn("strictly '4.0.0'", gradle_additions)
 		self.assertIn("OpenMobileAdsAdMob_Android.gradle", gradle_additions)
 		self.assertIn("OpenMobileAdsAdMob_Dependencies.gradle", gradle_additions)
 		minimum_sdk_api = ElementTree.tostring(
@@ -155,8 +157,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			encoding="unicode",
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=3", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=2", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=3", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -214,9 +216,100 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ANDROID_TOOLS_BUILD_GRADLE_VERSION", dependency_validation)
 		self.assertIn("JavaVersion.current()", dependency_validation)
 		self.assertIn("resolutionResult", dependency_validation)
+		self.assertIn("com.google.android.ump", dependency_validation)
+		self.assertIn("user-messaging-platform", dependency_validation)
+		self.assertIn('"4.0.0"', dependency_validation)
 		self.assertIn("proguard.txt", dependency_validation)
 		self.assertIn("AndroidManifest.xml", dependency_validation)
 		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
+
+	def test_admob_ump_refreshes_before_presenting_a_required_form(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		request_method = android_upl[
+			android_upl.index("AndroidThunkJava_RequestOpenMobileUMPConsent"):
+			android_upl.index("AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm")
+		]
+		form_method = android_upl[
+			android_upl.index("AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm"):
+			android_upl.index("AndroidThunkJava_InitializeOpenMobileRewardedAds")
+		]
+		self.assertIn("setTagForUnderAgeOfConsent", request_method)
+		self.assertIn("setConsentDebugSettings", request_method)
+		self.assertIn("addTestDeviceHashedId", request_method)
+		self.assertIn("requestConsentInfoUpdate", request_method)
+		self.assertIn("nativeOpenMobileUMPConsentInfoUpdated", request_method)
+		self.assertIn("loadAndShowConsentFormIfRequired", form_method)
+		self.assertIn("nativeOpenMobileUMPConsentFormDismissed", form_method)
+		self.assertIn("nativeOpenMobileUMPConsentFailed", form_method)
+		self.assertRegex(
+			android_upl,
+			r'case 3:\s+return "ump_invalid_operation";',
+		)
+		self.assertLess(
+			android_upl.index("requestConsentInfoUpdate"),
+			android_upl.index("loadAndShowConsentFormIfRequired"),
+		)
+
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('"(JZ[Ljava/lang/String;)Z"', android_backend)
+		self.assertIn('"(J)Z"', android_backend)
+		self.assertIn("Request.Development.bEnableConsentDebug", android_backend)
+		self.assertIn("nativeOpenMobileUMPConsentInfoUpdated", android_backend)
+		self.assertIn("nativeOpenMobileUMPConsentFormDismissed", android_backend)
+		self.assertIn("nativeOpenMobileUMPConsentFailed", android_backend)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("<UserMessagingPlatform/UserMessagingPlatform.h>", ios_backend)
+		self.assertIn("FOpenMobileAdsAdMobIOSBackend::RequestConsentInfo", ios_backend)
+		self.assertIn("requestConsentInfoUpdateWithParameters", ios_backend)
+		self.assertIn("tagForUnderAgeOfConsent", ios_backend)
+		self.assertIn("testDeviceIdentifiers", ios_backend)
+		self.assertIn("bEnableConsentDebug && !bUnderAgeOfConsent", ios_backend)
+		self.assertIn("FOpenMobileAdsAdMobIOSBackend::PresentRequiredConsentForm", ios_backend)
+		self.assertIn("loadAndPresentIfRequiredFromViewController", ios_backend)
+		self.assertIn("NativeConsentInfoUpdated", ios_backend)
+		self.assertIn("NativeConsentFormDismissed", ios_backend)
+		self.assertIn("NativeConsentFailed", ios_backend)
+		self.assertIn("UMPFormErrorCodeUnavailable", ios_backend)
+		self.assertIn('TEXT("form_unavailable")', ios_backend)
+		self.assertRegex(
+			ios_backend,
+			r"case UMPConsentStatusNotRequired:\s+return 1;",
+		)
+		self.assertRegex(
+			ios_backend,
+			r"case UMPConsentStatusRequired:\s+return 2;",
+		)
+		self.assertRegex(
+			ios_backend,
+			r"case UMPPrivacyOptionsRequirementStatusNotRequired:\s+return 1;",
+		)
+		self.assertRegex(
+			ios_backend,
+			r"case UMPPrivacyOptionsRequirementStatusRequired:\s+return 2;",
+		)
+		self.assertLess(
+			ios_backend.index("requestConsentInfoUpdateWithParameters"),
+			ios_backend.index("loadAndPresentIfRequiredFromViewController"),
+		)
 
 	def test_admob_applies_coppa_before_sdk_initialization(self) -> None:
 		android_root = (

@@ -133,6 +133,43 @@ namespace OpenMobileAdsErrorPrivate
 			Error.SuggestedCorrection = TEXT("Check consent diagnostics and retry when allowed.");
 			return true;
 		}
+		if (Code == TEXT("ump_network") || Code == TEXT("ump_timeout"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NativeFailure;
+			Error.Explanation = Code == TEXT("ump_timeout")
+				? TEXT("The consent provider timed out.")
+				: TEXT("The consent provider could not reach its service.");
+			Error.LikelyCause = Code == TEXT("ump_timeout")
+				? TEXT("The consent request or form did not finish before the provider timeout.")
+				: TEXT("The device is offline or the consent service request failed.");
+			Error.SuggestedCorrection = TEXT("Check connectivity and retry the consent operation.");
+			Error.bRetryable = true;
+			return true;
+		}
+		if (Code == TEXT("ump_configuration"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NotConfigured;
+			Error.Explanation = TEXT("Google UMP is not configured for this application.");
+			Error.LikelyCause = TEXT("The app ID or Privacy and messaging configuration is invalid.");
+			Error.SuggestedCorrection = TEXT("Check the AdMob app ID and published privacy messages.");
+			return true;
+		}
+		if (Code == TEXT("ump_invalid_operation"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::InvalidState;
+			Error.Explanation = TEXT("Google UMP rejected the consent operation in its current state.");
+			Error.LikelyCause = TEXT("A form is unavailable, already used, or presented from an invalid screen.");
+			Error.SuggestedCorrection = TEXT("Refresh consent information and retry from an active screen.");
+			return true;
+		}
+		if (Code == TEXT("ump_internal"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NativeFailure;
+			Error.Explanation = TEXT("Google UMP returned an internal error.");
+			Error.LikelyCause = TEXT("The consent SDK could not complete its internal operation.");
+			Error.SuggestedCorrection = TEXT("Inspect native diagnostics and retry when appropriate.");
+			return true;
+		}
 		return false;
 	}
 

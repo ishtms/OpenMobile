@@ -12,6 +12,14 @@ DECLARE_DELEGATE_OneParam(
 	const FOpenMobileAdsInitializationComponentStatus&
 );
 DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobInitialized, FOpenMobileAdsError);
+DECLARE_DELEGATE_OneParam(
+	FOnOpenMobileAdMobConsentCompleted,
+	FOpenMobileAdsConsentStatusUpdate
+);
+DECLARE_DELEGATE_OneParam(
+	FOnOpenMobileAdMobConsentFailed,
+	FOpenMobileAdsError
+);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
 DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobRewardedCached, FGuid);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
@@ -30,6 +38,19 @@ public:
 		FString& OutError
 	);
 	static void Shutdown();
+	static bool BeginConsentRefresh(
+		const FOpenMobileAdsConsentRequest& Request,
+		FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+		FOnOpenMobileAdMobConsentFailed&& OnFailed,
+		FString& OutError
+	);
+	static bool BeginRequiredConsentForm(
+		const FOpenMobileAdsConsentRequest& Request,
+		FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+		FOnOpenMobileAdMobConsentFailed&& OnFailed,
+		FString& OutError
+	);
+	static void CancelConsent(FGuid RequestId);
 	static bool BeginLoad(
 		const FOpenMobileAdsLoadRequest& Request,
 		FOnOpenMobileAdMobRewardedCached&& OnLoaded,
@@ -56,6 +77,23 @@ public:
 
 	static void NativeInitializationCompleted(int64 RequestId);
 	static void NativeInitializationFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeConsentInfoUpdated(
+		int64 RequestId,
+		int32 ConsentStatus,
+		bool bCanRequestAds,
+		int32 PrivacyOptionsRequirement
+	);
+	static void NativeConsentFormDismissed(
+		int64 RequestId,
+		int32 ConsentStatus,
+		bool bCanRequestAds,
+		int32 PrivacyOptionsRequirement
+	);
+	static void NativeConsentFailed(
+		int64 RequestId,
+		FString ErrorCode,
+		FString ErrorMessage
+	);
 	static void NativeAdapterInitializationStatus(
 		int64 RequestId,
 		FString AdapterName,

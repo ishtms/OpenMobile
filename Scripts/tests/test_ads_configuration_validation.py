@@ -413,6 +413,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 +--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
 |    +--- com.google.android.gms:play-services-ads-api:[25.4.0] -> 25.4.0
 |    \\--- org.jetbrains.kotlin:kotlin-stdlib:2.1.0
++--- com.google.android.ump:user-messaging-platform:{strictly 4.0.0} -> 4.0.0
 \\--- androidx.appcompat:appcompat:1.2.0
 """
 		)
@@ -431,7 +432,8 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		inventory = inspect_android_dependency_graph(
 			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
 +--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
-\\--- com.google.android.gms:play-services-ads:24.7.0 -> 25.4.0
++--- com.google.android.gms:play-services-ads:24.7.0 -> 25.4.0
+\\--- com.google.android.ump:user-messaging-platform:{strictly 4.0.0} -> 4.0.0
 """
 		)
 
@@ -443,6 +445,24 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 
 		self.assertTrue(any("24.7.0" in error for error in errors))
+
+	def test_admob_android_dependency_graph_reports_conflicting_ump_requests(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
++--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
++--- com.google.android.ump:user-messaging-platform:{strictly 4.0.0} -> 4.0.0
+\\--- com.google.android.ump:user-messaging-platform:3.2.0 -> 4.0.0
+"""
+		)
+
+		errors = validate_android_dependencies(
+			inventory,
+			AndroidDependencyExpectation(
+				required_providers={"OpenMobileAdsAdMob"},
+			),
+		)
+
+		self.assertTrue(any("3.2.0" in error for error in errors))
 
 	def test_disabled_admob_has_no_android_dependency(self) -> None:
 		inventory = inspect_android_dependency_graph(

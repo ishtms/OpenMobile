@@ -14,6 +14,7 @@
 
 class IOpenMobileAdsProvider;
 class IOpenMobileAdsProviderInitializationSink;
+class IOpenMobileAdsConsentProviderSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 class FOpenMobileAdsFullscreenLifecycleCoordinator;
@@ -96,6 +97,9 @@ public:
 	{
 		return NativeCanRequestAdsChanged;
 	}
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Refresh Consent"))
+	FOpenMobileAdsOperationResult RefreshConsent();
 
 	FOpenMobileAdsOperationResult UpdatePrivacySnapshot(
 		FOpenMobileAdsPrivacySnapshot Snapshot
@@ -227,6 +231,26 @@ private:
 	void ApplyConsentStatusUpdateOnGameThread(
 		FOpenMobileAdsConsentStatusUpdate Update
 	);
+	void HandleConsentRefreshCompleted(
+		FGuid RequestId,
+		FName AdsProviderName,
+		FName ConsentProviderName,
+		FOpenMobileAdsConsentStatusUpdate Update
+	);
+	void HandleConsentFormCompleted(
+		FGuid RequestId,
+		FName AdsProviderName,
+		FName ConsentProviderName,
+		FOpenMobileAdsConsentStatusUpdate Update
+	);
+	void HandleConsentOperationFailed(
+		FGuid RequestId,
+		FName AdsProviderName,
+		FName ConsentProviderName,
+		FOpenMobileAdsError Error
+	);
+	bool StartRequiredConsentForm(IOpenMobileAdsProvider& Provider);
+	void ClearConsentOperation(bool bEndPresentation);
 	void UpsertInitializationComponent(
 		FOpenMobileAdsInitializationComponentStatus Status
 	);
@@ -280,9 +304,14 @@ private:
 	FDelegateHandle ApplicationHasEnteredForegroundHandle;
 	FTSTicker::FDelegateHandle CacheExpirationTickerHandle;
 	TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
+	TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentOperationSink;
 	FName SelectedProviderName;
+	FName ActiveConsentAdsProviderName;
+	FName ActiveConsentProviderName;
 	FName ActiveConvenienceRewardedPlacement;
 	FGuid InitializationRequestId;
+	FGuid ActiveConsentRequestId;
+	FOpenMobileAdsConsentRequest ActiveConsentRequest;
 	FGuid ConvenienceRewardedLoadRequestId;
 	FGuid ConvenienceRewardedShowRequestId;
 	FOpenMobileAdsError InitializationError;

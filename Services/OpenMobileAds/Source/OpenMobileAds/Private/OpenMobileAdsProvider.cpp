@@ -33,6 +33,40 @@ FOpenMobileAdsProviderRequestPolicy IOpenMobileAdsProvider::GetRequestPolicy(
 	return FOpenMobileAdsProviderRequestPolicy();
 }
 
+bool IOpenMobileAdsProvider::RefreshConsent(
+	const FOpenMobileAdsConsentRequest& Request,
+	TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderUnavailable,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The selected ads provider does not supply a consent provider."),
+		GetProviderName(),
+		TEXT("Enable a provider plugin with a supported consent implementation.")
+	);
+	return false;
+}
+
+bool IOpenMobileAdsProvider::PresentRequiredConsentForm(
+	const FOpenMobileAdsConsentRequest& Request,
+	TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderUnavailable,
+		EOpenMobileAdsFailureStage::Consent,
+		NAME_None,
+		TEXT("The selected ads provider cannot present a required consent form."),
+		GetProviderName(),
+		TEXT("Enable and configure the provider's consent implementation.")
+	);
+	return false;
+}
+
 bool IOpenMobileAdsProvider::Initialize(
 	const FOpenMobileAdsInitializationRequest& Request,
 	TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,

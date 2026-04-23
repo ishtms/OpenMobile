@@ -33,6 +33,28 @@ namespace OpenMobileAdsAdMobTestAdTests
 			++ShutdownCalls;
 		}
 
+		virtual bool RequestConsentInfo(
+			const FOpenMobileAdsConsentRequest& Request,
+			int64 RequestId,
+			FString& OutError
+		) override
+		{
+			++ConsentRefreshCalls;
+			ConsentRequest = Request;
+			ConsentRefreshRequestId = RequestId;
+			return true;
+		}
+
+		virtual bool PresentRequiredConsentForm(
+			int64 RequestId,
+			FString& OutError
+		) override
+		{
+			++ConsentFormCalls;
+			ConsentFormRequestId = RequestId;
+			return true;
+		}
+
 		virtual bool LoadRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -81,11 +103,16 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 ShutdownCalls = 0;
 		int32 LaunchCalls = 0;
 		int32 ShowCalls = 0;
+		int32 ConsentRefreshCalls = 0;
+		int32 ConsentFormCalls = 0;
 		int64 InitializationRequestId = 0;
 		int64 LaunchRequestId = 0;
 		int64 ShownLoadedRequestId = 0;
 		int64 ShowRequestId = 0;
+		int64 ConsentRefreshRequestId = 0;
+		int64 ConsentFormRequestId = 0;
 		FOpenMobileAdsInitializationRequest InitializationRequest;
+		FOpenMobileAdsConsentRequest ConsentRequest;
 		FString LaunchedAdUnitId;
 		FString ShownServerVerificationCustomData;
 		TArray<FString> LoadedAdUnitIds;
@@ -487,6 +514,130 @@ bool FOpenMobileAdsAdMobUsPrivacyMappingTest::RunTest(
 			EOpenMobileAdsDataProcessingMode::ProviderManaged
 		);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobConsentFlowTest,
+	"OpenMobile.Ads.AdMob.Privacy.ConsentFlow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobConsentFlowTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+
+	FOpenMobileAdsConsentRequest Request;
+	Request.RequestId = FGuid::NewGuid();
+	Request.Platform = EOpenMobileAdsPlatform::Android;
+	Request.Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::Yes;
+	Request.Development.bEnableConsentDebug = false;
+	Request.Development.TestDeviceIdentifiers = {TEXT("UMP-DEVICE")};
+	FOpenMobileAdsConsentStatusUpdate RefreshUpdate;
+	FOpenMobileAdsError ConsentError;
+	int32 RefreshCompletions = 0;
+	int32 Failures = 0;
+	FString ImmediateError;
+	TestTrue(
+		TEXT("AdMob starts a UMP consent-info update"),
+		FOpenMobileAdsAdMobPlatform::BeginConsentRefresh(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+				[&RefreshCompletions, &RefreshUpdate](
+					FOpenMobileAdsConsentStatusUpdate Update
+				)
+				{
+					++RefreshCompletions;
+					RefreshUpdate = MoveTemp(Update);
+				}
+			),
+			FOnOpenMobileAdMobConsentFailed::CreateLambda(
+				[&Failures, &ConsentError](FOpenMobileAdsError Error)
+				{
+					++Failures;
+					ConsentError = MoveTemp(Error);
+				}
+			),
+			ImmediateError
+		)
+	);
+	TestEqual(TEXT("The native backend receives one refresh"), Backend.ConsentRefreshCalls, 1);
+	TestEqual(TEXT("TFUA reaches native UMP"), Backend.ConsentRequest.Privacy.UnderAgeOfConsent, EOpenMobileAdsAgeTreatment::Yes);
+	FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+		Backend.ConsentRefreshRequestId,
+		2,
+		false,
+		2
+	);
+	TestEqual(TEXT("The refresh completes once"), RefreshCompletions, 1);
+	TestEqual(TEXT("Required UMP status is normalized"), RefreshUpdate.Status, EOpenMobileAdsConsentStatus::Required);
+	TestEqual(TEXT("UMP request eligibility remains blocked"), RefreshUpdate.RequestState, EOpenMobileAdsConsentRequestState::Blocked);
+	TestEqual(TEXT("UMP privacy options are normalized"), RefreshUpdate.UsPrivacy.PrivacyOptionsRequirement, EOpenMobileAdsPrivacyOptionsRequirement::Required);
+
+	FOpenMobileAdsConsentStatusUpdate FormUpdate;
+	int32 FormCompletions = 0;
+	TestTrue(
+		TEXT("AdMob starts the required UMP form"),
+		FOpenMobileAdsAdMobPlatform::BeginRequiredConsentForm(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted::CreateLambda(
+				[&FormCompletions, &FormUpdate](
+					FOpenMobileAdsConsentStatusUpdate Update
+				)
+				{
+					++FormCompletions;
+					FormUpdate = MoveTemp(Update);
+				}
+			),
+			FOnOpenMobileAdMobConsentFailed::CreateLambda(
+				[&Failures, &ConsentError](FOpenMobileAdsError Error)
+				{
+					++Failures;
+					ConsentError = MoveTemp(Error);
+				}
+			),
+			ImmediateError
+		)
+	);
+	TestEqual(TEXT("The native backend receives one form request"), Backend.ConsentFormCalls, 1);
+	FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+		Backend.ConsentFormRequestId,
+		3,
+		true,
+		2
+	);
+	TestEqual(TEXT("Form dismissal completes once"), FormCompletions, 1);
+	TestEqual(TEXT("Obtained UMP status is preserved"), FormUpdate.Status, EOpenMobileAdsConsentStatus::Obtained);
+	TestEqual(TEXT("Final UMP request eligibility is allowed"), FormUpdate.RequestState, EOpenMobileAdsConsentRequestState::Allowed);
+
+	Request.RequestId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("A later UMP refresh starts"),
+		FOpenMobileAdsAdMobPlatform::BeginConsentRefresh(
+			Request,
+			FOnOpenMobileAdMobConsentCompleted(),
+			FOnOpenMobileAdMobConsentFailed::CreateLambda(
+				[&Failures, &ConsentError](FOpenMobileAdsError Error)
+				{
+					++Failures;
+					ConsentError = MoveTemp(Error);
+				}
+			),
+			ImmediateError
+		)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+		Backend.ConsentRefreshRequestId,
+		TEXT("ump_network"),
+		TEXT("mock UMP network failure")
+	);
+	TestEqual(TEXT("A native UMP failure completes once"), Failures, 1);
+	TestTrue(TEXT("UMP network failures are retryable"), ConsentError.bRetryable);
+	TestEqual(TEXT("UMP failure diagnostics retain their code"), ConsentError.NativeDiagnostics.NativeCode, FString(TEXT("ump_network")));
+	FOpenMobileAdsAdMobPlatform::Shutdown();
 	return true;
 }
 

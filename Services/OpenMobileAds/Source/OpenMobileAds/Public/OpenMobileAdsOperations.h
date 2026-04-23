@@ -96,6 +96,17 @@ struct OPENMOBILEADS_API FOpenMobileAdsInitializationRequest
 	FOpenMobileAdsRequestConfiguration RequestConfiguration;
 };
 
+struct OPENMOBILEADS_API FOpenMobileAdsConsentRequest
+{
+	FGuid RequestId;
+
+	EOpenMobileAdsPlatform Platform = EOpenMobileAdsPlatform::Unsupported;
+
+	FOpenMobileAdsDevelopmentConfiguration Development;
+
+	FOpenMobileAdsPrivacyConfiguration Privacy;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsLoadOptions
 {

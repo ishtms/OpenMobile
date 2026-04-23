@@ -13,6 +13,15 @@ public:
 		FString& OutError
 	) override;
 	virtual void Shutdown() override;
+	virtual bool RequestConsentInfo(
+		const FOpenMobileAdsConsentRequest& Request,
+		int64 RequestId,
+		FString& OutError
+	) override;
+	virtual bool PresentRequiredConsentForm(
+		int64 RequestId,
+		FString& OutError
+	) override;
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,

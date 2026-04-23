@@ -4,9 +4,21 @@ import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.util.GradleVersion
 
-def openMobileAdsAdMobGroup = "com.google.android.gms"
-def openMobileAdsAdMobArtifact = "play-services-ads"
 def openMobileAdsAdMobVersion = "25.4.0"
+def openMobileAdsAndroidDependencies = [
+    "com.google.android.gms:play-services-ads": [
+        group: "com.google.android.gms",
+        artifact: "play-services-ads",
+        version: "25.4.0",
+        name: "Google Mobile Ads",
+    ],
+    "com.google.android.ump:user-messaging-platform": [
+        group: "com.google.android.ump",
+        artifact: "user-messaging-platform",
+        version: "4.0.0",
+        name: "Google UMP",
+    ],
+]
 def openMobileAdsMinimumSdk = 23
 def openMobileAdsMinimumCompileSdk = 35
 def openMobileAdsMinimumGradle = GradleVersion.version("8.7")
@@ -96,69 +108,80 @@ afterEvaluate {
                     )
                 }
 
-                def requestedVersions = [] as Set
-                def selectedVersions = [] as Set
+                def requestedVersions = [:]
+                def selectedVersions = [:]
+                openMobileAdsAndroidDependencies.keySet().each { coordinate ->
+                    requestedVersions[coordinate] = [] as Set
+                    selectedVersions[coordinate] = [] as Set
+                }
                 dependencyConfiguration.incoming.resolutionResult.allDependencies.each { dependency ->
                     def requested = dependency.requested
-                    if (requested instanceof ModuleComponentSelector &&
-                        requested.group == openMobileAdsAdMobGroup &&
-                        requested.module == openMobileAdsAdMobArtifact) {
+                    def requestedCoordinate = requested instanceof ModuleComponentSelector
+                        ? "${requested.group}:${requested.module}"
+                        : null
+                    if (requestedCoordinate != null &&
+                        openMobileAdsAndroidDependencies.containsKey(requestedCoordinate)) {
                         def strictVersion = requested.versionConstraint.strictVersion
-                        requestedVersions.add(strictVersion ?: requested.version)
+                        requestedVersions[requestedCoordinate].add(
+                            strictVersion ?: requested.version
+                        )
                     }
                     if (dependency instanceof ResolvedDependencyResult) {
                         def selected = dependency.selected.id
-                        if (selected instanceof ModuleComponentIdentifier &&
-                            selected.group == openMobileAdsAdMobGroup &&
-                            selected.module == openMobileAdsAdMobArtifact) {
-                            selectedVersions.add(selected.version)
+                        def selectedCoordinate = selected instanceof ModuleComponentIdentifier
+                            ? "${selected.group}:${selected.module}"
+                            : null
+                        if (selectedCoordinate != null &&
+                            openMobileAdsAndroidDependencies.containsKey(selectedCoordinate)) {
+                            selectedVersions[selectedCoordinate].add(selected.version)
                         }
                     }
                 }
 
                 def dependencyErrors = []
-                def unexpectedRequests = requestedVersions.findAll {
-                    it != openMobileAdsAdMobVersion
-                }
-                if (!unexpectedRequests.isEmpty()) {
-                    dependencyErrors.add(
-                        "${openMobileAdsAdMobGroup}:${openMobileAdsAdMobArtifact} has " +
-                        "unsupported requested version(s) ${unexpectedRequests.sort().join(', ')}; " +
-                        "expected ${openMobileAdsAdMobVersion}"
-                    )
-                }
-                if (selectedVersions != [openMobileAdsAdMobVersion] as Set) {
-                    dependencyErrors.add(
-                        "${openMobileAdsAdMobGroup}:${openMobileAdsAdMobArtifact} resolved to " +
-                        "${selectedVersions.sort().join(', ') ?: 'nothing'}; " +
-                        "expected ${openMobileAdsAdMobVersion}"
-                    )
-                }
-
-                def sdkArtifacts = dependencyConfiguration.incoming.artifactView {
-                    componentFilter { identifier ->
-                        identifier instanceof ModuleComponentIdentifier &&
-                        identifier.group == openMobileAdsAdMobGroup &&
-                        identifier.module == openMobileAdsAdMobArtifact
+                openMobileAdsAndroidDependencies.each { coordinate, contract ->
+                    def unexpectedRequests = requestedVersions[coordinate].findAll {
+                        it != contract.version
                     }
-                }.files.files
-                if (sdkArtifacts.size() != 1) {
-                    dependencyErrors.add(
-                        "expected one resolved Google Mobile Ads AAR, found ${sdkArtifacts.size()}"
-                    )
-                } else {
-                    def sdkArtifact = sdkArtifacts.first()
-                    if (!sdkArtifact.name.endsWith(".aar")) {
+                    if (!unexpectedRequests.isEmpty()) {
                         dependencyErrors.add(
-                            "Google Mobile Ads resolved to '${sdkArtifact.name}', expected an AAR"
+                            "${coordinate} has unsupported requested version(s) " +
+                            "${unexpectedRequests.sort().join(', ')}; expected ${contract.version}"
+                        )
+                    }
+                    if (selectedVersions[coordinate] != [contract.version] as Set) {
+                        dependencyErrors.add(
+                            "${coordinate} resolved to " +
+                            "${selectedVersions[coordinate].sort().join(', ') ?: 'nothing'}; " +
+                            "expected ${contract.version}"
+                        )
+                    }
+
+                    def sdkArtifacts = dependencyConfiguration.incoming.artifactView {
+                        componentFilter { identifier ->
+                            identifier instanceof ModuleComponentIdentifier &&
+                            identifier.group == contract.group &&
+                            identifier.module == contract.artifact
+                        }
+                    }.files.files
+                    if (sdkArtifacts.size() != 1) {
+                        dependencyErrors.add(
+                            "expected one resolved ${contract.name} AAR, found ${sdkArtifacts.size()}"
                         )
                     } else {
-                        new ZipFile(sdkArtifact).withCloseable { archive ->
-                            ["AndroidManifest.xml", "classes.jar", "proguard.txt"].each { entry ->
-                                if (archive.getEntry(entry) == null) {
-                                    dependencyErrors.add(
-                                        "Google Mobile Ads AAR is missing '${entry}'"
-                                    )
+                        def sdkArtifact = sdkArtifacts.first()
+                        if (!sdkArtifact.name.endsWith(".aar")) {
+                            dependencyErrors.add(
+                                "${contract.name} resolved to '${sdkArtifact.name}', expected an AAR"
+                            )
+                        } else {
+                            new ZipFile(sdkArtifact).withCloseable { archive ->
+                                ["AndroidManifest.xml", "classes.jar", "proguard.txt"].each { entry ->
+                                    if (archive.getEntry(entry) == null) {
+                                        dependencyErrors.add(
+                                            "${contract.name} AAR is missing '${entry}'"
+                                        )
+                                    }
                                 }
                             }
                         }

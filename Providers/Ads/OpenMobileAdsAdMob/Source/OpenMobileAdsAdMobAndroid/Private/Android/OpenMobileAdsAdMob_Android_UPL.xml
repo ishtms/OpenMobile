@@ -27,6 +27,11 @@ dependencies {
             strictly '25.4.0'
         }
     }
+    implementation('com.google.android.ump:user-messaging-platform') {
+        version {
+            strictly '4.0.0'
+        }
+    }
 }
         </insert>
         <insertValue value="ext.openMobileAdsAdMobExpectedAppId = '$S(OpenMobileAdsAdMobAndroidAppId)'"/>
@@ -42,9 +47,9 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidManifestContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidDependencyContract=3</insert>
+        <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=2</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=3</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -97,6 +102,11 @@ import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
 import com.google.android.gms.ads.rewarded.ServerSideVerificationOptions;
+import com.google.android.ump.ConsentDebugSettings;
+import com.google.android.ump.ConsentInformation;
+import com.google.android.ump.ConsentRequestParameters;
+import com.google.android.ump.FormError;
+import com.google.android.ump.UserMessagingPlatform;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -126,6 +136,23 @@ import java.util.Set;
         boolean ready,
         long latencyMilliseconds,
         String description
+    );
+    public native void nativeOpenMobileUMPConsentInfoUpdated(
+        long requestId,
+        int consentStatus,
+        boolean canRequestAds,
+        int privacyOptionsRequirement
+    );
+    public native void nativeOpenMobileUMPConsentFormDismissed(
+        long requestId,
+        int consentStatus,
+        boolean canRequestAds,
+        int privacyOptionsRequirement
+    );
+    public native void nativeOpenMobileUMPConsentFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
     );
     public native void nativeOpenMobileRewardedAdLoaded(long requestId);
     public native void nativeOpenMobileRewardedAdShown(long requestId);
@@ -171,6 +198,162 @@ import java.util.Set;
                 status.getLatency(),
                 status.getDescription()
             );
+        }
+    }
+
+    private int normalizeOpenMobileUMPPrivacyOptions(
+        ConsentInformation consentInformation
+    )
+    {
+        switch (consentInformation.getPrivacyOptionsRequirementStatus())
+        {
+            case NOT_REQUIRED:
+                return 1;
+            case REQUIRED:
+                return 2;
+            default:
+                return 0;
+        }
+    }
+
+    private String normalizeOpenMobileUMPErrorCode(FormError error)
+    {
+        if (error == null)
+        {
+            return "ump_internal";
+        }
+        switch (error.getErrorCode())
+        {
+            case 2:
+                return "ump_network";
+            case 3:
+                return "ump_invalid_operation";
+            case 4:
+                return "ump_timeout";
+            default:
+                return "ump_internal";
+        }
+    }
+
+    public boolean AndroidThunkJava_RequestOpenMobileUMPConsent(
+        final long requestId,
+        final boolean underAgeOfConsent,
+        final String[] testDeviceIdentifiers
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    try
+                    {
+                        ConsentRequestParameters.Builder parameters =
+                            new ConsentRequestParameters.Builder()
+                                .setTagForUnderAgeOfConsent(underAgeOfConsent);
+                        if (testDeviceIdentifiers != null
+                            &amp;&amp; testDeviceIdentifiers.length > 0)
+                        {
+                            ConsentDebugSettings.Builder debugSettings =
+                                new ConsentDebugSettings.Builder(GameActivity.this);
+                            for (String identifier : testDeviceIdentifiers)
+                            {
+                                debugSettings.addTestDeviceHashedId(identifier);
+                            }
+                            parameters.setConsentDebugSettings(debugSettings.build());
+                        }
+                        final ConsentInformation consentInformation =
+                            UserMessagingPlatform.getConsentInformation(GameActivity.this);
+                        consentInformation.requestConsentInfoUpdate(
+                            GameActivity.this,
+                            parameters.build(),
+                            () -> nativeOpenMobileUMPConsentInfoUpdated(
+                                requestId,
+                                consentInformation.getConsentStatus(),
+                                consentInformation.canRequestAds(),
+                                normalizeOpenMobileUMPPrivacyOptions(consentInformation)
+                            ),
+                            error -> nativeOpenMobileUMPConsentFailed(
+                                requestId,
+                                normalizeOpenMobileUMPErrorCode(error),
+                                error != null ? error.getMessage() : "Unknown UMP request error."
+                            )
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        nativeOpenMobileUMPConsentFailed(
+                            requestId,
+                            "ump_internal",
+                            exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile UMP request could not be scheduled: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(
+        final long requestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    try
+                    {
+                        final ConsentInformation consentInformation =
+                            UserMessagingPlatform.getConsentInformation(GameActivity.this);
+                        UserMessagingPlatform.loadAndShowConsentFormIfRequired(
+                            GameActivity.this,
+                            error ->
+                            {
+                                if (error != null)
+                                {
+                                    nativeOpenMobileUMPConsentFailed(
+                                        requestId,
+                                        normalizeOpenMobileUMPErrorCode(error),
+                                        error.getMessage()
+                                    );
+                                    return;
+                                }
+                                nativeOpenMobileUMPConsentFormDismissed(
+                                    requestId,
+                                    consentInformation.getConsentStatus(),
+                                    consentInformation.canRequestAds(),
+                                    normalizeOpenMobileUMPPrivacyOptions(consentInformation)
+                                );
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        nativeOpenMobileUMPConsentFailed(
+                            requestId,
+                            "ump_internal",
+                            exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile UMP form could not be scheduled: " + exception.getMessage());
+            return false;
         }
     }
 
@@ -662,6 +845,12 @@ import java.util.Set;
         java.lang.String
     );
     public void AndroidThunkJava_ShutdownOpenMobileRewardedAds();
+    public boolean AndroidThunkJava_RequestOpenMobileUMPConsent(
+        long,
+        boolean,
+        java.lang.String[]
+    );
+    public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(long);
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         java.lang.String,
         long,
@@ -684,6 +873,13 @@ import java.util.Set;
         java.lang.String,
         boolean,
         long,
+        java.lang.String
+    );
+    public native void nativeOpenMobileUMPConsentInfoUpdated(long, int, boolean, int);
+    public native void nativeOpenMobileUMPConsentFormDismissed(long, int, boolean, int);
+    public native void nativeOpenMobileUMPConsentFailed(
+        long,
+        java.lang.String,
         java.lang.String
     );
     public native void nativeOpenMobileRewardedAdLoaded(long);

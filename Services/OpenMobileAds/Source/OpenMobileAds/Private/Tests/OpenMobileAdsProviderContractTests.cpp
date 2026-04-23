@@ -82,6 +82,48 @@ namespace OpenMobileAdsProviderContractTests
 			}
 			return RequestPolicy;
 		}
+		virtual FName GetConsentProviderName() const override
+		{
+			return ConsentProviderName;
+		}
+		virtual bool RefreshConsent(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++ConsentRefreshCalls;
+			LastConsentRequest = Request;
+			ConsentRefreshSink = CompletionSink;
+			if (!bAcceptConsentRefresh)
+			{
+				OutError = ConsentRejection;
+				ConsentRefreshSink.Reset();
+				return false;
+			}
+			return true;
+		}
+		virtual bool PresentRequiredConsentForm(
+			const FOpenMobileAdsConsentRequest& Request,
+			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++ConsentFormCalls;
+			LastConsentFormRequest = Request;
+			ConsentFormSink = CompletionSink;
+			if (!bAcceptConsentForm)
+			{
+				OutError = ConsentRejection;
+				ConsentFormSink.Reset();
+				return false;
+			}
+			return true;
+		}
+		virtual void CancelConsent(FGuid RequestId) override
+		{
+			CancelledConsentRequests.Add(RequestId);
+		}
 
 		virtual bool Initialize(
 			const FOpenMobileAdsInitializationRequest& Request,
@@ -196,6 +238,38 @@ namespace OpenMobileAdsProviderContractTests
 			}
 		}
 
+		void CompleteConsentRefresh(FOpenMobileAdsConsentStatusUpdate Update)
+		{
+			if (ConsentRefreshSink)
+			{
+				ConsentRefreshSink->Complete(MoveTemp(Update));
+			}
+		}
+
+		void CompleteConsentForm(FOpenMobileAdsConsentStatusUpdate Update)
+		{
+			if (ConsentFormSink)
+			{
+				ConsentFormSink->Complete(MoveTemp(Update));
+			}
+		}
+
+		void FailConsentRefresh(FOpenMobileAdsError Error)
+		{
+			if (ConsentRefreshSink)
+			{
+				ConsentRefreshSink->Fail(MoveTemp(Error));
+			}
+		}
+
+		void FailConsentForm(FOpenMobileAdsError Error)
+		{
+			if (ConsentFormSink)
+			{
+				ConsentFormSink->Fail(MoveTemp(Error));
+			}
+		}
+
 		FName Name;
 		bool bSupported = true;
 		bool bAcceptInitialization = true;
@@ -204,12 +278,17 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptDestroy = true;
 		bool bBlockChildDirectedRequests = false;
 		bool bBlockUnderAgeRequests = false;
+		bool bAcceptConsentRefresh = true;
+		bool bAcceptConsentForm = true;
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
 		int32 DestroyCalls = 0;
 		int32 LegacyRewardedRequestCalls = 0;
 		int32 ShutdownCalls = 0;
+		int32 ConsentRefreshCalls = 0;
+		int32 ConsentFormCalls = 0;
+		FName ConsentProviderName;
 		FOpenMobileAdsProviderCapabilities Capabilities;
 		FOpenMobileAdsProviderRequestPolicy RequestPolicy;
 		FOpenMobileAdsInitializationRequest LastInitializationRequest;
@@ -220,11 +299,17 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
+		FOpenMobileAdsConsentRequest LastConsentRequest;
+		FOpenMobileAdsConsentRequest LastConsentFormRequest;
+		FOpenMobileAdsError ConsentRejection;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
 		TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
+		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentRefreshSink;
+		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentFormSink;
 		TArray<FGuid> CancelledRequests;
+		TArray<FGuid> CancelledConsentRequests;
 		TArray<FGuid> ReleasedCachedAds;
 	};
 
@@ -3893,6 +3978,206 @@ bool FOpenMobileAdsUsPrivacyPropagationContractTest::RunTest(
 	);
 
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsConsentProviderFlowContractTest,
+	"OpenMobile.Ads.Privacy.ConsentProvider.RequiredFormFlow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsConsentProviderFlowContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->TestDeviceIdentifiers = {TEXT("UMP-TEST-DEVICE")};
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	ScopedSettings.Settings->Privacy.UnderAgeOfConsent =
+		EOpenMobileAdsAgeTreatment::Yes;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestNotNull(
+		TEXT("Blueprints can start a consent refresh"),
+		UOpenMobileAdsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAdsSubsystem, RefreshConsent)
+		)
+	);
+
+	const FOpenMobileAdsOperationResult Started = Subsystem->RefreshConsent();
+	TestTrue(TEXT("A supported consent refresh is accepted"), Started.bAccepted);
+	TestTrue(TEXT("A consent refresh receives a request ID"), Started.RequestId.IsValid());
+	TestEqual(TEXT("The provider refresh starts once"), Provider.ConsentRefreshCalls, 1);
+	TestEqual(
+		TEXT("Consent refresh enters the normalized refreshing state"),
+		Subsystem->GetPrivacySnapshot().ConsentActivity,
+		EOpenMobileAdsConsentActivity::Refreshing
+	);
+	TestEqual(
+		TEXT("TFUA reaches the consent provider before its request"),
+		Provider.LastConsentRequest.Privacy.UnderAgeOfConsent,
+		EOpenMobileAdsAgeTreatment::Yes
+	);
+	TestFalse(
+		TEXT("TFUA suppresses consent debug intent"),
+		Provider.LastConsentRequest.Development.bEnableConsentDebug
+	);
+
+	const FOpenMobileAdsOperationResult Duplicate = Subsystem->RefreshConsent();
+	TestTrue(TEXT("An overlapping refresh is idempotent"), Duplicate.bAccepted);
+	TestEqual(TEXT("An overlapping refresh keeps its request ID"), Duplicate.RequestId, Started.RequestId);
+	TestEqual(TEXT("An overlapping refresh does not reach the provider"), Provider.ConsentRefreshCalls, 1);
+
+	FOpenMobileAdsConsentStatusUpdate Required =
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Required,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Blocked,
+			TEXT("MockConsent")
+		);
+	Provider.CompleteConsentRefresh(MoveTemp(Required));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("A required result starts one form"), Provider.ConsentFormCalls, 1);
+	TestEqual(
+		TEXT("The required form enters presentation state"),
+		Subsystem->GetPrivacySnapshot().ConsentActivity,
+		EOpenMobileAdsConsentActivity::PresentingForm
+	);
+	TestEqual(TEXT("The form keeps the refresh request ID"), Provider.LastConsentFormRequest.RequestId, Started.RequestId);
+
+	const FOpenMobileAdsOperationResult FormDuplicate = Subsystem->RefreshConsent();
+	TestTrue(TEXT("A refresh during form presentation is idempotent"), FormDuplicate.bAccepted);
+	TestEqual(TEXT("Form presentation keeps its request ID"), FormDuplicate.RequestId, Started.RequestId);
+	TestEqual(TEXT("A duplicate does not present another form"), Provider.ConsentFormCalls, 1);
+
+	FOpenMobileAdsConsentStatusUpdate Obtained =
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Obtained,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockConsent")
+		);
+	Provider.CompleteConsentForm(MoveTemp(Obtained));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPrivacySnapshot Completed =
+		Subsystem->GetPrivacySnapshot();
+	TestEqual(TEXT("Form dismissal returns consent to idle"), Completed.ConsentActivity, EOpenMobileAdsConsentActivity::Idle);
+	TestEqual(TEXT("The final UMP-style state remains obtained"), Completed.ConsentStatus, EOpenMobileAdsConsentStatus::Obtained);
+	TestEqual(TEXT("Provider eligibility is preserved"), Completed.ConsentRequestState, EOpenMobileAdsConsentRequestState::Allowed);
+
+	const FOpenMobileAdsOperationResult Next = Subsystem->RefreshConsent();
+	TestTrue(TEXT("A later session refresh can start"), Next.bAccepted);
+	TestNotEqual(TEXT("A later refresh gets a new request ID"), Next.RequestId, Started.RequestId);
+	TestEqual(TEXT("A later refresh reaches the provider once"), Provider.ConsentRefreshCalls, 2);
+	FOpenMobileAdsConsentStatusUpdate NotRequired =
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::NotRequired,
+			EOpenMobileAdsGdprApplicability::NotApplicable,
+			EOpenMobileAdsConsentRequirement::NotRequired,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockConsent")
+		);
+	Provider.CompleteConsentRefresh(MoveTemp(NotRequired));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("A not-required refresh does not present a form"), Provider.ConsentFormCalls, 1);
+	TestEqual(TEXT("A not-required refresh ends idle"), Subsystem->GetPrivacySnapshot().ConsentActivity, EOpenMobileAdsConsentActivity::Idle);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsConsentProviderFailureContractTest,
+	"OpenMobile.Ads.Privacy.ConsentProvider.FailuresAndTeardown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsConsentProviderFailureContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+
+	FOpenMobileAdsOperationResult Result = Subsystem->RefreshConsent();
+	TestFalse(TEXT("A provider without consent support rejects refresh"), Result.bAccepted);
+	TestEqual(TEXT("Missing consent support is typed"), Result.Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	Provider.bAcceptConsentRefresh = false;
+	Provider.ConsentRejection.NativeDiagnostics.NativeCode = TEXT("consent_error");
+	Provider.ConsentRejection.NativeDiagnostics.NativeMessage =
+		TEXT("mock refresh failure");
+	Result = Subsystem->RefreshConsent();
+	TestFalse(TEXT("Immediate provider refresh rejection is returned"), Result.bAccepted);
+	TestEqual(TEXT("Refresh rejection uses consent error mapping"), Result.Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+	TestEqual(TEXT("Rejected refresh returns to idle"), Subsystem->GetPrivacySnapshot().ConsentActivity, EOpenMobileAdsConsentActivity::Idle);
+	TestEqual(TEXT("Rejected refresh is visible in the snapshot"), Subsystem->GetPrivacySnapshot().Error.Code, EOpenMobileAdsErrorCode::NativeFailure);
+
+	Provider.bAcceptConsentRefresh = true;
+	Provider.bAcceptConsentForm = false;
+	Provider.ConsentRejection = FOpenMobileAdsError();
+	Provider.ConsentRejection.NativeDiagnostics.NativeCode =
+		TEXT("form_unavailable");
+	Provider.ConsentRejection.NativeDiagnostics.NativeMessage =
+		TEXT("mock form unavailable");
+	const FOpenMobileAdsOperationResult RequiredRefresh =
+		Subsystem->RefreshConsent();
+	TestTrue(TEXT("A retry can refresh after rejection"), RequiredRefresh.bAccepted);
+	FOpenMobileAdsConsentStatusUpdate Required =
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::Required,
+			EOpenMobileAdsGdprApplicability::Applicable,
+			EOpenMobileAdsConsentRequirement::Required,
+			EOpenMobileAdsConsentRequestState::Blocked,
+			TEXT("MockConsent")
+		);
+	Provider.CompleteConsentRefresh(MoveTemp(Required));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("An unavailable form preserves required consent"), Subsystem->GetPrivacySnapshot().ConsentStatus, EOpenMobileAdsConsentStatus::Required);
+	TestEqual(TEXT("An unavailable form returns to idle"), Subsystem->GetPrivacySnapshot().ConsentActivity, EOpenMobileAdsConsentActivity::Idle);
+	TestEqual(TEXT("An unavailable form is mapped"), Subsystem->GetPrivacySnapshot().Error.Code, EOpenMobileAdsErrorCode::ProviderUnavailable);
+
+	Provider.bAcceptConsentForm = true;
+	const FOpenMobileAdsOperationResult Pending = Subsystem->RefreshConsent();
+	TestTrue(TEXT("A later refresh starts after form failure"), Pending.bAccepted);
+	const TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe>
+		LateSink = Provider.ConsentRefreshSink;
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Teardown cancels the active consent request"), Provider.CancelledConsentRequests.Num(), 1);
+	if (Provider.CancelledConsentRequests.Num() == 1)
+	{
+		TestEqual(TEXT("Teardown cancels the exact consent request"), Provider.CancelledConsentRequests[0], Pending.RequestId);
+	}
+	if (LateSink)
+	{
+		LateSink->Complete(FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::NotRequired,
+			TEXT("MockConsent")
+		));
+	}
+	DrainGameThreadTasks();
+	TestNotEqual(TEXT("A late callback cannot replace consent after teardown"), Subsystem->GetPrivacySnapshot().ConsentStatus, EOpenMobileAdsConsentStatus::NotRequired);
 	return true;
 }
 

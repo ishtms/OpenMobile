@@ -40,6 +40,8 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	InitializationRequest.RequestId = FGuid::NewGuid();
 	InitializationRequest.RequestConfiguration.MaxAdContentRating =
 		EOpenMobileAdsMaxAdContentRating::General;
+	FOpenMobileAdsConsentRequest ConsentRequest;
+	ConsentRequest.RequestId = FGuid::NewGuid();
 
 	FOpenMobileAdsEvent Event;
 	Event.Type = EOpenMobileAdsEventType::LoadStarted;
@@ -56,10 +58,12 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Public operations retain placement names"), Event.Placement, Placement);
 	TestTrue(TEXT("Public request IDs use Unreal GUIDs"), LoadRequest.RequestId.IsValid());
 	TestTrue(TEXT("Public initialization requests use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
+	TestTrue(TEXT("Public consent requests use Unreal GUIDs"), ConsentRequest.RequestId.IsValid());
 	TestTrue(TEXT("Unknown public errors stay typed"), Error.IsSet());
 	UClass* SubsystemClass = UOpenMobileAdsSubsystem::StaticClass();
 	TestNotNull(TEXT("Subsystem type is public"), SubsystemClass);
 	TestNotNull(TEXT("Initialization is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("InitializeAds")));
+	TestNotNull(TEXT("Consent refresh is callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("RefreshConsent")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));
 	TestNotNull(TEXT("Initialization status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetInitializationStatus")));
 	TestNotNull(TEXT("Initialization changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnInitializationStatusChanged")));

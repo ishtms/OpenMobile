@@ -42,6 +42,15 @@ public:
 	virtual void Invalidate() = 0;
 };
 
+class OPENMOBILEADS_API IOpenMobileAdsConsentProviderSink
+{
+public:
+	virtual ~IOpenMobileAdsConsentProviderSink() = default;
+	virtual void Complete(FOpenMobileAdsConsentStatusUpdate Update) = 0;
+	virtual void Fail(FOpenMobileAdsError Error) = 0;
+	virtual void Invalidate() = 0;
+};
+
 /** Public, versioned SPI implemented by independently enabled ad-provider plugins. */
 class OPENMOBILEADS_API IOpenMobileAdsProvider : public IModularFeature
 {
@@ -61,6 +70,18 @@ public:
 	virtual FOpenMobileAdsProviderRequestPolicy GetRequestPolicy(
 		const FOpenMobileAdsProviderRequestContext& Context
 	) const;
+	virtual FName GetConsentProviderName() const { return NAME_None; }
+	virtual bool RefreshConsent(
+		const FOpenMobileAdsConsentRequest& Request,
+		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+		FOpenMobileAdsError& OutError
+	);
+	virtual bool PresentRequiredConsentForm(
+		const FOpenMobileAdsConsentRequest& Request,
+		TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
+		FOpenMobileAdsError& OutError
+	);
+	virtual void CancelConsent(FGuid RequestId) {}
 
 	virtual bool Initialize(
 		const FOpenMobileAdsInitializationRequest& Request,

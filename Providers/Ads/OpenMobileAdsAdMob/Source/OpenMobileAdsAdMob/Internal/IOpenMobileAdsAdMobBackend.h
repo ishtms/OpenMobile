@@ -24,6 +24,15 @@ public:
 		FString& OutError
 	) = 0;
 	virtual void Shutdown() = 0;
+	virtual bool RequestConsentInfo(
+		const FOpenMobileAdsConsentRequest& Request,
+		int64 RequestId,
+		FString& OutError
+	) = 0;
+	virtual bool PresentRequiredConsentForm(
+		int64 RequestId,
+		FString& OutError
+	) = 0;
 	virtual bool LoadRewardedAd(
 		const FString& AdUnitId,
 		int64 RequestId,

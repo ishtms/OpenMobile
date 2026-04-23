@@ -219,6 +219,121 @@ namespace OpenMobileAdsPrivate
 		bool bValid = true;
 	};
 
+	class FConsentProviderSink final : public IOpenMobileAdsConsentProviderSink
+	{
+	public:
+		FConsentProviderSink(
+			TFunction<void(FOpenMobileAdsConsentStatusUpdate)>&& InCompletion,
+			TFunction<void(FOpenMobileAdsError)>&& InFailure
+		)
+			: Completion(MoveTemp(InCompletion))
+			, Failure(MoveTemp(InFailure))
+		{
+		}
+
+		virtual void Complete(FOpenMobileAdsConsentStatusUpdate Update) override
+		{
+			TFunction<void(FOpenMobileAdsConsentStatusUpdate)> CompletionToRun;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid || bTerminalSubmitted)
+				{
+					return;
+				}
+				bTerminalSubmitted = true;
+				if (!bCommitted)
+				{
+					PendingUpdate = MoveTemp(Update);
+					bHasPendingUpdate = true;
+					return;
+				}
+				CompletionToRun = Completion;
+			}
+			CompletionToRun(MoveTemp(Update));
+		}
+
+		virtual void Fail(FOpenMobileAdsError Error) override
+		{
+			TFunction<void(FOpenMobileAdsError)> FailureToRun;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid || bTerminalSubmitted)
+				{
+					return;
+				}
+				bTerminalSubmitted = true;
+				if (!bCommitted)
+				{
+					PendingError = MoveTemp(Error);
+					bHasPendingError = true;
+					return;
+				}
+				FailureToRun = Failure;
+			}
+			FailureToRun(MoveTemp(Error));
+		}
+
+		void Commit()
+		{
+			TFunction<void(FOpenMobileAdsConsentStatusUpdate)> CompletionToRun;
+			TFunction<void(FOpenMobileAdsError)> FailureToRun;
+			FOpenMobileAdsConsentStatusUpdate Update;
+			FOpenMobileAdsError Error;
+			bool bRunCompletion = false;
+			bool bRunFailure = false;
+			{
+				FScopeLock Lock(&Mutex);
+				if (!bValid || bCommitted)
+				{
+					return;
+				}
+				bCommitted = true;
+				bRunCompletion = bHasPendingUpdate;
+				bRunFailure = bHasPendingError;
+				if (bRunCompletion)
+				{
+					Update = MoveTemp(PendingUpdate);
+					CompletionToRun = Completion;
+				}
+				if (bRunFailure)
+				{
+					Error = MoveTemp(PendingError);
+					FailureToRun = Failure;
+				}
+			}
+			if (bRunCompletion)
+			{
+				CompletionToRun(MoveTemp(Update));
+			}
+			else if (bRunFailure)
+			{
+				FailureToRun(MoveTemp(Error));
+			}
+		}
+
+		virtual void Invalidate() override
+		{
+			FScopeLock Lock(&Mutex);
+			bValid = false;
+			bHasPendingUpdate = false;
+			bHasPendingError = false;
+			Completion = nullptr;
+			Failure = nullptr;
+		}
+
+	private:
+		FCriticalSection Mutex;
+		TFunction<void(FOpenMobileAdsConsentStatusUpdate)> Completion;
+		TFunction<void(FOpenMobileAdsError)> Failure;
+		FOpenMobileAdsConsentStatusUpdate PendingUpdate;
+		FOpenMobileAdsError PendingError;
+		bool bHasPendingUpdate = false;
+		bool bHasPendingError = false;
+		bool bCommitted = false;
+		bool bTerminalSubmitted = false;
+		bool bValid = true;
+	};
+
 	FOpenMobileAdsError NormalizeProviderError(
 		FOpenMobileAdsError Error,
 		EOpenMobileAdsFailureStage Stage,
@@ -814,6 +929,169 @@ void UOpenMobileAdsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	EnsureRuntime();
 }
 
+FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
+{
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::Consent
+			)
+		);
+	}
+
+	EnsureRuntime();
+	if (bDeinitialized)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Cancelled,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("The ads subsystem has been deinitialized.")
+		));
+	}
+	if (ActiveConsentRequestId.IsValid())
+	{
+		return FOpenMobileAdsOperationResult::Accepted(ActiveConsentRequestId);
+	}
+	if (
+		!bApplicationActive
+		|| !bApplicationInForeground
+		|| (FullscreenLifecycle && FullscreenLifecycle->IsOccupied())
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Busy,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("Consent cannot refresh while another full-screen surface is active."),
+			NAME_None,
+			TEXT("Retry after the application is active and the current full-screen surface closes."),
+			true
+		));
+	}
+
+	FOpenMobileAdsError SelectionError;
+	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
+	if (!Provider)
+	{
+		SelectionError.Stage = EOpenMobileAdsFailureStage::Consent;
+		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(SelectionError));
+	}
+	const FName ConsentProviderName = Provider->GetConsentProviderName();
+	if (ConsentProviderName.IsNone())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			EOpenMobileAdsFailureStage::Consent,
+			NAME_None,
+			TEXT("The selected ads provider does not supply a consent provider."),
+			Provider->GetProviderName(),
+			TEXT("Enable a provider plugin with a supported consent implementation.")
+		));
+	}
+
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	ActiveConsentRequest = FOpenMobileAdsConsentRequest();
+	ActiveConsentRequest.RequestId = FGuid::NewGuid();
+	ActiveConsentRequest.Platform = OpenMobileAdsGetCurrentPlatform();
+	ActiveConsentRequest.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			Settings->IsDevelopmentTestModeEnabled(),
+			Settings->TestDeviceIdentifiers
+		);
+	ActiveConsentRequest.Privacy = Settings->Privacy;
+	ActiveConsentRequest.Privacy.ChildDirectedTreatment =
+		PrivacySnapshot.ChildDirectedTreatment;
+	ActiveConsentRequest.Privacy.UnderAgeOfConsent =
+		PrivacySnapshot.UnderAgeOfConsent;
+	if (
+		ActiveConsentRequest.Privacy.UnderAgeOfConsent
+			== EOpenMobileAdsAgeTreatment::Yes
+	)
+	{
+		ActiveConsentRequest.Development.bEnableConsentDebug = false;
+	}
+	ActiveConsentRequestId = ActiveConsentRequest.RequestId;
+	ActiveConsentAdsProviderName = Provider->GetProviderName();
+	ActiveConsentProviderName = ConsentProviderName;
+	ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate::BeginRefresh(ConsentProviderName)
+	);
+
+	const FGuid RequestId = ActiveConsentRequestId;
+	const FName AdsProviderName = ActiveConsentAdsProviderName;
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	const TSharedRef<OpenMobileAdsPrivate::FConsentProviderSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<OpenMobileAdsPrivate::FConsentProviderSink, ESPMode::ThreadSafe>(
+			[WeakThis, RequestId, AdsProviderName, ConsentProviderName](
+				FOpenMobileAdsConsentStatusUpdate Update
+			) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, AdsProviderName, ConsentProviderName,
+						Update = MoveTemp(Update)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleConsentRefreshCompleted(
+								RequestId,
+								AdsProviderName,
+								ConsentProviderName,
+								MoveTemp(Update)
+							);
+						}
+					}
+				);
+			},
+			[WeakThis, RequestId, AdsProviderName, ConsentProviderName](
+				FOpenMobileAdsError Error
+			) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, AdsProviderName, ConsentProviderName,
+						Error = MoveTemp(Error)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleConsentOperationFailed(
+								RequestId,
+								AdsProviderName,
+								ConsentProviderName,
+								MoveTemp(Error)
+							);
+						}
+					}
+				);
+			}
+		);
+	ConsentOperationSink = Sink;
+
+	FOpenMobileAdsError ProviderError;
+	if (!Provider->RefreshConsent(ActiveConsentRequest, Sink, ProviderError))
+	{
+		Sink->Invalidate();
+		ConsentOperationSink.Reset();
+		FOpenMobileAdsError Error = OpenMobileAdsPrivate::NormalizeConsentError(
+			MoveTemp(ProviderError),
+			ConsentProviderName
+		);
+		ClearConsentOperation(false);
+		ApplyConsentStatusUpdateOnGameThread(
+			FOpenMobileAdsConsentStatusUpdate::Fail(
+				ConsentProviderName,
+				Error
+			)
+		);
+		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
+	}
+	Sink->Commit();
+	return FOpenMobileAdsOperationResult::Accepted(RequestId);
+}
+
 FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 {
 	if (!IsInGameThread())
@@ -1384,6 +1662,308 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
 	bPrivacySnapshotInitialized = true;
 	BroadcastConsentStatus();
 	return FOpenMobileAdsOperationResult::Accepted(FGuid());
+}
+
+void UOpenMobileAdsSubsystem::HandleConsentRefreshCompleted(
+	FGuid RequestId,
+	FName AdsProviderName,
+	FName ConsentProviderName,
+	FOpenMobileAdsConsentStatusUpdate Update
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| RequestId != ActiveConsentRequestId
+		|| AdsProviderName != ActiveConsentAdsProviderName
+		|| ConsentProviderName != ActiveConsentProviderName
+	)
+	{
+		return;
+	}
+	if (ConsentOperationSink)
+	{
+		ConsentOperationSink->Invalidate();
+		ConsentOperationSink.Reset();
+	}
+	if (Update.Type != EOpenMobileAdsConsentStatusUpdateType::Completed)
+	{
+		HandleConsentOperationFailed(
+			RequestId,
+			AdsProviderName,
+			ConsentProviderName,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderFailure,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The consent provider returned an invalid refresh result."),
+				ConsentProviderName
+			)
+		);
+		return;
+	}
+	if (Update.Source.IsNone())
+	{
+		Update.Source = ConsentProviderName;
+	}
+	if (Update.Status != EOpenMobileAdsConsentStatus::Required)
+	{
+		ClearConsentOperation(false);
+		ApplyConsentStatusUpdateOnGameThread(MoveTemp(Update));
+		return;
+	}
+
+	ApplyConsentStatusUpdateOnGameThread(MoveTemp(Update));
+	if (
+		bDeinitialized
+		|| RequestId != ActiveConsentRequestId
+		|| AdsProviderName != ActiveConsentAdsProviderName
+	)
+	{
+		return;
+	}
+	IOpenMobileAdsProvider* Provider =
+		OpenMobileAdsPrivate::FindRegisteredProvider(AdsProviderName);
+	if (
+		!Provider
+		|| !Provider->IsSupported()
+		|| Provider->GetConsentProviderName() != ConsentProviderName
+	)
+	{
+		HandleConsentOperationFailed(
+			RequestId,
+			AdsProviderName,
+			ConsentProviderName,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The consent provider became unavailable before form presentation."),
+				ConsentProviderName,
+				TEXT("Keep the selected provider enabled until consent gathering finishes.")
+			)
+		);
+		return;
+	}
+	StartRequiredConsentForm(*Provider);
+}
+
+bool UOpenMobileAdsSubsystem::StartRequiredConsentForm(
+	IOpenMobileAdsProvider& Provider
+)
+{
+	check(IsInGameThread());
+	const FGuid RequestId = ActiveConsentRequestId;
+	const FName AdsProviderName = ActiveConsentAdsProviderName;
+	const FName ConsentProviderName = ActiveConsentProviderName;
+	if (
+		!RequestId.IsValid()
+		|| !FullscreenLifecycle
+		|| !FullscreenLifecycle->TryReserve(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			RequestId
+		)
+		|| !FullscreenLifecycle->BeginPresentation(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			RequestId
+		)
+	)
+	{
+		if (FullscreenLifecycle)
+		{
+			FullscreenLifecycle->End(
+				EOpenMobileAdsFullscreenSurface::Consent,
+				RequestId
+			);
+		}
+		HandleConsentOperationFailed(
+			RequestId,
+			AdsProviderName,
+			ConsentProviderName,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::Busy,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The required consent form conflicts with another full-screen surface."),
+				ConsentProviderName,
+				TEXT("Retry consent after the current full-screen surface closes."),
+				true
+			)
+		);
+		return false;
+	}
+
+	ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate::BeginFormPresentation(
+			ConsentProviderName
+		)
+	);
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	const TSharedRef<OpenMobileAdsPrivate::FConsentProviderSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<OpenMobileAdsPrivate::FConsentProviderSink, ESPMode::ThreadSafe>(
+			[WeakThis, RequestId, AdsProviderName, ConsentProviderName](
+				FOpenMobileAdsConsentStatusUpdate Update
+			) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, AdsProviderName, ConsentProviderName,
+						Update = MoveTemp(Update)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleConsentFormCompleted(
+								RequestId,
+								AdsProviderName,
+								ConsentProviderName,
+								MoveTemp(Update)
+							);
+						}
+					}
+				);
+			},
+			[WeakThis, RequestId, AdsProviderName, ConsentProviderName](
+				FOpenMobileAdsError Error
+			) mutable
+			{
+				AsyncTask(
+					ENamedThreads::GameThread,
+					[WeakThis, RequestId, AdsProviderName, ConsentProviderName,
+						Error = MoveTemp(Error)]() mutable
+					{
+						if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+						{
+							Subsystem->HandleConsentOperationFailed(
+								RequestId,
+								AdsProviderName,
+								ConsentProviderName,
+								MoveTemp(Error)
+							);
+						}
+					}
+				);
+			}
+		);
+	ConsentOperationSink = Sink;
+	FOpenMobileAdsError ProviderError;
+	if (!Provider.PresentRequiredConsentForm(
+		ActiveConsentRequest,
+		Sink,
+		ProviderError
+	))
+	{
+		Sink->Invalidate();
+		ConsentOperationSink.Reset();
+		FOpenMobileAdsError Error = OpenMobileAdsPrivate::NormalizeConsentError(
+			MoveTemp(ProviderError),
+			ConsentProviderName
+		);
+		ClearConsentOperation(true);
+		ApplyConsentStatusUpdateOnGameThread(
+			FOpenMobileAdsConsentStatusUpdate::Fail(
+				ConsentProviderName,
+				MoveTemp(Error)
+			)
+		);
+		return false;
+	}
+	Sink->Commit();
+	return true;
+}
+
+void UOpenMobileAdsSubsystem::HandleConsentFormCompleted(
+	FGuid RequestId,
+	FName AdsProviderName,
+	FName ConsentProviderName,
+	FOpenMobileAdsConsentStatusUpdate Update
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| RequestId != ActiveConsentRequestId
+		|| AdsProviderName != ActiveConsentAdsProviderName
+		|| ConsentProviderName != ActiveConsentProviderName
+	)
+	{
+		return;
+	}
+	if (Update.Type != EOpenMobileAdsConsentStatusUpdateType::Completed)
+	{
+		HandleConsentOperationFailed(
+			RequestId,
+			AdsProviderName,
+			ConsentProviderName,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderFailure,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The consent provider returned an invalid form result."),
+				ConsentProviderName
+			)
+		);
+		return;
+	}
+	if (Update.Source.IsNone())
+	{
+		Update.Source = ConsentProviderName;
+	}
+	ClearConsentOperation(true);
+	ApplyConsentStatusUpdateOnGameThread(MoveTemp(Update));
+}
+
+void UOpenMobileAdsSubsystem::HandleConsentOperationFailed(
+	FGuid RequestId,
+	FName AdsProviderName,
+	FName ConsentProviderName,
+	FOpenMobileAdsError Error
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| RequestId != ActiveConsentRequestId
+		|| AdsProviderName != ActiveConsentAdsProviderName
+		|| ConsentProviderName != ActiveConsentProviderName
+	)
+	{
+		return;
+	}
+	const bool bEndPresentation =
+		PrivacySnapshot.ConsentActivity
+			== EOpenMobileAdsConsentActivity::PresentingForm;
+	Error = OpenMobileAdsPrivate::NormalizeConsentError(
+		MoveTemp(Error),
+		ConsentProviderName
+	);
+	ClearConsentOperation(bEndPresentation);
+	ApplyConsentStatusUpdateOnGameThread(
+		FOpenMobileAdsConsentStatusUpdate::Fail(
+			ConsentProviderName,
+			MoveTemp(Error)
+		)
+	);
+}
+
+void UOpenMobileAdsSubsystem::ClearConsentOperation(bool bEndPresentation)
+{
+	check(IsInGameThread());
+	if (bEndPresentation && FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::Consent,
+			ActiveConsentRequestId
+		);
+	}
+	if (ConsentOperationSink)
+	{
+		ConsentOperationSink->Invalidate();
+		ConsentOperationSink.Reset();
+	}
+	ActiveConsentRequestId.Invalidate();
+	ActiveConsentRequest = FOpenMobileAdsConsentRequest();
+	ActiveConsentAdsProviderName = NAME_None;
+	ActiveConsentProviderName = NAME_None;
 }
 
 void UOpenMobileAdsSubsystem::ApplyConsentStatusUpdate(
@@ -3164,6 +3744,25 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	{
 		return;
 	}
+	if (
+		ActiveConsentRequestId.IsValid()
+		&& ActiveConsentAdsProviderName == ProviderName
+	)
+	{
+		HandleConsentOperationFailed(
+			ActiveConsentRequestId,
+			ActiveConsentAdsProviderName,
+			ActiveConsentProviderName,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Consent,
+				NAME_None,
+				TEXT("The consent provider was unregistered during an active operation."),
+				ActiveConsentProviderName,
+				TEXT("Keep the selected provider enabled until consent gathering finishes.")
+			)
+		);
+	}
 	bool bInitializationProviderUnavailable = false;
 	if (
 		ProviderName == SelectedProviderName
@@ -3310,6 +3909,20 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 
 void UOpenMobileAdsSubsystem::Deinitialize()
 {
+	if (ActiveConsentRequestId.IsValid())
+	{
+		if (IOpenMobileAdsProvider* ConsentProvider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(
+				ActiveConsentAdsProviderName
+			))
+		{
+			ConsentProvider->CancelConsent(ActiveConsentRequestId);
+		}
+		ClearConsentOperation(
+			PrivacySnapshot.ConsentActivity
+				== EOpenMobileAdsConsentActivity::PresentingForm
+		);
+	}
 	bDeinitialized = true;
 	if (FullscreenLifecycle)
 	{

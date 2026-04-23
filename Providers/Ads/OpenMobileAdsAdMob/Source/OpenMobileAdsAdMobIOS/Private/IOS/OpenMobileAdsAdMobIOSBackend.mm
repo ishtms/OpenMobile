@@ -7,6 +7,7 @@
 #include "Apple/AppleStringUtils.h"
 
 #import <GoogleMobileAds/GoogleMobileAds.h>
+#import <UserMessagingPlatform/UserMessagingPlatform.h>
 #import <UIKit/UIKit.h>
 
 #import "IOS/IOSAppDelegate.h"
@@ -71,6 +72,98 @@ namespace OpenMobileAdsAdMobIOS
 	FString ToFString(NSString* String)
 	{
 		return String ? FString(UTF8_TO_TCHAR(String.UTF8String)) : FString();
+	}
+
+	int32 ToCanonicalConsentStatus(UMPConsentStatus Status)
+	{
+		switch (Status)
+		{
+		case UMPConsentStatusNotRequired:
+			return 1;
+		case UMPConsentStatusRequired:
+			return 2;
+		case UMPConsentStatusObtained:
+			return 3;
+		default:
+			return 0;
+		}
+	}
+
+	int32 ToCanonicalPrivacyOptionsRequirement(
+		UMPPrivacyOptionsRequirementStatus Requirement
+	)
+	{
+		switch (Requirement)
+		{
+		case UMPPrivacyOptionsRequirementStatusNotRequired:
+			return 1;
+		case UMPPrivacyOptionsRequirementStatusRequired:
+			return 2;
+		default:
+			return 0;
+		}
+	}
+
+	FString ToUMPErrorCode(NSError* Error, bool bFormOperation)
+	{
+		if (!Error)
+		{
+			return TEXT("ump_internal");
+		}
+		if (bFormOperation)
+		{
+			switch (static_cast<UMPFormErrorCode>(Error.code))
+			{
+			case UMPFormErrorCodeAlreadyUsed:
+			case UMPFormErrorCodeInvalidViewController:
+				return TEXT("ump_invalid_operation");
+			case UMPFormErrorCodeUnavailable:
+				return TEXT("form_unavailable");
+			case UMPFormErrorCodeTimeout:
+				return TEXT("ump_timeout");
+			default:
+				return TEXT("ump_internal");
+			}
+		}
+		switch (static_cast<UMPRequestErrorCode>(Error.code))
+		{
+		case UMPRequestErrorCodeInvalidAppID:
+		case UMPRequestErrorCodeMisconfiguration:
+			return TEXT("ump_configuration");
+		case UMPRequestErrorCodeNetwork:
+			return TEXT("ump_network");
+		default:
+			return TEXT("ump_internal");
+		}
+	}
+
+	void CompleteConsentInfo(int64 RequestId, bool bFormDismissed)
+	{
+		UMPConsentInformation* ConsentInformation =
+			UMPConsentInformation.sharedInstance;
+		const int32 ConsentStatus = ToCanonicalConsentStatus(
+			ConsentInformation.consentStatus
+		);
+		const int32 PrivacyOptionsRequirement =
+			ToCanonicalPrivacyOptionsRequirement(
+				ConsentInformation.privacyOptionsRequirementStatus
+			);
+		if (bFormDismissed)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+				RequestId,
+				ConsentStatus,
+				ConsentInformation.canRequestAds,
+				PrivacyOptionsRequirement
+			);
+			return;
+		}
+		FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+			RequestId,
+			ConsentStatus,
+			ConsentInformation.canRequestAds,
+			PrivacyOptionsRequirement
+		);
 	}
 }
 
@@ -203,6 +296,101 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 		GOpenMobileLoadedRewardedAds = nil;
 		GOpenMobileRewardedAdLoadRequests = nil;
 	});
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::RequestConsentInfo(
+	const FOpenMobileAdsConsentRequest& Request,
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	if (RequestId <= 0)
+	{
+		OutError = TEXT("The iOS Google UMP request ID is invalid.");
+		return false;
+	}
+
+	const bool bUnderAgeOfConsent =
+		Request.Privacy.UnderAgeOfConsent == EOpenMobileAdsAgeTreatment::Yes;
+	const bool bEnableConsentDebug =
+		Request.Development.bEnableConsentDebug && !bUnderAgeOfConsent;
+	NSMutableArray<NSString*>* TestDeviceIdentifiers = [NSMutableArray
+		arrayWithCapacity:bEnableConsentDebug
+			? Request.Development.TestDeviceIdentifiers.Num()
+			: 0];
+	if (bEnableConsentDebug)
+	{
+		for (const FString& Identifier : Request.Development.TestDeviceIdentifiers)
+		{
+			[TestDeviceIdentifiers addObject:FAppleStringUtils::ConvertToNSString(Identifier)];
+		}
+	}
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		UMPRequestParameters* Parameters = [[UMPRequestParameters alloc] init];
+		Parameters.tagForUnderAgeOfConsent = bUnderAgeOfConsent;
+		if (bEnableConsentDebug && TestDeviceIdentifiers.count > 0)
+		{
+			UMPDebugSettings* DebugSettings = [[UMPDebugSettings alloc] init];
+			DebugSettings.testDeviceIdentifiers = TestDeviceIdentifiers;
+			Parameters.debugSettings = DebugSettings;
+		}
+		[UMPConsentInformation.sharedInstance
+			requestConsentInfoUpdateWithParameters:Parameters
+			completionHandler:^(NSError* Error)
+		{
+			if (Error)
+			{
+				FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToUMPErrorCode(Error, false),
+					OpenMobileAdsAdMobIOS::ToFString(
+						Error.localizedDescription ?: @"Unknown UMP request error."
+					)
+				);
+				return;
+			}
+			OpenMobileAdsAdMobIOS::CompleteConsentInfo(RequestId, false);
+		}];
+	});
+	return true;
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::PresentRequiredConsentForm(
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	if (RequestId <= 0)
+	{
+		OutError = TEXT("The iOS Google UMP form request ID is invalid.");
+		return false;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		[UMPConsentForm
+			loadAndPresentIfRequiredFromViewController:RootController
+			completionHandler:^(NSError* Error)
+		{
+			if (Error)
+			{
+				FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToUMPErrorCode(Error, true),
+					OpenMobileAdsAdMobIOS::ToFString(
+						Error.localizedDescription ?: @"Unknown UMP form error."
+					)
+				);
+				return;
+			}
+			OpenMobileAdsAdMobIOS::CompleteConsentInfo(RequestId, true);
+		}];
+	});
+	return true;
 }
 
 bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(

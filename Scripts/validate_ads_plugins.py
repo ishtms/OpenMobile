@@ -41,6 +41,7 @@ ANDROID_ADAPTER_MANIFEST_CONTRACTS = {}
 ANDROID_DEPENDENCY_CONTRACTS = {
 	"OpenMobileAdsAdMob": {
 		"com.google.android.gms:play-services-ads": "25.4.0",
+		"com.google.android.ump:user-messaging-platform": "4.0.0",
 	},
 }
 ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {}

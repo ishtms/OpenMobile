@@ -4,6 +4,7 @@
 #include "IOpenMobileAdsAdMobBackend.h"
 #include "IOpenMobileAdsProvider.h"
 #include "OpenMobileAsync.h"
+#include "OpenMobileAdsAdMobConsentMapper.h"
 
 namespace OpenMobileAdsAdMobPlatformPrivate
 {
@@ -22,6 +23,13 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		bool bRewardDispatched = false;
 	};
 
+	struct FConsentOperation
+	{
+		FGuid RequestId;
+		FOnOpenMobileAdMobConsentCompleted Completed;
+		FOnOpenMobileAdMobConsentFailed Failed;
+	};
+
 	TArray<FOnOpenMobileAdMobInitialized> InitializationDelegates;
 	TArray<FOnOpenMobileAdMobInitializationStatus> InitializationStatusDelegates;
 	TArray<FOpenMobileAdsInitializationComponentStatus> InitializationStatuses;
@@ -35,6 +43,8 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	TMap<FGuid, int64> NativeLoadRequestIds;
 	TMap<FGuid, int64> NativeShowRequestIds;
 	TMap<FGuid, int64> LoadedRewardedAdRequestIds;
+	TMap<int64, FConsentOperation> ConsentOperations;
+	TMap<FGuid, int64> NativeConsentRequestIds;
 	int64 NextRequestId = 0;
 	int64 ActiveInitializationRequestId = 0;
 	int64 ActiveRequestId = 0;
@@ -99,6 +109,8 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		NativeLoadRequestIds.Reset();
 		NativeShowRequestIds.Reset();
 		LoadedRewardedAdRequestIds.Reset();
+		ConsentOperations.Reset();
+		NativeConsentRequestIds.Reset();
 	}
 
 	bool RemoveLoadOperation(
@@ -125,6 +137,80 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 		NativeShowRequestIds.Remove(OutOperation.RequestId);
 		return true;
+	}
+
+	bool RemoveConsentOperation(
+		int64 NativeRequestId,
+		FConsentOperation& OutOperation
+	)
+	{
+		if (!ConsentOperations.RemoveAndCopyValue(
+			NativeRequestId,
+			OutOperation
+		))
+		{
+			return false;
+		}
+		NativeConsentRequestIds.Remove(OutOperation.RequestId);
+		return true;
+	}
+
+	EOpenMobileAdsAdMobUMPConsentStatus ToConsentStatus(int32 Status)
+	{
+		switch (Status)
+		{
+		case 1:
+			return EOpenMobileAdsAdMobUMPConsentStatus::NotRequired;
+		case 2:
+			return EOpenMobileAdsAdMobUMPConsentStatus::Required;
+		case 3:
+			return EOpenMobileAdsAdMobUMPConsentStatus::Obtained;
+		default:
+			return EOpenMobileAdsAdMobUMPConsentStatus::Unknown;
+		}
+	}
+
+	EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement ToPrivacyOptions(
+		int32 Requirement
+	)
+	{
+		switch (Requirement)
+		{
+		case 1:
+			return EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::NotRequired;
+		case 2:
+			return EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Required;
+		default:
+			return EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Unknown;
+		}
+	}
+
+	FOpenMobileAdsConsentStatusUpdate MakeConsentUpdate(
+		int32 ConsentStatus,
+		bool bCanRequestAds,
+		int32 PrivacyOptionsRequirement
+	)
+	{
+		return FOpenMobileAdsAdMobConsentMapper::MapGdprState(
+			ToConsentStatus(ConsentStatus),
+			bCanRequestAds,
+			TEXT("GoogleUMP"),
+			ToPrivacyOptions(PrivacyOptionsRequirement)
+		);
+	}
+
+	FOpenMobileAdsError MakeConsentError(
+		const FString& ErrorCode,
+		const FString& ErrorMessage
+	)
+	{
+		FOpenMobileAdsErrorMappingContext Context;
+		Context.Domain = EOpenMobileAdsErrorDomain::Consent;
+		Context.Stage = EOpenMobileAdsFailureStage::Consent;
+		Context.Provider = TEXT("GoogleUMP");
+		Context.NativeCode = ErrorCode;
+		Context.NativeMessage = ErrorMessage;
+		return FOpenMobileAdsErrorMapper::FromNative(Context);
 	}
 
 	IOpenMobileAdsAdMobBackend* FindBackend()
@@ -214,6 +300,111 @@ void FOpenMobileAdsAdMobPlatform::Shutdown()
 		bInitialized = false;
 	}
 	ResetInitialization();
+}
+
+bool FOpenMobileAdsAdMobPlatform::BeginConsentRefresh(
+	const FOpenMobileAdsConsentRequest& Request,
+	FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+	FOnOpenMobileAdMobConsentFailed&& OnFailed,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+	IOpenMobileAdsAdMobBackend* Backend = FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for UMP.");
+		return false;
+	}
+	if (!Request.RequestId.IsValid())
+	{
+		OutError = TEXT("The Google UMP refresh request ID is invalid.");
+		return false;
+	}
+	if (NativeConsentRequestIds.Contains(Request.RequestId))
+	{
+		OutError = TEXT("The Google UMP consent request is already active.");
+		return false;
+	}
+
+	++NextRequestId;
+	if (NextRequestId <= 0)
+	{
+		NextRequestId = 1;
+	}
+	const int64 NativeRequestId = NextRequestId;
+	FConsentOperation Operation;
+	Operation.RequestId = Request.RequestId;
+	Operation.Completed = MoveTemp(OnCompleted);
+	Operation.Failed = MoveTemp(OnFailed);
+	ConsentOperations.Add(NativeRequestId, MoveTemp(Operation));
+	NativeConsentRequestIds.Add(Request.RequestId, NativeRequestId);
+	if (!Backend->RequestConsentInfo(Request, NativeRequestId, OutError))
+	{
+		FConsentOperation Removed;
+		RemoveConsentOperation(NativeRequestId, Removed);
+		return false;
+	}
+	return true;
+}
+
+bool FOpenMobileAdsAdMobPlatform::BeginRequiredConsentForm(
+	const FOpenMobileAdsConsentRequest& Request,
+	FOnOpenMobileAdMobConsentCompleted&& OnCompleted,
+	FOnOpenMobileAdMobConsentFailed&& OnFailed,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+	IOpenMobileAdsAdMobBackend* Backend = FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for UMP.");
+		return false;
+	}
+	if (!Request.RequestId.IsValid())
+	{
+		OutError = TEXT("The Google UMP form request ID is invalid.");
+		return false;
+	}
+	if (NativeConsentRequestIds.Contains(Request.RequestId))
+	{
+		OutError = TEXT("The Google UMP consent request is already active.");
+		return false;
+	}
+
+	++NextRequestId;
+	if (NextRequestId <= 0)
+	{
+		NextRequestId = 1;
+	}
+	const int64 NativeRequestId = NextRequestId;
+	FConsentOperation Operation;
+	Operation.RequestId = Request.RequestId;
+	Operation.Completed = MoveTemp(OnCompleted);
+	Operation.Failed = MoveTemp(OnFailed);
+	ConsentOperations.Add(NativeRequestId, MoveTemp(Operation));
+	NativeConsentRequestIds.Add(Request.RequestId, NativeRequestId);
+	if (!Backend->PresentRequiredConsentForm(NativeRequestId, OutError))
+	{
+		FConsentOperation Removed;
+		RemoveConsentOperation(NativeRequestId, Removed);
+		return false;
+	}
+	return true;
+}
+
+void FOpenMobileAdsAdMobPlatform::CancelConsent(FGuid RequestId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+	int64 NativeRequestId = 0;
+	if (NativeConsentRequestIds.RemoveAndCopyValue(RequestId, NativeRequestId))
+	{
+		ConsentOperations.Remove(NativeRequestId);
+	}
 }
 
 bool FOpenMobileAdsAdMobPlatform::BeginLoad(
@@ -501,6 +692,84 @@ void FOpenMobileAdsAdMobPlatform::NativeInitializationFailed(
 					? TEXT("The AdMob SDK failed to initialize.")
 					: ErrorMessage,
 				TEXT("AdMob")
+			));
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+	int64 RequestId,
+	int32 ConsentStatus,
+	bool bCanRequestAds,
+	int32 PrivacyOptionsRequirement
+)
+{
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ConsentStatus,
+		bCanRequestAds,
+		PrivacyOptionsRequirement
+	]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FConsentOperation Operation;
+		if (RemoveConsentOperation(RequestId, Operation))
+		{
+			Operation.Completed.ExecuteIfBound(MakeConsentUpdate(
+				ConsentStatus,
+				bCanRequestAds,
+				PrivacyOptionsRequirement
+			));
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+	int64 RequestId,
+	int32 ConsentStatus,
+	bool bCanRequestAds,
+	int32 PrivacyOptionsRequirement
+)
+{
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ConsentStatus,
+		bCanRequestAds,
+		PrivacyOptionsRequirement
+	]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FConsentOperation Operation;
+		if (RemoveConsentOperation(RequestId, Operation))
+		{
+			Operation.Completed.ExecuteIfBound(MakeConsentUpdate(
+				ConsentStatus,
+				bCanRequestAds,
+				PrivacyOptionsRequirement
+			));
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+	int64 RequestId,
+	FString ErrorCode,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ErrorCode = MoveTemp(ErrorCode),
+		ErrorMessage = MoveTemp(ErrorMessage)
+	]() mutable
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FConsentOperation Operation;
+		if (RemoveConsentOperation(RequestId, Operation))
+		{
+			Operation.Failed.ExecuteIfBound(MakeConsentError(
+				ErrorCode,
+				ErrorMessage
 			));
 		}
 	});

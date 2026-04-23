@@ -121,6 +121,102 @@ void FOpenMobileAdsAdMobAndroidBackend::Shutdown()
 	}
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::RequestConsentInfo(
+	const FOpenMobileAdsConsentRequest& Request,
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable during the UMP request.");
+		return false;
+	}
+	static jmethodID RequestMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_RequestOpenMobileUMPConsent",
+		"(JZ[Ljava/lang/String;)Z",
+		false
+	);
+	if (!RequestMethod)
+	{
+		OutError = TEXT("The Android Google UMP request bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	TArray<FStringView> TestDeviceIdentifierViews;
+	if (
+		Request.Development.bEnableConsentDebug
+		&& Request.Privacy.UnderAgeOfConsent
+			!= EOpenMobileAdsAgeTreatment::Yes
+	)
+	{
+		TestDeviceIdentifierViews.Reserve(
+			Request.Development.TestDeviceIdentifiers.Num()
+		);
+		for (const FString& Identifier : Request.Development.TestDeviceIdentifiers)
+		{
+			TestDeviceIdentifierViews.Add(Identifier);
+		}
+	}
+	const FScopedJavaObject<jobjectArray> JavaTestDeviceIdentifiers =
+		FJavaHelper::ToJavaStringArray(Env, TestDeviceIdentifierViews);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		RequestMethod,
+		static_cast<jlong>(RequestId),
+		static_cast<jboolean>(
+			Request.Privacy.UnderAgeOfConsent
+				== EOpenMobileAdsAgeTreatment::Yes
+		),
+		*JavaTestDeviceIdentifiers
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the Google UMP consent-info update.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::PresentRequiredConsentForm(
+	const int64 RequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable during UMP form presentation.");
+		return false;
+	}
+	static jmethodID PresentMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm",
+		"(J)Z",
+		false
+	);
+	if (!PresentMethod)
+	{
+		OutError = TEXT("The Android Google UMP form bridge was not packaged into GameActivity.");
+		return false;
+	}
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		PresentMethod,
+		static_cast<jlong>(RequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the required Google UMP form.");
+	}
+	return bScheduled;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -331,6 +427,55 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitia
 {
 	FOpenMobileAdsAdMobPlatform::NativeInitializationFailed(
 		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentInfoUpdated(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jint ConsentStatus,
+	jboolean bCanRequestAds,
+	jint PrivacyOptionsRequirement
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+		static_cast<int64>(RequestId),
+		static_cast<int32>(ConsentStatus),
+		static_cast<bool>(bCanRequestAds),
+		static_cast<int32>(PrivacyOptionsRequirement)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentFormDismissed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jint ConsentStatus,
+	jboolean bCanRequestAds,
+	jint PrivacyOptionsRequirement
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeConsentFormDismissed(
+		static_cast<int64>(RequestId),
+		static_cast<int32>(ConsentStatus),
+		static_cast<bool>(bCanRequestAds),
+		static_cast<int32>(PrivacyOptionsRequirement)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorCode,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeConsentFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorCode),
 		FJavaHelper::FStringFromParam(Env, ErrorMessage)
 	);
 }
