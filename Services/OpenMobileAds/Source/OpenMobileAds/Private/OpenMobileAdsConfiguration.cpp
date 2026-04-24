@@ -430,6 +430,18 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			TEXT("Global test-device identifiers are not allowed in shipping builds.")
 		);
 	}
+	if (
+		bForShipping
+		&& Settings.DebugGeography != EOpenMobileAdsDebugGeography::Disabled
+	)
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingDebugGeography,
+			NAME_None,
+			TEXT("Consent debug geography is not allowed in shipping builds.")
+		);
+	}
 	return Issues;
 }
 

@@ -158,7 +158,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=6", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=7", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -273,7 +273,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		android_backend = (
 			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
-		self.assertIn('"(JZ[Ljava/lang/String;)Z"', android_backend)
+		self.assertIn('"(JZ[Ljava/lang/String;I)Z"', android_backend)
 		self.assertIn('"(J)Z"', android_backend)
 		self.assertIn("Request.Development.bEnableConsentDebug", android_backend)
 		self.assertIn("nativeOpenMobileUMPConsentInfoUpdated", android_backend)
@@ -606,6 +606,51 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("#if UE_BUILD_SHIPPING", reset)
 		self.assertIn("Consent reset is disabled in Shipping builds", reset)
 		self.assertIn("IsDevelopmentTestModeEnabled", reset)
+
+	def test_admob_maps_supported_debug_geographies(self) -> None:
+		build_rules = (
+			ADS_PLUGIN / "Source" / "OpenMobileAds" / "OpenMobileAds.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertIn("string DebugGeography", build_rules)
+		self.assertIn(
+			"Consent Debug Geography must be disabled for Shipping builds",
+			build_rules,
+		)
+
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn('"(JZ[Ljava/lang/String;I)Z"', android_backend)
+		self.assertIn("GetEffectiveDebugGeography", android_backend)
+		self.assertIn("final int debugGeography", android_upl)
+		self.assertIn("setDebugGeography", android_upl)
+		self.assertIn("DEBUG_GEOGRAPHY_EEA", android_upl)
+		self.assertIn("DEBUG_GEOGRAPHY_REGULATED_US_STATE", android_upl)
+		self.assertIn("DEBUG_GEOGRAPHY_OTHER", android_upl)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("GetEffectiveDebugGeography", ios_backend)
+		self.assertIn("DebugSettings.geography", ios_backend)
+		self.assertIn("UMPDebugGeographyEEA", ios_backend)
+		self.assertIn("UMPDebugGeographyRegulatedUSState", ios_backend)
+		self.assertIn("UMPDebugGeographyOther", ios_backend)
 
 
 if __name__ == "__main__":

@@ -229,6 +229,29 @@ namespace OpenMobileAdsAdMobTestAdTests
 		bool bInvalidated = false;
 	};
 
+	class FConsentSink final : public IOpenMobileAdsConsentProviderSink
+	{
+	public:
+		virtual void Complete(FOpenMobileAdsConsentStatusUpdate Update) override
+		{
+			++CompletionCalls;
+		}
+
+		virtual void Fail(FOpenMobileAdsError Error) override
+		{
+			++FailureCalls;
+		}
+
+		virtual void Invalidate() override
+		{
+			bInvalidated = true;
+		}
+
+		int32 CompletionCalls = 0;
+		int32 FailureCalls = 0;
+		bool bInvalidated = false;
+	};
+
 	class FScopedSettings
 	{
 	public:
@@ -239,6 +262,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 			AndroidRewardedAdUnitId = Settings->AndroidRewardedAdUnitId;
 			IOSAppId = Settings->IOSAppId;
 			IOSRewardedAdUnitId = Settings->IOSRewardedAdUnitId;
+			TestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
 			Settings->AndroidAppId = TEXT("ca-app-pub-3940256099942544~3347511713");
 			Settings->AndroidRewardedAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/5224354917");
@@ -253,6 +277,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 			Settings->AndroidRewardedAdUnitId = MoveTemp(AndroidRewardedAdUnitId);
 			Settings->IOSAppId = MoveTemp(IOSAppId);
 			Settings->IOSRewardedAdUnitId = MoveTemp(IOSRewardedAdUnitId);
+			Settings->TestDeviceIdentifiers = MoveTemp(TestDeviceIdentifiers);
 		}
 
 		UOpenMobileAdsAdMobSettings* Settings = nullptr;
@@ -262,6 +287,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FString AndroidRewardedAdUnitId;
 		FString IOSAppId;
 		FString IOSRewardedAdUnitId;
+		TArray<FString> TestDeviceIdentifiers;
 	};
 
 	IOpenMobileAdsProvider* FindProvider()
@@ -795,6 +821,87 @@ bool FOpenMobileAdsAdMobPrivacyOptionsTest::RunTest(
 		2
 	);
 	TestEqual(TEXT("A late privacy-options callback is ignored"), Completions, 1);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobDebugGeographyTest,
+	"OpenMobile.Ads.AdMob.Privacy.DebugGeography",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobDebugGeographyTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->TestDeviceIdentifiers = {TEXT("ADMOB-TEST-DEVICE")};
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	FOpenMobileAdsAdMobPlatform::Shutdown();
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	FOpenMobileAdsConsentRequest Request;
+	Request.RequestId = FGuid::NewGuid();
+	Request.Platform = EOpenMobileAdsPlatform::Android;
+	Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(
+		true,
+		{},
+		EOpenMobileAdsDebugGeography::RegulatedUsState
+	);
+	const TSharedRef<FConsentSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<FConsentSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob accepts regulated-US debug geography"),
+		Provider->RefreshConsent(Request, Sink, Error)
+	);
+	TestEqual(
+		TEXT("AdMob merges its configured test device before geography resolution"),
+		Backend.ConsentRequest.Development.TestDeviceIdentifiers,
+		ScopedSettings.Settings->TestDeviceIdentifiers
+	);
+	TestEqual(
+		TEXT("Provider test devices enable regulated-US geography"),
+		Backend.ConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::RegulatedUsState
+	);
+	FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+		Backend.ConsentRefreshRequestId,
+		1,
+		true,
+		1
+	);
+
+	ScopedSettings.Settings->TestDeviceIdentifiers.Reset();
+	Request.RequestId = FGuid::NewGuid();
+	Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(
+		true,
+		{},
+		EOpenMobileAdsDebugGeography::Other
+	);
+	TestTrue(
+		TEXT("AdMob accepts an unconfigured debug-geography request"),
+		Provider->RefreshConsent(Request, Sink, Error)
+	);
+	TestEqual(
+		TEXT("AdMob disables geography when its merged test-device list is empty"),
+		Backend.ConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
+	FOpenMobileAdsAdMobPlatform::NativeConsentInfoUpdated(
+		Backend.ConsentRefreshRequestId,
+		1,
+		true,
+		1
+	);
 	FOpenMobileAdsAdMobPlatform::Shutdown();
 	return true;
 }

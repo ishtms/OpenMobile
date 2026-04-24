@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=6</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=7</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -238,7 +238,8 @@ import java.util.Set;
     public boolean AndroidThunkJava_RequestOpenMobileUMPConsent(
         final long requestId,
         final boolean underAgeOfConsent,
-        final String[] testDeviceIdentifiers
+        final String[] testDeviceIdentifiers,
+        final int debugGeography
     )
     {
         try
@@ -261,6 +262,29 @@ import java.util.Set;
                             for (String identifier : testDeviceIdentifiers)
                             {
                                 debugSettings.addTestDeviceHashedId(identifier);
+                            }
+                            switch (debugGeography)
+                            {
+                                case 1:
+                                    debugSettings.setDebugGeography(
+                                        ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_EEA
+                                    );
+                                    break;
+                                case 2:
+                                    debugSettings.setDebugGeography(
+                                        ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_REGULATED_US_STATE
+                                    );
+                                    break;
+                                case 3:
+                                    debugSettings.setDebugGeography(
+                                        ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_OTHER
+                                    );
+                                    break;
+                                default:
+                                    debugSettings.setDebugGeography(
+                                        ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_DISABLED
+                                    );
+                                    break;
                             }
                             parameters.setConsentDebugSettings(debugSettings.build());
                         }
@@ -953,7 +977,8 @@ import java.util.Set;
     public boolean AndroidThunkJava_RequestOpenMobileUMPConsent(
         long,
         boolean,
-        java.lang.String[]
+        java.lang.String[],
+        int
     );
     public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(long);
     public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(long);

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using EpicGames.Core;
 using UnrealBuildTool;
@@ -6,6 +7,9 @@ public class OpenMobileAds : ModuleRules
 {
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
 	bool bDevelopmentTestMode = false;
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
+	string DebugGeography = "Disabled";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
 	List<string> TestDeviceIdentifiers = new List<string>();
@@ -40,6 +44,12 @@ public class OpenMobileAds : ModuleRules
 			{
 				throw new BuildException(
 					"OpenMobile Ads Development/Test Mode must be disabled for Shipping builds."
+				);
+			}
+			if (!string.Equals(DebugGeography, "Disabled", StringComparison.OrdinalIgnoreCase))
+			{
+				throw new BuildException(
+					"OpenMobile Ads Consent Debug Geography must be disabled for Shipping builds."
 				);
 			}
 			if (TestDeviceIdentifiers.Count > 0)

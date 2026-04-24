@@ -265,6 +265,8 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->PreferredProvider = TEXT("ConfiguredAds");
 	SavedSettings->bDevelopmentTestMode = true;
 	SavedSettings->TestDeviceIdentifiers.Add(TEXT("GLOBAL-TEST-DEVICE"));
+	SavedSettings->DebugGeography =
+		EOpenMobileAdsDebugGeography::RegulatedUsState;
 	SavedSettings->RetryPolicy.MaxRetryAttempts = 4;
 	SavedSettings->RetryPolicy.InitialDelaySeconds = 0.5;
 	SavedSettings->RetryPolicy.BackoffMultiplier = 3.0;
@@ -303,6 +305,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TEXT("Global test-device identifiers survive restart"),
 		SettingsAfterRestart->TestDeviceIdentifiers,
 		TArray<FString>({TEXT("GLOBAL-TEST-DEVICE")})
+	);
+	TestEqual(
+		TEXT("Consent debug geography survives restart"),
+		SettingsAfterRestart->DebugGeography,
+		EOpenMobileAdsDebugGeography::RegulatedUsState
 	);
 	TestEqual(TEXT("Retry count survives restart"), SettingsAfterRestart->RetryPolicy.MaxRetryAttempts, 4);
 	TestEqual(TEXT("Initial retry delay survives restart"), SettingsAfterRestart->RetryPolicy.InitialDelaySeconds, 0.5);
@@ -370,6 +377,11 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	));
 
 	TestFalse(TEXT("Development test mode is off by default"), Settings->bDevelopmentTestMode);
+	TestEqual(
+		TEXT("Consent debug geography is disabled by default"),
+		Settings->DebugGeography,
+		EOpenMobileAdsDebugGeography::Disabled
+	);
 	TestFalse(
 		TEXT("An unset development mode stays off outside Shipping"),
 		UOpenMobileAdsSettings::ResolveDevelopmentTestMode(false, false)
@@ -464,6 +476,17 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		HasIssue(
 			ShippingDeviceIssues,
 			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingTestDeviceIdentifier
+		)
+	);
+
+	Settings->DebugGeography = EOpenMobileAdsDebugGeography::Eea;
+	const TArray<FOpenMobileAdsConfigurationIssue> ShippingGeographyIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);
+	TestTrue(
+		TEXT("Enabled debug geography is rejected for shipping"),
+		HasIssue(
+			ShippingGeographyIssues,
+			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingDebugGeography
 		)
 	);
 	return true;

@@ -44,6 +44,21 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	UMPDebugGeography ToDebugGeography(EOpenMobileAdsDebugGeography Geography)
+	{
+		switch (Geography)
+		{
+		case EOpenMobileAdsDebugGeography::Eea:
+			return UMPDebugGeographyEEA;
+		case EOpenMobileAdsDebugGeography::RegulatedUsState:
+			return UMPDebugGeographyRegulatedUSState;
+		case EOpenMobileAdsDebugGeography::Other:
+			return UMPDebugGeographyOther;
+		default:
+			return UMPDebugGeographyDisabled;
+		}
+	}
+
 	UIViewController* TopViewController(UIViewController* Controller)
 	{
 		if (!Controller)
@@ -345,6 +360,9 @@ bool FOpenMobileAdsAdMobIOSBackend::RequestConsentInfo(
 		{
 			UMPDebugSettings* DebugSettings = [[UMPDebugSettings alloc] init];
 			DebugSettings.testDeviceIdentifiers = TestDeviceIdentifiers;
+			DebugSettings.geography = OpenMobileAdsAdMobIOS::ToDebugGeography(
+				Request.Development.GetEffectiveDebugGeography()
+			);
 			Parameters.debugSettings = DebugSettings;
 		}
 		[UMPConsentInformation.sharedInstance

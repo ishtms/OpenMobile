@@ -12,6 +12,29 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 	bool bEnableConsentDebug = false;
 	bool bEnableVerboseDiagnostics = false;
 	TArray<FString> TestDeviceIdentifiers;
+	EOpenMobileAdsDebugGeography DebugGeography =
+		EOpenMobileAdsDebugGeography::Disabled;
+
+	EOpenMobileAdsDebugGeography GetEffectiveDebugGeography() const
+	{
+		if (
+			!bEnabled
+			|| !bEnableConsentDebug
+			|| TestDeviceIdentifiers.IsEmpty()
+		)
+		{
+			return EOpenMobileAdsDebugGeography::Disabled;
+		}
+		switch (DebugGeography)
+		{
+		case EOpenMobileAdsDebugGeography::Eea:
+		case EOpenMobileAdsDebugGeography::RegulatedUsState:
+		case EOpenMobileAdsDebugGeography::Other:
+			return DebugGeography;
+		default:
+			return EOpenMobileAdsDebugGeography::Disabled;
+		}
+	}
 
 	static bool IsValidTestDeviceIdentifier(const FString& Identifier)
 	{
@@ -62,7 +85,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 
 	static FOpenMobileAdsDevelopmentConfiguration FromMode(
 		bool bEnabled,
-		const TArray<FString>& ConfiguredTestDeviceIdentifiers = {}
+		const TArray<FString>& ConfiguredTestDeviceIdentifiers = {},
+		EOpenMobileAdsDebugGeography ConfiguredDebugGeography =
+			EOpenMobileAdsDebugGeography::Disabled
 	)
 	{
 		FOpenMobileAdsDevelopmentConfiguration Configuration;
@@ -76,6 +101,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 			Configuration.TestDeviceIdentifiers = MergeTestDeviceIdentifiers(
 				ConfiguredTestDeviceIdentifiers
 			);
+			Configuration.DebugGeography = ConfiguredDebugGeography;
 		}
 		return Configuration;
 	}

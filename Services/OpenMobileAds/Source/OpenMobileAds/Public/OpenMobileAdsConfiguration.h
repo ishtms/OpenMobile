@@ -19,6 +19,15 @@ enum class EOpenMobileAdsMaxAdContentRating : uint8
 	Mature
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsDebugGeography : uint8
+{
+	Disabled,
+	Eea UMETA(DisplayName = "EEA, UK, or Switzerland"),
+	RegulatedUsState UMETA(DisplayName = "Regulated US State"),
+	Other UMETA(DisplayName = "Other Region")
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRequestConfiguration
 {
@@ -256,6 +265,7 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	UnsafeShippingTestMode,
 	InvalidTestDeviceIdentifier,
 	UnsafeShippingTestDeviceIdentifier,
+	UnsafeShippingDebugGeography,
 	InvalidConvenienceRewardedPlacement
 };
 
@@ -333,6 +343,19 @@ public:
 		)
 	)
 	TArray<FString> TestDeviceIdentifiers;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Development",
+		meta = (
+			DisplayName = "Consent Debug Geography",
+			ToolTip = "Forces consent flows to use a test region only when Development/Test Mode and at least one provider test-device identifier are active."
+		)
+	)
+	EOpenMobileAdsDebugGeography DebugGeography =
+		EOpenMobileAdsDebugGeography::Disabled;
 
 	static bool ResolveDevelopmentTestMode(bool bConfigured, bool bForShipping)
 	{

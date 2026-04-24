@@ -47,7 +47,8 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	InitializationRequest.Development =
 		FOpenMobileAdsDevelopmentConfiguration::FromMode(
 			true,
-			{TEXT("GLOBAL-DEVICE")}
+			{TEXT("GLOBAL-DEVICE")},
+			EOpenMobileAdsDebugGeography::Eea
 		);
 	InitializationRequest.Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	InitializationRequest.RequestConfiguration.MaxAdContentRating =
@@ -62,12 +63,45 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		InitializationRequest.Development.TestDeviceIdentifiers,
 		TArray<FString>({TEXT("GLOBAL-DEVICE")})
 	);
+	TestEqual(
+		TEXT("Configured test devices enable EEA debug geography"),
+		InitializationRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Eea
+	);
+	TestEqual(
+		TEXT("Development mode without a test device disables debug geography"),
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			true,
+			{},
+			EOpenMobileAdsDebugGeography::RegulatedUsState
+		).GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
 	TestTrue(
 		TEXT("Production mode omits configured test-device identifiers"),
 		FOpenMobileAdsDevelopmentConfiguration::FromMode(
 			false,
-			{TEXT("GLOBAL-DEVICE")}
+			{TEXT("GLOBAL-DEVICE")},
+			EOpenMobileAdsDebugGeography::Other
 		).TestDeviceIdentifiers.IsEmpty()
+	);
+	TestEqual(
+		TEXT("Production mode disables configured debug geography"),
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			false,
+			{TEXT("GLOBAL-DEVICE")},
+			EOpenMobileAdsDebugGeography::Other
+		).GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
+	TestEqual(
+		TEXT("Unknown future debug geography values disable simulation"),
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			true,
+			{TEXT("GLOBAL-DEVICE")},
+			static_cast<EOpenMobileAdsDebugGeography>(255)
+		).GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
 	);
 	TestEqual(
 		TEXT("Initialization keeps provider-neutral request configuration"),

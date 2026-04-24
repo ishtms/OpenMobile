@@ -563,6 +563,7 @@ namespace OpenMobileAdsProviderContractTests
 			SavedProvider = Settings->PreferredProvider;
 			bSavedDevelopmentTestMode = Settings->bDevelopmentTestMode;
 			SavedTestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
+			SavedDebugGeography = Settings->DebugGeography;
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
@@ -575,6 +576,7 @@ namespace OpenMobileAdsProviderContractTests
 			Settings->PreferredProvider = SavedProvider;
 			Settings->bDevelopmentTestMode = bSavedDevelopmentTestMode;
 			Settings->TestDeviceIdentifiers = MoveTemp(SavedTestDeviceIdentifiers);
+			Settings->DebugGeography = SavedDebugGeography;
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -588,6 +590,8 @@ namespace OpenMobileAdsProviderContractTests
 		FName SavedProvider;
 		bool bSavedDevelopmentTestMode = false;
 		TArray<FString> SavedTestDeviceIdentifiers;
+		EOpenMobileAdsDebugGeography SavedDebugGeography =
+			EOpenMobileAdsDebugGeography::Disabled;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -4615,6 +4619,106 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 		Subsystem->GetPrivacySnapshot().Error.Code,
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsDebugGeographyContractTest,
+	"OpenMobile.Ads.Privacy.DebugGeography.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsDebugGeographyContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->TestDeviceIdentifiers = {TEXT("UMP-TEST-DEVICE")};
+	ScopedSettings.Settings->DebugGeography = EOpenMobileAdsDebugGeography::Eea;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	auto CompleteRefresh = [&Provider]()
+	{
+		Provider.CompleteConsentRefresh(
+			FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+				EOpenMobileAdsConsentStatus::NotRequired,
+				EOpenMobileAdsGdprApplicability::NotApplicable,
+				EOpenMobileAdsConsentRequirement::NotRequired,
+				EOpenMobileAdsConsentRequestState::Allowed,
+				TEXT("MockConsent")
+			)
+		);
+		DrainGameThreadTasks();
+	};
+
+	TestTrue(
+		TEXT("EEA geography refresh is accepted"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	TestEqual(
+		TEXT("EEA geography reaches the consent provider"),
+		Provider.LastConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Eea
+	);
+	CompleteRefresh();
+
+	ScopedSettings.Settings->DebugGeography =
+		EOpenMobileAdsDebugGeography::RegulatedUsState;
+	ScopedSettings.Settings->TestDeviceIdentifiers.Reset();
+	TestTrue(
+		TEXT("A geography refresh without test devices is accepted"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	TestEqual(
+		TEXT("Missing test devices disable regulated-US geography"),
+		Provider.LastConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
+	CompleteRefresh();
+
+	ScopedSettings.Settings->bDevelopmentTestMode = false;
+	ScopedSettings.Settings->TestDeviceIdentifiers = {TEXT("UMP-TEST-DEVICE")};
+	ScopedSettings.Settings->DebugGeography = EOpenMobileAdsDebugGeography::Other;
+	TestTrue(
+		TEXT("A production-mode consent refresh is accepted"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	TestEqual(
+		TEXT("Production mode disables other-region geography"),
+		Provider.LastConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
+	CompleteRefresh();
+
+	ScopedSettings.Settings->bDevelopmentTestMode = true;
+	ScopedSettings.Settings->DebugGeography = EOpenMobileAdsDebugGeography::Eea;
+	FOpenMobileAdsPrivacySnapshot UnderAgePrivacy =
+		Subsystem->GetPrivacySnapshot();
+	UnderAgePrivacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::Yes;
+	TestTrue(
+		TEXT("Under-age treatment updates before consent refresh"),
+		Subsystem->UpdatePrivacySnapshot(MoveTemp(UnderAgePrivacy)).bAccepted
+	);
+	TestTrue(
+		TEXT("An under-age consent refresh is accepted"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	TestEqual(
+		TEXT("Under-age treatment disables debug geography"),
+		Provider.LastConsentRequest.Development.GetEffectiveDebugGeography(),
+		EOpenMobileAdsDebugGeography::Disabled
+	);
+	CompleteRefresh();
 
 	Subsystem->Deinitialize();
 	return true;

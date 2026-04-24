@@ -38,6 +38,21 @@ namespace OpenMobileAdsAdMobAndroidBackendPrivate
 			return FString();
 		}
 	}
+
+	int32 ToBridgeDebugGeography(EOpenMobileAdsDebugGeography Geography)
+	{
+		switch (Geography)
+		{
+		case EOpenMobileAdsDebugGeography::Eea:
+			return 1;
+		case EOpenMobileAdsDebugGeography::RegulatedUsState:
+			return 2;
+		case EOpenMobileAdsDebugGeography::Other:
+			return 3;
+		default:
+			return 0;
+		}
+	}
 }
 
 bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
@@ -137,7 +152,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::RequestConsentInfo(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_RequestOpenMobileUMPConsent",
-		"(JZ[Ljava/lang/String;)Z",
+		"(JZ[Ljava/lang/String;I)Z",
 		false
 	);
 	if (!RequestMethod)
@@ -172,7 +187,12 @@ bool FOpenMobileAdsAdMobAndroidBackend::RequestConsentInfo(
 			Request.Privacy.UnderAgeOfConsent
 				== EOpenMobileAdsAgeTreatment::Yes
 		),
-		*JavaTestDeviceIdentifiers
+		*JavaTestDeviceIdentifiers,
+		static_cast<jint>(
+			OpenMobileAdsAdMobAndroidBackendPrivate::ToBridgeDebugGeography(
+				Request.Development.GetEffectiveDebugGeography()
+			)
+		)
 	);
 	if (!bScheduled)
 	{
