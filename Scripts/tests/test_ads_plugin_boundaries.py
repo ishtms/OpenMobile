@@ -66,6 +66,31 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertTrue((module_root / "OpenMobileAdsEditor.Build.cs").is_file())
 		self.assertTrue((module_root / "Private" / "OpenMobileAdsEditorModule.cpp").is_file())
 
+	def test_service_ios_att_status_backend_is_platform_isolated(self) -> None:
+		descriptor = load_descriptor(ADS_PLUGIN)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual("Runtime", modules["OpenMobileAdsIOS"]["Type"])
+		self.assertEqual(["IOS"], modules["OpenMobileAdsIOS"]["PlatformAllowList"])
+
+		module_root = ADS_PLUGIN / "Source" / "OpenMobileAdsIOS"
+		build_rules = (module_root / "OpenMobileAdsIOS.Build.cs").read_text(
+			encoding="utf-8"
+		)
+		module = (module_root / "Private" / "OpenMobileAdsIOSModule.cpp").read_text(
+			encoding="utf-8"
+		)
+		backend = (
+			module_root
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsIOSTrackingAuthorizationBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn('"AppTrackingTransparency"', build_rules)
+		self.assertIn("IOpenMobileAdsTrackingAuthorizationBackend", module)
+		self.assertIn("RegisterModularFeature", module)
+		self.assertIn("ATTrackingManager trackingAuthorizationStatus", backend)
+		self.assertIn("OpenMobileAdsMapAppleTrackingAuthorizationStatus", backend)
+
 	def test_admob_declares_service_dependency_without_reverse_dependency(self) -> None:
 		service_dependencies = {
 			plugin["Name"] for plugin in load_descriptor(ADS_PLUGIN).get("Plugins", [])

@@ -5,6 +5,27 @@
 #include "OpenMobileAdsPrivacy.generated.h"
 
 UENUM(BlueprintType)
+enum class EOpenMobileAdsTrackingAuthorizationStatus : uint8
+{
+	NotDetermined,
+	Restricted,
+	Denied,
+	Authorized,
+	Unsupported
+};
+
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsTrackingAuthorizationStatusNativeEvent,
+	EOpenMobileAdsTrackingAuthorizationStatus
+);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAdsTrackingAuthorizationStatusDynamicEvent,
+	EOpenMobileAdsTrackingAuthorizationStatus,
+	Status
+);
+
+UENUM(BlueprintType)
 enum class EOpenMobileAdsConsentStatus : uint8
 {
 	Unknown,

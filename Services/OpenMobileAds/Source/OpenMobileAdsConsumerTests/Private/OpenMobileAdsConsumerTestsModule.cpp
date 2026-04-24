@@ -76,6 +76,8 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Privacy-options requirement is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormRequired")));
 	TestNotNull(TEXT("Privacy-options availability is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("IsPrivacyOptionsFormAvailable")));
 	TestNotNull(TEXT("Privacy options are callable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("PresentPrivacyOptionsForm")));
+	TestNotNull(TEXT("ATT status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetTrackingAuthorizationStatus")));
+	TestNotNull(TEXT("ATT status changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnTrackingAuthorizationStatusChanged")));
 	TestNotNull(TEXT("Consent-signal delivery is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetConsentSignalDeliveryStatus")));
 	TestNotNull(TEXT("Consent-signal changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnConsentSignalDeliveryChanged")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));

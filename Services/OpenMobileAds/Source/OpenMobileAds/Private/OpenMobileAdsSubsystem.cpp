@@ -12,6 +12,7 @@
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
+#include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
 class FOpenMobileAdsEventDispatcher final
 	: public TSharedFromThis<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>
@@ -2161,6 +2162,33 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 	bApplicationActive = true;
 	bApplicationInForeground = true;
 	bRuntimeInitialized = true;
+	RefreshTrackingAuthorizationStatus();
+}
+
+void UOpenMobileAdsSubsystem::RefreshTrackingAuthorizationStatus()
+{
+	check(IsInGameThread());
+	ApplyTrackingAuthorizationStatus(
+		FOpenMobileAdsTrackingAuthorizationPlatform::GetStatus()
+	);
+}
+
+void UOpenMobileAdsSubsystem::ApplyTrackingAuthorizationStatus(
+	const EOpenMobileAdsTrackingAuthorizationStatus Status
+)
+{
+	check(IsInGameThread());
+	if (
+		bTrackingAuthorizationStatusInitialized
+		&& TrackingAuthorizationStatus == Status
+	)
+	{
+		return;
+	}
+	TrackingAuthorizationStatus = Status;
+	bTrackingAuthorizationStatusInitialized = true;
+	NativeTrackingAuthorizationStatusChanged.Broadcast(Status);
+	OnTrackingAuthorizationStatusChanged.Broadcast(Status);
 }
 
 FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
@@ -2683,6 +2711,7 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
 	{
 		FullscreenLifecycle->SetApplicationActive(true);
 	}
+	RefreshTrackingAuthorizationStatus();
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()

@@ -90,6 +90,23 @@ public:
 		return NativeConsentStatusChanged;
 	}
 
+	UFUNCTION(
+		BlueprintPure,
+		Category = "Open Mobile|Ads",
+		meta = (DisplayName = "Get Tracking Authorization Status")
+	)
+	EOpenMobileAdsTrackingAuthorizationStatus
+	GetTrackingAuthorizationStatus() const
+	{
+		return TrackingAuthorizationStatus;
+	}
+
+	FOpenMobileAdsTrackingAuthorizationStatusNativeEvent&
+	OnNativeTrackingAuthorizationStatusChanged()
+	{
+		return NativeTrackingAuthorizationStatusChanged;
+	}
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
 	FOpenMobileAdsConsentSignalDeliverySnapshot
 	GetConsentSignalDeliveryStatus() const
@@ -234,6 +251,10 @@ public:
 	FOpenMobileAdsConsentStatusDynamicEvent OnConsentStatusChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	FOpenMobileAdsTrackingAuthorizationStatusDynamicEvent
+	OnTrackingAuthorizationStatusChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
 	FOpenMobileAdsConsentSignalDeliveryDynamicEvent
 	OnConsentSignalDeliveryChanged;
 
@@ -273,6 +294,10 @@ private:
 	);
 	void BroadcastInitializationStatus();
 	void BroadcastConsentStatus();
+	void RefreshTrackingAuthorizationStatus();
+	void ApplyTrackingAuthorizationStatus(
+		EOpenMobileAdsTrackingAuthorizationStatus Status
+	);
 	void PropagateConsentSignals(
 		IOpenMobileAdsProvider& Provider,
 		bool bRuntimeUpdate
@@ -349,6 +374,8 @@ private:
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
+	FOpenMobileAdsTrackingAuthorizationStatusNativeEvent
+		NativeTrackingAuthorizationStatusChanged;
 	FOpenMobileAdsConsentSignalDeliveryNativeEvent
 		NativeConsentSignalDeliveryChanged;
 	FOpenMobileAdsCanRequestAdsNativeEvent NativeCanRequestAdsChanged;
@@ -373,6 +400,8 @@ private:
 	FOpenMobileAdsError InitializationError;
 	FOpenMobileAdsInitializationStatusSnapshot InitializationStatus;
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
+	EOpenMobileAdsTrackingAuthorizationStatus TrackingAuthorizationStatus =
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
 	FOpenMobileAdsConsentSignalDeliverySnapshot ConsentSignalDeliveryStatus;
 	FOpenMobileAdsConsentSignals LastPropagatedConsentSignals;
 	FOpenMobileAdsCanRequestAdsResult LastCanRequestAdsDecision;
@@ -383,6 +412,7 @@ private:
 	bool bUnderAgeOfConsentLocked = false;
 	bool bPrivacyOptionsPresentationActive = false;
 	bool bPrivacySnapshotInitialized = false;
+	bool bTrackingAuthorizationStatusInitialized = false;
 	bool bConsentSignalsPropagated = false;
 	bool bCanRequestAdsDecisionInitialized = false;
 	bool bRuntimeInitialized = false;

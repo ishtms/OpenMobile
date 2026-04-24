@@ -17,6 +17,12 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "OpenMobileAdsIOS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["IOS"]
+		},
+		{
 			"Name": "OpenMobileAdsEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"

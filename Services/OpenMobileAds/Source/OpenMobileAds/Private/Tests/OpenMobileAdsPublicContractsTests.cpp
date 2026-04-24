@@ -103,6 +103,21 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		).GetEffectiveDebugGeography(),
 		EOpenMobileAdsDebugGeography::Disabled
 	);
+	TestNotEqual(
+		TEXT("ATT not-determined and unsupported states stay distinct"),
+		EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined,
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported
+	);
+	TestNotEqual(
+		TEXT("ATT restricted and denied states stay distinct"),
+		EOpenMobileAdsTrackingAuthorizationStatus::Restricted,
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied
+	);
+	TestNotEqual(
+		TEXT("ATT authorized and denied states stay distinct"),
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized,
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied
+	);
 	TestEqual(
 		TEXT("Initialization keeps provider-neutral request configuration"),
 		InitializationRequest.RequestConfiguration.MaxAdContentRating,

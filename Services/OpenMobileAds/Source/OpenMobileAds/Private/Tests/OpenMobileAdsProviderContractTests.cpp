@@ -6,6 +6,7 @@
 #include "HAL/PlatformMisc.h"
 #include "IOpenMobileAdsConsentSignalConsumer.h"
 #include "IOpenMobileAdsProvider.h"
+#include "IOpenMobileAdsTrackingAuthorizationBackend.h"
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CoreDelegates.h"
@@ -14,6 +15,7 @@
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsSubsystem.h"
+#include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -552,6 +554,47 @@ namespace OpenMobileAdsProviderContractTests
 	private:
 		IOpenMobileAdsProvider& Provider;
 		bool bRegistered = true;
+	};
+
+	class FMockTrackingAuthorizationBackend final
+		: public IOpenMobileAdsTrackingAuthorizationBackend
+	{
+	public:
+		virtual FName GetBackendName() const override { return TEXT("MockATT"); }
+		virtual bool IsAvailable() const override { return true; }
+		virtual EOpenMobileAdsTrackingAuthorizationStatus GetStatus() const override
+		{
+			return Status;
+		}
+
+		EOpenMobileAdsTrackingAuthorizationStatus Status =
+			EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined;
+	};
+
+	class FScopedTrackingAuthorizationBackendRegistration
+	{
+	public:
+		explicit FScopedTrackingAuthorizationBackendRegistration(
+			IOpenMobileAdsTrackingAuthorizationBackend& InBackend
+		)
+			: Backend(InBackend)
+		{
+			IModularFeatures::Get().RegisterModularFeature(
+				IOpenMobileAdsTrackingAuthorizationBackend::GetModularFeatureName(),
+				&Backend
+			);
+		}
+
+		~FScopedTrackingAuthorizationBackendRegistration()
+		{
+			IModularFeatures::Get().UnregisterModularFeature(
+				IOpenMobileAdsTrackingAuthorizationBackend::GetModularFeatureName(),
+				&Backend
+			);
+		}
+
+	private:
+		IOpenMobileAdsTrackingAuthorizationBackend& Backend;
 	};
 
 	class FScopedSettings
@@ -4620,6 +4663,120 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsTrackingAuthorizationStatusContractTest,
+	"OpenMobile.Ads.Privacy.TrackingAuthorization.Status",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsTrackingAuthorizationStatusContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	TestEqual(
+		TEXT("Apple not-determined status is normalized"),
+		OpenMobileAdsMapAppleTrackingAuthorizationStatus(0),
+		EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined
+	);
+	TestEqual(
+		TEXT("Apple restricted status is normalized"),
+		OpenMobileAdsMapAppleTrackingAuthorizationStatus(1),
+		EOpenMobileAdsTrackingAuthorizationStatus::Restricted
+	);
+	TestEqual(
+		TEXT("Apple denied status is normalized"),
+		OpenMobileAdsMapAppleTrackingAuthorizationStatus(2),
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied
+	);
+	TestEqual(
+		TEXT("Apple authorized status is normalized"),
+		OpenMobileAdsMapAppleTrackingAuthorizationStatus(3),
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized
+	);
+	TestEqual(
+		TEXT("Unknown future Apple status is unsupported"),
+		OpenMobileAdsMapAppleTrackingAuthorizationStatus(99),
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported
+	);
+
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	FScopedProviderRegistration ProviderRegistration(Provider);
+	FMockTrackingAuthorizationBackend TrackingBackend;
+	TrackingBackend.Status =
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized;
+	FScopedTrackingAuthorizationBackendRegistration TrackingRegistration(
+		TrackingBackend
+	);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	int32 ChangeCalls = 0;
+	EOpenMobileAdsTrackingAuthorizationStatus LastStatus =
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
+	Subsystem->OnNativeTrackingAuthorizationStatusChanged().AddLambda(
+		[&ChangeCalls, &LastStatus](
+			EOpenMobileAdsTrackingAuthorizationStatus Status
+		)
+		{
+			++ChangeCalls;
+			LastStatus = Status;
+		}
+	);
+
+	TestTrue(
+		TEXT("Consent refresh initializes platform status"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	TestEqual(
+		TEXT("Initial ATT status is published"),
+		Subsystem->GetTrackingAuthorizationStatus(),
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized
+	);
+	TestEqual(TEXT("Initial ATT status broadcasts once"), ChangeCalls, 1);
+	Provider.CompleteConsentRefresh(
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::NotRequired,
+			EOpenMobileAdsGdprApplicability::NotApplicable,
+			EOpenMobileAdsConsentRequirement::NotRequired,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockConsent")
+		)
+	);
+	DrainGameThreadTasks();
+
+	TrackingBackend.Status = EOpenMobileAdsTrackingAuthorizationStatus::Denied;
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestEqual(TEXT("Foreground ATT change broadcasts"), ChangeCalls, 2);
+	TestEqual(
+		TEXT("Foreground ATT change updates the public status"),
+		LastStatus,
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied
+	);
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestEqual(TEXT("Unchanged foreground ATT status is deduplicated"), ChangeCalls, 2);
+
+	TrackingBackend.Status =
+		static_cast<EOpenMobileAdsTrackingAuthorizationStatus>(255);
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestEqual(
+		TEXT("Invalid backend ATT status falls back safely"),
+		Subsystem->GetTrackingAuthorizationStatus(),
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported
+	);
+	TestEqual(TEXT("Safe ATT fallback broadcasts once"), ChangeCalls, 3);
+	TestEqual(
+		TEXT("Safe ATT fallback reaches native listeners"),
+		LastStatus,
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported
+	);
 	Subsystem->Deinitialize();
 	return true;
 }
