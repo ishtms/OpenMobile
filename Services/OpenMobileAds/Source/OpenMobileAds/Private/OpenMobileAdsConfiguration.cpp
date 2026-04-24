@@ -115,6 +115,26 @@ bool FOpenMobileAdsRetryPolicy::IsValid() const
 		&& MaxDelaySeconds >= InitialDelaySeconds;
 }
 
+bool UOpenMobileAdsSettings::IsValidTrackingUsageDescription(
+	const FString& Description
+)
+{
+	FString Trimmed = Description;
+	Trimmed.TrimStartAndEndInline();
+	if (Trimmed.IsEmpty() || Trimmed.Len() > 1024)
+	{
+		return false;
+	}
+	for (const TCHAR Character : Trimmed)
+	{
+		if (Character < 0x20 || Character == 0x7f)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 EOpenMobileAdsPlatform OpenMobileAdsGetCurrentPlatform()
 {
 #if PLATFORM_ANDROID
@@ -440,6 +460,20 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingDebugGeography,
 			NAME_None,
 			TEXT("Consent debug geography is not allowed in shipping builds.")
+		);
+	}
+	if (
+		Settings.bEnableTrackingAuthorization
+		&& !UOpenMobileAdsSettings::IsValidTrackingUsageDescription(
+			Settings.TrackingUsageDescription
+		)
+	)
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription,
+			NAME_None,
+			TEXT("Enabled tracking authorization requires a non-empty usage description of at most 1024 characters without control characters.")
 		);
 	}
 	return Issues;

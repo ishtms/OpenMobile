@@ -1476,6 +1476,23 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	{
 		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
 	}
+	if (
+		Settings->bEnableTrackingAuthorization
+		&& Settings->bDelayAdsInitializationUntilTrackingAuthorization
+		&& TrackingAuthorizationStatus
+			== EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::PrivacyBlocked,
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			TEXT("Ads initialization is waiting for a tracking authorization decision."),
+			NAME_None,
+			TEXT("Request tracking authorization at the appropriate user journey point, then retry ads initialization."),
+			true
+		));
+	}
 
 	FOpenMobileAdsError SelectionError;
 	IOpenMobileAdsProvider* Provider = FindProvider(&SelectionError);
@@ -2189,6 +2206,183 @@ void UOpenMobileAdsSubsystem::ApplyTrackingAuthorizationStatus(
 	bTrackingAuthorizationStatusInitialized = true;
 	NativeTrackingAuthorizationStatusChanged.Broadcast(Status);
 	OnTrackingAuthorizationStatusChanged.Broadcast(Status);
+}
+
+FOpenMobileAdsOperationResult
+UOpenMobileAdsSubsystem::RequestTrackingAuthorization()
+{
+	if (!IsInGameThread())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOperationThreadError(
+				NAME_None,
+				EOpenMobileAdsFailureStage::TrackingAuthorization
+			)
+		);
+	}
+	EnsureRuntime();
+	if (bDeinitialized)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Cancelled,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("The ads subsystem has been deinitialized.")
+		));
+	}
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	if (!Settings->bEnableTrackingAuthorization)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::NotConfigured,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("Tracking authorization is disabled in OpenMobile Ads settings."),
+			NAME_None,
+			TEXT("Enable App Tracking Transparency before requesting authorization.")
+		));
+	}
+	if (!UOpenMobileAdsSettings::IsValidTrackingUsageDescription(
+		Settings->TrackingUsageDescription
+	))
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::NotConfigured,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("Tracking authorization requires a valid usage description."),
+			NAME_None,
+			TEXT("Set a project-specific Tracking Usage Description before packaging.")
+		));
+	}
+	if (!FOpenMobileAdsTrackingAuthorizationPlatform::IsAvailable())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::UnsupportedPlatform,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("Tracking authorization is unavailable on this platform.")
+		));
+	}
+	if (ActiveTrackingAuthorizationRequestId.IsValid())
+	{
+		return FOpenMobileAdsOperationResult::Accepted(
+			ActiveTrackingAuthorizationRequestId
+		);
+	}
+	RefreshTrackingAuthorizationStatus();
+	if (
+		TrackingAuthorizationStatus
+			!= EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined
+	)
+	{
+		return FOpenMobileAdsOperationResult::Accepted(FGuid::NewGuid());
+	}
+	if (
+		!bApplicationActive
+		|| !bApplicationInForeground
+		|| ActiveConsentRequestId.IsValid()
+		|| !FullscreenLifecycle
+		|| FullscreenLifecycle->IsOccupied()
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Busy,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("Tracking authorization requires an active foreground application with no other full-screen surface."),
+			NAME_None,
+			TEXT("Retry after the application is active and the current privacy or ad surface closes."),
+			true
+		));
+	}
+	const FGuid RequestId = FGuid::NewGuid();
+	if (
+		!FullscreenLifecycle->TryReserve(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			RequestId
+		)
+		|| !FullscreenLifecycle->BeginPresentation(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			RequestId
+		)
+	)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			RequestId
+		);
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Busy,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			TEXT("Tracking authorization could not reserve the full-screen surface."),
+			NAME_None,
+			FString(),
+			true
+		));
+	}
+	ActiveTrackingAuthorizationRequestId = RequestId;
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	FString NativeError;
+	if (!FOpenMobileAdsTrackingAuthorizationPlatform::RequestAuthorization(
+		[WeakThis, RequestId](
+			EOpenMobileAdsTrackingAuthorizationStatus Status
+		)
+		{
+			if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+			{
+				Subsystem->HandleTrackingAuthorizationCompleted(
+					RequestId,
+					Status
+				);
+			}
+		},
+		NativeError
+	))
+	{
+		ActiveTrackingAuthorizationRequestId.Invalidate();
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			RequestId
+		);
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::NativeFailure,
+			EOpenMobileAdsFailureStage::TrackingAuthorization,
+			NAME_None,
+			NativeError.IsEmpty()
+				? TEXT("The platform rejected the tracking authorization request.")
+				: MoveTemp(NativeError),
+			NAME_None,
+			FString(),
+			true
+		));
+	}
+	return FOpenMobileAdsOperationResult::Accepted(RequestId);
+}
+
+void UOpenMobileAdsSubsystem::HandleTrackingAuthorizationCompleted(
+	const FGuid RequestId,
+	const EOpenMobileAdsTrackingAuthorizationStatus Status
+)
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| RequestId != ActiveTrackingAuthorizationRequestId
+	)
+	{
+		return;
+	}
+	ActiveTrackingAuthorizationRequestId.Invalidate();
+	if (FullscreenLifecycle)
+	{
+		FullscreenLifecycle->End(
+			EOpenMobileAdsFullscreenSurface::TrackingAuthorization,
+			RequestId
+		);
+	}
+	ApplyTrackingAuthorizationStatus(Status);
 }
 
 FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
@@ -4543,6 +4737,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		);
 	}
 	bDeinitialized = true;
+	ActiveTrackingAuthorizationRequestId.Invalidate();
 	if (FullscreenLifecycle)
 	{
 		FullscreenLifecycle->Shutdown();

@@ -566,9 +566,34 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return Status;
 		}
+		virtual bool RequestAuthorization(
+			TFunction<void(EOpenMobileAdsTrackingAuthorizationStatus)>&& InCompletion,
+			FString& OutError
+		) override
+		{
+			++RequestCalls;
+			if (!bAcceptRequest)
+			{
+				OutError = TEXT("Mock ATT request rejected.");
+				return false;
+			}
+			Completion = MoveTemp(InCompletion);
+			return true;
+		}
+
+		void Complete(EOpenMobileAdsTrackingAuthorizationStatus InStatus)
+		{
+			Status = InStatus;
+			TFunction<void(EOpenMobileAdsTrackingAuthorizationStatus)> Callback =
+				MoveTemp(Completion);
+			Callback(InStatus);
+		}
 
 		EOpenMobileAdsTrackingAuthorizationStatus Status =
 			EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined;
+		TFunction<void(EOpenMobileAdsTrackingAuthorizationStatus)> Completion;
+		int32 RequestCalls = 0;
+		bool bAcceptRequest = true;
 	};
 
 	class FScopedTrackingAuthorizationBackendRegistration
@@ -607,6 +632,11 @@ namespace OpenMobileAdsProviderContractTests
 			bSavedDevelopmentTestMode = Settings->bDevelopmentTestMode;
 			SavedTestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
 			SavedDebugGeography = Settings->DebugGeography;
+			bSavedEnableTrackingAuthorization =
+				Settings->bEnableTrackingAuthorization;
+			SavedTrackingUsageDescription = Settings->TrackingUsageDescription;
+			bSavedDelayAdsInitializationUntilTrackingAuthorization =
+				Settings->bDelayAdsInitializationUntilTrackingAuthorization;
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
@@ -620,6 +650,12 @@ namespace OpenMobileAdsProviderContractTests
 			Settings->bDevelopmentTestMode = bSavedDevelopmentTestMode;
 			Settings->TestDeviceIdentifiers = MoveTemp(SavedTestDeviceIdentifiers);
 			Settings->DebugGeography = SavedDebugGeography;
+			Settings->bEnableTrackingAuthorization =
+				bSavedEnableTrackingAuthorization;
+			Settings->TrackingUsageDescription =
+				MoveTemp(SavedTrackingUsageDescription);
+			Settings->bDelayAdsInitializationUntilTrackingAuthorization =
+				bSavedDelayAdsInitializationUntilTrackingAuthorization;
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -635,6 +671,9 @@ namespace OpenMobileAdsProviderContractTests
 		TArray<FString> SavedTestDeviceIdentifiers;
 		EOpenMobileAdsDebugGeography SavedDebugGeography =
 			EOpenMobileAdsDebugGeography::Disabled;
+		bool bSavedEnableTrackingAuthorization = false;
+		FString SavedTrackingUsageDescription;
+		bool bSavedDelayAdsInitializationUntilTrackingAuthorization = true;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -4664,6 +4703,191 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 	);
 
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsTrackingAuthorizationRequestContractTest,
+	"OpenMobile.Ads.Privacy.TrackingAuthorization.Request",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsTrackingAuthorizationRequestContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	ScopedSettings.Settings->bEnableTrackingAuthorization = false;
+	ScopedSettings.Settings->bDelayAdsInitializationUntilTrackingAuthorization = true;
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.ConsentProviderName = TEXT("MockConsent");
+	FScopedProviderRegistration ProviderRegistration(Provider);
+	FMockTrackingAuthorizationBackend TrackingBackend;
+	FScopedTrackingAuthorizationBackendRegistration TrackingRegistration(
+		TrackingBackend
+	);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	int32 StatusChangeCalls = 0;
+	Subsystem->OnNativeTrackingAuthorizationStatusChanged().AddLambda(
+		[&StatusChangeCalls](EOpenMobileAdsTrackingAuthorizationStatus Status)
+		{
+			++StatusChangeCalls;
+		}
+	);
+
+	const FOpenMobileAdsOperationResult Disabled =
+		Subsystem->RequestTrackingAuthorization();
+	TestFalse(TEXT("Disabled ATT rejects the request"), Disabled.bAccepted);
+	TestEqual(
+		TEXT("Disabled ATT reports missing configuration"),
+		Disabled.Error.Code,
+		EOpenMobileAdsErrorCode::NotConfigured
+	);
+	TestEqual(TEXT("Disabled ATT does not reach iOS"), TrackingBackend.RequestCalls, 0);
+
+	ScopedSettings.Settings->bEnableTrackingAuthorization = true;
+	ScopedSettings.Settings->TrackingUsageDescription.Reset();
+	const FOpenMobileAdsOperationResult MissingDescription =
+		Subsystem->RequestTrackingAuthorization();
+	TestFalse(
+		TEXT("ATT without a usage description rejects the request"),
+		MissingDescription.bAccepted
+	);
+	TestEqual(
+		TEXT("Missing ATT text reports missing configuration"),
+		MissingDescription.Error.Code,
+		EOpenMobileAdsErrorCode::NotConfigured
+	);
+
+	ScopedSettings.Settings->TrackingUsageDescription =
+		TEXT("We use this permission to measure advertising performance.");
+	TestTrue(
+		TEXT("Consent refresh starts before the ATT conflict check"),
+		Subsystem->RefreshConsent().bAccepted
+	);
+	const FOpenMobileAdsOperationResult ConsentConflict =
+		Subsystem->RequestTrackingAuthorization();
+	TestFalse(TEXT("Active consent work blocks ATT"), ConsentConflict.bAccepted);
+	TestEqual(
+		TEXT("Active consent work reports a busy ATT request"),
+		ConsentConflict.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+	Provider.CompleteConsentRefresh(
+		FOpenMobileAdsConsentStatusUpdate::CompleteProviderState(
+			EOpenMobileAdsConsentStatus::NotRequired,
+			EOpenMobileAdsGdprApplicability::NotApplicable,
+			EOpenMobileAdsConsentRequirement::NotRequired,
+			EOpenMobileAdsConsentRequestState::Allowed,
+			TEXT("MockConsent")
+		)
+	);
+	DrainGameThreadTasks();
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	const FOpenMobileAdsOperationResult Background =
+		Subsystem->RequestTrackingAuthorization();
+	TestFalse(TEXT("Background applications cannot request ATT"), Background.bAccepted);
+	TestEqual(
+		TEXT("Background ATT requests report busy"),
+		Background.Error.Code,
+		EOpenMobileAdsErrorCode::Busy
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+
+	TrackingBackend.bAcceptRequest = false;
+	const FOpenMobileAdsOperationResult NativeRejection =
+		Subsystem->RequestTrackingAuthorization();
+	TestFalse(TEXT("A native ATT rejection is returned immediately"), NativeRejection.bAccepted);
+	TestEqual(
+		TEXT("A native ATT rejection uses the normalized native failure"),
+		NativeRejection.Error.Code,
+		EOpenMobileAdsErrorCode::NativeFailure
+	);
+	TrackingBackend.bAcceptRequest = true;
+	const FOpenMobileAdsOperationResult First =
+		Subsystem->RequestTrackingAuthorization();
+	TestTrue(TEXT("The first ATT prompt is accepted"), First.bAccepted);
+	TestTrue(TEXT("The first ATT request has an operation ID"), First.RequestId.IsValid());
+	const FOpenMobileAdsOperationResult Repeated =
+		Subsystem->RequestTrackingAuthorization();
+	TestTrue(TEXT("A repeated active ATT request is accepted"), Repeated.bAccepted);
+	TestEqual(
+		TEXT("A repeated active ATT request reuses the operation ID"),
+		Repeated.RequestId,
+		First.RequestId
+	);
+	TestEqual(TEXT("Repeated ATT requests show one accepted native prompt"), TrackingBackend.RequestCalls, 2);
+
+	const FOpenMobileAdsOperationResult PendingInitialization =
+		Subsystem->InitializeAds();
+	TestFalse(
+		TEXT("Pending ATT blocks configured ads initialization"),
+		PendingInitialization.bAccepted
+	);
+	TestEqual(
+		TEXT("Pending ATT uses a privacy initialization block"),
+		PendingInitialization.Error.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+	TestEqual(TEXT("Pending ATT does not reach the provider"), Provider.InitializationCalls, 0);
+
+	TrackingBackend.Complete(EOpenMobileAdsTrackingAuthorizationStatus::Denied);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A denied ATT result updates public status"),
+		Subsystem->GetTrackingAuthorizationStatus(),
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied
+	);
+	TestEqual(TEXT("Initial and denied ATT states broadcast"), StatusChangeCalls, 2);
+	const FOpenMobileAdsOperationResult AfterDecision =
+		Subsystem->RequestTrackingAuthorization();
+	TestTrue(TEXT("A resolved ATT request completes without another prompt"), AfterDecision.bAccepted);
+	TestTrue(
+		TEXT("A resolved ATT request receives a fresh operation ID"),
+		AfterDecision.RequestId.IsValid()
+			&& AfterDecision.RequestId != First.RequestId
+	);
+	TestEqual(TEXT("A resolved ATT status is not prompted again"), TrackingBackend.RequestCalls, 2);
+
+	TestTrue(
+		TEXT("Denied ATT permits ads initialization after the decision"),
+		Subsystem->InitializeAds().bAccepted
+	);
+	TestEqual(TEXT("Resolved ATT reaches the ads provider"), Provider.InitializationCalls, 1);
+	Subsystem->Deinitialize();
+
+	TrackingBackend.Status =
+		EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined;
+	UOpenMobileAdsSubsystem* ShutdownSubsystem =
+		NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	int32 ShutdownStatusChangeCalls = 0;
+	ShutdownSubsystem->OnNativeTrackingAuthorizationStatusChanged().AddLambda(
+		[&ShutdownStatusChangeCalls](
+			EOpenMobileAdsTrackingAuthorizationStatus Status
+		)
+		{
+			++ShutdownStatusChangeCalls;
+		}
+	);
+	TestTrue(
+		TEXT("An ATT request can start before subsystem shutdown"),
+		ShutdownSubsystem->RequestTrackingAuthorization().bAccepted
+	);
+	ShutdownSubsystem->Deinitialize();
+	TrackingBackend.Complete(EOpenMobileAdsTrackingAuthorizationStatus::Denied);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A late ATT completion is ignored after subsystem shutdown"),
+		ShutdownStatusChangeCalls,
+		1
+	);
 	return true;
 }
 

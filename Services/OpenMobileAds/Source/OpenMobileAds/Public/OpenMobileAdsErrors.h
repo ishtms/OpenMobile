@@ -37,6 +37,7 @@ enum class EOpenMobileAdsFailureStage : uint8
 	Show,
 	Refresh,
 	Consent,
+	TrackingAuthorization,
 	Teardown,
 	Internal
 };

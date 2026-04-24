@@ -14,6 +14,12 @@ public class OpenMobileAds : ModuleRules
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
 	List<string> TestDeviceIdentifiers = new List<string>();
 
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
+	bool bEnableTrackingAuthorization = false;
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
+	string TrackingUsageDescription = "";
+
 	public OpenMobileAds(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
@@ -33,13 +39,18 @@ public class OpenMobileAds : ModuleRules
 			"SlateCore"
 		});
 
-		if (Target.Configuration == UnrealTargetConfiguration.Shipping && Target.ProjectFile != null)
+		bool bShipping = Target.Configuration == UnrealTargetConfiguration.Shipping;
+		bool bIOS = Target.Platform == UnrealTargetPlatform.IOS;
+		if (Target.ProjectFile != null && (bShipping || bIOS))
 		{
 			ConfigCache.ReadSettings(
 				DirectoryReference.FromFile(Target.ProjectFile),
 				Target.Platform,
 				this
 			);
+		}
+		if (bShipping)
+		{
 			if (bDevelopmentTestMode)
 			{
 				throw new BuildException(
@@ -59,5 +70,36 @@ public class OpenMobileAds : ModuleRules
 				);
 			}
 		}
+		if (
+			bIOS
+			&& bEnableTrackingAuthorization
+			&& !ValidateTrackingUsageDescription(TrackingUsageDescription)
+		)
+		{
+			throw new BuildException(
+				"OpenMobile Ads App Tracking Transparency requires a non-empty Tracking Usage Description of at most 1024 characters without control characters."
+			);
+		}
+	}
+
+	static bool ValidateTrackingUsageDescription(string Description)
+	{
+		if (string.IsNullOrWhiteSpace(Description))
+		{
+			return false;
+		}
+		string Trimmed = Description.Trim();
+		if (Trimmed.Length > 1024)
+		{
+			return false;
+		}
+		foreach (char Character in Trimmed)
+		{
+			if (Character < 0x20 || Character == 0x7f)
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 }

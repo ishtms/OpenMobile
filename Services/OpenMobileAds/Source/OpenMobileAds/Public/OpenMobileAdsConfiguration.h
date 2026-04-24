@@ -266,6 +266,7 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidTestDeviceIdentifier,
 	UnsafeShippingTestDeviceIdentifier,
 	UnsafeShippingDebugGeography,
+	InvalidTrackingUsageDescription,
 	InvalidConvenienceRewardedPlacement
 };
 
@@ -356,6 +357,46 @@ public:
 	)
 	EOpenMobileAdsDebugGeography DebugGeography =
 		EOpenMobileAdsDebugGeography::Disabled;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Privacy|Tracking Authorization",
+		meta = (
+			DisplayName = "Enable App Tracking Transparency",
+			ToolTip = "Enables the caller-controlled iOS tracking authorization request. This setting never requests permission automatically."
+		)
+	)
+	bool bEnableTrackingAuthorization = false;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Privacy|Tracking Authorization",
+		meta = (
+			EditCondition = "bEnableTrackingAuthorization",
+			DisplayName = "Tracking Usage Description",
+			ToolTip = "Project-specific text shown by the iOS tracking authorization prompt."
+		)
+	)
+	FString TrackingUsageDescription;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Privacy|Tracking Authorization",
+		meta = (
+			EditCondition = "bEnableTrackingAuthorization",
+			DisplayName = "Delay Ads Initialization Until Tracking Decision",
+			ToolTip = "Rejects ads initialization while iOS tracking authorization remains NotDetermined. The application must request authorization explicitly and retry initialization afterward."
+		)
+	)
+	bool bDelayAdsInitializationUntilTrackingAuthorization = true;
+
+	static bool IsValidTrackingUsageDescription(const FString& Description);
 
 	static bool ResolveDevelopmentTestMode(bool bConfigured, bool bForShipping)
 	{

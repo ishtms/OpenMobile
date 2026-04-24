@@ -107,6 +107,13 @@ public:
 		return NativeTrackingAuthorizationStatusChanged;
 	}
 
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "Open Mobile|Ads",
+		meta = (DisplayName = "Request Tracking Authorization")
+	)
+	FOpenMobileAdsOperationResult RequestTrackingAuthorization();
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
 	FOpenMobileAdsConsentSignalDeliverySnapshot
 	GetConsentSignalDeliveryStatus() const
@@ -298,6 +305,10 @@ private:
 	void ApplyTrackingAuthorizationStatus(
 		EOpenMobileAdsTrackingAuthorizationStatus Status
 	);
+	void HandleTrackingAuthorizationCompleted(
+		FGuid RequestId,
+		EOpenMobileAdsTrackingAuthorizationStatus Status
+	);
 	void PropagateConsentSignals(
 		IOpenMobileAdsProvider& Provider,
 		bool bRuntimeUpdate
@@ -393,6 +404,7 @@ private:
 	FName ActiveConsentProviderName;
 	FName ActiveConvenienceRewardedPlacement;
 	FGuid InitializationRequestId;
+	FGuid ActiveTrackingAuthorizationRequestId;
 	FGuid ActiveConsentRequestId;
 	FOpenMobileAdsConsentRequest ActiveConsentRequest;
 	FGuid ConvenienceRewardedLoadRequestId;

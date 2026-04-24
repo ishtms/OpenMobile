@@ -267,6 +267,10 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->TestDeviceIdentifiers.Add(TEXT("GLOBAL-TEST-DEVICE"));
 	SavedSettings->DebugGeography =
 		EOpenMobileAdsDebugGeography::RegulatedUsState;
+	SavedSettings->bEnableTrackingAuthorization = true;
+	SavedSettings->TrackingUsageDescription =
+		TEXT("We use this permission to measure advertising performance.");
+	SavedSettings->bDelayAdsInitializationUntilTrackingAuthorization = false;
 	SavedSettings->RetryPolicy.MaxRetryAttempts = 4;
 	SavedSettings->RetryPolicy.InitialDelaySeconds = 0.5;
 	SavedSettings->RetryPolicy.BackoffMultiplier = 3.0;
@@ -310,6 +314,19 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TEXT("Consent debug geography survives restart"),
 		SettingsAfterRestart->DebugGeography,
 		EOpenMobileAdsDebugGeography::RegulatedUsState
+	);
+	TestTrue(
+		TEXT("ATT opt-in survives restart"),
+		SettingsAfterRestart->bEnableTrackingAuthorization
+	);
+	TestEqual(
+		TEXT("ATT usage description survives restart"),
+		SettingsAfterRestart->TrackingUsageDescription,
+		FString(TEXT("We use this permission to measure advertising performance."))
+	);
+	TestFalse(
+		TEXT("ATT initialization policy survives restart"),
+		SettingsAfterRestart->bDelayAdsInitializationUntilTrackingAuthorization
 	);
 	TestEqual(TEXT("Retry count survives restart"), SettingsAfterRestart->RetryPolicy.MaxRetryAttempts, 4);
 	TestEqual(TEXT("Initial retry delay survives restart"), SettingsAfterRestart->RetryPolicy.InitialDelaySeconds, 0.5);
@@ -381,6 +398,14 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		TEXT("Consent debug geography is disabled by default"),
 		Settings->DebugGeography,
 		EOpenMobileAdsDebugGeography::Disabled
+	);
+	TestFalse(
+		TEXT("ATT requests are disabled by default"),
+		Settings->bEnableTrackingAuthorization
+	);
+	TestTrue(
+		TEXT("ATT defaults to delaying ads initialization when enabled"),
+		Settings->bDelayAdsInitializationUntilTrackingAuthorization
 	);
 	TestFalse(
 		TEXT("An unset development mode stays off outside Shipping"),
@@ -487,6 +512,38 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		HasIssue(
 			ShippingGeographyIssues,
 			EOpenMobileAdsConfigurationIssueCode::UnsafeShippingDebugGeography
+		)
+	);
+
+	Settings->TrackingUsageDescription.Reset();
+	const TArray<FOpenMobileAdsConfigurationIssue> DisabledTrackingTextIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestFalse(
+		TEXT("Disabled ATT does not require a usage description"),
+		HasIssue(
+			DisabledTrackingTextIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
+		)
+	);
+	Settings->bEnableTrackingAuthorization = true;
+	const TArray<FOpenMobileAdsConfigurationIssue> MissingTrackingTextIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Enabled ATT requires a usage description"),
+		HasIssue(
+			MissingTrackingTextIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
+		)
+	);
+	Settings->TrackingUsageDescription =
+		TEXT("We use this permission to measure advertising performance.");
+	const TArray<FOpenMobileAdsConfigurationIssue> ValidTrackingTextIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestFalse(
+		TEXT("A configured ATT usage description passes validation"),
+		HasIssue(
+			ValidTrackingTextIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
 		)
 	);
 	return true;

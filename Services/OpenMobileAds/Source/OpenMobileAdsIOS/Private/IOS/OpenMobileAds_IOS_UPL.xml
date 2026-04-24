@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <init>
+        <setBoolFromProperty
+            result="OpenMobileAdsTrackingAuthorizationEnabled"
+            ini="Engine"
+            section="/Script/OpenMobileAds.OpenMobileAdsSettings"
+            property="bEnableTrackingAuthorization"
+            default="false"/>
+        <setStringFromProperty
+            result="OpenMobileAdsTrackingUsageDescription"
+            ini="Engine"
+            section="/Script/OpenMobileAds.OpenMobileAdsSettings"
+            property="TrackingUsageDescription"
+            default=""/>
+    </init>
+
+    <registerBuildSettings>
+        <insertValue value="OpenMobileAdsIOSPlistContract=1"/>
+        <insertNewline/>
+    </registerBuildSettings>
+
+    <iosPListUpdates>
+        <if condition="OpenMobileAdsTrackingAuthorizationEnabled">
+            <true>
+                <setBool result="OpenMobileAdsHasTrackingUsageDescription" value="false"/>
+                <loopElements tag="$">
+                    <loopElements tag="$">
+                        <setStringFromTag result="OpenMobileAdsCurrentTag" tag="$"/>
+                        <setBoolIsEqual
+                            result="OpenMobileAdsCurrentTagIsKey"
+                            arg1="$S(OpenMobileAdsCurrentTag)"
+                            arg2="key"/>
+                        <if condition="OpenMobileAdsCurrentTagIsKey">
+                            <true>
+                                <setStringFromTagText
+                                    result="OpenMobileAdsCurrentPlistKey"
+                                    tag="$"/>
+                                <setBoolIsEqual
+                                    result="OpenMobileAdsCurrentKeyIsTrackingUsageDescription"
+                                    arg1="$S(OpenMobileAdsCurrentPlistKey)"
+                                    arg2="NSUserTrackingUsageDescription"/>
+                                <if condition="OpenMobileAdsCurrentKeyIsTrackingUsageDescription">
+                                    <true>
+                                        <setBool
+                                            result="OpenMobileAdsHasTrackingUsageDescription"
+                                            value="true"/>
+                                    </true>
+                                </if>
+                            </true>
+                        </if>
+                    </loopElements>
+                </loopElements>
+                <setBoolNot
+                    result="OpenMobileAdsNeedsTrackingUsageDescription"
+                    source="$B(OpenMobileAdsHasTrackingUsageDescription)"/>
+                <if condition="OpenMobileAdsNeedsTrackingUsageDescription">
+                    <true>
+                        <addElements tag="dict" once="true">
+                            <key>NSUserTrackingUsageDescription</key>
+                        </addElements>
+                        <setElement
+                            result="OpenMobileAdsTrackingUsageDescriptionValue"
+                            value="string"
+                            text="$S(OpenMobileAdsTrackingUsageDescription)"/>
+                        <addElement
+                            tag="dict"
+                            name="OpenMobileAdsTrackingUsageDescriptionValue"
+                            once="true"/>
+                    </true>
+                </if>
+            </true>
+        </if>
+    </iosPListUpdates>
+</root>

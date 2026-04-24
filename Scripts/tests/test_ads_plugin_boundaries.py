@@ -39,7 +39,6 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			self.assertNotIn("play-services-ads", path.read_text(encoding="utf-8"))
 
 		self.assertFalse((ADS_PLUGIN / "ThirdParty").exists())
-		self.assertEqual([], list(ADS_PLUGIN.rglob("*_UPL.xml")))
 
 	def test_admob_modules_match_their_platform_and_editor_boundaries(self) -> None:
 		descriptor = load_descriptor(ADMOB_PLUGIN)
@@ -66,13 +65,16 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertTrue((module_root / "OpenMobileAdsEditor.Build.cs").is_file())
 		self.assertTrue((module_root / "Private" / "OpenMobileAdsEditorModule.cpp").is_file())
 
-	def test_service_ios_att_status_backend_is_platform_isolated(self) -> None:
+	def test_service_ios_att_backend_and_plist_are_platform_isolated(self) -> None:
 		descriptor = load_descriptor(ADS_PLUGIN)
 		modules = {module["Name"]: module for module in descriptor["Modules"]}
 		self.assertEqual("Runtime", modules["OpenMobileAdsIOS"]["Type"])
 		self.assertEqual(["IOS"], modules["OpenMobileAdsIOS"]["PlatformAllowList"])
 
 		module_root = ADS_PLUGIN / "Source" / "OpenMobileAdsIOS"
+		common_rules = (
+			ADS_PLUGIN / "Source" / "OpenMobileAds" / "OpenMobileAds.Build.cs"
+		).read_text(encoding="utf-8")
 		build_rules = (module_root / "OpenMobileAdsIOS.Build.cs").read_text(
 			encoding="utf-8"
 		)
@@ -85,11 +87,29 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			/ "IOS"
 			/ "OpenMobileAdsIOSTrackingAuthorizationBackend.mm"
 		).read_text(encoding="utf-8")
+		upl_path = (
+			module_root
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAds_IOS_UPL.xml"
+		)
+		upl = upl_path.read_text(encoding="utf-8")
 		self.assertIn('"AppTrackingTransparency"', build_rules)
+		self.assertIn('"UIKit"', build_rules)
+		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
+		self.assertIn("OpenMobileAds_IOS_UPL.xml", build_rules)
 		self.assertIn("IOpenMobileAdsTrackingAuthorizationBackend", module)
 		self.assertIn("RegisterModularFeature", module)
 		self.assertIn("ATTrackingManager trackingAuthorizationStatus", backend)
+		self.assertIn("requestTrackingAuthorizationWithCompletionHandler", backend)
 		self.assertIn("OpenMobileAdsMapAppleTrackingAuthorizationStatus", backend)
+		self.assertIn('property="bEnableTrackingAuthorization"', upl)
+		self.assertIn('property="TrackingUsageDescription"', upl)
+		self.assertIn("NSUserTrackingUsageDescription", upl)
+		self.assertIn("bEnableTrackingAuthorization", common_rules)
+		self.assertIn("TrackingUsageDescription", common_rules)
+		self.assertIn("ValidateTrackingUsageDescription", common_rules)
+		ElementTree.parse(upl_path)
 
 	def test_admob_declares_service_dependency_without_reverse_dependency(self) -> None:
 		service_dependencies = {
