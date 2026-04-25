@@ -870,6 +870,7 @@ namespace OpenMobileAdsPrivate
 		case EOpenMobileAdsErrorCode::ProviderUnavailable:
 		case EOpenMobileAdsErrorCode::NotReady:
 		case EOpenMobileAdsErrorCode::Offline:
+		case EOpenMobileAdsErrorCode::NoFill:
 		case EOpenMobileAdsErrorCode::PrivacyBlocked:
 			return EOpenMobileErrorCode::Unavailable;
 		case EOpenMobileAdsErrorCode::UnsupportedPlatform:
@@ -924,7 +925,10 @@ namespace OpenMobileAdsPrivate
 		{
 		case EOpenMobileAdsEventType::LoadFailed:
 		case EOpenMobileAdsEventType::Failed:
-			Level = Event.Error.Code == EOpenMobileAdsErrorCode::Cancelled
+			Level = (
+				Event.Error.Code == EOpenMobileAdsErrorCode::Cancelled
+				|| Event.Error.Code == EOpenMobileAdsErrorCode::NoFill
+			)
 				? EOpenMobileAdsLogLevel::Info
 				: Event.Error.bRetryable
 				? EOpenMobileAdsLogLevel::Warning

@@ -276,6 +276,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->RetryPolicy.BackoffMultiplier = 3.0;
 	SavedSettings->RetryPolicy.MaxDelaySeconds = 12.0;
 	SavedSettings->RetryPolicy.bUseJitter = false;
+	SavedSettings->NoFillRetryPolicy.MaxRetryAttempts = 1;
+	SavedSettings->NoFillRetryPolicy.InitialDelaySeconds = 45.0;
+	SavedSettings->NoFillRetryPolicy.BackoffMultiplier = 2.0;
+	SavedSettings->NoFillRetryPolicy.MaxDelaySeconds = 180.0;
+	SavedSettings->NoFillRetryPolicy.bUseJitter = true;
 	SavedSettings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	SavedSettings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
 	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
@@ -333,6 +338,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	TestEqual(TEXT("Retry backoff survives restart"), SettingsAfterRestart->RetryPolicy.BackoffMultiplier, 3.0);
 	TestEqual(TEXT("Maximum retry delay survives restart"), SettingsAfterRestart->RetryPolicy.MaxDelaySeconds, 12.0);
 	TestFalse(TEXT("Retry jitter survives restart"), SettingsAfterRestart->RetryPolicy.bUseJitter);
+	TestEqual(TEXT("No-fill retry count survives restart"), SettingsAfterRestart->NoFillRetryPolicy.MaxRetryAttempts, 1);
+	TestEqual(TEXT("No-fill retry delay survives restart"), SettingsAfterRestart->NoFillRetryPolicy.InitialDelaySeconds, 45.0);
+	TestEqual(TEXT("No-fill retry backoff survives restart"), SettingsAfterRestart->NoFillRetryPolicy.BackoffMultiplier, 2.0);
+	TestEqual(TEXT("No-fill retry cap survives restart"), SettingsAfterRestart->NoFillRetryPolicy.MaxDelaySeconds, 180.0);
+	TestTrue(TEXT("No-fill retry jitter survives restart"), SettingsAfterRestart->NoFillRetryPolicy.bUseJitter);
 	TestEqual(
 		TEXT("Child-directed setting survives restart"),
 		SettingsAfterRestart->Privacy.ChildDirectedTreatment,
@@ -421,6 +431,24 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	);
 	TestEqual(TEXT("Default retry count is bounded"), Settings->RetryPolicy.MaxRetryAttempts, 2);
 	TestTrue(TEXT("Default retry policy is valid"), Settings->RetryPolicy.IsValid());
+	TestTrue(TEXT("Default no-fill retry policy is valid"), Settings->NoFillRetryPolicy.IsValid());
+	TestTrue(
+		TEXT("No-fill retries default to a slower initial delay"),
+		Settings->NoFillRetryPolicy.InitialDelaySeconds
+			> Settings->RetryPolicy.InitialDelaySeconds
+	);
+	TestEqual(
+		TEXT("No-fill errors select their dedicated retry policy"),
+		Settings->GetRetryPolicyForError(EOpenMobileAdsErrorCode::NoFill)
+			.InitialDelaySeconds,
+		Settings->NoFillRetryPolicy.InitialDelaySeconds
+	);
+	TestEqual(
+		TEXT("Other errors keep the general retry policy"),
+		Settings->GetRetryPolicyForError(EOpenMobileAdsErrorCode::NativeFailure)
+			.InitialDelaySeconds,
+		Settings->RetryPolicy.InitialDelaySeconds
+	);
 	TestTrue(
 		TEXT("Default project settings are valid"),
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false).IsEmpty()
@@ -473,6 +501,17 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	);
 
 	Settings->RetryPolicy = FOpenMobileAdsRetryPolicy();
+	Settings->NoFillRetryPolicy.MaxRetryAttempts = -1;
+	const TArray<FOpenMobileAdsConfigurationIssue> NoFillRetryIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Invalid no-fill retry policies are rejected"),
+		HasIssue(
+			NoFillRetryIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy
+		)
+	);
+	Settings->NoFillRetryPolicy = FOpenMobileAdsRetryPolicy();
 	Settings->bDevelopmentTestMode = true;
 	const TArray<FOpenMobileAdsConfigurationIssue> ShippingIssues =
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "OpenMobileAdsErrors.h"
 #include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsConfiguration.generated.h"
@@ -315,6 +316,8 @@ class OPENMOBILEADS_API UOpenMobileAdsSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
+	UOpenMobileAdsSettings();
+
 	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile Ads"); }
 
@@ -411,6 +414,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability")
 	FOpenMobileAdsRetryPolicy RetryPolicy;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability")
+	FOpenMobileAdsRetryPolicy NoFillRetryPolicy;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Privacy")
 	FOpenMobileAdsPrivacyConfiguration Privacy;
 
@@ -428,6 +434,10 @@ public:
 		meta = (ToolTip = "Rewarded placement used by RequestAndShowRewardedAd. Leave empty only when exactly one enabled rewarded placement exists.")
 	)
 	FName ConvenienceRewardedPlacement;
+
+	const FOpenMobileAdsRetryPolicy& GetRetryPolicyForError(
+		EOpenMobileAdsErrorCode ErrorCode
+	) const;
 
 	const FOpenMobileAdsPlacementSettings* FindPlacement(FName Placement) const;
 };

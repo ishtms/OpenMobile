@@ -645,6 +645,8 @@ namespace OpenMobileAdsProviderContractTests
 			SavedTrackingUsageDescription = Settings->TrackingUsageDescription;
 			bSavedDelayAdsInitializationUntilTrackingAuthorization =
 				Settings->bDelayAdsInitializationUntilTrackingAuthorization;
+			SavedRetryPolicy = Settings->RetryPolicy;
+			SavedNoFillRetryPolicy = Settings->NoFillRetryPolicy;
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
@@ -664,6 +666,8 @@ namespace OpenMobileAdsProviderContractTests
 				MoveTemp(SavedTrackingUsageDescription);
 			Settings->bDelayAdsInitializationUntilTrackingAuthorization =
 				bSavedDelayAdsInitializationUntilTrackingAuthorization;
+			Settings->RetryPolicy = SavedRetryPolicy;
+			Settings->NoFillRetryPolicy = SavedNoFillRetryPolicy;
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -682,6 +686,8 @@ namespace OpenMobileAdsProviderContractTests
 		bool bSavedEnableTrackingAuthorization = false;
 		FString SavedTrackingUsageDescription;
 		bool bSavedDelayAdsInitializationUntilTrackingAuthorization = true;
+		FOpenMobileAdsRetryPolicy SavedRetryPolicy;
+		FOpenMobileAdsRetryPolicy SavedNoFillRetryPolicy;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -824,6 +830,122 @@ bool FOpenMobileAdsOfflinePolicyContractTest::RunTest(const FString& Parameters)
 
 	Subsystem->Deinitialize();
 	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsNoFillRecoveryContractTest,
+	"OpenMobile.Ads.Reliability.NoFill.Recovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsNoFillRecoveryContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("NoFillReward");
+	Placement.Android.AdUnitId = TEXT("android-no-fill-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-no-fill-unit");
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TArray<FOpenMobileAdsEvent> LoadEvents;
+	Subsystem->OnNativeAdsEvent().AddLambda(
+		[&LoadEvents](const FOpenMobileAdsEvent& Event)
+		{
+			if (
+				Event.Type == EOpenMobileAdsEventType::LoadFailed
+				|| Event.Type == EOpenMobileAdsEventType::Loaded
+			)
+			{
+				LoadEvents.Add(Event);
+			}
+		}
+	);
+	TestTrue(
+		TEXT("The provider initializes before no-fill recovery"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TestTrue(
+		TEXT("The first no-fill load starts"),
+		Subsystem->LoadAd(TEXT("NoFillReward")).bAccepted
+	);
+	FOpenMobileAdsErrorMappingContext NoFillContext;
+	NoFillContext.Domain = EOpenMobileAdsErrorDomain::Mediation;
+	NoFillContext.Stage = EOpenMobileAdsFailureStage::Load;
+	NoFillContext.Placement = TEXT("NoFillReward");
+	NoFillContext.Provider = TEXT("MockAds");
+	NoFillContext.Network = TEXT("MockNetwork");
+	NoFillContext.Adapter = TEXT("MockAdapter");
+	NoFillContext.NativeCode = TEXT("no_fill");
+	FOpenMobileAdsEvent NoFill;
+	NoFill.Type = EOpenMobileAdsEventType::LoadFailed;
+	NoFill.Error = FOpenMobileAdsErrorMapper::FromNative(NoFillContext);
+	Provider.LoadSink->Submit(MoveTemp(NoFill));
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsPlacementStatus Failed =
+		Subsystem->GetPlacementStatus(TEXT("NoFillReward"));
+	TestEqual(
+		TEXT("No fill leaves the placement recoverable"),
+		Failed.State,
+		EOpenMobileAdPlacementState::Failed
+	);
+	TestEqual(
+		TEXT("No fill is retained as the last placement result"),
+		Failed.LastError.Code,
+		EOpenMobileAdsErrorCode::NoFill
+	);
+	TestEqual(TEXT("One no-fill event is broadcast"), LoadEvents.Num(), 1);
+	if (LoadEvents.Num() == 1)
+	{
+		TestEqual(
+			TEXT("No-fill events preserve the mediated network"),
+			LoadEvents[0].Network,
+			FString(TEXT("MockNetwork"))
+		);
+		TestEqual(
+			TEXT("No-fill events preserve the provider"),
+			LoadEvents[0].Error.Provider,
+			FName(TEXT("MockAds"))
+		);
+		TestEqual(
+			TEXT("No-fill events preserve the adapter"),
+			LoadEvents[0].Error.NativeDiagnostics.Adapter,
+			FString(TEXT("MockAdapter"))
+		);
+	}
+
+	TestTrue(
+		TEXT("A placement can load again after no fill"),
+		Subsystem->LoadAd(TEXT("NoFillReward")).bAccepted
+	);
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus Recovered =
+		Subsystem->GetPlacementStatus(TEXT("NoFillReward"));
+	TestEqual(
+		TEXT("A successful retry recovers readiness"),
+		Recovered.State,
+		EOpenMobileAdPlacementState::Ready
+	);
+	TestFalse(
+		TEXT("A successful retry clears the no-fill error"),
+		Recovered.LastError.IsSet()
+	);
+	TestEqual(TEXT("Recovery broadcasts the loaded event"), LoadEvents.Num(), 2);
+	Subsystem->Deinitialize();
 	return true;
 }
 
@@ -2865,7 +2987,7 @@ bool FOpenMobileAdsOperationFailureCallbackContractTest::RunTest(
 	const FOpenMobileAdsOperationResult RejectedShow =
 		Subsystem->ShowAd(TEXT("FailureCallback"));
 	TestFalse(TEXT("The provider can reject show immediately"), RejectedShow.bAccepted);
-	TestEqual(TEXT("Immediate rejection is mapped from native code"), RejectedShow.Error.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	TestEqual(TEXT("Immediate rejection is mapped from native code"), RejectedShow.Error.Code, EOpenMobileAdsErrorCode::NoFill);
 	TestEqual(TEXT("Immediate rejection receives the show stage"), RejectedShow.Error.Stage, EOpenMobileAdsFailureStage::Show);
 	TestEqual(TEXT("Immediate rejection receives the placement"), RejectedShow.Error.Placement, FName(TEXT("FailureCallback")));
 	TestEqual(TEXT("Immediate rejection receives the provider"), RejectedShow.Error.Provider, Provider.Name);

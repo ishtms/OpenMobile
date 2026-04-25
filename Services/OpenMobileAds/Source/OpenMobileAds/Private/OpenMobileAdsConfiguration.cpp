@@ -115,6 +115,24 @@ bool FOpenMobileAdsRetryPolicy::IsValid() const
 		&& MaxDelaySeconds >= InitialDelaySeconds;
 }
 
+UOpenMobileAdsSettings::UOpenMobileAdsSettings()
+{
+	NoFillRetryPolicy.MaxRetryAttempts = 1;
+	NoFillRetryPolicy.InitialDelaySeconds = 30.0;
+	NoFillRetryPolicy.BackoffMultiplier = 2.0;
+	NoFillRetryPolicy.MaxDelaySeconds = 300.0;
+	NoFillRetryPolicy.bUseJitter = true;
+}
+
+const FOpenMobileAdsRetryPolicy& UOpenMobileAdsSettings::GetRetryPolicyForError(
+	EOpenMobileAdsErrorCode ErrorCode
+) const
+{
+	return ErrorCode == EOpenMobileAdsErrorCode::NoFill
+		? NoFillRetryPolicy
+		: RetryPolicy;
+}
+
 bool UOpenMobileAdsSettings::IsValidTrackingUsageDescription(
 	const FString& Description
 )
@@ -402,6 +420,15 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy,
 			NAME_None,
 			TEXT("Retry attempts must be between 0 and 10, delays must be finite and non-negative, maximum delay must not be shorter than the initial delay, and backoff must be at least 1.")
+		);
+	}
+	if (!Settings.NoFillRetryPolicy.IsValid())
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy,
+			NAME_None,
+			TEXT("No-fill retry attempts must be between 0 and 10, delays must be finite and non-negative, maximum delay must not be shorter than the initial delay, and backoff must be at least 1.")
 		);
 	}
 	if (Settings.bDevelopmentTestMode)

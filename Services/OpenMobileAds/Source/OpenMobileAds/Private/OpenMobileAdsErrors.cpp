@@ -42,7 +42,7 @@ namespace OpenMobileAdsErrorPrivate
 	{
 		if (Code == TEXT("no_fill"))
 		{
-			Error.Code = EOpenMobileAdsErrorCode::ProviderFailure;
+			Error.Code = EOpenMobileAdsErrorCode::NoFill;
 			Error.Explanation = TEXT("No ad was available for this request.");
 			Error.LikelyCause = TEXT("The provider had no eligible inventory for the request.");
 			Error.SuggestedCorrection = TEXT("Retry later and confirm the placement, targeting, and account setup.");

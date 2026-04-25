@@ -22,7 +22,7 @@ bool FOpenMobileAdsKnownErrorMappingTest::RunTest(const FString& Parameters)
 		ProviderContext,
 		{TEXT("private-unit")}
 	);
-	TestEqual(TEXT("No fill uses a normalized provider failure"), NoFill.Code, EOpenMobileAdsErrorCode::ProviderFailure);
+	TestEqual(TEXT("No fill uses a distinct nonfatal error"), NoFill.Code, EOpenMobileAdsErrorCode::NoFill);
 	TestEqual(TEXT("The failed stage is preserved"), NoFill.Stage, EOpenMobileAdsFailureStage::Load);
 	TestEqual(TEXT("The placement is preserved"), NoFill.Placement, FName(TEXT("ContinueReward")));
 	TestEqual(TEXT("The provider is preserved"), NoFill.Provider, FName(TEXT("MockAds")));
@@ -31,6 +31,32 @@ bool FOpenMobileAdsKnownErrorMappingTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Known errors suggest a correction"), NoFill.SuggestedCorrection.IsEmpty());
 	TestEqual(TEXT("Native codes remain available"), NoFill.NativeDiagnostics.NativeCode, FString(TEXT("NO_FILL")));
 	TestFalse(TEXT("Sensitive native details are redacted"), NoFill.NativeDiagnostics.NativeMessage.Contains(TEXT("private-unit")));
+
+	FOpenMobileAdsErrorMappingContext MediatedNoFillContext;
+	MediatedNoFillContext.Domain = EOpenMobileAdsErrorDomain::Mediation;
+	MediatedNoFillContext.Stage = EOpenMobileAdsFailureStage::Load;
+	MediatedNoFillContext.Placement = TEXT("ContinueReward");
+	MediatedNoFillContext.Provider = TEXT("MockAds");
+	MediatedNoFillContext.Network = TEXT("MockNetwork");
+	MediatedNoFillContext.Adapter = TEXT("MockAdapter");
+	MediatedNoFillContext.NativeCode = TEXT("no_fill");
+	const FOpenMobileAdsError MediatedNoFill =
+		FOpenMobileAdsErrorMapper::FromNative(MediatedNoFillContext);
+	TestEqual(
+		TEXT("Mediated no fill keeps the normalized error"),
+		MediatedNoFill.Code,
+		EOpenMobileAdsErrorCode::NoFill
+	);
+	TestEqual(
+		TEXT("Mediated no fill keeps the network"),
+		MediatedNoFill.NativeDiagnostics.Network,
+		FString(TEXT("MockNetwork"))
+	);
+	TestEqual(
+		TEXT("Mediated no fill keeps the adapter"),
+		MediatedNoFill.NativeDiagnostics.Adapter,
+		FString(TEXT("MockAdapter"))
+	);
 
 	FOpenMobileAdsErrorMappingContext MediationContext;
 	MediationContext.Domain = EOpenMobileAdsErrorDomain::Mediation;
