@@ -95,6 +95,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		upl = upl_path.read_text(encoding="utf-8")
 		self.assertIn('"AppTrackingTransparency"', build_rules)
+		self.assertIn('"AdSupport"', build_rules)
 		self.assertIn('"UIKit"', build_rules)
 		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
 		self.assertIn("OpenMobileAds_IOS_UPL.xml", build_rules)
@@ -103,6 +104,9 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ATTrackingManager trackingAuthorizationStatus", backend)
 		self.assertIn("requestTrackingAuthorizationWithCompletionHandler", backend)
 		self.assertIn("OpenMobileAdsMapAppleTrackingAuthorizationStatus", backend)
+		idfa_method = backend.split("HasNonZeroAdvertisingIdentifier", maxsplit=1)[1]
+		self.assertIn("advertisingIdentifier", idfa_method)
+		self.assertLess(idfa_method.index("GetStatus()"), idfa_method.index("advertisingIdentifier"))
 		self.assertIn('property="bEnableTrackingAuthorization"', upl)
 		self.assertIn('property="TrackingUsageDescription"', upl)
 		self.assertIn("NSUserTrackingUsageDescription", upl)

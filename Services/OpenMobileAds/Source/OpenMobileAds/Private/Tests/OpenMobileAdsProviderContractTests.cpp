@@ -566,6 +566,11 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			return Status;
 		}
+		virtual bool HasNonZeroAdvertisingIdentifier() const override
+		{
+			++AdvertisingIdentifierReads;
+			return bHasNonZeroAdvertisingIdentifier;
+		}
 		virtual bool RequestAuthorization(
 			TFunction<void(EOpenMobileAdsTrackingAuthorizationStatus)>&& InCompletion,
 			FString& OutError
@@ -593,7 +598,9 @@ namespace OpenMobileAdsProviderContractTests
 			EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined;
 		TFunction<void(EOpenMobileAdsTrackingAuthorizationStatus)> Completion;
 		int32 RequestCalls = 0;
+		mutable int32 AdvertisingIdentifierReads = 0;
 		bool bAcceptRequest = true;
+		bool bHasNonZeroAdvertisingIdentifier = false;
 	};
 
 	class FScopedTrackingAuthorizationBackendRegistration
@@ -4888,6 +4895,104 @@ bool FOpenMobileAdsTrackingAuthorizationRequestContractTest::RunTest(
 		ShutdownStatusChangeCalls,
 		1
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdvertisingIdentifierAvailabilityContractTest,
+	"OpenMobile.Ads.Privacy.AdvertisingIdentifier.Availability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdvertisingIdentifierAvailabilityContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	TestFalse(
+		TEXT("A platform without an advertising identifier backend is unavailable"),
+		FOpenMobileAdsTrackingAuthorizationPlatform::
+			IsAdvertisingIdentifierAvailable()
+	);
+
+	FMockTrackingAuthorizationBackend TrackingBackend;
+	FScopedTrackingAuthorizationBackendRegistration TrackingRegistration(
+		TrackingBackend
+	);
+	const EOpenMobileAdsTrackingAuthorizationStatus BlockedStatuses[] = {
+		EOpenMobileAdsTrackingAuthorizationStatus::NotDetermined,
+		EOpenMobileAdsTrackingAuthorizationStatus::Restricted,
+		EOpenMobileAdsTrackingAuthorizationStatus::Denied,
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported,
+		static_cast<EOpenMobileAdsTrackingAuthorizationStatus>(255)
+	};
+	for (const EOpenMobileAdsTrackingAuthorizationStatus Status : BlockedStatuses)
+	{
+		TrackingBackend.Status = Status;
+		TestFalse(
+			TEXT("A non-authorized ATT state has no advertising identifier"),
+			FOpenMobileAdsTrackingAuthorizationPlatform::
+				IsAdvertisingIdentifierAvailable()
+		);
+	}
+	TestEqual(
+		TEXT("Blocked ATT states never read the advertising identifier"),
+		TrackingBackend.AdvertisingIdentifierReads,
+		0
+	);
+
+	TrackingBackend.Status =
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized;
+	TestFalse(
+		TEXT("An authorized zero advertising identifier is unavailable"),
+		FOpenMobileAdsTrackingAuthorizationPlatform::
+			IsAdvertisingIdentifierAvailable()
+	);
+	TrackingBackend.bHasNonZeroAdvertisingIdentifier = true;
+	TestTrue(
+		TEXT("An authorized nonzero advertising identifier is available"),
+		FOpenMobileAdsTrackingAuthorizationPlatform::
+			IsAdvertisingIdentifierAvailable()
+	);
+	TestEqual(
+		TEXT("Authorized checks read the advertising identifier on demand"),
+		TrackingBackend.AdvertisingIdentifierReads,
+		2
+	);
+
+	const uint8 ZeroIdentifier[16] = {};
+	uint8 NonZeroIdentifier[16] = {};
+	NonZeroIdentifier[15] = 1;
+	TestFalse(
+		TEXT("An all-zero Apple advertising identifier is rejected"),
+		OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+			ZeroIdentifier,
+			UE_ARRAY_COUNT(ZeroIdentifier)
+		)
+	);
+	TestTrue(
+		TEXT("A nonzero Apple advertising identifier is accepted"),
+		OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+			NonZeroIdentifier,
+			UE_ARRAY_COUNT(NonZeroIdentifier)
+		)
+	);
+	TestFalse(
+		TEXT("A malformed Apple advertising identifier is rejected"),
+		OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+			NonZeroIdentifier,
+			UE_ARRAY_COUNT(NonZeroIdentifier) - 1
+		)
+	);
+
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The subsystem exposes only advertising identifier availability"),
+		Subsystem->IsAdvertisingIdentifierAvailable()
+	);
+	Subsystem->Deinitialize();
 	return true;
 }
 

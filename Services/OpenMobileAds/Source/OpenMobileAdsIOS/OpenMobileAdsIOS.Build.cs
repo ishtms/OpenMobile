@@ -16,6 +16,7 @@ public class OpenMobileAdsIOS : ModuleRules
 
 		PublicFrameworks.AddRange(new[]
 		{
+			"AdSupport",
 			"AppTrackingTransparency",
 			"UIKit"
 		});

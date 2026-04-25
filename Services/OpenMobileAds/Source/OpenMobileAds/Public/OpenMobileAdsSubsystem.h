@@ -108,6 +108,13 @@ public:
 	}
 
 	UFUNCTION(
+		BlueprintPure,
+		Category = "Open Mobile|Ads",
+		meta = (DisplayName = "Is Advertising Identifier Available")
+	)
+	bool IsAdvertisingIdentifierAvailable() const;
+
+	UFUNCTION(
 		BlueprintCallable,
 		Category = "Open Mobile|Ads",
 		meta = (DisplayName = "Request Tracking Authorization")

@@ -11,6 +11,7 @@ public:
 
 	static bool IsAvailable();
 	static EOpenMobileAdsTrackingAuthorizationStatus GetStatus();
+	static bool IsAdvertisingIdentifierAvailable();
 	static bool RequestAuthorization(
 		FCompletion&& Completion,
 		FString& OutError
@@ -19,3 +20,8 @@ public:
 
 OPENMOBILEADS_API EOpenMobileAdsTrackingAuthorizationStatus
 OpenMobileAdsMapAppleTrackingAuthorizationStatus(int64 RawStatus);
+
+OPENMOBILEADS_API bool OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+	const uint8* IdentifierBytes,
+	int32 ByteCount
+);

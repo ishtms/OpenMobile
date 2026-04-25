@@ -2190,6 +2190,13 @@ void UOpenMobileAdsSubsystem::RefreshTrackingAuthorizationStatus()
 	);
 }
 
+bool UOpenMobileAdsSubsystem::IsAdvertisingIdentifierAvailable() const
+{
+	return IsInGameThread()
+		&& FOpenMobileAdsTrackingAuthorizationPlatform::
+			IsAdvertisingIdentifierAvailable();
+}
+
 void UOpenMobileAdsSubsystem::ApplyTrackingAuthorizationStatus(
 	const EOpenMobileAdsTrackingAuthorizationStatus Status
 )

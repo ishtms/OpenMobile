@@ -79,6 +79,7 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("ATT status is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetTrackingAuthorizationStatus")));
 	TestNotNull(TEXT("ATT authorization is caller controlled in Blueprint"), SubsystemClass->FindFunctionByName(TEXT("RequestTrackingAuthorization")));
 	TestNotNull(TEXT("ATT status changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnTrackingAuthorizationStatusChanged")));
+	TestNotNull(TEXT("IDFA availability is exposed without the identifier"), SubsystemClass->FindFunctionByName(TEXT("IsAdvertisingIdentifierAvailable")));
 	TestNotNull(TEXT("Consent-signal delivery is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetConsentSignalDeliveryStatus")));
 	TestNotNull(TEXT("Consent-signal changes are exposed to Blueprint"), SubsystemClass->FindPropertyByName(TEXT("OnConsentSignalDeliveryChanged")));
 	TestNotNull(TEXT("Service state is readable from Blueprint"), SubsystemClass->FindFunctionByName(TEXT("GetServiceState")));

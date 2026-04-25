@@ -2,6 +2,7 @@
 
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
+#import <AdSupport/ASIdentifierManager.h>
 #import <AppTrackingTransparency/AppTrackingTransparency.h>
 #import <UIKit/UIKit.h>
 
@@ -24,6 +25,30 @@ FOpenMobileAdsIOSTrackingAuthorizationBackend::GetStatus() const
 		);
 	}
 	return EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
+}
+
+bool FOpenMobileAdsIOSTrackingAuthorizationBackend::
+HasNonZeroAdvertisingIdentifier() const
+{
+	if (
+		GetStatus()
+			!= EOpenMobileAdsTrackingAuthorizationStatus::Authorized
+	)
+	{
+		return false;
+	}
+	NSUUID* Identifier =
+		[[ASIdentifierManager sharedManager] advertisingIdentifier];
+	if (!Identifier)
+	{
+		return false;
+	}
+	uuid_t IdentifierBytes = {};
+	[Identifier getUUIDBytes:IdentifierBytes];
+	return OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+		reinterpret_cast<const uint8*>(IdentifierBytes),
+		static_cast<int32>(sizeof(IdentifierBytes))
+	);
 }
 
 bool FOpenMobileAdsIOSTrackingAuthorizationBackend::RequestAuthorization(

@@ -87,6 +87,22 @@ FOpenMobileAdsTrackingAuthorizationPlatform::GetStatus()
 		: EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
 }
 
+bool FOpenMobileAdsTrackingAuthorizationPlatform::
+IsAdvertisingIdentifierAvailable()
+{
+	using namespace OpenMobileAdsTrackingAuthorizationPlatformPrivate;
+	const IOpenMobileAdsTrackingAuthorizationBackend* Backend = FindBackend();
+	if (
+		!Backend
+		|| NormalizeStatus(Backend->GetStatus())
+			!= EOpenMobileAdsTrackingAuthorizationStatus::Authorized
+	)
+	{
+		return false;
+	}
+	return Backend->HasNonZeroAdvertisingIdentifier();
+}
+
 bool FOpenMobileAdsTrackingAuthorizationPlatform::RequestAuthorization(
 	FCompletion&& Completion,
 	FString& OutError
@@ -152,4 +168,21 @@ OpenMobileAdsMapAppleTrackingAuthorizationStatus(const int64 RawStatus)
 	default:
 		return EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
 	}
+}
+
+bool OpenMobileAdsHasNonZeroAppleAdvertisingIdentifier(
+	const uint8* IdentifierBytes,
+	const int32 ByteCount
+)
+{
+	if (!IdentifierBytes || ByteCount != 16)
+	{
+		return false;
+	}
+	uint8 CombinedValue = 0;
+	for (int32 Index = 0; Index < ByteCount; ++Index)
+	{
+		CombinedValue |= IdentifierBytes[Index];
+	}
+	return CombinedValue != 0;
 }
