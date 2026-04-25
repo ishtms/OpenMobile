@@ -118,6 +118,11 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		EOpenMobileAdsTrackingAuthorizationStatus::Authorized,
 		EOpenMobileAdsTrackingAuthorizationStatus::Denied
 	);
+	TestNotEqual(
+		TEXT("Offline failures stay distinct from generic invalid state"),
+		EOpenMobileAdsErrorCode::Offline,
+		EOpenMobileAdsErrorCode::InvalidState
+	);
 	TestEqual(
 		TEXT("Initialization keeps provider-neutral request configuration"),
 		InitializationRequest.RequestConfiguration.MaxAdContentRating,

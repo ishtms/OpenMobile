@@ -438,5 +438,5 @@ private:
 	bool bDeinitialized = false;
 	bool bApplicationActive = true;
 	bool bApplicationInForeground = true;
-	TAtomic<bool> bPlatformOffline {false};
+	TAtomic<bool> bPlatformDefinitelyOffline {false};
 };

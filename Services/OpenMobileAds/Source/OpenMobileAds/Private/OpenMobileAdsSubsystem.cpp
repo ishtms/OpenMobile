@@ -10,6 +10,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAdsCanRequestPolicy.h"
 #include "OpenMobileAdsCanShowPolicy.h"
+#include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
@@ -742,6 +743,24 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	FOpenMobileAdsError MakeOfflineError(
+		FName Placement,
+		FName Provider,
+		EOpenMobileAdsFailureStage Stage
+	)
+	{
+		return FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::Offline,
+			Stage,
+			Placement,
+			TEXT("The platform reports no active network connection."),
+			Provider,
+			TEXT("Retry after the platform reports a possible network connection."),
+			true,
+			TEXT("The device is offline or airplane mode is enabled.")
+		);
+	}
+
 	FOpenMobileAdsError MakeShowPolicyError(
 		FName Placement,
 		FName Provider,
@@ -773,10 +792,12 @@ namespace OpenMobileAdsPrivate
 		case EOpenMobileAdsCanShowBlockReason::Expired:
 			Code = EOpenMobileAdsErrorCode::NotReady;
 			break;
+		case EOpenMobileAdsCanShowBlockReason::Offline:
+			Code = EOpenMobileAdsErrorCode::Offline;
+			break;
 		case EOpenMobileAdsCanShowBlockReason::NotInitialized:
 		case EOpenMobileAdsCanShowBlockReason::FrequencyCap:
 		case EOpenMobileAdsCanShowBlockReason::Cooldown:
-		case EOpenMobileAdsCanShowBlockReason::Offline:
 		case EOpenMobileAdsCanShowBlockReason::LifecycleConflict:
 		case EOpenMobileAdsCanShowBlockReason::None:
 		default:
@@ -792,6 +813,7 @@ namespace OpenMobileAdsPrivate
 			TEXT("Resolve the reported blocker before showing the placement."),
 			Code == EOpenMobileAdsErrorCode::Busy
 				|| Code == EOpenMobileAdsErrorCode::NotReady
+				|| Code == EOpenMobileAdsErrorCode::Offline
 				|| Code == EOpenMobileAdsErrorCode::InvalidState
 		);
 	}
@@ -847,6 +869,7 @@ namespace OpenMobileAdsPrivate
 			return EOpenMobileErrorCode::NotConfigured;
 		case EOpenMobileAdsErrorCode::ProviderUnavailable:
 		case EOpenMobileAdsErrorCode::NotReady:
+		case EOpenMobileAdsErrorCode::Offline:
 		case EOpenMobileAdsErrorCode::PrivacyBlocked:
 			return EOpenMobileErrorCode::Unavailable;
 		case EOpenMobileAdsErrorCode::UnsupportedPlatform:
@@ -2890,9 +2913,8 @@ void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
 	ENetworkConnectionType ConnectionType
 )
 {
-	bPlatformOffline.Store(
-		ConnectionType == ENetworkConnectionType::None
-		|| ConnectionType == ENetworkConnectionType::AirplaneMode
+	bPlatformDefinitelyOffline.Store(
+		FOpenMobileAdsConnectivityPolicy::IsDefinitelyOffline(ConnectionType)
 	);
 }
 
@@ -3154,6 +3176,16 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 				Provider->GetProviderName()
 			));
 		}
+	}
+	if (bPlatformDefinitelyOffline.Load())
+	{
+		return FOpenMobileAdsOperationResult::Rejected(
+			OpenMobileAdsPrivate::MakeOfflineError(
+				Placement,
+				Provider->GetProviderName(),
+				EOpenMobileAdsFailureStage::Load
+			)
+		);
 	}
 
 	const bool bHadStatus = ExistingStatus != nullptr;
@@ -3858,7 +3890,7 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 			}
 		}
 	}
-	Context.bOffline = bPlatformOffline.Load();
+	Context.bOffline = bPlatformDefinitelyOffline.Load();
 	Context.bLifecycleConflict = !bApplicationActive || !bApplicationInForeground;
 	if (OpenMobileAdsPrivate::UsesFullscreenLifecycle(Resolved.Format))
 	{

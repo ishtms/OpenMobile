@@ -13,6 +13,7 @@
 #include "OpenMobileAdsAsyncAction.h"
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsConfiguration.h"
+#include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsSubsystem.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
@@ -736,6 +737,97 @@ namespace OpenMobileAdsProviderContractTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsOfflinePolicyContractTest,
+	"OpenMobile.Ads.Reliability.Offline.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsOfflinePolicyContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	TestEqual(
+		TEXT("Caller work is rejected while the platform is offline"),
+		FOpenMobileAdsConnectivityPolicy::Evaluate(
+			ENetworkConnectionType::None,
+			EOpenMobileAdsNetworkWorkOrigin::CallerInitiated
+		),
+		EOpenMobileAdsNetworkWorkDecision::RejectOffline
+	);
+	TestEqual(
+		TEXT("Automatic work waits for a connectivity transition"),
+		FOpenMobileAdsConnectivityPolicy::Evaluate(
+			ENetworkConnectionType::AirplaneMode,
+			EOpenMobileAdsNetworkWorkOrigin::Automatic
+		),
+		EOpenMobileAdsNetworkWorkDecision::DeferUntilConnectionChange
+	);
+	TestEqual(
+		TEXT("Unknown reachability is not treated as proven offline"),
+		FOpenMobileAdsConnectivityPolicy::Evaluate(
+			ENetworkConnectionType::Unknown,
+			EOpenMobileAdsNetworkWorkOrigin::CallerInitiated
+		),
+		EOpenMobileAdsNetworkWorkDecision::Start
+	);
+
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("OfflineReward");
+	Placement.Android.AdUnitId = TEXT("android-offline-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-offline-unit");
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before offline load checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	const ENetworkConnectionType PreviousConnectionType =
+		FPlatformMisc::GetNetworkConnectionType();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		ENetworkConnectionType::None
+	);
+	const FOpenMobileAdsOperationResult Offline =
+		Subsystem->LoadAd(TEXT("OfflineReward"));
+	TestFalse(TEXT("A definite offline state rejects a load"), Offline.bAccepted);
+	TestEqual(
+		TEXT("Offline loads have a distinct error"),
+		Offline.Error.Code,
+		EOpenMobileAdsErrorCode::Offline
+	);
+	TestTrue(TEXT("Offline loads can resume after a transition"), Offline.Error.bRetryable);
+	TestEqual(TEXT("Offline loads do not reach the provider"), Provider.LoadCalls, 0);
+
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		ENetworkConnectionType::AirplaneMode
+	);
+	const FOpenMobileAdsOperationResult AirplaneMode =
+		Subsystem->LoadAd(TEXT("OfflineReward"));
+	TestFalse(TEXT("Airplane mode rejects a load"), AirplaneMode.bAccepted);
+	TestEqual(TEXT("Airplane mode does not reach the provider"), Provider.LoadCalls, 0);
+
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		ENetworkConnectionType::Unknown
+	);
+	TestTrue(
+		TEXT("An unknown connection lets the provider determine reachability"),
+		Subsystem->LoadAd(TEXT("OfflineReward")).bAccepted
+	);
+	TestEqual(TEXT("Potential connectivity reaches the provider"), Provider.LoadCalls, 1);
+
+	Subsystem->Deinitialize();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(PreviousConnectionType);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsLoadPolicyContractTest,
 	"OpenMobile.Ads.ProviderContract.Load.Policy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -1277,7 +1369,7 @@ bool FOpenMobileAdsShowPolicyContractTest::RunTest(const FString& Parameters)
 	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::AirplaneMode);
 	const FOpenMobileAdsOperationResult Offline = Subsystem->ShowAd(TEXT("ShowReward"));
 	TestFalse(TEXT("Offline state rejects showing"), Offline.bAccepted);
-	TestEqual(TEXT("Offline rejection is typed"), Offline.Error.Code, EOpenMobileAdsErrorCode::InvalidState);
+	TestEqual(TEXT("Offline rejection is typed"), Offline.Error.Code, EOpenMobileAdsErrorCode::Offline);
 	TestEqual(TEXT("Offline rejection does not reach the provider"), Provider.ShowCalls, 0);
 	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(ENetworkConnectionType::Unknown);
 

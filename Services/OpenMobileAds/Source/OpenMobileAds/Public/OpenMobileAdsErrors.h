@@ -23,7 +23,8 @@ enum class EOpenMobileAdsErrorCode : uint8
 	InvalidState,
 	ProviderFailure,
 	NativeFailure,
-	Internal
+	Internal,
+	Offline
 };
 
 UENUM(BlueprintType)
