@@ -88,6 +88,67 @@ bool FOpenMobileAdsKnownErrorMappingTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRetryClassificationTest,
+	"OpenMobile.Ads.Reliability.Retry.Classification",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRetryClassificationTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileAdsError NoFill;
+	NoFill.Code = EOpenMobileAdsErrorCode::NoFill;
+	TestEqual(
+		TEXT("No fill is retryable"),
+		FOpenMobileAdsErrorClassifier::Classify(NoFill),
+		EOpenMobileAdsRetryClassification::Retryable
+	);
+
+	FOpenMobileAdsError NativeFailure;
+	NativeFailure.Code = EOpenMobileAdsErrorCode::NativeFailure;
+	NativeFailure.bRetryable = true;
+	TestEqual(
+		TEXT("Provider-marked transient native errors are retryable"),
+		FOpenMobileAdsErrorClassifier::Classify(NativeFailure),
+		EOpenMobileAdsRetryClassification::Retryable
+	);
+
+	FOpenMobileAdsError Offline;
+	Offline.Code = EOpenMobileAdsErrorCode::Offline;
+	Offline.bRetryable = true;
+	TestEqual(
+		TEXT("Offline errors require an external condition"),
+		FOpenMobileAdsErrorClassifier::Classify(Offline),
+		EOpenMobileAdsRetryClassification::ConditionallyRetryable
+	);
+
+	FOpenMobileAdsError PrivacyBlocked;
+	PrivacyBlocked.Code = EOpenMobileAdsErrorCode::PrivacyBlocked;
+	TestEqual(
+		TEXT("Privacy blocks require a new eligibility decision"),
+		FOpenMobileAdsErrorClassifier::Classify(PrivacyBlocked),
+		EOpenMobileAdsRetryClassification::ConditionallyRetryable
+	);
+
+	FOpenMobileAdsError NotConfigured;
+	NotConfigured.Code = EOpenMobileAdsErrorCode::NotConfigured;
+	NotConfigured.bRetryable = true;
+	TestEqual(
+		TEXT("Configuration errors remain terminal"),
+		FOpenMobileAdsErrorClassifier::Classify(NotConfigured),
+		EOpenMobileAdsRetryClassification::Terminal
+	);
+
+	FOpenMobileAdsError NonRetryableNativeFailure;
+	NonRetryableNativeFailure.Code = EOpenMobileAdsErrorCode::NativeFailure;
+	TestEqual(
+		TEXT("Native failures require an explicit retry signal"),
+		FOpenMobileAdsErrorClassifier::Classify(NonRetryableNativeFailure),
+		EOpenMobileAdsRetryClassification::Terminal
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsUnknownErrorMappingTest,
 	"OpenMobile.Ads.Errors.UnknownMappings",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

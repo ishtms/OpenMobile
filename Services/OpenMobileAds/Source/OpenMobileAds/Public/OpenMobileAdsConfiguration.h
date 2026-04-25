@@ -84,6 +84,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsRetryPolicy
 	bool bUseJitter = true;
 
 	bool IsValid() const;
+	int32 ResolveMaxRetryAttempts(int32 PlacementMaxRetryAttempts) const;
 };
 
 USTRUCT(BlueprintType)
@@ -210,6 +211,19 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	double CooldownSeconds = 0.0;
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (
+			ClampMin = "-1",
+			ClampMax = "10",
+			ToolTip = "Maximum retries after the first load attempt. Use -1 to inherit the global limit."
+		)
+	)
+	int32 MaxRetryAttempts = -1;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FString FallbackRewardType;
 
@@ -268,7 +282,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	UnsafeShippingTestDeviceIdentifier,
 	UnsafeShippingDebugGeography,
 	InvalidTrackingUsageDescription,
-	InvalidConvenienceRewardedPlacement
+	InvalidConvenienceRewardedPlacement,
+	InvalidPlacementRetryLimit
 };
 
 USTRUCT(BlueprintType)

@@ -115,6 +115,15 @@ bool FOpenMobileAdsRetryPolicy::IsValid() const
 		&& MaxDelaySeconds >= InitialDelaySeconds;
 }
 
+int32 FOpenMobileAdsRetryPolicy::ResolveMaxRetryAttempts(
+	int32 PlacementMaxRetryAttempts
+) const
+{
+	return PlacementMaxRetryAttempts < 0
+		? MaxRetryAttempts
+		: FMath::Min(MaxRetryAttempts, PlacementMaxRetryAttempts);
+}
+
 UOpenMobileAdsSettings::UOpenMobileAdsSettings()
 {
 	NoFillRetryPolicy.MaxRetryAttempts = 1;
@@ -225,6 +234,16 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 
 	for (const FOpenMobileAdsPlacementSettings& Placement : Placements)
 	{
+		if (Placement.MaxRetryAttempts < -1 || Placement.MaxRetryAttempts > 10)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidPlacementRetryLimit,
+				Placement.Placement,
+				TEXT("Placement retry limit must be -1 or between zero and ten.")
+			);
+		}
+
 		if (Placement.Placement.IsNone())
 		{
 			AddIssue(

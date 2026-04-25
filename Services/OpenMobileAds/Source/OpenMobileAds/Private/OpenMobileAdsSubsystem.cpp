@@ -836,13 +836,21 @@ namespace OpenMobileAdsPrivate
 
 struct FOpenMobileAdsActiveRequestContext
 {
+	FOpenMobileAdsLoadRequest LoadRequest;
 	FName Placement;
 	FName Provider;
 	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
 	EOpenMobileAdsFailureStage Stage = EOpenMobileAdsFailureStage::Internal;
 	TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 	TMap<FName, FOpenMobileAdsPlacementStatus> PreviousStatuses;
+	FTSTicker::FDelegateHandle RetryTickerHandle;
+	double PendingRetryDelaySeconds = 0.0;
+	int32 RetryAttempts = 0;
+	int32 PlacementMaxRetryAttempts = -1;
 	bool bRestoreStatusesOnFailure = true;
+	bool bRetryPending = false;
+	bool bWaitingForConnectivity = false;
+	bool bProviderAttemptActive = true;
 };
 
 namespace OpenMobileAdsPrivate
@@ -1859,6 +1867,7 @@ void UOpenMobileAdsSubsystem::BroadcastConsentStatus()
 {
 	check(IsInGameThread());
 	RefreshCanRequestAdsDecision();
+	StopPrivacyBlockedRetries();
 	NativeConsentStatusChanged.Broadcast(PrivacySnapshot);
 	OnConsentStatusChanged.Broadcast(PrivacySnapshot);
 }
@@ -2917,9 +2926,27 @@ void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
 	ENetworkConnectionType ConnectionType
 )
 {
-	bPlatformDefinitelyOffline.Store(
-		FOpenMobileAdsConnectivityPolicy::IsDefinitelyOffline(ConnectionType)
-	);
+	const bool bDefinitelyOffline =
+		FOpenMobileAdsConnectivityPolicy::IsDefinitelyOffline(ConnectionType);
+	bPlatformDefinitelyOffline.Store(bDefinitelyOffline);
+	if (bDefinitelyOffline)
+	{
+		return;
+	}
+	if (IsInGameThread())
+	{
+		ResumeConnectivityDeferredRetries();
+		return;
+	}
+
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	AsyncTask(ENamedThreads::GameThread, [WeakThis]()
+	{
+		if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+		{
+			Subsystem->ResumeConnectivityDeferredRetries();
+		}
+	});
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillDeactivate()
@@ -3226,6 +3253,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	Context->Format = Status.Format;
 	Context->Stage = EOpenMobileAdsFailureStage::Load;
 	Context->EventSink = Sink;
+	Context->LoadRequest = Request;
+	if (const FOpenMobileAdsPlacementSettings* Configuration =
+		FindConfiguredPlacement(Placement))
+	{
+		Context->PlacementMaxRetryAttempts =
+			Configuration->MaxRetryAttempts;
+	}
 	if (bHadStatus)
 	{
 		Context->PreviousStatuses.Add(Placement, PreviousStatus);
@@ -3673,11 +3707,15 @@ void UOpenMobileAdsSubsystem::CancelSupersededRequest(FGuid RequestId)
 			RequestId
 		);
 	}
+	CancelRetrySchedule(*Context);
 	Context->EventSink->Invalidate();
-	if (IOpenMobileAdsProvider* Provider =
-		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+	if (Context->bProviderAttemptActive)
 	{
-		Provider->Cancel(RequestId);
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+		{
+			Provider->Cancel(RequestId);
+		}
 	}
 }
 
@@ -3715,11 +3753,15 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::CancelRequest(FGuid Reque
 			RequestId
 		);
 	}
+	CancelRetrySchedule(*Context);
 	Context->EventSink->Invalidate();
-	if (IOpenMobileAdsProvider* Provider =
-		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+	if (Context->bProviderAttemptActive)
 	{
-		Provider->Cancel(RequestId);
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+		{
+			Provider->Cancel(RequestId);
+		}
 	}
 
 	TArray<FName> StatusesToRemove;
@@ -3969,6 +4011,340 @@ void UOpenMobileAdsSubsystem::SubmitServiceEvent(FOpenMobileAdsEvent Event)
 	{
 		EventDispatcher->Submit(MoveTemp(Event));
 	}
+}
+
+void UOpenMobileAdsSubsystem::CancelRetrySchedule(
+	FOpenMobileAdsActiveRequestContext& Context
+)
+{
+	if (Context.RetryTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(Context.RetryTickerHandle);
+		Context.RetryTickerHandle.Reset();
+	}
+	Context.PendingRetryDelaySeconds = 0.0;
+	Context.bRetryPending = false;
+	Context.bWaitingForConnectivity = false;
+}
+
+bool UOpenMobileAdsSubsystem::TryScheduleLoadRetry(
+	const FOpenMobileAdsEvent& Event
+)
+{
+	if (
+		Event.Type != EOpenMobileAdsEventType::LoadFailed
+		|| bDeinitialized
+		|| ServiceState != EOpenMobileAdsServiceState::Ready
+		|| FOpenMobileAdsErrorClassifier::Classify(Event.Error)
+			!= EOpenMobileAdsRetryClassification::Retryable
+	)
+	{
+		return false;
+	}
+
+	TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* FoundContext =
+		ActiveRequests.Find(Event.RequestId);
+	if (
+		!FoundContext
+		|| !FoundContext->IsValid()
+		|| (*FoundContext)->Stage != EOpenMobileAdsFailureStage::Load
+		|| (*FoundContext)->Provider != Event.Provider
+		|| (*FoundContext)->Placement != Event.Placement
+	)
+	{
+		return false;
+	}
+
+	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
+		FoundContext->ToSharedRef();
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	const FOpenMobileAdsRetryPolicy& Policy =
+		Settings->GetRetryPolicyForError(Event.Error.Code);
+	if (
+		!Policy.IsValid()
+		|| Context->RetryAttempts >= Policy.ResolveMaxRetryAttempts(
+			Context->PlacementMaxRetryAttempts
+		)
+	)
+	{
+		return false;
+	}
+
+	IOpenMobileAdsProvider* Provider =
+		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider);
+	if (
+		!Provider
+		|| Context->Provider != SelectedProviderName
+		|| !EvaluateCanRequestAds(Provider).bCanRequestAds
+	)
+	{
+		return false;
+	}
+
+	Context->EventSink->Invalidate();
+	Context->bProviderAttemptActive = false;
+	Context->bRetryPending = true;
+	Context->PendingRetryDelaySeconds = Policy.InitialDelaySeconds;
+	if (bPlatformDefinitelyOffline.Load())
+	{
+		Context->bWaitingForConnectivity = true;
+		return true;
+	}
+
+	Context->RetryTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(
+			this,
+			&UOpenMobileAdsSubsystem::HandleLoadRetryTick,
+			Event.RequestId
+		),
+		static_cast<float>(Context->PendingRetryDelaySeconds)
+	);
+	return true;
+}
+
+bool UOpenMobileAdsSubsystem::HandleLoadRetryTick(
+	float DeltaTime,
+	FGuid RequestId
+)
+{
+	static_cast<void>(DeltaTime);
+	if (TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* Context =
+		ActiveRequests.Find(RequestId))
+	{
+		if (Context->IsValid())
+		{
+			(*Context)->RetryTickerHandle.Reset();
+		}
+	}
+	StartPendingLoadRetry(RequestId);
+	return false;
+}
+
+void UOpenMobileAdsSubsystem::StartPendingLoadRetry(FGuid RequestId)
+{
+	check(IsInGameThread());
+	TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* FoundContext =
+		ActiveRequests.Find(RequestId);
+	if (
+		bDeinitialized
+		|| !FoundContext
+		|| !FoundContext->IsValid()
+		|| !(*FoundContext)->bRetryPending
+	)
+	{
+		return;
+	}
+
+	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
+		FoundContext->ToSharedRef();
+	if (bPlatformDefinitelyOffline.Load())
+	{
+		Context->PendingRetryDelaySeconds = 0.0;
+		Context->bWaitingForConnectivity = true;
+		return;
+	}
+
+	if (
+		ServiceState != EOpenMobileAdsServiceState::Ready
+		|| Context->Provider != SelectedProviderName
+	)
+	{
+		SubmitPendingLoadFailure(
+			RequestId,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Load,
+				Context->Placement,
+				TEXT("The selected ads provider changed before the retry began."),
+				Context->Provider,
+				TEXT("Start a new load after the ads service is ready.")
+			)
+		);
+		return;
+	}
+
+	IOpenMobileAdsProvider* Provider =
+		OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider);
+	if (!Provider)
+	{
+		SubmitPendingLoadFailure(
+			RequestId,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::ProviderUnavailable,
+				EOpenMobileAdsFailureStage::Load,
+				Context->Placement,
+				TEXT("The ads provider is unavailable for the scheduled retry."),
+				Context->Provider,
+				TEXT("Keep the selected provider enabled until the load finishes.")
+			)
+		);
+		return;
+	}
+
+	const FOpenMobileAdsCanRequestAdsResult RequestDecision =
+		EvaluateCanRequestAds(Provider);
+	if (!RequestDecision.bCanRequestAds)
+	{
+		SubmitPendingLoadFailure(
+			RequestId,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::PrivacyBlocked,
+				EOpenMobileAdsFailureStage::Consent,
+				Context->Placement,
+				RequestDecision.Explanation,
+				Context->Provider,
+				TEXT("Start a new load after consent allows ad requests.")
+			)
+		);
+		return;
+	}
+
+	FOpenMobileAdsLoadRequest Request = Context->LoadRequest;
+	Request.PrivacyContext =
+		OpenMobileAdsPrivate::MakeProviderPrivacyContext(PrivacySnapshot);
+	const TSharedRef<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<OpenMobileAdsPrivate::FContextualEventSink, ESPMode::ThreadSafe>(
+			EventDispatcher.ToSharedRef(),
+			Context->Provider,
+			Context->Placement,
+			Context->Format,
+			EOpenMobileAdsFailureStage::Load,
+			RequestId
+		);
+	Context->EventSink = Sink;
+	Context->PendingRetryDelaySeconds = 0.0;
+	Context->bRetryPending = false;
+	Context->bWaitingForConnectivity = false;
+	Context->bProviderAttemptActive = true;
+	++Context->RetryAttempts;
+
+	FOpenMobileAdsError Error;
+	if (!Provider->Load(Request, Sink, Error))
+	{
+		Sink->Invalidate();
+		Context->bProviderAttemptActive = false;
+		Error = OpenMobileAdsPrivate::NormalizeProviderError(
+			MoveTemp(Error),
+			EOpenMobileAdsFailureStage::Load,
+			Context->Placement,
+			Context->Provider,
+			TEXT("The ads provider rejected the retry without a typed error.")
+		);
+		SubmitPendingLoadFailure(RequestId, MoveTemp(Error));
+		return;
+	}
+	Sink->Commit();
+}
+
+void UOpenMobileAdsSubsystem::ResumeConnectivityDeferredRetries()
+{
+	check(IsInGameThread());
+	if (bDeinitialized || bPlatformDefinitelyOffline.Load())
+	{
+		return;
+	}
+
+	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
+	{
+		if (
+			!Pair.Value
+			|| !Pair.Value->bRetryPending
+			|| !Pair.Value->bWaitingForConnectivity
+		)
+		{
+			continue;
+		}
+		Pair.Value->bWaitingForConnectivity = false;
+		Pair.Value->RetryTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateUObject(
+				this,
+				&UOpenMobileAdsSubsystem::HandleLoadRetryTick,
+				Pair.Key
+			),
+			static_cast<float>(Pair.Value->PendingRetryDelaySeconds)
+		);
+	}
+}
+
+void UOpenMobileAdsSubsystem::StopPrivacyBlockedRetries()
+{
+	check(IsInGameThread());
+	if (bDeinitialized || ServiceState != EOpenMobileAdsServiceState::Ready)
+	{
+		return;
+	}
+
+	TArray<FGuid> BlockedRequests;
+	for (const TPair<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>>& Pair : ActiveRequests)
+	{
+		if (
+			!Pair.Value
+			|| Pair.Value->Stage != EOpenMobileAdsFailureStage::Load
+			|| !Pair.Value->bRetryPending
+		)
+		{
+			continue;
+		}
+		if (IOpenMobileAdsProvider* Provider =
+			OpenMobileAdsPrivate::FindRegisteredProvider(Pair.Value->Provider))
+		{
+			if (!EvaluateCanRequestAds(Provider).bCanRequestAds)
+			{
+				BlockedRequests.Add(Pair.Key);
+			}
+		}
+	}
+
+	for (FGuid RequestId : BlockedRequests)
+	{
+		const TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* Context =
+			ActiveRequests.Find(RequestId);
+		if (!Context || !Context->IsValid())
+		{
+			continue;
+		}
+		const FOpenMobileAdsCanRequestAdsResult Decision =
+			EvaluateCanRequestAds(
+				OpenMobileAdsPrivate::FindRegisteredProvider((*Context)->Provider)
+			);
+		SubmitPendingLoadFailure(
+			RequestId,
+			FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::PrivacyBlocked,
+				EOpenMobileAdsFailureStage::Consent,
+				(*Context)->Placement,
+				Decision.Explanation,
+				(*Context)->Provider,
+				TEXT("Start a new load after consent allows ad requests.")
+			)
+		);
+	}
+}
+
+void UOpenMobileAdsSubsystem::SubmitPendingLoadFailure(
+	FGuid RequestId,
+	FOpenMobileAdsError Error
+)
+{
+	TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* FoundContext =
+		ActiveRequests.Find(RequestId);
+	if (!FoundContext || !FoundContext->IsValid())
+	{
+		return;
+	}
+	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
+		FoundContext->ToSharedRef();
+	CancelRetrySchedule(*Context);
+	Context->bProviderAttemptActive = false;
+
+	FOpenMobileAdsEvent Failed;
+	Failed.Type = EOpenMobileAdsEventType::LoadFailed;
+	Failed.Placement = Context->Placement;
+	Failed.Format = Context->Format;
+	Failed.Provider = Context->Provider;
+	Failed.RequestId = RequestId;
+	Failed.Error = MoveTemp(Error);
+	SubmitServiceEvent(MoveTemp(Failed));
 }
 
 void UOpenMobileAdsSubsystem::ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Status)
@@ -4271,6 +4647,27 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 	{
 		return;
 	}
+	if (
+		Event.Type == EOpenMobileAdsEventType::Loaded
+		|| Event.Type == EOpenMobileAdsEventType::LoadFailed
+	)
+	{
+		if (TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* Context =
+			ActiveRequests.Find(Event.RequestId))
+		{
+			if (Context->IsValid())
+			{
+				(*Context)->bProviderAttemptActive = false;
+			}
+		}
+		if (
+			Event.Type == EOpenMobileAdsEventType::LoadFailed
+			&& TryScheduleLoadRetry(Event)
+		)
+		{
+			return;
+		}
+	}
 
 	bool bBroadcast = false;
 	bool bCacheScheduleChanged = false;
@@ -4515,6 +4912,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 			TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context;
 			if (ActiveRequests.RemoveAndCopyValue(Event.RequestId, Context) && Context)
 			{
+				CancelRetrySchedule(*Context);
 				if (Event.Type != EOpenMobileAdsEventType::Dismissed)
 				{
 					Context->EventSink->Invalidate();
@@ -4685,7 +5083,9 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 					Pair.Key
 				);
 			}
+			CancelRetrySchedule(*Pair.Value);
 			Pair.Value->EventSink->Invalidate();
+			Pair.Value->bProviderAttemptActive = false;
 			if (Pair.Value->Placement.IsNone())
 			{
 				Pair.Value->bRestoreStatusesOnFailure = false;
@@ -4817,11 +5217,15 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		{
 			continue;
 		}
+		CancelRetrySchedule(*Pair.Value);
 		Pair.Value->EventSink->Invalidate();
-		if (IOpenMobileAdsProvider* Provider =
-			OpenMobileAdsPrivate::FindRegisteredProvider(Pair.Value->Provider))
+		if (Pair.Value->bProviderAttemptActive)
 		{
-			Provider->Cancel(Pair.Key);
+			if (IOpenMobileAdsProvider* Provider =
+				OpenMobileAdsPrivate::FindRegisteredProvider(Pair.Value->Provider))
+			{
+				Provider->Cancel(Pair.Key);
+			}
 		}
 	}
 	ActiveRequests.Reset();

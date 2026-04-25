@@ -356,6 +356,16 @@ private:
 	void RecordImpression(FName Placement, FDateTime Timestamp);
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
+	bool TryScheduleLoadRetry(const FOpenMobileAdsEvent& Event);
+	bool HandleLoadRetryTick(float DeltaTime, FGuid RequestId);
+	void StartPendingLoadRetry(FGuid RequestId);
+	void CancelRetrySchedule(FOpenMobileAdsActiveRequestContext& Context);
+	void ResumeConnectivityDeferredRetries();
+	void StopPrivacyBlockedRetries();
+	void SubmitPendingLoadFailure(
+		FGuid RequestId,
+		FOpenMobileAdsError Error
+	);
 	void CancelSupersededRequest(FGuid RequestId);
 	void ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Status);
 	void RememberDismissedShow(FGuid RequestId, FGuid CachedAdId);

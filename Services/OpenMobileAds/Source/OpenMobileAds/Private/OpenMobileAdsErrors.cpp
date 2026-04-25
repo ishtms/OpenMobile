@@ -205,6 +205,31 @@ namespace OpenMobileAdsErrorPrivate
 	}
 }
 
+EOpenMobileAdsRetryClassification FOpenMobileAdsErrorClassifier::Classify(
+	const FOpenMobileAdsError& Error
+)
+{
+	switch (Error.Code)
+	{
+	case EOpenMobileAdsErrorCode::NoFill:
+		return EOpenMobileAdsRetryClassification::Retryable;
+	case EOpenMobileAdsErrorCode::NativeFailure:
+	case EOpenMobileAdsErrorCode::ProviderFailure:
+		return Error.bRetryable
+			? EOpenMobileAdsRetryClassification::Retryable
+			: EOpenMobileAdsRetryClassification::Terminal;
+	case EOpenMobileAdsErrorCode::Offline:
+	case EOpenMobileAdsErrorCode::PrivacyBlocked:
+	case EOpenMobileAdsErrorCode::Busy:
+	case EOpenMobileAdsErrorCode::NotReady:
+	case EOpenMobileAdsErrorCode::InvalidState:
+	case EOpenMobileAdsErrorCode::ProviderUnavailable:
+		return EOpenMobileAdsRetryClassification::ConditionallyRetryable;
+	default:
+		return EOpenMobileAdsRetryClassification::Terminal;
+	}
+}
+
 FOpenMobileAdsError FOpenMobileAdsErrorMapper::FromNative(
 	const FOpenMobileAdsErrorMappingContext& Context,
 	const TArray<FString>& SensitiveValues

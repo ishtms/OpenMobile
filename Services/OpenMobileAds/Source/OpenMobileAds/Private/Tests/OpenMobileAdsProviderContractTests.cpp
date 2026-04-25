@@ -647,6 +647,8 @@ namespace OpenMobileAdsProviderContractTests
 				Settings->bDelayAdsInitializationUntilTrackingAuthorization;
 			SavedRetryPolicy = Settings->RetryPolicy;
 			SavedNoFillRetryPolicy = Settings->NoFillRetryPolicy;
+			Settings->RetryPolicy.MaxRetryAttempts = 0;
+			Settings->NoFillRetryPolicy.MaxRetryAttempts = 0;
 			SavedPrivacy = Settings->Privacy;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
@@ -697,6 +699,54 @@ namespace OpenMobileAdsProviderContractTests
 	void DrainGameThreadTasks()
 	{
 		FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	}
+
+	void TickCoreTicker(float DeltaTime = 0.0f)
+	{
+		FTSTicker::GetCoreTicker().Tick(DeltaTime);
+		DrainGameThreadTasks();
+	}
+
+	FOpenMobileAdsPlacementSettings& AddRewardedPlacement(
+		UOpenMobileAdsSettings& Settings,
+		FName PlacementName,
+		int32 MaxRetryAttempts = -1
+	)
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			Settings.Placements.Emplace_GetRef();
+		Placement.Placement = PlacementName;
+		Placement.MaxRetryAttempts = MaxRetryAttempts;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*PlacementName.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*PlacementName.ToString()
+		);
+		return Placement;
+	}
+
+	void SubmitLoadFailure(
+		FMockProvider& Provider,
+		EOpenMobileAdsErrorCode Code,
+		bool bRetryable
+	)
+	{
+		FOpenMobileAdsEvent Failed;
+		Failed.Type = EOpenMobileAdsEventType::LoadFailed;
+		Failed.Error = FOpenMobileAdsError::Make(
+			Code,
+			EOpenMobileAdsFailureStage::Load,
+			NAME_None,
+			TEXT("The mock load attempt failed."),
+			Provider.Name,
+			FString(),
+			bRetryable
+		);
+		Provider.LoadSink->Submit(MoveTemp(Failed));
+		DrainGameThreadTasks();
 	}
 
 	bool InitializeSuccessfully(
@@ -946,6 +996,310 @@ bool FOpenMobileAdsNoFillRecoveryContractTest::RunTest(const FString& Parameters
 	);
 	TestEqual(TEXT("Recovery broadcasts the loaded event"), LoadEvents.Num(), 2);
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRetryAttemptLimitContractTest,
+	"OpenMobile.Ads.Reliability.Retry.AttemptLimits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRetryAttemptLimitContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	AddExpectedError(
+		TEXT("The mock load attempt failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		4
+	);
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->RetryPolicy.MaxRetryAttempts = 2;
+	ScopedSettings.Settings->RetryPolicy.InitialDelaySeconds = 0.0;
+	ScopedSettings.Settings->RetryPolicy.bUseJitter = false;
+	ScopedSettings.Settings->NoFillRetryPolicy.MaxRetryAttempts = 1;
+	ScopedSettings.Settings->NoFillRetryPolicy.InitialDelaySeconds = 0.0;
+	ScopedSettings.Settings->NoFillRetryPolicy.bUseJitter = false;
+	ScopedSettings.Settings->Placements.Reset();
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("GlobalRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("LimitedRetry"), 1);
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("NoRetry"), 0);
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("NoFillRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("TerminalRetry"));
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TArray<FOpenMobileAdsEvent> Events;
+	Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+	TestTrue(
+		TEXT("The provider initializes before retry limit checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	const FOpenMobileAdsOperationResult Global =
+		Subsystem->LoadAd(TEXT("GlobalRetry"));
+	TestTrue(TEXT("The globally limited load starts"), Global.bAccepted);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(TEXT("A retryable failure stays internal"), Events.Num(), 1);
+	TestEqual(
+		TEXT("A pending retry keeps the placement loading"),
+		Subsystem->GetPlacementStatus(TEXT("GlobalRetry")).State,
+		EOpenMobileAdPlacementState::Loading
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("The first global retry reaches the provider"), Provider.LoadCalls, 2);
+	TestEqual(TEXT("Retries retain the public request ID"), Provider.LastLoadRequest.RequestId, Global.RequestId);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("The second global retry reaches the provider"), Provider.LoadCalls, 3);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(TEXT("The global limit emits one terminal failure"), Events.Num(), 2);
+	TestEqual(
+		TEXT("The global limit leaves the placement failed"),
+		Subsystem->GetPlacementStatus(TEXT("GlobalRetry")).State,
+		EOpenMobileAdPlacementState::Failed
+	);
+
+	Events.Reset();
+	const FOpenMobileAdsOperationResult Limited =
+		Subsystem->LoadAd(TEXT("LimitedRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("The placement limit permits one retry"), Provider.LoadCalls, 5);
+	TestEqual(TEXT("The placement retry keeps the request ID"), Provider.LastLoadRequest.RequestId, Limited.RequestId);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("The placement limit blocks a second retry"), Provider.LoadCalls, 5);
+	TestEqual(TEXT("The placement limit emits one terminal failure"), Events.Num(), 2);
+
+	Events.Reset();
+	Subsystem->LoadAd(TEXT("NoRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("A zero placement limit disables retries"), Provider.LoadCalls, 6);
+	TestEqual(TEXT("A zero limit still emits a terminal failure"), Events.Num(), 2);
+
+	Events.Reset();
+	Subsystem->LoadAd(TEXT("NoFillRetry"));
+	SubmitLoadFailure(Provider, EOpenMobileAdsErrorCode::NoFill, true);
+	TickCoreTicker();
+	TestEqual(TEXT("No fill uses its dedicated single retry"), Provider.LoadCalls, 8);
+	SubmitLoadFailure(Provider, EOpenMobileAdsErrorCode::NoFill, true);
+	TickCoreTicker();
+	TestEqual(TEXT("No fill does not use the larger general limit"), Provider.LoadCalls, 8);
+	TestEqual(TEXT("Exhausted no fill emits one terminal failure"), Events.Num(), 2);
+
+	Events.Reset();
+	Subsystem->LoadAd(TEXT("TerminalRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		false
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("Terminal failures do not retry"), Provider.LoadCalls, 9);
+	TestEqual(TEXT("Terminal failures broadcast immediately"), Events.Num(), 2);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRetryCancellationContractTest,
+	"OpenMobile.Ads.Reliability.Retry.Cancellation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRetryCancellationContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	AddExpectedError(
+		TEXT("The current consent decision does not allow ad requests."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	AddExpectedError(
+		TEXT("The ads provider was unregistered during an active placement operation."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->RetryPolicy.MaxRetryAttempts = 2;
+	ScopedSettings.Settings->RetryPolicy.InitialDelaySeconds = 0.0;
+	ScopedSettings.Settings->RetryPolicy.bUseJitter = false;
+	ScopedSettings.Settings->Placements.Reset();
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("CancelRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("SuccessRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("DestroyRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("ConsentRetry"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("ShutdownRetry"));
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before retry cancellation checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	const FOpenMobileAdsOperationResult Cancelled =
+		Subsystem->LoadAd(TEXT("CancelRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestTrue(
+		TEXT("A pending retry can be cancelled by request ID"),
+		Subsystem->CancelRequest(Cancelled.RequestId).bAccepted
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("Cancellation prevents the provider retry"), Provider.LoadCalls, 1);
+
+	const FOpenMobileAdsOperationResult Success =
+		Subsystem->LoadAd(TEXT("SuccessRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TickCoreTicker();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TickCoreTicker();
+	TestEqual(TEXT("Success stops further retries"), Provider.LoadCalls, 3);
+	TestEqual(TEXT("The successful retry keeps the request ID"), Provider.LastLoadRequest.RequestId, Success.RequestId);
+	TestTrue(TEXT("A successful retry restores readiness"), Subsystem->IsReady(TEXT("SuccessRetry")));
+
+	Subsystem->LoadAd(TEXT("DestroyRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestTrue(
+		TEXT("Destroy supersedes a pending retry"),
+		Subsystem->DestroyAd(TEXT("DestroyRetry")).bAccepted
+	);
+	TickCoreTicker();
+	TestEqual(TEXT("Destroy prevents the provider retry"), Provider.LoadCalls, 4);
+	FOpenMobileAdsEvent Destroyed;
+	Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+	Provider.DestroySink->Submit(MoveTemp(Destroyed));
+	DrainGameThreadTasks();
+
+	Subsystem->LoadAd(TEXT("ConsentRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Denied;
+	Privacy.bCanRequestAds = false;
+	TestTrue(
+		TEXT("Consent can change while a retry is pending"),
+		Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy)).bAccepted
+	);
+	DrainGameThreadTasks();
+	TickCoreTicker();
+	TestEqual(TEXT("Consent loss prevents the provider retry"), Provider.LoadCalls, 5);
+	TestEqual(
+		TEXT("Consent loss terminates the pending retry"),
+		Subsystem->GetPlacementStatus(TEXT("ConsentRetry")).LastError.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+
+	Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Privacy.bCanRequestAds = true;
+	Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy));
+	Subsystem->LoadAd(TEXT("ShutdownRetry"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	Subsystem->Deinitialize();
+	TickCoreTicker();
+	TestEqual(TEXT("Shutdown prevents the provider retry"), Provider.LoadCalls, 6);
+
+	Registration.Unregister();
+	FMockProvider ReplacementProvider(TEXT("MockAds"));
+	FScopedProviderRegistration ReplacementRegistration(ReplacementProvider);
+	UOpenMobileAdsSubsystem* ReplacementSubsystem =
+		NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	TestTrue(
+		TEXT("A replacement provider initializes for provider-loss checks"),
+		InitializeSuccessfully(*ReplacementSubsystem, ReplacementProvider)
+	);
+	ReplacementSubsystem->LoadAd(TEXT("CancelRetry"));
+	SubmitLoadFailure(
+		ReplacementProvider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	ReplacementRegistration.Unregister();
+	DrainGameThreadTasks();
+	TickCoreTicker();
+	TestEqual(
+		TEXT("Provider loss prevents the provider retry"),
+		ReplacementProvider.LoadCalls,
+		1
+	);
+	TestEqual(
+		TEXT("Provider loss terminates the pending retry"),
+		ReplacementSubsystem->GetPlacementStatus(TEXT("CancelRetry")).LastError.Code,
+		EOpenMobileAdsErrorCode::ProviderUnavailable
+	);
+	ReplacementSubsystem->Deinitialize();
 	return true;
 }
 

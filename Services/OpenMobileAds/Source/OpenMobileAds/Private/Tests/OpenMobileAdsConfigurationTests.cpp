@@ -294,6 +294,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 			TEXT("ios-config")
 		);
 	Placement.bPreload = true;
+	Placement.MaxRetryAttempts = 1;
 	Placement.CooldownSeconds = 30.0;
 	Placement.FallbackRewardType = TEXT("gold-token");
 	Placement.FallbackRewardAmount = 25;
@@ -374,6 +375,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 			SettingsAfterRestart->Placements[0];
 		TestEqual(TEXT("Placement key survives restart"), LoadedPlacement.Placement, FName(TEXT("ConfiguredReward")));
 		TestTrue(TEXT("Shared preload survives restart"), LoadedPlacement.bPreload);
+		TestEqual(TEXT("Placement retry limit survives restart"), LoadedPlacement.MaxRetryAttempts, 1);
 		TestEqual(TEXT("Frequency cap count survives restart"), LoadedPlacement.FrequencyCap.MaxImpressions, 2);
 		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
 		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
@@ -431,6 +433,21 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	);
 	TestEqual(TEXT("Default retry count is bounded"), Settings->RetryPolicy.MaxRetryAttempts, 2);
 	TestTrue(TEXT("Default retry policy is valid"), Settings->RetryPolicy.IsValid());
+	TestEqual(
+		TEXT("An inherited placement retry limit uses the global limit"),
+		Settings->RetryPolicy.ResolveMaxRetryAttempts(-1),
+		Settings->RetryPolicy.MaxRetryAttempts
+	);
+	TestEqual(
+		TEXT("A placement retry limit can lower the global limit"),
+		Settings->RetryPolicy.ResolveMaxRetryAttempts(1),
+		1
+	);
+	TestEqual(
+		TEXT("A placement retry limit cannot exceed the global limit"),
+		Settings->RetryPolicy.ResolveMaxRetryAttempts(8),
+		Settings->RetryPolicy.MaxRetryAttempts
+	);
 	TestTrue(TEXT("Default no-fill retry policy is valid"), Settings->NoFillRetryPolicy.IsValid());
 	TestTrue(
 		TEXT("No-fill retries default to a slower initial delay"),
@@ -501,6 +518,17 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	);
 
 	Settings->RetryPolicy = FOpenMobileAdsRetryPolicy();
+	Settings->Placements[0].MaxRetryAttempts = -2;
+	const TArray<FOpenMobileAdsConfigurationIssue> PlacementRetryIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Invalid placement retry limits are rejected"),
+		HasIssue(
+			PlacementRetryIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidPlacementRetryLimit
+		)
+	);
+	Settings->Placements[0].MaxRetryAttempts = -1;
 	Settings->NoFillRetryPolicy.MaxRetryAttempts = -1;
 	const TArray<FOpenMobileAdsConfigurationIssue> NoFillRetryIssues =
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);

@@ -116,6 +116,22 @@ struct OPENMOBILEADS_API FOpenMobileAdsError
 	}
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsRetryClassification : uint8
+{
+	Terminal,
+	ConditionallyRetryable,
+	Retryable
+};
+
+class OPENMOBILEADS_API FOpenMobileAdsErrorClassifier
+{
+public:
+	static EOpenMobileAdsRetryClassification Classify(
+		const FOpenMobileAdsError& Error
+	);
+};
+
 struct OPENMOBILEADS_API FOpenMobileAdsErrorMappingContext
 {
 	EOpenMobileAdsErrorDomain Domain = EOpenMobileAdsErrorDomain::Provider;
