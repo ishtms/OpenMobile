@@ -12,6 +12,7 @@
 #include "Misc/CoreDelegates.h"
 #include "OpenMobileAdsAsyncAction.h"
 #include "OpenMobileAdsCanShowPolicy.h"
+#include "OpenMobileAdsClock.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
@@ -23,6 +24,34 @@
 
 namespace OpenMobileAdsProviderContractTests
 {
+	class FControlledAdsClock final : public IOpenMobileAdsClock
+	{
+	public:
+		virtual FDateTime UtcNow() const override
+		{
+			return CurrentUtc;
+		}
+
+		virtual double MonotonicSeconds() const override
+		{
+			return CurrentMonotonicSeconds;
+		}
+
+		void Advance(double Seconds)
+		{
+			CurrentUtc += FTimespan::FromSeconds(Seconds);
+			CurrentMonotonicSeconds += Seconds;
+		}
+
+		void ShiftWallClock(double Seconds)
+		{
+			CurrentUtc += FTimespan::FromSeconds(Seconds);
+		}
+
+		FDateTime CurrentUtc = FDateTime(2035, 4, 5, 12, 0, 0);
+		double CurrentMonotonicSeconds = 1000.0;
+	};
+
 	class FControlledRetryScheduler final : public IOpenMobileAdsRetryScheduler
 	{
 	public:
@@ -4603,13 +4632,22 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 	Placement.Placement = TEXT("ExpiringReward");
 	Placement.Android.AdUnitId = TEXT("android-expiring");
 	Placement.IOS.AdUnitId = TEXT("ios-expiring");
+	FOpenMobileAdsPlacementSettings& PreloadedPlacement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	PreloadedPlacement.Placement = TEXT("PreloadedExpiringReward");
+	PreloadedPlacement.bPreload = true;
+	PreloadedPlacement.Android.AdUnitId = TEXT("android-preloaded-expiring");
+	PreloadedPlacement.IOS.AdUnitId = TEXT("ios-preloaded-expiring");
 
 	FMockProvider Provider(TEXT("MockAds"));
-	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 1.0;
+	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 600.0;
 	FScopedProviderRegistration Registration(Provider);
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
 		NewObject<UGameInstance>()
 	);
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
 	TestTrue(
 		TEXT("The provider initializes before expiration checks"),
 		InitializeSuccessfully(*Subsystem, Provider)
@@ -4627,7 +4665,8 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 	FOpenMobileAdsEvent Loaded;
 	Loaded.Type = EOpenMobileAdsEventType::Loaded;
 	Loaded.CachedAdId = CachedAdId;
-	Loaded.Timestamp = FDateTime::UtcNow() - FTimespan::FromSeconds(2.0);
+	Loaded.Timestamp = Clock->UtcNow();
+	Loaded.CacheExpiresAt = Clock->UtcNow() + FTimespan::FromSeconds(10.0);
 	Provider.LoadSink->Submit(MoveTemp(Loaded));
 	DrainGameThreadTasks();
 
@@ -4635,18 +4674,32 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 		Subsystem->GetPlacementStatus(TEXT("ExpiringReward"));
 	TestEqual(TEXT("The cache records its load timestamp"), ReadyStatus.CachedAt, Events.Last().Timestamp);
 	TestEqual(
-		TEXT("The cache records provider-specific expiration"),
+		TEXT("The cache records provider-reported expiration"),
 		ReadyStatus.ExpiresAt,
-		ReadyStatus.CachedAt + FTimespan::FromSeconds(1.0)
+		Clock->UtcNow() + FTimespan::FromSeconds(10.0)
 	);
-	TestFalse(TEXT("An overdue cache is not ready before cleanup runs"), Subsystem->IsReady(TEXT("ExpiringReward")));
 	TestEqual(
-		TEXT("CanShow reports an overdue cache as expired"),
+		TEXT("The loaded event exposes the resolved expiration"),
+		Events.Last().CacheExpiresAt,
+		ReadyStatus.ExpiresAt
+	);
+	Clock->Advance(9.999);
+	TestTrue(
+		TEXT("The cache is ready immediately before expiration"),
+		Subsystem->IsReady(TEXT("ExpiringReward"))
+	);
+	Clock->Advance(0.001);
+	TestFalse(
+		TEXT("The cache is not ready at its exact expiration"),
+		Subsystem->IsReady(TEXT("ExpiringReward"))
+	);
+	TestEqual(
+		TEXT("CanShow reports the exact boundary as expired"),
 		Subsystem->CanShow(TEXT("ExpiringReward")).BlockReason,
 		EOpenMobileAdsCanShowBlockReason::Expired
 	);
 
-	FTSTicker::GetCoreTicker().Tick(0.0f);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
 	DrainGameThreadTasks();
 	const FOpenMobileAdsPlacementStatus ExpiredStatus =
 		Subsystem->GetPlacementStatus(TEXT("ExpiringReward"));
@@ -4665,6 +4718,43 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 		{
 			return Event.Type == EOpenMobileAdsEventType::Expired;
 		})
+	);
+
+	TestTrue(
+		TEXT("The preload placement starts loading"),
+		Subsystem->LoadAd(TEXT("PreloadedExpiringReward")).bAccepted
+	);
+	const FGuid PreloadedCachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Preloaded;
+	Preloaded.Type = EOpenMobileAdsEventType::Loaded;
+	Preloaded.CachedAdId = PreloadedCachedAdId;
+	Preloaded.Timestamp = Clock->UtcNow();
+	Preloaded.CacheExpiresAt = Clock->UtcNow() + FTimespan::FromSeconds(60.0);
+	Provider.LoadSink->Submit(MoveTemp(Preloaded));
+	DrainGameThreadTasks();
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->ShiftWallClock(-3600.0);
+	Clock->CurrentMonotonicSeconds += 60.0;
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Both expired caches release native state"), Provider.ReleasedCachedAds.Num(), 2);
+	if (Provider.ReleasedCachedAds.Num() == 2)
+	{
+		TestEqual(
+			TEXT("Monotonic time expires a cache after a backward wall-clock change"),
+			Provider.ReleasedCachedAds[1],
+			PreloadedCachedAdId
+		);
+	}
+	TestEqual(
+		TEXT("Expiration preloads a replacement when configured"),
+		Provider.LoadCalls,
+		3
+	);
+	TestEqual(
+		TEXT("The replacement enters loading state"),
+		Subsystem->GetPlacementStatus(TEXT("PreloadedExpiringReward")).State,
+		EOpenMobileAdPlacementState::Loading
 	);
 
 	Subsystem->OnNativeAdsEvent().Remove(EventHandle);

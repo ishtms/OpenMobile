@@ -18,9 +18,11 @@ class IOpenMobileAdsConsentProviderSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 class FOpenMobileAdsFullscreenLifecycleCoordinator;
+class IOpenMobileAdsClock;
 class IOpenMobileAdsRetryRandomSource;
 class IOpenMobileAdsRetryScheduler;
 struct FOpenMobileAdsActiveRequestContext;
+struct FOpenMobileAdsClockTestAccess;
 struct FOpenMobileAdsRetryTestAccess;
 enum class ENetworkConnectionType : uint8;
 
@@ -280,6 +282,7 @@ public:
 
 private:
 	friend class FOpenMobileAdsEventDispatcher;
+	friend struct FOpenMobileAdsClockTestAccess;
 	friend struct FOpenMobileAdsRetryTestAccess;
 
 	IOpenMobileAdsProvider* FindProvider(FOpenMobileAdsError* OutError = nullptr) const;
@@ -374,6 +377,9 @@ private:
 	void RememberDismissedShow(FGuid RequestId, FGuid CachedAdId);
 	bool IsRememberedDismissedShow(FGuid RequestId, FGuid CachedAdId) const;
 	void ForgetShowRewardContext(FGuid RequestId);
+	FDateTime GetCacheUtcNow() const;
+	double GetCacheMonotonicSeconds() const;
+	bool IsCachedAdExpired(const FOpenMobileAdsPlacementStatus& Status) const;
 	void ExpireCachedAds();
 	void ScheduleCacheExpirationCheck();
 	bool HandleCacheExpirationTick(float DeltaTime);
@@ -396,12 +402,14 @@ private:
 	TMap<FGuid, FGuid> DismissedShowCachedAds;
 	TArray<FGuid> DismissedShowRequestOrder;
 	TSet<FGuid> ImpressedCachedAds;
+	TMap<FGuid, double> CacheExpirationMonotonicDeadlines;
 	TMap<FName, TArray<FDateTime>> ImpressionTimestampsByPlacement;
 	TSet<FGuid> PendingExpiredCachedAdEvents;
 	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;
+	TSharedPtr<IOpenMobileAdsClock> CacheClock;
 	TSharedPtr<IOpenMobileAdsRetryRandomSource> RetryRandomSource;
 	TSharedPtr<IOpenMobileAdsRetryScheduler> RetryScheduler;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;

@@ -10,6 +10,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAdsCanRequestPolicy.h"
 #include "OpenMobileAdsCanShowPolicy.h"
+#include "OpenMobileAdsClock.h"
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
@@ -2180,6 +2181,10 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		return;
 	}
 
+	if (!CacheClock)
+	{
+		CacheClock = OpenMobileAdsCreateClock();
+	}
 	if (!RetryRandomSource)
 	{
 		RetryRandomSource = OpenMobileAdsCreateRetryRandomSource();
@@ -2975,6 +2980,7 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
 		FullscreenLifecycle->SetApplicationActive(true);
 	}
 	RefreshTrackingAuthorizationStatus();
+	ExpireCachedAds();
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
@@ -2993,6 +2999,7 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground()
 	{
 		FullscreenLifecycle->SetApplicationInForeground(true);
 	}
+	ExpireCachedAds();
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -3840,10 +3847,7 @@ bool UOpenMobileAdsSubsystem::IsReady(FName Placement) const
 	return Status
 		&& Status->State == EOpenMobileAdPlacementState::Ready
 		&& Status->CachedAdId.IsValid()
-		&& (
-			Status->ExpiresAt == FDateTime()
-			|| Status->ExpiresAt > FDateTime::UtcNow()
-		);
+		&& !IsCachedAdExpired(*Status);
 }
 
 FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::CanShow(FName Placement) const
@@ -3899,7 +3903,7 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 	Context.bFormatSupported = FormatCapabilities && FormatCapabilities->bCanShow;
 	Context.bPrivacyAllowed = EvaluateCanRequestAds(Provider).bCanRequestAds;
 
-	const FDateTime Now = FDateTime::UtcNow();
+	const FDateTime Now = GetCacheUtcNow();
 	const FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
 	if (Status)
 	{
@@ -3907,8 +3911,7 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 		Context.bHasCachedAd = Status->CachedAdId.IsValid()
 			&& Status->Format == Resolved.Format
 			&& Status->Provider == Provider->GetProviderName();
-		Context.bExpired = Status->ExpiresAt != FDateTime()
-			&& Status->ExpiresAt <= Now;
+		Context.bExpired = IsCachedAdExpired(*Status);
 	}
 	if (const TArray<FDateTime>* ImpressionTimestamps =
 		ImpressionTimestampsByPlacement.Find(Placement))
@@ -4370,6 +4373,7 @@ void UOpenMobileAdsSubsystem::ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Sta
 			Provider->ReleaseCachedAd(Status.CachedAdId);
 		}
 		ImpressedCachedAds.Remove(Status.CachedAdId);
+		CacheExpirationMonotonicDeadlines.Remove(Status.CachedAdId);
 		Status.CachedAdId.Invalidate();
 	}
 	Status.CachedAt = FDateTime();
@@ -4422,19 +4426,52 @@ void UOpenMobileAdsSubsystem::ForgetShowRewardContext(FGuid RequestId)
 	}
 }
 
+FDateTime UOpenMobileAdsSubsystem::GetCacheUtcNow() const
+{
+	return CacheClock ? CacheClock->UtcNow() : FDateTime::UtcNow();
+}
+
+double UOpenMobileAdsSubsystem::GetCacheMonotonicSeconds() const
+{
+	return CacheClock
+		? CacheClock->MonotonicSeconds()
+		: FPlatformTime::Seconds();
+}
+
+bool UOpenMobileAdsSubsystem::IsCachedAdExpired(
+	const FOpenMobileAdsPlacementStatus& Status
+) const
+{
+	if (Status.ExpiresAt == FDateTime())
+	{
+		return false;
+	}
+	if (Status.ExpiresAt <= GetCacheUtcNow())
+	{
+		return true;
+	}
+	const double* MonotonicDeadline =
+		CacheExpirationMonotonicDeadlines.Find(Status.CachedAdId);
+	return MonotonicDeadline
+		&& GetCacheMonotonicSeconds() >= *MonotonicDeadline;
+}
+
 void UOpenMobileAdsSubsystem::ExpireCachedAds()
 {
 	check(IsInGameThread());
-	const FDateTime Now = FDateTime::UtcNow();
+	if (bDeinitialized)
+	{
+		return;
+	}
 	TArray<FOpenMobileAdsEvent> ExpiredEvents;
+	TArray<FName> PlacementsToPreload;
 	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{
 		FOpenMobileAdsPlacementStatus& Status = Pair.Value;
 		if (
 			Status.State != EOpenMobileAdPlacementState::Ready
 			|| !Status.CachedAdId.IsValid()
-			|| Status.ExpiresAt == FDateTime()
-			|| Status.ExpiresAt > Now
+			|| !IsCachedAdExpired(Status)
 		)
 		{
 			continue;
@@ -4448,7 +4485,19 @@ void UOpenMobileAdsSubsystem::ExpireCachedAds()
 		Expired.Provider = Status.Provider;
 		Expired.RequestId = Status.ActiveRequestId;
 		Expired.CachedAdId = Status.CachedAdId;
+		Expired.CacheExpiresAt = Status.ExpiresAt;
 		PendingExpiredCachedAdEvents.Add(Status.CachedAdId);
+		const FOpenMobileAdsPlacementSettings* Configuration =
+			FindConfiguredPlacement(Status.Placement);
+		if (
+			Configuration
+			&& Configuration->Resolve(OpenMobileAdsGetCurrentPlatform()).bPreload
+			&& bApplicationInForeground
+			&& !bPlatformDefinitelyOffline.Load()
+		)
+		{
+			PlacementsToPreload.Add(Status.Placement);
+		}
 		ReleaseCachedAd(Status);
 		Status.State = EOpenMobileAdPlacementState::Idle;
 		Status.ActiveRequestId.Invalidate();
@@ -4458,6 +4507,10 @@ void UOpenMobileAdsSubsystem::ExpireCachedAds()
 	for (FOpenMobileAdsEvent& Expired : ExpiredEvents)
 	{
 		SubmitServiceEvent(MoveTemp(Expired));
+	}
+	for (const FName Placement : PlacementsToPreload)
+	{
+		LoadAd(Placement);
 	}
 	ScheduleCacheExpirationCheck();
 }
@@ -4474,7 +4527,9 @@ void UOpenMobileAdsSubsystem::ScheduleCacheExpirationCheck()
 		return;
 	}
 
-	FDateTime EarliestExpiration;
+	const FDateTime NowUtc = GetCacheUtcNow();
+	const double NowMonotonic = GetCacheMonotonicSeconds();
+	double EarliestDelaySeconds = TNumericLimits<double>::Max();
 	for (const TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{
 		const FOpenMobileAdsPlacementStatus& Status = Pair.Value;
@@ -4482,27 +4537,40 @@ void UOpenMobileAdsSubsystem::ScheduleCacheExpirationCheck()
 			Status.State == EOpenMobileAdPlacementState::Ready
 			&& Status.CachedAdId.IsValid()
 			&& Status.ExpiresAt != FDateTime()
-			&& (EarliestExpiration == FDateTime() || Status.ExpiresAt < EarliestExpiration)
 		)
 		{
-			EarliestExpiration = Status.ExpiresAt;
+			double DelaySeconds = FMath::Max(
+				0.0,
+				(Status.ExpiresAt - NowUtc).GetTotalSeconds()
+			);
+			if (const double* MonotonicDeadline =
+				CacheExpirationMonotonicDeadlines.Find(Status.CachedAdId))
+			{
+				DelaySeconds = FMath::Min(
+					DelaySeconds,
+					FMath::Max(0.0, *MonotonicDeadline - NowMonotonic)
+				);
+			}
+			EarliestDelaySeconds = FMath::Min(
+				EarliestDelaySeconds,
+				DelaySeconds
+			);
 		}
 	}
-	if (EarliestExpiration == FDateTime())
+	if (EarliestDelaySeconds == TNumericLimits<double>::Max())
 	{
 		return;
 	}
 
-	const double DelaySeconds = FMath::Max(
-		0.0,
-		(EarliestExpiration - FDateTime::UtcNow()).GetTotalSeconds()
-	);
 	CacheExpirationTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateUObject(
 			this,
 			&UOpenMobileAdsSubsystem::HandleCacheExpirationTick
 		),
-		static_cast<float>(DelaySeconds)
+		static_cast<float>(FMath::Min(
+			EarliestDelaySeconds,
+			static_cast<double>(TNumericLimits<float>::Max())
+		))
 	);
 }
 
@@ -4729,24 +4797,39 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 				Status->State = EOpenMobileAdPlacementState::Ready;
 				Status->CachedAdId = Event.CachedAdId;
 				Status->CachedAt = Event.Timestamp;
-				Status->ExpiresAt = FDateTime();
-				if (IOpenMobileAdsProvider* Provider =
-					OpenMobileAdsPrivate::FindRegisteredProvider(Status->Provider))
+				Status->ExpiresAt = Event.CacheExpiresAt;
+				if (Status->ExpiresAt == FDateTime())
 				{
-					const FOpenMobileAdsProviderCapabilities Capabilities =
-						Provider->GetCapabilities();
-					if (const FOpenMobileAdFormatCapabilities* Format =
-						Capabilities.FindFormat(Status->Format))
+					if (IOpenMobileAdsProvider* Provider =
+						OpenMobileAdsPrivate::FindRegisteredProvider(Status->Provider))
 					{
-						if (
-							FMath::IsFinite(Format->CacheLifetimeSeconds)
-							&& Format->CacheLifetimeSeconds > 0.0
-						)
+						const FOpenMobileAdsProviderCapabilities Capabilities =
+							Provider->GetCapabilities();
+						if (const FOpenMobileAdFormatCapabilities* Format =
+							Capabilities.FindFormat(Status->Format))
 						{
-							Status->ExpiresAt = Status->CachedAt
-								+ FTimespan::FromSeconds(Format->CacheLifetimeSeconds);
+							if (
+								FMath::IsFinite(Format->CacheLifetimeSeconds)
+								&& Format->CacheLifetimeSeconds > 0.0
+							)
+							{
+								Status->ExpiresAt = Status->CachedAt
+									+ FTimespan::FromSeconds(Format->CacheLifetimeSeconds);
+							}
 						}
 					}
+				}
+				Event.CacheExpiresAt = Status->ExpiresAt;
+				if (Status->ExpiresAt != FDateTime())
+				{
+					const double RemainingLifetimeSeconds = FMath::Max(
+						0.0,
+						(Status->ExpiresAt - GetCacheUtcNow()).GetTotalSeconds()
+					);
+					CacheExpirationMonotonicDeadlines.Add(
+						Status->CachedAdId,
+						GetCacheMonotonicSeconds() + RemainingLifetimeSeconds
+					);
 				}
 			}
 			Event.PlacementState = Status->State;
@@ -5135,6 +5218,7 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 			continue;
 		}
 		ImpressedCachedAds.Remove(Status.CachedAdId);
+		CacheExpirationMonotonicDeadlines.Remove(Status.CachedAdId);
 		Status.CachedAdId.Invalidate();
 		Status.CachedAt = FDateTime();
 		Status.ExpiresAt = FDateTime();
@@ -5281,8 +5365,10 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	DismissedShowCachedAds.Reset();
 	DismissedShowRequestOrder.Reset();
 	ImpressedCachedAds.Reset();
+	CacheExpirationMonotonicDeadlines.Reset();
 	ImpressionTimestampsByPlacement.Reset();
 	PendingExpiredCachedAdEvents.Reset();
+	CacheClock.Reset();
 	if (InitializationProvider && bProviderInitializationStarted)
 	{
 		InitializationProvider->Shutdown();

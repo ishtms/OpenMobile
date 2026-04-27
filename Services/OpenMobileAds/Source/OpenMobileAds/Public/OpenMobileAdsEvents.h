@@ -86,6 +86,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsEvent
 	FGuid CachedAdId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FDateTime CacheExpiresAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bHasReward = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
