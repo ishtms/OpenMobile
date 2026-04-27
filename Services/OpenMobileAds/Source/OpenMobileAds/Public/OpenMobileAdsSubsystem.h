@@ -195,6 +195,9 @@ public:
 		return LoadAd(Placement, FOpenMobileAdsLoadOptions());
 	}
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Reload Ad"))
+	FOpenMobileAdsOperationResult ReloadAd(FName Placement);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Show Ad"))
 	FOpenMobileAdsOperationResult ShowAd(
 		FName Placement,

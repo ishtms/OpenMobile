@@ -3208,16 +3208,18 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	FOpenMobileAdsPlacementStatus* ExistingStatus = PlacementStatuses.Find(Placement);
 	if (ExistingStatus)
 	{
-		const bool bBusy = ExistingStatus->State == EOpenMobileAdPlacementState::Loading
-			|| ExistingStatus->State == EOpenMobileAdPlacementState::Showing
+		const bool bBusy = ExistingStatus->State == EOpenMobileAdPlacementState::Showing
 			|| ExistingStatus->State == EOpenMobileAdPlacementState::Destroying;
-		if (bBusy || (ExistingStatus->State == EOpenMobileAdPlacementState::Ready && !Options.bForceReload))
+		const bool bRequiresReload =
+			ExistingStatus->State == EOpenMobileAdPlacementState::Loading
+			|| ExistingStatus->State == EOpenMobileAdPlacementState::Ready;
+		if (bBusy || (bRequiresReload && !Options.bForceReload))
 		{
 			return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
 				EOpenMobileAdsErrorCode::Busy,
 				EOpenMobileAdsFailureStage::Load,
 				Placement,
-				bBusy
+				bBusy || ExistingStatus->State == EOpenMobileAdPlacementState::Loading
 					? TEXT("The placement already has an operation in progress.")
 					: TEXT("The placement already has a ready ad."),
 				Provider->GetProviderName()
@@ -3239,6 +3241,30 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	const FOpenMobileAdsPlacementStatus PreviousStatus = bHadStatus
 		? *ExistingStatus
 		: FOpenMobileAdsPlacementStatus();
+	const FGuid SupersededRequestId =
+		bHadStatus
+		&& PreviousStatus.State == EOpenMobileAdPlacementState::Loading
+		&& Options.bForceReload
+			? PreviousStatus.ActiveRequestId
+			: FGuid();
+	bool bHasCompletionFallback = bHadStatus;
+	FOpenMobileAdsPlacementStatus CompletionFallback = PreviousStatus;
+	if (SupersededRequestId.IsValid())
+	{
+		bHasCompletionFallback = false;
+		const TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>*
+			SupersededContext = ActiveRequests.Find(SupersededRequestId);
+		if (SupersededContext && SupersededContext->IsValid())
+		{
+			if (const FOpenMobileAdsPlacementStatus* ReadyFallback =
+				(*SupersededContext)->PreviousStatuses.Find(Placement))
+			{
+				CompletionFallback = *ReadyFallback;
+				bHasCompletionFallback =
+					ReadyFallback->State == EOpenMobileAdPlacementState::Ready;
+			}
+		}
+	}
 	FOpenMobileAdsPlacementStatus& Status = PlacementStatuses.FindOrAdd(Placement);
 	Status.Placement = Placement;
 	Status.Format = ResolvedPlacement.Format;
@@ -3276,9 +3302,9 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 		Context->PlacementMaxRetryAttempts =
 			Configuration->MaxRetryAttempts;
 	}
-	if (bHadStatus)
+	if (bHasCompletionFallback)
 	{
-		Context->PreviousStatuses.Add(Placement, PreviousStatus);
+		Context->PreviousStatuses.Add(Placement, CompletionFallback);
 	}
 	ActiveRequests.Add(Status.ActiveRequestId, Context);
 
@@ -3303,6 +3329,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
+	CancelSupersededRequest(SupersededRequestId);
 
 	FOpenMobileAdsEvent Started;
 	Started.Type = EOpenMobileAdsEventType::LoadStarted;
@@ -3314,6 +3341,13 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 	SubmitServiceEvent(MoveTemp(Started));
 	Sink->Commit();
 	return FOpenMobileAdsOperationResult::Accepted(Status.ActiveRequestId);
+}
+
+FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ReloadAd(FName Placement)
+{
+	FOpenMobileAdsLoadOptions Options;
+	Options.bForceReload = true;
+	return LoadAd(Placement, MoveTemp(Options));
 }
 
 FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(

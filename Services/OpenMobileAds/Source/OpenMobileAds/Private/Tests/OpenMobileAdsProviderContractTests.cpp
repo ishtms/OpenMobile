@@ -1674,6 +1674,180 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsReloadContractTest,
+	"OpenMobile.Ads.ProviderContract.Reload.States",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsReloadContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	ScopedSettings.Settings->RetryPolicy.MaxRetryAttempts = 1;
+	ScopedSettings.Settings->RetryPolicy.InitialDelaySeconds = 0.0;
+	ScopedSettings.Settings->RetryPolicy.MaxDelaySeconds = 0.0;
+	ScopedSettings.Settings->RetryPolicy.bUseJitter = false;
+	ScopedSettings.Settings->Placements.Reset();
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("ReloadReward"));
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledRetryScheduler> Scheduler =
+		MakeShared<FControlledRetryScheduler>();
+	const TSharedRef<FControlledRetryRandomSource> Random =
+		MakeShared<FControlledRetryRandomSource>();
+	FOpenMobileAdsRetryTestAccess::SetDependencies(
+		*Subsystem,
+		Scheduler,
+		Random
+	);
+	TestTrue(
+		TEXT("The provider initializes before reload checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	const FOpenMobileAdsOperationResult IdleReload =
+		Subsystem->ReloadAd(TEXT("ReloadReward"));
+	TestTrue(TEXT("Reload starts from idle"), IdleReload.bAccepted);
+	TestTrue(
+		TEXT("Reload reaches the provider as an explicit replacement"),
+		Provider.LastLoadRequest.Options.bForceReload
+	);
+	const FGuid FirstCachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent FirstLoaded;
+	FirstLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	FirstLoaded.CachedAdId = FirstCachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(FirstLoaded));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("Idle reload can become ready"), Subsystem->IsReady(TEXT("ReloadReward")));
+
+	const FOpenMobileAdsOperationResult ReadyReload =
+		Subsystem->ReloadAd(TEXT("ReloadReward"));
+	TestTrue(TEXT("Reload replaces a ready cache"), ReadyReload.bAccepted);
+	TestEqual(
+		TEXT("The ready cache remains selected while its replacement loads"),
+		Subsystem->GetPlacementStatus(TEXT("ReloadReward")).CachedAdId,
+		FirstCachedAdId
+	);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe>
+		SupersededSink = Provider.LoadSink;
+	const FOpenMobileAdsOperationResult LoadingReload =
+		Subsystem->ReloadAd(TEXT("ReloadReward"));
+	TestTrue(TEXT("Reload replaces an in-flight load"), LoadingReload.bAccepted);
+	TestNotEqual(
+		TEXT("The replacement owns a new public request ID"),
+		LoadingReload.RequestId,
+		ReadyReload.RequestId
+	);
+	TestTrue(
+		TEXT("The provider cancels the superseded native load"),
+		Provider.CancelledRequests.Contains(ReadyReload.RequestId)
+	);
+
+	if (SupersededSink)
+	{
+		FOpenMobileAdsEvent StaleLoaded;
+		StaleLoaded.Type = EOpenMobileAdsEventType::Loaded;
+		StaleLoaded.CachedAdId = FGuid::NewGuid();
+		SupersededSink->Submit(MoveTemp(StaleLoaded));
+	}
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus AfterStaleCallback =
+		Subsystem->GetPlacementStatus(TEXT("ReloadReward"));
+	TestEqual(
+		TEXT("A stale load cannot replace the active request"),
+		AfterStaleCallback.ActiveRequestId,
+		LoadingReload.RequestId
+	);
+	TestEqual(
+		TEXT("A stale load cannot replace the preserved cache"),
+		AfterStaleCallback.CachedAdId,
+		FirstCachedAdId
+	);
+
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(TEXT("Reload uses the normal retry scheduler"), Scheduler->NumPending(), 1);
+	Scheduler->AdvanceBy(0.0);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A reload retry keeps the replacement request ID"),
+		Provider.LastLoadRequest.RequestId,
+		LoadingReload.RequestId
+	);
+	const FGuid ReplacementCachedAdId = FGuid::NewGuid();
+	const FDateTime ReplacementExpiresAt =
+		FDateTime::UtcNow() + FTimespan::FromMinutes(30.0);
+	FOpenMobileAdsEvent ReplacementLoaded;
+	ReplacementLoaded.Type = EOpenMobileAdsEventType::Loaded;
+	ReplacementLoaded.CachedAdId = ReplacementCachedAdId;
+	ReplacementLoaded.CacheExpiresAt = ReplacementExpiresAt;
+	Provider.LoadSink->Submit(MoveTemp(ReplacementLoaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus ReplacementStatus =
+		Subsystem->GetPlacementStatus(TEXT("ReloadReward"));
+	TestEqual(
+		TEXT("Reload applies the normal cache identity policy"),
+		ReplacementStatus.CachedAdId,
+		ReplacementCachedAdId
+	);
+	TestEqual(
+		TEXT("Reload applies the normal expiration policy"),
+		ReplacementStatus.ExpiresAt,
+		ReplacementExpiresAt
+	);
+	TestEqual(TEXT("Successful reload releases the prior cache"), Provider.ReleasedCachedAds.Num(), 1);
+
+	const FOpenMobileAdsOperationResult Show =
+		Subsystem->ShowAd(TEXT("ReloadReward"));
+	TestTrue(TEXT("The reloaded cache can begin showing"), Show.bAccepted);
+	const int32 LoadsBeforeVisibleReload = Provider.LoadCalls;
+	const FOpenMobileAdsOperationResult VisibleReload =
+		Subsystem->ReloadAd(TEXT("ReloadReward"));
+	TestFalse(TEXT("Reload does not interrupt a visible ad"), VisibleReload.bAccepted);
+	TestEqual(TEXT("Visible reload is busy"), VisibleReload.Error.Code, EOpenMobileAdsErrorCode::Busy);
+	TestEqual(TEXT("Visible reload does not reach the provider"), Provider.LoadCalls, LoadsBeforeVisibleReload);
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Provider.ShowSink->Submit(MoveTemp(Dismissed));
+	DrainGameThreadTasks();
+
+	const FOpenMobileAdsOperationResult FailureReload =
+		Subsystem->ReloadAd(TEXT("ReloadReward"));
+	TestTrue(TEXT("Reload starts after the visible ad closes"), FailureReload.bAccepted);
+	AddExpectedError(
+		TEXT("The mock load attempt failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NotConfigured,
+		false
+	);
+	TestEqual(
+		TEXT("A terminal reload failure enters failed state"),
+		Subsystem->GetPlacementStatus(TEXT("ReloadReward")).State,
+		EOpenMobileAdPlacementState::Failed
+	);
+	TestTrue(
+		TEXT("Reload starts from failed state"),
+		Subsystem->ReloadAd(TEXT("ReloadReward")).bAccepted
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsReadinessPolicyContractTest,
 	"OpenMobile.Ads.ProviderContract.Readiness.Policy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
