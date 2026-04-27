@@ -15,6 +15,7 @@
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
+#include "OpenMobileAdsRetry.h"
 #include "OpenMobileAdsSubsystem.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
@@ -22,6 +23,98 @@
 
 namespace OpenMobileAdsProviderContractTests
 {
+	class FControlledRetryScheduler final : public IOpenMobileAdsRetryScheduler
+	{
+	public:
+		virtual FOpenMobileAdsRetryScheduleHandle Schedule(
+			double DelaySeconds,
+			TFunction<void()>&& Callback
+		) override
+		{
+			FOpenMobileAdsRetryScheduleHandle Handle;
+			Handle.Value = NextHandle++;
+			FTask& Task = Tasks.Emplace_GetRef();
+			Task.Handle = Handle;
+			Task.DueTime = CurrentTime + DelaySeconds;
+			Task.Callback = MoveTemp(Callback);
+			ScheduledDelays.Add(DelaySeconds);
+			return Handle;
+		}
+
+		virtual void Cancel(
+			FOpenMobileAdsRetryScheduleHandle& Handle
+		) override
+		{
+			Tasks.RemoveAll(
+				[Handle](const FTask& Task)
+				{
+					return Task.Handle == Handle;
+				}
+			);
+			Handle.Reset();
+		}
+
+		void AdvanceBy(double DeltaSeconds)
+		{
+			CurrentTime += DeltaSeconds;
+			while (true)
+			{
+				int32 NextTaskIndex = INDEX_NONE;
+				double NextDueTime = TNumericLimits<double>::Max();
+				for (int32 Index = 0; Index < Tasks.Num(); ++Index)
+				{
+					if (
+						Tasks[Index].DueTime <= CurrentTime
+						&& Tasks[Index].DueTime < NextDueTime
+					)
+					{
+						NextTaskIndex = Index;
+						NextDueTime = Tasks[Index].DueTime;
+					}
+				}
+				if (NextTaskIndex == INDEX_NONE)
+				{
+					return;
+				}
+				TFunction<void()> Callback =
+					MoveTemp(Tasks[NextTaskIndex].Callback);
+				Tasks.RemoveAtSwap(NextTaskIndex, EAllowShrinking::No);
+				Callback();
+			}
+		}
+
+		int32 NumPending() const
+		{
+			return Tasks.Num();
+		}
+
+		TArray<double> ScheduledDelays;
+
+	private:
+		struct FTask
+		{
+			FOpenMobileAdsRetryScheduleHandle Handle;
+			double DueTime = 0.0;
+			TFunction<void()> Callback;
+		};
+
+		TArray<FTask> Tasks;
+		double CurrentTime = 0.0;
+		uint64 NextHandle = 1;
+	};
+
+	class FControlledRetryRandomSource final
+		: public IOpenMobileAdsRetryRandomSource
+	{
+	public:
+		virtual double NextUnit() override
+		{
+			return NextValue;
+		}
+
+		double NextValue = 0.0;
+	};
+
 	class FMockFullscreenLifecycleTarget final
 		: public IOpenMobileAdsFullscreenLifecycleTarget
 	{
@@ -1300,6 +1393,131 @@ bool FOpenMobileAdsRetryCancellationContractTest::RunTest(
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
 	ReplacementSubsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsBackoffSchedulingContractTest,
+	"OpenMobile.Ads.Reliability.Backoff.Scheduling",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsBackoffSchedulingContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->RetryPolicy.MaxRetryAttempts = 3;
+	ScopedSettings.Settings->RetryPolicy.InitialDelaySeconds = 2.0;
+	ScopedSettings.Settings->RetryPolicy.BackoffMultiplier = 2.0;
+	ScopedSettings.Settings->RetryPolicy.MaxDelaySeconds = 5.0;
+	ScopedSettings.Settings->RetryPolicy.bUseJitter = true;
+	ScopedSettings.Settings->Placements.Reset();
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("BackoffA"));
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("BackoffB"));
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledRetryScheduler> Scheduler =
+		MakeShared<FControlledRetryScheduler>();
+	const TSharedRef<FControlledRetryRandomSource> Random =
+		MakeShared<FControlledRetryRandomSource>();
+	Random->NextValue = 1.0;
+	FOpenMobileAdsRetryTestAccess::SetDependencies(
+		*Subsystem,
+		Scheduler,
+		Random
+	);
+	TestTrue(
+		TEXT("The provider initializes with controlled retry timing"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	const FOpenMobileAdsOperationResult First =
+		Subsystem->LoadAd(TEXT("BackoffA"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("The first failure uses the initial delay"),
+		Scheduler->ScheduledDelays.Last(),
+		2.0
+	);
+	Scheduler->AdvanceBy(1.999);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The retry waits for the exact boundary"), Provider.LoadCalls, 1);
+	Scheduler->AdvanceBy(0.001);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The retry starts at the delay boundary"), Provider.LoadCalls, 2);
+
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("The second failure applies exponential backoff"),
+		Scheduler->ScheduledDelays.Last(),
+		4.0
+	);
+
+	Subsystem->LoadAd(TEXT("BackoffB"));
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("Another placement starts with an independent delay"),
+		Scheduler->ScheduledDelays.Last(),
+		2.0
+	);
+	TestEqual(TEXT("Both placements have pending work"), Scheduler->NumPending(), 2);
+	TestTrue(
+		TEXT("Cancelling one placement removes only its timer"),
+		Subsystem->CancelRequest(First.RequestId).bAccepted
+	);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("One placement remains scheduled"), Scheduler->NumPending(), 1);
+
+	Scheduler->AdvanceBy(1.999);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The independent retry also respects its boundary"), Provider.LoadCalls, 3);
+	Scheduler->AdvanceBy(0.001);
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The independent retry reaches the provider"), Provider.LoadCalls, 4);
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("The independent placement becomes ready"), Subsystem->IsReady(TEXT("BackoffB")));
+
+	Random->NextValue = 0.0;
+	FOpenMobileAdsLoadOptions ReloadOptions;
+	ReloadOptions.bForceReload = true;
+	Subsystem->LoadAd(TEXT("BackoffB"), ReloadOptions);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("A new load resets the backoff before minimum jitter"),
+		Scheduler->ScheduledDelays.Last(),
+		1.0
+	);
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Shutdown cancels controlled retry work"), Scheduler->NumPending(), 0);
 	return true;
 }
 

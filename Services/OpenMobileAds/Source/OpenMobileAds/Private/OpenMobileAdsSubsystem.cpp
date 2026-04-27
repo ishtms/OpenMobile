@@ -13,6 +13,7 @@
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
+#include "OpenMobileAdsRetry.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
 class FOpenMobileAdsEventDispatcher final
@@ -843,7 +844,7 @@ struct FOpenMobileAdsActiveRequestContext
 	EOpenMobileAdsFailureStage Stage = EOpenMobileAdsFailureStage::Internal;
 	TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 	TMap<FName, FOpenMobileAdsPlacementStatus> PreviousStatuses;
-	FTSTicker::FDelegateHandle RetryTickerHandle;
+	FOpenMobileAdsRetryScheduleHandle RetryScheduleHandle;
 	double PendingRetryDelaySeconds = 0.0;
 	int32 RetryAttempts = 0;
 	int32 PlacementMaxRetryAttempts = -1;
@@ -2179,6 +2180,14 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 		return;
 	}
 
+	if (!RetryRandomSource)
+	{
+		RetryRandomSource = OpenMobileAdsCreateRetryRandomSource();
+	}
+	if (!RetryScheduler)
+	{
+		RetryScheduler = OpenMobileAdsCreateRetryScheduler();
+	}
 	EventDispatcher = MakeShared<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>(*this);
 	UGameInstance* GameInstance = GetGameInstance();
 	check(GameInstance);
@@ -4017,10 +4026,13 @@ void UOpenMobileAdsSubsystem::CancelRetrySchedule(
 	FOpenMobileAdsActiveRequestContext& Context
 )
 {
-	if (Context.RetryTickerHandle.IsValid())
+	if (RetryScheduler)
 	{
-		FTSTicker::GetCoreTicker().RemoveTicker(Context.RetryTickerHandle);
-		Context.RetryTickerHandle.Reset();
+		RetryScheduler->Cancel(Context.RetryScheduleHandle);
+	}
+	else
+	{
+		Context.RetryScheduleHandle.Reset();
 	}
 	Context.PendingRetryDelaySeconds = 0.0;
 	Context.bRetryPending = false;
@@ -4062,6 +4074,8 @@ bool UOpenMobileAdsSubsystem::TryScheduleLoadRetry(
 		Settings->GetRetryPolicyForError(Event.Error.Code);
 	if (
 		!Policy.IsValid()
+		|| !RetryRandomSource
+		|| !RetryScheduler
 		|| Context->RetryAttempts >= Policy.ResolveMaxRetryAttempts(
 			Context->PlacementMaxRetryAttempts
 		)
@@ -4084,39 +4098,34 @@ bool UOpenMobileAdsSubsystem::TryScheduleLoadRetry(
 	Context->EventSink->Invalidate();
 	Context->bProviderAttemptActive = false;
 	Context->bRetryPending = true;
-	Context->PendingRetryDelaySeconds = Policy.InitialDelaySeconds;
+	Context->PendingRetryDelaySeconds =
+		FOpenMobileAdsRetryDelayCalculator::Calculate(
+			Policy,
+			Context->RetryAttempts + 1,
+			*RetryRandomSource
+		);
 	if (bPlatformDefinitelyOffline.Load())
 	{
 		Context->bWaitingForConnectivity = true;
 		return true;
 	}
 
-	Context->RetryTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateUObject(
-			this,
-			&UOpenMobileAdsSubsystem::HandleLoadRetryTick,
-			Event.RequestId
-		),
-		static_cast<float>(Context->PendingRetryDelaySeconds)
-	);
-	return true;
-}
-
-bool UOpenMobileAdsSubsystem::HandleLoadRetryTick(
-	float DeltaTime,
-	FGuid RequestId
-)
-{
-	static_cast<void>(DeltaTime);
-	if (TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>* Context =
-		ActiveRequests.Find(RequestId))
-	{
-		if (Context->IsValid())
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	Context->RetryScheduleHandle = RetryScheduler->Schedule(
+		Context->PendingRetryDelaySeconds,
+		[WeakThis, RequestId = Event.RequestId]()
 		{
-			(*Context)->RetryTickerHandle.Reset();
+			if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+			{
+				Subsystem->StartPendingLoadRetry(RequestId);
+			}
 		}
+	);
+	if (Context->RetryScheduleHandle.IsValid())
+	{
+		return true;
 	}
-	StartPendingLoadRetry(RequestId);
+	Context->bRetryPending = false;
 	return false;
 }
 
@@ -4137,6 +4146,7 @@ void UOpenMobileAdsSubsystem::StartPendingLoadRetry(FGuid RequestId)
 
 	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		FoundContext->ToSharedRef();
+	Context->RetryScheduleHandle.Reset();
 	if (bPlatformDefinitelyOffline.Load())
 	{
 		Context->PendingRetryDelaySeconds = 0.0;
@@ -4239,7 +4249,7 @@ void UOpenMobileAdsSubsystem::StartPendingLoadRetry(FGuid RequestId)
 void UOpenMobileAdsSubsystem::ResumeConnectivityDeferredRetries()
 {
 	check(IsInGameThread());
-	if (bDeinitialized || bPlatformDefinitelyOffline.Load())
+	if (bDeinitialized || bPlatformDefinitelyOffline.Load() || !RetryScheduler)
 	{
 		return;
 	}
@@ -4255,13 +4265,16 @@ void UOpenMobileAdsSubsystem::ResumeConnectivityDeferredRetries()
 			continue;
 		}
 		Pair.Value->bWaitingForConnectivity = false;
-		Pair.Value->RetryTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-			FTickerDelegate::CreateUObject(
-				this,
-				&UOpenMobileAdsSubsystem::HandleLoadRetryTick,
-				Pair.Key
-			),
-			static_cast<float>(Pair.Value->PendingRetryDelaySeconds)
+		const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+		Pair.Value->RetryScheduleHandle = RetryScheduler->Schedule(
+			Pair.Value->PendingRetryDelaySeconds,
+			[WeakThis, RequestId = Pair.Key]()
+			{
+				if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+				{
+					Subsystem->StartPendingLoadRetry(RequestId);
+				}
+			}
 		);
 	}
 }
@@ -5229,6 +5242,8 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		}
 	}
 	ActiveRequests.Reset();
+	RetryScheduler.Reset();
+	RetryRandomSource.Reset();
 	CancelledRequestEvents.Reset();
 	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{

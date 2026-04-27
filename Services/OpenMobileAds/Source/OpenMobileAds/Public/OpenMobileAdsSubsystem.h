@@ -18,7 +18,10 @@ class IOpenMobileAdsConsentProviderSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 class FOpenMobileAdsFullscreenLifecycleCoordinator;
+class IOpenMobileAdsRetryRandomSource;
+class IOpenMobileAdsRetryScheduler;
 struct FOpenMobileAdsActiveRequestContext;
+struct FOpenMobileAdsRetryTestAccess;
 enum class ENetworkConnectionType : uint8;
 
 UENUM(BlueprintType)
@@ -277,6 +280,7 @@ public:
 
 private:
 	friend class FOpenMobileAdsEventDispatcher;
+	friend struct FOpenMobileAdsRetryTestAccess;
 
 	IOpenMobileAdsProvider* FindProvider(FOpenMobileAdsError* OutError = nullptr) const;
 	FName GetPreferredProviderName() const;
@@ -357,7 +361,6 @@ private:
 	void HandleProviderUnregistered(const FName& FeatureName, IModularFeature* Feature);
 	void HandleProviderUnavailable(FName ProviderName);
 	bool TryScheduleLoadRetry(const FOpenMobileAdsEvent& Event);
-	bool HandleLoadRetryTick(float DeltaTime, FGuid RequestId);
 	void StartPendingLoadRetry(FGuid RequestId);
 	void CancelRetrySchedule(FOpenMobileAdsActiveRequestContext& Context);
 	void ResumeConnectivityDeferredRetries();
@@ -399,6 +402,8 @@ private:
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;
+	TSharedPtr<IOpenMobileAdsRetryRandomSource> RetryRandomSource;
+	TSharedPtr<IOpenMobileAdsRetryScheduler> RetryScheduler;
 	FOpenMobileAdsNativeEvent NativeAdsEvent;
 	FOpenMobileAdsInitializationStatusNativeEvent NativeInitializationStatusChanged;
 	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
