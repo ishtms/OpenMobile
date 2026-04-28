@@ -13,6 +13,7 @@
 #include "OpenMobileAdsClock.h"
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsDiagnostics.h"
+#include "OpenMobileAdsFrequencyCap.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsRetry.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
@@ -794,11 +795,13 @@ namespace OpenMobileAdsPrivate
 		case EOpenMobileAdsCanShowBlockReason::Expired:
 			Code = EOpenMobileAdsErrorCode::NotReady;
 			break;
+		case EOpenMobileAdsCanShowBlockReason::FrequencyCap:
+			Code = EOpenMobileAdsErrorCode::FrequencyCap;
+			break;
 		case EOpenMobileAdsCanShowBlockReason::Offline:
 			Code = EOpenMobileAdsErrorCode::Offline;
 			break;
 		case EOpenMobileAdsCanShowBlockReason::NotInitialized:
-		case EOpenMobileAdsCanShowBlockReason::FrequencyCap:
 		case EOpenMobileAdsCanShowBlockReason::Cooldown:
 		case EOpenMobileAdsCanShowBlockReason::LifecycleConflict:
 		case EOpenMobileAdsCanShowBlockReason::None:
@@ -816,6 +819,11 @@ namespace OpenMobileAdsPrivate
 			Code == EOpenMobileAdsErrorCode::Busy
 				|| Code == EOpenMobileAdsErrorCode::NotReady
 				|| Code == EOpenMobileAdsErrorCode::Offline
+				|| (
+					Code == EOpenMobileAdsErrorCode::FrequencyCap
+					&& Decision.FrequencyCapScope
+						== EOpenMobileAdsFrequencyCapScope::RollingWindow
+				)
 				|| Code == EOpenMobileAdsErrorCode::InvalidState
 		);
 	}
@@ -2200,6 +2208,16 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 	if (!RetryScheduler)
 	{
 		RetryScheduler = OpenMobileAdsCreateRetryScheduler();
+	}
+	if (!FrequencyCapTracker)
+	{
+		FrequencyCapTracker = MakeShared<FOpenMobileAdsFrequencyCapTracker>(
+			OpenMobileAdsCreateFrequencyCapStore(!GIsAutomationTesting)
+		);
+		FrequencyCapTracker->Initialize(
+			GetCacheUtcNow(),
+			GetCacheMonotonicSeconds()
+		);
 	}
 	EventDispatcher = MakeShared<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>(*this);
 	UGameInstance* GameInstance = GetGameInstance();
@@ -3974,26 +3992,22 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 			&& Status->Provider == Provider->GetProviderName();
 		Context.bExpired = IsCachedAdExpired(*Status);
 	}
+	if (FrequencyCapTracker)
+	{
+		const FOpenMobileAdsFrequencyCapDecision CapDecision =
+			FrequencyCapTracker->Evaluate(
+				Placement,
+				Resolved.FrequencyCap,
+				Now,
+				GetCacheMonotonicSeconds()
+			);
+		Context.bFrequencyCapped = CapDecision.IsCapped();
+		Context.FrequencyCapScope = CapDecision.Scope;
+		Context.FrequencyCapEndsAt = CapDecision.NextEligibleAt;
+	}
 	if (const TArray<FDateTime>* ImpressionTimestamps =
 		ImpressionTimestampsByPlacement.Find(Placement))
 	{
-		if (
-			Resolved.FrequencyCap.IsEnabled()
-			&& FMath::IsFinite(Resolved.FrequencyCap.WindowSeconds)
-			&& ImpressionTimestamps->Num() >= Resolved.FrequencyCap.MaxImpressions
-		)
-		{
-			const int32 FirstCappedIndex =
-				ImpressionTimestamps->Num() - Resolved.FrequencyCap.MaxImpressions;
-			const FDateTime FrequencyCapEndsAt =
-				(*ImpressionTimestamps)[FirstCappedIndex]
-				+ FTimespan::FromSeconds(Resolved.FrequencyCap.WindowSeconds);
-			if (FrequencyCapEndsAt > Now)
-			{
-				Context.bFrequencyCapped = true;
-				Context.FrequencyCapEndsAt = FrequencyCapEndsAt;
-			}
-		}
 		if (
 			Resolved.CooldownSeconds > 0.0
 			&& FMath::IsFinite(Resolved.CooldownSeconds)
@@ -4530,23 +4544,25 @@ bool UOpenMobileAdsSubsystem::ResolveAutomaticPreloadDelay(
 	}
 	const FDateTime NowUtc = GetCacheUtcNow();
 	FDateTime PacingEndsAt;
+	if (FrequencyCapTracker)
+	{
+		const FOpenMobileAdsFrequencyCapDecision CapDecision =
+			FrequencyCapTracker->Evaluate(
+				Placement,
+				Resolved.FrequencyCap,
+				NowUtc,
+				GetCacheMonotonicSeconds()
+			);
+		if (CapDecision.Scope == EOpenMobileAdsFrequencyCapScope::Session)
+		{
+			bOutCancel = true;
+			return false;
+		}
+		PacingEndsAt = CapDecision.NextEligibleAt;
+	}
 	if (const TArray<FDateTime>* ImpressionTimestamps =
 		ImpressionTimestampsByPlacement.Find(Placement))
 	{
-		if (
-			Resolved.FrequencyCap.IsEnabled()
-			&& FMath::IsFinite(Resolved.FrequencyCap.WindowSeconds)
-			&& ImpressionTimestamps->Num()
-				>= Resolved.FrequencyCap.MaxImpressions
-		)
-		{
-			const int32 FirstCappedIndex = ImpressionTimestamps->Num()
-				- Resolved.FrequencyCap.MaxImpressions;
-			PacingEndsAt = (*ImpressionTimestamps)[FirstCappedIndex]
-				+ FTimespan::FromSeconds(
-					Resolved.FrequencyCap.WindowSeconds
-				);
-		}
 		if (
 			Resolved.CooldownSeconds > 0.0
 			&& FMath::IsFinite(Resolved.CooldownSeconds)
@@ -5428,31 +5444,45 @@ void UOpenMobileAdsSubsystem::RecordImpression(
 	FDateTime Timestamp
 )
 {
-	if (Timestamp == FDateTime())
-	{
-		Timestamp = FDateTime::UtcNow();
-	}
-
-	int32 HistoryLimit = 1;
+	FOpenMobileAdsFrequencyCap Policy;
 	if (const FOpenMobileAdsPlacementSettings* Configuration =
 		FindConfiguredPlacement(Placement))
 	{
 		const FOpenMobileAdsResolvedPlacement Resolved =
 			Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
-		if (Resolved.FrequencyCap.IsEnabled())
+		Policy = Resolved.FrequencyCap;
+	}
+	if (FrequencyCapTracker)
+	{
+		const bool bPersisted = FrequencyCapTracker->RecordImpression(
+			Placement,
+			Policy,
+			GetCacheUtcNow(),
+			GetCacheMonotonicSeconds()
+		);
+		if (!bPersisted && !bFrequencyCapPersistenceWarningLogged)
 		{
-			HistoryLimit = Resolved.FrequencyCap.MaxImpressions;
+			bFrequencyCapPersistenceWarningLogged = true;
+			FOpenMobileAdsLog::Write(
+				EOpenMobileAdsLogLevel::Warning,
+				TEXT("The rolling frequency-cap history could not be saved."),
+				Placement
+			);
 		}
 	}
 
+	if (Timestamp == FDateTime())
+	{
+		Timestamp = GetCacheUtcNow();
+	}
 	TArray<FDateTime>& ImpressionTimestamps =
 		ImpressionTimestampsByPlacement.FindOrAdd(Placement);
 	ImpressionTimestamps.Add(Timestamp);
-	if (ImpressionTimestamps.Num() > HistoryLimit)
+	if (ImpressionTimestamps.Num() > 1)
 	{
 		ImpressionTimestamps.RemoveAt(
 			0,
-			ImpressionTimestamps.Num() - HistoryLimit,
+			ImpressionTimestamps.Num() - 1,
 			EAllowShrinking::No
 		);
 	}
@@ -5773,6 +5803,14 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	ImpressedCachedAds.Reset();
 	CacheExpirationMonotonicDeadlines.Reset();
 	ImpressionTimestampsByPlacement.Reset();
+	if (FrequencyCapTracker)
+	{
+		FrequencyCapTracker->Flush(
+			GetCacheUtcNow(),
+			GetCacheMonotonicSeconds()
+		);
+		FrequencyCapTracker.Reset();
+	}
 	PendingExpiredCachedAdEvents.Reset();
 	CacheClock.Reset();
 	if (InitializationProvider && bProviderInitializationStarted)

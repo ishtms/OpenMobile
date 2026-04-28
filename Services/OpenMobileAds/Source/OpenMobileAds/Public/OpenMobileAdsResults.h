@@ -54,6 +54,14 @@ enum class EOpenMobileAdsCanShowBlockReason : uint8
 	LifecycleConflict
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsFrequencyCapScope : uint8
+{
+	None,
+	Session,
+	RollingWindow
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsCanShowResult
 {
@@ -70,6 +78,10 @@ struct OPENMOBILEADS_API FOpenMobileAdsCanShowResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FDateTime NextEligibleAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsFrequencyCapScope FrequencyCapScope =
+		EOpenMobileAdsFrequencyCapScope::None;
 };
 
 USTRUCT(BlueprintType)

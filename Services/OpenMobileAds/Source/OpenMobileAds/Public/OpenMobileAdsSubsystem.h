@@ -18,6 +18,7 @@ class IOpenMobileAdsConsentProviderSink;
 class IModularFeature;
 class FOpenMobileAdsEventDispatcher;
 class FOpenMobileAdsFullscreenLifecycleCoordinator;
+class FOpenMobileAdsFrequencyCapTracker;
 class IOpenMobileAdsClock;
 class IOpenMobileAdsRetryRandomSource;
 class IOpenMobileAdsRetryScheduler;
@@ -427,6 +428,7 @@ private:
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;
+	TSharedPtr<FOpenMobileAdsFrequencyCapTracker> FrequencyCapTracker;
 	TSharedPtr<IOpenMobileAdsClock> CacheClock;
 	TSharedPtr<IOpenMobileAdsRetryRandomSource> RetryRandomSource;
 	TSharedPtr<IOpenMobileAdsRetryScheduler> RetryScheduler;
@@ -468,6 +470,7 @@ private:
 	double InitializationStartedSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
 	bool bProviderInitializationStarted = false;
+	bool bFrequencyCapPersistenceWarningLogged = false;
 	bool bChildDirectedTreatmentLocked = false;
 	bool bUnderAgeOfConsentLocked = false;
 	bool bPrivacyOptionsPresentationActive = false;

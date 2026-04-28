@@ -3570,6 +3570,115 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsFrequencyCapContractTest,
+	"OpenMobile.Ads.ProviderContract.FrequencyCap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsFrequencyCapContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("SessionCapped");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-session-capped");
+	Placement.IOS.AdUnitId = TEXT("ios-session-capped");
+	Placement.FrequencyCap.MaxSessionImpressions = 2;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].bReportsImpression = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	TestTrue(
+		TEXT("The provider initializes before frequency-cap checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto LoadReady = [this, Subsystem, &Provider](const TCHAR* Label)
+	{
+		TestTrue(Label, Subsystem->LoadAd(TEXT("SessionCapped")).bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		return Subsystem->IsReady(TEXT("SessionCapped"));
+	};
+	auto ShowImpressionAndDismiss = [this, Subsystem, &Provider](
+		const TCHAR* Label,
+		bool bSubmitDuplicate
+	)
+	{
+		const FOpenMobileAdsOperationResult Show =
+			Subsystem->ShowAd(TEXT("SessionCapped"));
+		TestTrue(Label, Show.bAccepted);
+		const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> Sink =
+			Provider.ShowSink;
+		FOpenMobileAdsEvent Impression;
+		Impression.Type = EOpenMobileAdsEventType::Impression;
+		Sink->Submit(Impression);
+		if (bSubmitDuplicate)
+		{
+			Sink->Submit(MoveTemp(Impression));
+		}
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Sink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	};
+
+	TestTrue(TEXT("The first capped placement load becomes ready"), LoadReady(TEXT("The first capped placement load starts")));
+	ShowImpressionAndDismiss(TEXT("The first capped placement show starts"), true);
+	TestTrue(TEXT("A duplicate impression does not consume the session cap"), LoadReady(TEXT("The second capped placement load starts")));
+	TestTrue(
+		TEXT("One normalized impression remains eligible"),
+		Subsystem->CanShow(TEXT("SessionCapped")).bCanShow
+	);
+	ShowImpressionAndDismiss(TEXT("The second capped placement show starts"), false);
+	TestTrue(TEXT("A replacement can load after the capped impression"), LoadReady(TEXT("The third capped placement load starts")));
+
+	const FOpenMobileAdsCanShowResult Decision =
+		Subsystem->CanShow(TEXT("SessionCapped"));
+	TestFalse(TEXT("The session cap blocks at its exact count"), Decision.bCanShow);
+	TestEqual(
+		TEXT("CanShow reports a frequency-cap blocker"),
+		Decision.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::FrequencyCap
+	);
+	TestEqual(
+		TEXT("CanShow reports the session cap scope"),
+		Decision.FrequencyCapScope,
+		EOpenMobileAdsFrequencyCapScope::Session
+	);
+	TestEqual(
+		TEXT("A session cap has no time-based eligibility"),
+		Decision.NextEligibleAt,
+		FDateTime()
+	);
+	const FOpenMobileAdsOperationResult Rejected =
+		Subsystem->ShowAd(TEXT("SessionCapped"));
+	TestFalse(TEXT("Show rejects a capped placement"), Rejected.bAccepted);
+	TestEqual(
+		TEXT("Show returns the typed frequency-cap error"),
+		Rejected.Error.Code,
+		EOpenMobileAdsErrorCode::FrequencyCap
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsClickCallbackContractTest,
 	"OpenMobile.Ads.ProviderContract.Click.Callback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

@@ -53,6 +53,7 @@ bool FOpenMobileAdsPlacementDefaultsTest::RunTest(const FString& Parameters)
 	Placement.bPreload = true;
 	Placement.bEnabled = false;
 	Placement.CooldownSeconds = 30.0;
+	Placement.FrequencyCap.MaxSessionImpressions = 4;
 	Placement.FrequencyCap.MaxImpressions = 2;
 	Placement.FrequencyCap.WindowSeconds = 60.0;
 	Placement.ProviderOptions.Add(TEXT("SharedOption"), TEXT("shared"));
@@ -77,6 +78,7 @@ bool FOpenMobileAdsPlacementDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("iOS keeps the shared preload value"), IOS.bPreload);
 	TestEqual(TEXT("Shared cooldown is retained"), IOS.CooldownSeconds, 30.0);
 	TestEqual(TEXT("Android cooldown override is applied"), Android.CooldownSeconds, 10.0);
+	TestEqual(TEXT("Session frequency cap is retained"), IOS.FrequencyCap.MaxSessionImpressions, 4);
 	TestEqual(TEXT("Frequency cap count is retained"), IOS.FrequencyCap.MaxImpressions, 2);
 	TestEqual(TEXT("Frequency cap window is retained"), IOS.FrequencyCap.WindowSeconds, 60.0);
 	TestEqual(TEXT("Platform provider options override shared values"), Android.ProviderOptions[TEXT("SharedOption")], FString(TEXT("android")));
@@ -154,6 +156,23 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	InvalidCap.FrequencyCap.MaxImpressions = 1;
 	Placements.Add(InvalidCap);
 
+	FOpenMobileAdsPlacementSettings InvalidSessionCap = MakeRewardedPlacement(
+		TEXT("InvalidSessionCap"),
+		TEXT("android-session-cap"),
+		TEXT("ios-session-cap")
+	);
+	InvalidSessionCap.FrequencyCap.MaxSessionImpressions = -1;
+	Placements.Add(InvalidSessionCap);
+
+	FOpenMobileAdsPlacementSettings ExcessiveRollingCap = MakeRewardedPlacement(
+		TEXT("ExcessiveRollingCap"),
+		TEXT("android-excessive-cap"),
+		TEXT("ios-excessive-cap")
+	);
+	ExcessiveRollingCap.FrequencyCap.MaxImpressions = 4097;
+	ExcessiveRollingCap.FrequencyCap.WindowSeconds = 60.0;
+	Placements.Add(ExcessiveRollingCap);
+
 	FOpenMobileAdsPlacementSettings InvalidCooldown = MakeRewardedPlacement(
 		TEXT("InvalidCooldown"),
 		TEXT("android-cooldown"),
@@ -191,6 +210,17 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Rewarded refresh is rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::RefreshNotSupported));
 	TestTrue(TEXT("Negative refresh intervals are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidRefreshInterval));
 	TestTrue(TEXT("Incomplete caps are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFrequencyCap));
+	TestTrue(
+		TEXT("Excessive rolling histories are rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+						== EOpenMobileAdsConfigurationIssueCode::InvalidFrequencyCap
+					&& Issue.Placement == TEXT("ExcessiveRollingCap");
+			}
+		)
+	);
 	TestTrue(TEXT("Negative cooldowns are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidCooldown));
 	TestTrue(TEXT("Negative reward amount fallbacks are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFallbackRewardAmount));
 	TestTrue(TEXT("Empty provider option names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::EmptyProviderOption));
@@ -330,6 +360,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.FallbackRewardAmount = 25;
 	Placement.FrequencyCap.MaxImpressions = 2;
 	Placement.FrequencyCap.WindowSeconds = 60.0;
+	Placement.FrequencyCap.MaxSessionImpressions = 3;
 	Placement.Android.bOverridePreload = true;
 	Placement.Android.bPreload = false;
 	SavedSettings->Placements.Add(Placement);
@@ -422,6 +453,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Placement retry limit survives restart"), LoadedPlacement.MaxRetryAttempts, 1);
 		TestEqual(TEXT("Frequency cap count survives restart"), LoadedPlacement.FrequencyCap.MaxImpressions, 2);
 		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
+		TestEqual(TEXT("Session frequency cap survives restart"), LoadedPlacement.FrequencyCap.MaxSessionImpressions, 3);
 		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
 		TestEqual(TEXT("Reward type fallback survives restart"), LoadedPlacement.FallbackRewardType, FString(TEXT("gold-token")));
 		TestEqual(TEXT("Reward amount fallback survives restart"), LoadedPlacement.FallbackRewardAmount, static_cast<int64>(25));

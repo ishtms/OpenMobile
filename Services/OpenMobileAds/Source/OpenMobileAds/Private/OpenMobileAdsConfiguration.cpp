@@ -68,7 +68,11 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 
 		const FOpenMobileAdsFrequencyCap& Cap = Placement.FrequencyCap;
-		const bool bInvalidCap = Cap.MaxImpressions < 0
+		const bool bInvalidCap = Cap.MaxSessionImpressions < 0
+			|| Cap.MaxImpressions < 0
+			|| Cap.MaxImpressions
+				> FOpenMobileAdsFrequencyCap::MaximumRollingImpressions
+			|| !FMath::IsFinite(Cap.WindowSeconds)
 			|| Cap.WindowSeconds < 0.0
 			|| ((Cap.MaxImpressions == 0) != (Cap.WindowSeconds == 0.0));
 		if (bInvalidCap)
@@ -77,7 +81,7 @@ namespace OpenMobileAdsConfigurationPrivate
 				Issues,
 				EOpenMobileAdsConfigurationIssueCode::InvalidFrequencyCap,
 				Placement.Placement,
-				TEXT("Frequency cap count and window must both be positive or both be zero.")
+				TEXT("Frequency cap counts must not be negative, rolling histories must not exceed 4096 impressions, and rolling count and window must both be positive or both be zero.")
 			);
 		}
 

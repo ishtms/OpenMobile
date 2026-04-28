@@ -98,11 +98,13 @@ FOpenMobileAdsCanShowResult FOpenMobileAdsCanShowPolicy::Evaluate(
 	}
 	if (Context.bFrequencyCapped)
 	{
-		return Blocked(
+		FOpenMobileAdsCanShowResult Result = Blocked(
 			EOpenMobileAdsCanShowBlockReason::FrequencyCap,
 			TEXT("The placement has reached its frequency cap."),
 			Context.FrequencyCapEndsAt
 		);
+		Result.FrequencyCapScope = Context.FrequencyCapScope;
+		return Result;
 	}
 	if (Context.bCooldownActive)
 	{

@@ -218,6 +218,10 @@ EOpenMobileAdsRetryClassification FOpenMobileAdsErrorClassifier::Classify(
 		return Error.bRetryable
 			? EOpenMobileAdsRetryClassification::Retryable
 			: EOpenMobileAdsRetryClassification::Terminal;
+	case EOpenMobileAdsErrorCode::FrequencyCap:
+		return Error.bRetryable
+			? EOpenMobileAdsRetryClassification::ConditionallyRetryable
+			: EOpenMobileAdsRetryClassification::Terminal;
 	case EOpenMobileAdsErrorCode::Offline:
 	case EOpenMobileAdsErrorCode::PrivacyBlocked:
 	case EOpenMobileAdsErrorCode::Busy:

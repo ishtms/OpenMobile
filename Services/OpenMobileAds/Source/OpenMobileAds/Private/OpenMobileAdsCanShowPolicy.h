@@ -17,6 +17,8 @@ struct FOpenMobileAdsCanShowPolicyContext
 	bool bCooldownActive = false;
 	bool bOffline = false;
 	bool bLifecycleConflict = false;
+	EOpenMobileAdsFrequencyCapScope FrequencyCapScope =
+		EOpenMobileAdsFrequencyCapScope::None;
 	FDateTime FrequencyCapEndsAt;
 	FDateTime CooldownEndsAt;
 	FString ServiceExplanation;

@@ -121,15 +121,48 @@ struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 {
 	GENERATED_BODY()
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	static constexpr int32 MaximumRollingImpressions = 4096;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0", DisplayName = "Maximum Impressions Per Session")
+	)
+	int32 MaxSessionImpressions = 0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0", DisplayName = "Maximum Impressions Per Rolling Window")
+	)
 	int32 MaxImpressions = 0;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", DisplayName = "Rolling Window", Units = "s")
+	)
 	double WindowSeconds = 0.0;
+
+	bool IsSessionLimitEnabled() const
+	{
+		return MaxSessionImpressions > 0;
+	}
+
+	bool IsRollingWindowEnabled() const
+	{
+		return MaxImpressions > 0 && WindowSeconds > 0.0;
+	}
 
 	bool IsEnabled() const
 	{
-		return MaxImpressions > 0 && WindowSeconds > 0.0;
+		return IsSessionLimitEnabled() || IsRollingWindowEnabled();
 	}
 };
 

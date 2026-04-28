@@ -18,6 +18,7 @@ enum class EOpenMobileAdsErrorCode : uint8
 	DisabledPlacement,
 	Busy,
 	NotReady,
+	FrequencyCap,
 	Cancelled,
 	PrivacyBlocked,
 	InvalidState,
