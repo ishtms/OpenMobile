@@ -1496,6 +1496,14 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 		TEXT("The supported rewarded format has a test-ad contract"),
 		Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded) != nullptr
 	);
+	if (const FOpenMobileAdFormatCapabilities* Rewarded =
+		Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded))
+	{
+		TestTrue(
+			TEXT("The rewarded format supports automatic preloading"),
+			Rewarded->bSupportsPreload
+		);
+	}
 	Provider->Shutdown();
 
 	FOpenMobileAdsInitializationRequest ProductionRequest;

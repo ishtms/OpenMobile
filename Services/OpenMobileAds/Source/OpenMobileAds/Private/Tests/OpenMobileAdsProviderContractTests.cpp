@@ -769,6 +769,7 @@ namespace OpenMobileAdsProviderContractTests
 				Settings->bDelayAdsInitializationUntilTrackingAuthorization;
 			SavedRetryPolicy = Settings->RetryPolicy;
 			SavedNoFillRetryPolicy = Settings->NoFillRetryPolicy;
+			SavedPreloadPolicy = Settings->PreloadPolicy;
 			Settings->RetryPolicy.MaxRetryAttempts = 0;
 			Settings->NoFillRetryPolicy.MaxRetryAttempts = 0;
 			SavedPrivacy = Settings->Privacy;
@@ -792,6 +793,7 @@ namespace OpenMobileAdsProviderContractTests
 				bSavedDelayAdsInitializationUntilTrackingAuthorization;
 			Settings->RetryPolicy = SavedRetryPolicy;
 			Settings->NoFillRetryPolicy = SavedNoFillRetryPolicy;
+			Settings->PreloadPolicy = SavedPreloadPolicy;
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -812,6 +814,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bSavedDelayAdsInitializationUntilTrackingAuthorization = true;
 		FOpenMobileAdsRetryPolicy SavedRetryPolicy;
 		FOpenMobileAdsRetryPolicy SavedNoFillRetryPolicy;
+		FOpenMobileAdsPreloadPolicy SavedPreloadPolicy;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -1844,6 +1847,279 @@ bool FOpenMobileAdsReloadContractTest::RunTest(const FString& Parameters)
 	);
 
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAutomaticPreloadContractTest,
+	"OpenMobile.Ads.ProviderContract.Preload.Automatic",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAutomaticPreloadContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = true;
+	ScopedSettings.Settings->PreloadPolicy.TriggerDelaySeconds = 5.0;
+	ScopedSettings.Settings->PreloadPolicy.RecoverableFailureDelaySeconds = 20.0;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Automatic = AddRewardedPlacement(
+		*ScopedSettings.Settings,
+		TEXT("AutomaticReward")
+	);
+	Automatic.bPreload = true;
+	Automatic.FrequencyCap.MaxImpressions = 1;
+	Automatic.FrequencyCap.WindowSeconds = 30.0;
+	Automatic.CooldownSeconds = 10.0;
+	AddRewardedPlacement(*ScopedSettings.Settings, TEXT("ManualReward"));
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].bSupportsPreload = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledRetryScheduler> Scheduler =
+		MakeShared<FControlledRetryScheduler>();
+	const TSharedRef<FControlledRetryRandomSource> Random =
+		MakeShared<FControlledRetryRandomSource>();
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsRetryTestAccess::SetDependencies(
+		*Subsystem,
+		Scheduler,
+		Random
+	);
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	TestTrue(
+		TEXT("The provider initializes before automatic preloading"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	TestEqual(TEXT("Initialization queues one opted-in placement"), Scheduler->NumPending(), 1);
+	TestEqual(TEXT("The preload waits for its configured delay"), Provider.LoadCalls, 0);
+	Clock->Advance(4.0);
+	Scheduler->AdvanceBy(4.0);
+	TestEqual(TEXT("The preload waits before its configured boundary"), Provider.LoadCalls, 0);
+	Clock->Advance(1.0);
+	Scheduler->AdvanceBy(1.0);
+	TestEqual(TEXT("The preload starts at the exact boundary"), Provider.LoadCalls, 1);
+	TestEqual(
+		TEXT("The opted-in placement reaches the provider"),
+		Provider.LastLoadRequest.Placement.Placement,
+		FName(TEXT("AutomaticReward"))
+	);
+	const FGuid CachedAdId = FGuid::NewGuid();
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = CachedAdId;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("The automatically loaded ad can be shown"),
+		Subsystem->ShowAd(TEXT("AutomaticReward")).bAccepted
+	);
+	FOpenMobileAdsEvent Impression;
+	Impression.Type = EOpenMobileAdsEventType::Impression;
+	Impression.Timestamp = Clock->UtcNow();
+	Provider.ShowSink->Submit(MoveTemp(Impression));
+	DrainGameThreadTasks();
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Provider.ShowSink->Submit(MoveTemp(Dismissed));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("Consumption queues one deduplicated replacement"),
+		Scheduler->NumPending(),
+		1
+	);
+	Clock->Advance(29.0);
+	Scheduler->AdvanceBy(29.0);
+	TestEqual(
+		TEXT("Frequency and cooldown policy defer the replacement"),
+		Provider.LoadCalls,
+		1
+	);
+	Clock->Advance(1.0);
+	Scheduler->AdvanceBy(1.0);
+	TestEqual(
+		TEXT("The replacement starts at the pacing boundary"),
+		Provider.LoadCalls,
+		2
+	);
+
+	AddExpectedError(
+		TEXT("The mock load attempt failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		4
+	);
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("A recoverable terminal failure queues one replacement"),
+		Scheduler->NumPending(),
+		1
+	);
+	Clock->Advance(19.0);
+	Scheduler->AdvanceBy(19.0);
+	TestEqual(
+		TEXT("Failure recovery waits for its configured delay"),
+		Provider.LoadCalls,
+		2
+	);
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	TestEqual(
+		TEXT("Backgrounding cancels scheduled preload work"),
+		Scheduler->NumPending(),
+		0
+	);
+	Clock->Advance(1.0);
+	Scheduler->AdvanceBy(1.0);
+	TestEqual(
+		TEXT("Background time does not start provider work"),
+		Provider.LoadCalls,
+		2
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestEqual(
+		TEXT("Foregrounding restores one eligible request"),
+		Scheduler->NumPending(),
+		1
+	);
+	Scheduler->AdvanceBy(0.0);
+	TestEqual(
+		TEXT("Foregrounding resumes the elapsed request"),
+		Provider.LoadCalls,
+		3
+	);
+
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	const ENetworkConnectionType PreviousConnectionType =
+		FPlatformMisc::GetNetworkConnectionType();
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		ENetworkConnectionType::None
+	);
+	TestEqual(
+		TEXT("Going offline cancels scheduled preload work"),
+		Scheduler->NumPending(),
+		0
+	);
+	Clock->Advance(20.0);
+	Scheduler->AdvanceBy(20.0);
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		ENetworkConnectionType::Unknown
+	);
+	TestEqual(
+		TEXT("Connectivity recovery restores one request"),
+		Scheduler->NumPending(),
+		1
+	);
+	Scheduler->AdvanceBy(0.0);
+	TestEqual(
+		TEXT("Connectivity recovery resumes preload work"),
+		Provider.LoadCalls,
+		4
+	);
+
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	FOpenMobileAdsPrivacySnapshot Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::Denied;
+	Privacy.bCanRequestAds = false;
+	TestTrue(
+		TEXT("Consent can block a pending automatic preload"),
+		Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy)).bAccepted
+	);
+	TestEqual(
+		TEXT("Consent loss cancels scheduled preload work"),
+		Scheduler->NumPending(),
+		0
+	);
+	Clock->Advance(20.0);
+	Scheduler->AdvanceBy(20.0);
+	Privacy = Subsystem->GetPrivacySnapshot();
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Privacy.bCanRequestAds = true;
+	Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy));
+	TestEqual(
+		TEXT("Consent recovery restores one request"),
+		Scheduler->NumPending(),
+		1
+	);
+	Scheduler->AdvanceBy(0.0);
+	TestEqual(
+		TEXT("Consent recovery resumes preload work"),
+		Provider.LoadCalls,
+		5
+	);
+
+	SubmitLoadFailure(
+		Provider,
+		EOpenMobileAdsErrorCode::NativeFailure,
+		true
+	);
+	TestEqual(
+		TEXT("Shutdown begins with one pending preload"),
+		Scheduler->NumPending(),
+		1
+	);
+	Subsystem->Deinitialize();
+	TestEqual(
+		TEXT("Shutdown cancels the pending preload"),
+		Scheduler->NumPending(),
+		0
+	);
+	Scheduler->AdvanceBy(20.0);
+	TestEqual(
+		TEXT("Shutdown prevents later provider work"),
+		Provider.LoadCalls,
+		5
+	);
+	FCoreDelegates::OnNetworkConnectionChanged.Broadcast(
+		PreviousConnectionType
+	);
+
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	const TSharedRef<FControlledRetryScheduler> DisabledScheduler =
+		MakeShared<FControlledRetryScheduler>();
+	UOpenMobileAdsSubsystem* DisabledSubsystem =
+		NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	FOpenMobileAdsRetryTestAccess::SetDependencies(
+		*DisabledSubsystem,
+		DisabledScheduler,
+		MakeShared<FControlledRetryRandomSource>()
+	);
+	TestTrue(
+		TEXT("The provider reinitializes for the global override"),
+		InitializeSuccessfully(*DisabledSubsystem, Provider)
+	);
+	TestEqual(
+		TEXT("The global policy overrides placement opt-in"),
+		DisabledScheduler->NumPending(),
+		0
+	);
+	TestEqual(
+		TEXT("A placement without preload never starts automatically"),
+		Provider.LoadCalls,
+		5
+	);
+	DisabledSubsystem->Deinitialize();
+
 	return true;
 }
 
@@ -4800,6 +5076,7 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 	using namespace OpenMobileAdsProviderContractTests;
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
 	ScopedSettings.Settings->Placements.Reset();
 	FOpenMobileAdsPlacementSettings& Placement =
 		ScopedSettings.Settings->Placements.Emplace_GetRef();
@@ -4815,6 +5092,7 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 
 	FMockProvider Provider(TEXT("MockAds"));
 	Provider.Capabilities.Formats[0].CacheLifetimeSeconds = 600.0;
+	Provider.Capabilities.Formats[0].bSupportsPreload = true;
 	FScopedProviderRegistration Registration(Provider);
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
 		NewObject<UGameInstance>()
@@ -4822,10 +5100,18 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 	const TSharedRef<FControlledAdsClock> Clock =
 		MakeShared<FControlledAdsClock>();
 	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	const TSharedRef<FControlledRetryScheduler> Scheduler =
+		MakeShared<FControlledRetryScheduler>();
+	FOpenMobileAdsRetryTestAccess::SetDependencies(
+		*Subsystem,
+		Scheduler,
+		MakeShared<FControlledRetryRandomSource>()
+	);
 	TestTrue(
 		TEXT("The provider initializes before expiration checks"),
 		InitializeSuccessfully(*Subsystem, Provider)
 	);
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = true;
 
 	TArray<FOpenMobileAdsEvent> Events;
 	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
@@ -4911,6 +5197,7 @@ bool FOpenMobileAdsCacheExpirationContractTest::RunTest(const FString& Parameter
 	Clock->CurrentMonotonicSeconds += 60.0;
 	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
 	DrainGameThreadTasks();
+	Scheduler->AdvanceBy(0.0);
 	TestEqual(TEXT("Both expired caches release native state"), Provider.ReleasedCachedAds.Num(), 2);
 	if (Provider.ReleasedCachedAds.Num() == 2)
 	{

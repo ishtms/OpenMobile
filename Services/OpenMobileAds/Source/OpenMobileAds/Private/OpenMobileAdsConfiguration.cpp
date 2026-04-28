@@ -124,6 +124,14 @@ int32 FOpenMobileAdsRetryPolicy::ResolveMaxRetryAttempts(
 		: FMath::Min(MaxRetryAttempts, PlacementMaxRetryAttempts);
 }
 
+bool FOpenMobileAdsPreloadPolicy::IsValid() const
+{
+	return FMath::IsFinite(TriggerDelaySeconds)
+		&& TriggerDelaySeconds >= 0.0
+		&& FMath::IsFinite(RecoverableFailureDelaySeconds)
+		&& RecoverableFailureDelaySeconds >= 1.0;
+}
+
 UOpenMobileAdsSettings::UOpenMobileAdsSettings()
 {
 	NoFillRetryPolicy.MaxRetryAttempts = 1;
@@ -342,7 +350,8 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 TArray<FOpenMobileAdsConfigurationIssue>
 FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 	const TArray<FOpenMobileAdsPlacementSettings>& Placements,
-	const FOpenMobileAdsProviderCapabilities& Capabilities
+	const FOpenMobileAdsProviderCapabilities& Capabilities,
+	bool bAutomaticPreloadingEnabled
 )
 {
 	using namespace OpenMobileAdsConfigurationPrivate;
@@ -396,6 +405,23 @@ FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 		ValidateOperation(FormatCapabilities->bCanLoad, TEXT("load"));
 		ValidateOperation(FormatCapabilities->bCanShow, TEXT("show"));
 		ValidateOperation(FormatCapabilities->bCanDestroy, TEXT("destroy"));
+		const FOpenMobileAdsResolvedPlacement Android =
+			Placement.Resolve(EOpenMobileAdsPlatform::Android);
+		const FOpenMobileAdsResolvedPlacement IOS =
+			Placement.Resolve(EOpenMobileAdsPlatform::IOS);
+		if (
+			bAutomaticPreloadingEnabled
+			&& (
+				(Android.bEnabled && Android.bPreload)
+				|| (IOS.bEnabled && IOS.bPreload)
+			)
+		)
+		{
+			ValidateOperation(
+				FormatCapabilities->bSupportsPreload,
+				TEXT("automatic preload")
+			);
+		}
 	}
 	return Issues;
 }
@@ -448,6 +474,15 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			EOpenMobileAdsConfigurationIssueCode::InvalidRetryPolicy,
 			NAME_None,
 			TEXT("No-fill retry attempts must be between 0 and 10, delays must be finite and non-negative, maximum delay must not be shorter than the initial delay, and backoff must be at least 1.")
+		);
+	}
+	if (!Settings.PreloadPolicy.IsValid())
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidPreloadPolicy,
+			NAME_None,
+			TEXT("Automatic preload delays must be finite and non-negative, and the recoverable-failure delay must be at least one second.")
 		);
 	}
 	if (Settings.bDevelopmentTestMode)

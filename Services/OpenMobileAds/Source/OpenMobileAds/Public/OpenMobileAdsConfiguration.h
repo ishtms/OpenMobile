@@ -88,6 +88,35 @@ struct OPENMOBILEADS_API FOpenMobileAdsRetryPolicy
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsPreloadPolicy
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bEnabled = true;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double TriggerDelaySeconds = 0.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "1.0", Units = "s")
+	)
+	double RecoverableFailureDelaySeconds = 60.0;
+
+	bool IsValid() const;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 {
 	GENERATED_BODY()
@@ -283,7 +312,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	UnsafeShippingDebugGeography,
 	InvalidTrackingUsageDescription,
 	InvalidConvenienceRewardedPlacement,
-	InvalidPlacementRetryLimit
+	InvalidPlacementRetryLimit,
+	InvalidPreloadPolicy
 };
 
 USTRUCT(BlueprintType)
@@ -316,7 +346,8 @@ public:
 
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateProviderCapabilities(
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
-		const FOpenMobileAdsProviderCapabilities& Capabilities
+		const FOpenMobileAdsProviderCapabilities& Capabilities,
+		bool bAutomaticPreloadingEnabled = true
 	);
 
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateSettings(
@@ -431,6 +462,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability")
 	FOpenMobileAdsRetryPolicy NoFillRetryPolicy;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability|Preloading")
+	FOpenMobileAdsPreloadPolicy PreloadPolicy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Privacy")
 	FOpenMobileAdsPrivacyConfiguration Privacy;

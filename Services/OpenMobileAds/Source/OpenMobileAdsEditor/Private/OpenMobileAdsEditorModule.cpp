@@ -51,7 +51,8 @@ namespace OpenMobileAdsEditorPrivate
 			Issues.Append(
 				FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 					Settings.Placements,
-					Provider->GetCapabilities()
+					Provider->GetCapabilities(),
+					Settings.PreloadPolicy.bEnabled
 				)
 			);
 		}

@@ -22,6 +22,7 @@ class IOpenMobileAdsClock;
 class IOpenMobileAdsRetryRandomSource;
 class IOpenMobileAdsRetryScheduler;
 struct FOpenMobileAdsActiveRequestContext;
+struct FOpenMobileAdsAutomaticPreloadContext;
 struct FOpenMobileAdsClockTestAccess;
 struct FOpenMobileAdsRetryTestAccess;
 enum class ENetworkConnectionType : uint8;
@@ -371,6 +372,19 @@ private:
 	void CancelRetrySchedule(FOpenMobileAdsActiveRequestContext& Context);
 	void ResumeConnectivityDeferredRetries();
 	void StopPrivacyBlockedRetries();
+	void RequestConfiguredAutomaticPreloads();
+	void RequestAutomaticPreload(FName Placement, double MinimumDelaySeconds);
+	void ScheduleAutomaticPreload(FName Placement);
+	void StartAutomaticPreload(FName Placement);
+	bool ResolveAutomaticPreloadDelay(
+		FName Placement,
+		double& OutDelaySeconds,
+		bool& bOutCancel
+	) const;
+	void PauseAutomaticPreloads();
+	void ReevaluateAutomaticPreloads();
+	void CancelAutomaticPreload(FName Placement);
+	void CancelAllAutomaticPreloads();
 	void SubmitPendingLoadFailure(
 		FGuid RequestId,
 		FOpenMobileAdsError Error
@@ -409,6 +423,7 @@ private:
 	TMap<FName, TArray<FDateTime>> ImpressionTimestampsByPlacement;
 	TSet<FGuid> PendingExpiredCachedAdEvents;
 	TMap<FGuid, TSharedPtr<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>> ActiveRequests;
+	TMap<FName, TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>> AutomaticPreloads;
 	TSet<FGuid> CancelledRequestEvents;
 	TSharedPtr<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe> EventDispatcher;
 	TSharedPtr<FOpenMobileAdsFullscreenLifecycleCoordinator> FullscreenLifecycle;

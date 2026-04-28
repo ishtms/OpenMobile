@@ -855,6 +855,12 @@ struct FOpenMobileAdsActiveRequestContext
 	bool bProviderAttemptActive = true;
 };
 
+struct FOpenMobileAdsAutomaticPreloadContext
+{
+	FOpenMobileAdsRetryScheduleHandle ScheduleHandle;
+	double EarliestStartMonotonicSeconds = 0.0;
+};
+
 namespace OpenMobileAdsPrivate
 {
 	bool UsesFullscreenLifecycle(EOpenMobileAdFormat Format)
@@ -1749,6 +1755,7 @@ void UOpenMobileAdsSubsystem::HandleInitializationCompleted(
 	}
 	UpdatePartialInitializationState();
 	BroadcastInitializationStatus();
+	RequestConfiguredAutomaticPreloads();
 }
 
 void UOpenMobileAdsSubsystem::HandleProviderInitializationStatus(
@@ -1870,6 +1877,7 @@ void UOpenMobileAdsSubsystem::BroadcastConsentStatus()
 	check(IsInGameThread());
 	RefreshCanRequestAdsDecision();
 	StopPrivacyBlockedRetries();
+	ReevaluateAutomaticPreloads();
 	NativeConsentStatusChanged.Broadcast(PrivacySnapshot);
 	OnConsentStatusChanged.Broadcast(PrivacySnapshot);
 }
@@ -2943,22 +2951,34 @@ void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
 	const bool bDefinitelyOffline =
 		FOpenMobileAdsConnectivityPolicy::IsDefinitelyOffline(ConnectionType);
 	bPlatformDefinitelyOffline.Store(bDefinitelyOffline);
-	if (bDefinitelyOffline)
-	{
-		return;
-	}
 	if (IsInGameThread())
 	{
-		ResumeConnectivityDeferredRetries();
+		if (bDefinitelyOffline)
+		{
+			PauseAutomaticPreloads();
+		}
+		else
+		{
+			ResumeConnectivityDeferredRetries();
+			ReevaluateAutomaticPreloads();
+		}
 		return;
 	}
 
 	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
-	AsyncTask(ENamedThreads::GameThread, [WeakThis]()
+	AsyncTask(ENamedThreads::GameThread, [WeakThis, bDefinitelyOffline]()
 	{
 		if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
 		{
-			Subsystem->ResumeConnectivityDeferredRetries();
+			if (bDefinitelyOffline)
+			{
+				Subsystem->PauseAutomaticPreloads();
+			}
+			else
+			{
+				Subsystem->ResumeConnectivityDeferredRetries();
+				Subsystem->ReevaluateAutomaticPreloads();
+			}
 		}
 	});
 }
@@ -2966,6 +2986,7 @@ void UOpenMobileAdsSubsystem::HandleNetworkConnectionChanged(
 void UOpenMobileAdsSubsystem::HandleApplicationWillDeactivate()
 {
 	bApplicationActive = false;
+	PauseAutomaticPreloads();
 	if (FullscreenLifecycle)
 	{
 		FullscreenLifecycle->SetApplicationActive(false);
@@ -2981,11 +3002,13 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
 	}
 	RefreshTrackingAuthorizationStatus();
 	ExpireCachedAds();
+	ReevaluateAutomaticPreloads();
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
 {
 	bApplicationInForeground = false;
+	PauseAutomaticPreloads();
 	if (FullscreenLifecycle)
 	{
 		FullscreenLifecycle->SetApplicationInForeground(false);
@@ -3000,6 +3023,7 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground()
 		FullscreenLifecycle->SetApplicationInForeground(true);
 	}
 	ExpireCachedAds();
+	ReevaluateAutomaticPreloads();
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -3330,6 +3354,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}
 	CancelSupersededRequest(SupersededRequestId);
+	CancelAutomaticPreload(Placement);
 
 	FOpenMobileAdsEvent Started;
 	Started.Type = EOpenMobileAdsEventType::LoadStarted;
@@ -3628,6 +3653,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAd(FName Placement
 	{
 		CancelSupersededRequest(SupersededRequestId);
 	}
+	CancelAutomaticPreload(Placement);
 	ScheduleCacheExpirationCheck();
 	Sink->Commit();
 	return FOpenMobileAdsOperationResult::Accepted(Status.ActiveRequestId);
@@ -3728,6 +3754,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::DestroyAllAds()
 	{
 		CancelSupersededRequest(SupersededRequestId);
 	}
+	CancelAllAutomaticPreloads();
 	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{
 		Pair.Value.State = EOpenMobileAdPlacementState::Destroying;
@@ -4371,6 +4398,317 @@ void UOpenMobileAdsSubsystem::StopPrivacyBlockedRetries()
 	}
 }
 
+void UOpenMobileAdsSubsystem::RequestConfiguredAutomaticPreloads()
+{
+	check(IsInGameThread());
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	if (
+		bDeinitialized
+		|| !Settings->PreloadPolicy.bEnabled
+		|| !Settings->PreloadPolicy.IsValid()
+	)
+	{
+		CancelAllAutomaticPreloads();
+		return;
+	}
+
+	for (const FOpenMobileAdsPlacementSettings& Placement : Settings->Placements)
+	{
+		const FOpenMobileAdsResolvedPlacement Resolved =
+			Placement.Resolve(OpenMobileAdsGetCurrentPlatform());
+		if (Resolved.bEnabled && Resolved.bPreload)
+		{
+			RequestAutomaticPreload(
+				Resolved.Placement,
+				Settings->PreloadPolicy.TriggerDelaySeconds
+			);
+		}
+	}
+}
+
+void UOpenMobileAdsSubsystem::RequestAutomaticPreload(
+	FName Placement,
+	double MinimumDelaySeconds
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || Placement.IsNone() || !RetryScheduler)
+	{
+		return;
+	}
+
+	TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>& Context =
+		AutomaticPreloads.FindOrAdd(Placement);
+	if (!Context)
+	{
+		Context = MakeShared<FOpenMobileAdsAutomaticPreloadContext>();
+	}
+	Context->EarliestStartMonotonicSeconds = FMath::Max(
+		Context->EarliestStartMonotonicSeconds,
+		GetCacheMonotonicSeconds() + FMath::Max(0.0, MinimumDelaySeconds)
+	);
+	ScheduleAutomaticPreload(Placement);
+}
+
+bool UOpenMobileAdsSubsystem::ResolveAutomaticPreloadDelay(
+	FName Placement,
+	double& OutDelaySeconds,
+	bool& bOutCancel
+) const
+{
+	OutDelaySeconds = 0.0;
+	bOutCancel = false;
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	const FOpenMobileAdsPlacementSettings* Configuration =
+		Settings->FindPlacement(Placement);
+	if (
+		bDeinitialized
+		|| !Settings->PreloadPolicy.bEnabled
+		|| !Settings->PreloadPolicy.IsValid()
+		|| !Configuration
+	)
+	{
+		bOutCancel = true;
+		return false;
+	}
+
+	const FOpenMobileAdsResolvedPlacement Resolved =
+		Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
+	if (!Resolved.bEnabled || !Resolved.bPreload)
+	{
+		bOutCancel = true;
+		return false;
+	}
+	if (const FOpenMobileAdsPlacementStatus* Status =
+		PlacementStatuses.Find(Placement))
+	{
+		if (
+			Status->State == EOpenMobileAdPlacementState::Loading
+			|| Status->State == EOpenMobileAdPlacementState::Ready
+			|| Status->State == EOpenMobileAdPlacementState::Destroying
+		)
+		{
+			bOutCancel = true;
+			return false;
+		}
+		if (Status->State == EOpenMobileAdPlacementState::Showing)
+		{
+			return false;
+		}
+	}
+	if (
+		ServiceState != EOpenMobileAdsServiceState::Ready
+		|| !bApplicationActive
+		|| !bApplicationInForeground
+		|| bPlatformDefinitelyOffline.Load()
+	)
+	{
+		return false;
+	}
+
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	if (!Provider || Provider->GetProviderName() != SelectedProviderName)
+	{
+		return false;
+	}
+	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
+		ProviderCapabilities.FindFormat(Resolved.Format);
+	if (
+		!FormatCapabilities
+		|| !FormatCapabilities->bCanLoad
+		|| !FormatCapabilities->bSupportsPreload
+	)
+	{
+		bOutCancel = true;
+		return false;
+	}
+	if (!EvaluateCanRequestAds(Provider).bCanRequestAds)
+	{
+		return false;
+	}
+	const FDateTime NowUtc = GetCacheUtcNow();
+	FDateTime PacingEndsAt;
+	if (const TArray<FDateTime>* ImpressionTimestamps =
+		ImpressionTimestampsByPlacement.Find(Placement))
+	{
+		if (
+			Resolved.FrequencyCap.IsEnabled()
+			&& FMath::IsFinite(Resolved.FrequencyCap.WindowSeconds)
+			&& ImpressionTimestamps->Num()
+				>= Resolved.FrequencyCap.MaxImpressions
+		)
+		{
+			const int32 FirstCappedIndex = ImpressionTimestamps->Num()
+				- Resolved.FrequencyCap.MaxImpressions;
+			PacingEndsAt = (*ImpressionTimestamps)[FirstCappedIndex]
+				+ FTimespan::FromSeconds(
+					Resolved.FrequencyCap.WindowSeconds
+				);
+		}
+		if (
+			Resolved.CooldownSeconds > 0.0
+			&& FMath::IsFinite(Resolved.CooldownSeconds)
+			&& !ImpressionTimestamps->IsEmpty()
+		)
+		{
+			const FDateTime CooldownEndsAt = ImpressionTimestamps->Last()
+				+ FTimespan::FromSeconds(Resolved.CooldownSeconds);
+			PacingEndsAt = FMath::Max(PacingEndsAt, CooldownEndsAt);
+		}
+	}
+
+	const TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>* Context =
+		AutomaticPreloads.Find(Placement);
+	if (!Context || !Context->IsValid())
+	{
+		bOutCancel = true;
+		return false;
+	}
+	OutDelaySeconds = FMath::Max(
+		0.0,
+		(*Context)->EarliestStartMonotonicSeconds
+			- GetCacheMonotonicSeconds()
+	);
+	if (PacingEndsAt > NowUtc)
+	{
+		OutDelaySeconds = FMath::Max(
+			OutDelaySeconds,
+			(PacingEndsAt - NowUtc).GetTotalSeconds()
+		);
+	}
+	return true;
+}
+
+void UOpenMobileAdsSubsystem::ScheduleAutomaticPreload(FName Placement)
+{
+	check(IsInGameThread());
+	TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>* FoundContext =
+		AutomaticPreloads.Find(Placement);
+	if (
+		!FoundContext
+		|| !FoundContext->IsValid()
+		|| (*FoundContext)->ScheduleHandle.IsValid()
+		|| !RetryScheduler
+	)
+	{
+		return;
+	}
+
+	double DelaySeconds = 0.0;
+	bool bCancel = false;
+	if (!ResolveAutomaticPreloadDelay(Placement, DelaySeconds, bCancel))
+	{
+		if (bCancel)
+		{
+			CancelAutomaticPreload(Placement);
+		}
+		return;
+	}
+
+	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+	(*FoundContext)->ScheduleHandle = RetryScheduler->Schedule(
+		DelaySeconds,
+		[WeakThis, Placement]()
+		{
+			if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+			{
+				Subsystem->StartAutomaticPreload(Placement);
+			}
+		}
+	);
+}
+
+void UOpenMobileAdsSubsystem::StartAutomaticPreload(FName Placement)
+{
+	check(IsInGameThread());
+	TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>* FoundContext =
+		AutomaticPreloads.Find(Placement);
+	if (!FoundContext || !FoundContext->IsValid())
+	{
+		return;
+	}
+	(*FoundContext)->ScheduleHandle.Reset();
+
+	double DelaySeconds = 0.0;
+	bool bCancel = false;
+	if (!ResolveAutomaticPreloadDelay(Placement, DelaySeconds, bCancel))
+	{
+		if (bCancel)
+		{
+			CancelAutomaticPreload(Placement);
+		}
+		return;
+	}
+	if (DelaySeconds > 0.0)
+	{
+		ScheduleAutomaticPreload(Placement);
+		return;
+	}
+
+	AutomaticPreloads.Remove(Placement);
+	const FOpenMobileAdsOperationResult Result = LoadAd(Placement);
+	if (
+		!Result.bAccepted
+		&& FOpenMobileAdsErrorClassifier::Classify(Result.Error)
+			!= EOpenMobileAdsRetryClassification::Terminal
+	)
+	{
+		RequestAutomaticPreload(
+			Placement,
+			GetDefault<UOpenMobileAdsSettings>()
+				->PreloadPolicy.RecoverableFailureDelaySeconds
+		);
+	}
+}
+
+void UOpenMobileAdsSubsystem::PauseAutomaticPreloads()
+{
+	check(IsInGameThread());
+	for (TPair<FName, TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>>& Pair :
+		AutomaticPreloads)
+	{
+		if (Pair.Value && RetryScheduler)
+		{
+			RetryScheduler->Cancel(Pair.Value->ScheduleHandle);
+		}
+	}
+}
+
+void UOpenMobileAdsSubsystem::ReevaluateAutomaticPreloads()
+{
+	check(IsInGameThread());
+	PauseAutomaticPreloads();
+	TArray<FName> Placements;
+	AutomaticPreloads.GetKeys(Placements);
+	for (const FName Placement : Placements)
+	{
+		ScheduleAutomaticPreload(Placement);
+	}
+}
+
+void UOpenMobileAdsSubsystem::CancelAutomaticPreload(FName Placement)
+{
+	check(IsInGameThread());
+	TSharedPtr<FOpenMobileAdsAutomaticPreloadContext> Context;
+	if (!AutomaticPreloads.RemoveAndCopyValue(Placement, Context) || !Context)
+	{
+		return;
+	}
+	if (RetryScheduler)
+	{
+		RetryScheduler->Cancel(Context->ScheduleHandle);
+	}
+}
+
+void UOpenMobileAdsSubsystem::CancelAllAutomaticPreloads()
+{
+	check(IsInGameThread());
+	PauseAutomaticPreloads();
+	AutomaticPreloads.Reset();
+}
+
 void UOpenMobileAdsSubsystem::SubmitPendingLoadFailure(
 	FGuid RequestId,
 	FOpenMobileAdsError Error
@@ -4498,7 +4836,7 @@ void UOpenMobileAdsSubsystem::ExpireCachedAds()
 		return;
 	}
 	TArray<FOpenMobileAdsEvent> ExpiredEvents;
-	TArray<FName> PlacementsToPreload;
+	TArray<FName> ExpiredPreloadPlacements;
 	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 	{
 		FOpenMobileAdsPlacementStatus& Status = Pair.Value;
@@ -4526,11 +4864,9 @@ void UOpenMobileAdsSubsystem::ExpireCachedAds()
 		if (
 			Configuration
 			&& Configuration->Resolve(OpenMobileAdsGetCurrentPlatform()).bPreload
-			&& bApplicationInForeground
-			&& !bPlatformDefinitelyOffline.Load()
 		)
 		{
-			PlacementsToPreload.Add(Status.Placement);
+			ExpiredPreloadPlacements.Add(Status.Placement);
 		}
 		ReleaseCachedAd(Status);
 		Status.State = EOpenMobileAdPlacementState::Idle;
@@ -4542,9 +4878,12 @@ void UOpenMobileAdsSubsystem::ExpireCachedAds()
 	{
 		SubmitServiceEvent(MoveTemp(Expired));
 	}
-	for (const FName Placement : PlacementsToPreload)
+	for (const FName Placement : ExpiredPreloadPlacements)
 	{
-		LoadAd(Placement);
+		RequestAutomaticPreload(
+			Placement,
+			GetDefault<UOpenMobileAdsSettings>()->PreloadPolicy.TriggerDelaySeconds
+		);
 	}
 	ScheduleCacheExpirationCheck();
 }
@@ -5053,6 +5392,34 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 		HandleConvenienceRewardedEvent(Event);
+
+		const UOpenMobileAdsSettings* Settings =
+			GetDefault<UOpenMobileAdsSettings>();
+		const bool bConsumed = Event.Type == EOpenMobileAdsEventType::Dismissed
+			|| (
+				Event.Type == EOpenMobileAdsEventType::Failed
+				&& Event.Error.Stage == EOpenMobileAdsFailureStage::Show
+				&& Event.Error.Code != EOpenMobileAdsErrorCode::Cancelled
+			);
+		const bool bRecoverableLoadFailure =
+			Event.Type == EOpenMobileAdsEventType::LoadFailed
+			&& FOpenMobileAdsErrorClassifier::Classify(Event.Error)
+				!= EOpenMobileAdsRetryClassification::Terminal;
+		if (bConsumed)
+		{
+			RequestAutomaticPreload(
+				Event.Placement,
+				Settings->PreloadPolicy.TriggerDelaySeconds
+			);
+			ReevaluateAutomaticPreloads();
+		}
+		else if (bRecoverableLoadFailure)
+		{
+			RequestAutomaticPreload(
+				Event.Placement,
+				Settings->PreloadPolicy.RecoverableFailureDelaySeconds
+			);
+		}
 	}
 }
 
@@ -5127,6 +5494,10 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 	if (bDeinitialized)
 	{
 		return;
+	}
+	if (ProviderName == SelectedProviderName)
+	{
+		CancelAllAutomaticPreloads();
 	}
 	if (
 		ActiveConsentRequestId.IsValid()
@@ -5318,6 +5689,7 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 		FullscreenLifecycle.Reset();
 	}
 	ResetConvenienceRewardedOperation();
+	CancelAllAutomaticPreloads();
 	if (CacheExpirationTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(CacheExpirationTickerHandle);

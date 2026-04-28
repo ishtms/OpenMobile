@@ -212,12 +212,13 @@ bool FOpenMobileAdsPlacementCapabilityValidationTest::RunTest(const FString& Par
 			TEXT("ios-interstitial")
 		);
 	Placement.Format = EOpenMobileAdFormat::Interstitial;
-	const FOpenMobileAdsPlacementSettings UnsupportedOperation =
+	FOpenMobileAdsPlacementSettings UnsupportedOperation =
 		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
 			TEXT("UnsupportedRewardedOperation"),
 			TEXT("android-rewarded-operation"),
 			TEXT("ios-rewarded-operation")
 		);
+	UnsupportedOperation.bPreload = true;
 
 	FOpenMobileAdFormatCapabilities Rewarded;
 	Rewarded.Format = EOpenMobileAdFormat::Rewarded;
@@ -243,6 +244,32 @@ bool FOpenMobileAdsPlacementCapabilityValidationTest::RunTest(const FString& Par
 		OpenMobileAdsConfigurationTests::HasIssue(
 			Issues,
 			EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation
+		)
+	);
+	TestTrue(
+		TEXT("Unsupported automatic preloading is rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+						== EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation
+					&& Issue.Message.Contains(TEXT("automatic preload"));
+			}
+		)
+	);
+	const TArray<FOpenMobileAdsConfigurationIssue> DisabledPreloadIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+			{Placement, UnsupportedOperation},
+			Capabilities,
+			false
+		);
+	TestFalse(
+		TEXT("The global preload override suppresses provider requirements"),
+		DisabledPreloadIssues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Message.Contains(TEXT("automatic preload"));
+			}
 		)
 	);
 	return true;
@@ -281,6 +308,9 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->NoFillRetryPolicy.BackoffMultiplier = 2.0;
 	SavedSettings->NoFillRetryPolicy.MaxDelaySeconds = 180.0;
 	SavedSettings->NoFillRetryPolicy.bUseJitter = true;
+	SavedSettings->PreloadPolicy.bEnabled = false;
+	SavedSettings->PreloadPolicy.TriggerDelaySeconds = 2.5;
+	SavedSettings->PreloadPolicy.RecoverableFailureDelaySeconds = 45.0;
 	SavedSettings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	SavedSettings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
 	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
@@ -344,6 +374,20 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	TestEqual(TEXT("No-fill retry backoff survives restart"), SettingsAfterRestart->NoFillRetryPolicy.BackoffMultiplier, 2.0);
 	TestEqual(TEXT("No-fill retry cap survives restart"), SettingsAfterRestart->NoFillRetryPolicy.MaxDelaySeconds, 180.0);
 	TestTrue(TEXT("No-fill retry jitter survives restart"), SettingsAfterRestart->NoFillRetryPolicy.bUseJitter);
+	TestFalse(
+		TEXT("Global preload enablement survives restart"),
+		SettingsAfterRestart->PreloadPolicy.bEnabled
+	);
+	TestEqual(
+		TEXT("Preload trigger delay survives restart"),
+		SettingsAfterRestart->PreloadPolicy.TriggerDelaySeconds,
+		2.5
+	);
+	TestEqual(
+		TEXT("Preload failure delay survives restart"),
+		SettingsAfterRestart->PreloadPolicy.RecoverableFailureDelaySeconds,
+		45.0
+	);
 	TestEqual(
 		TEXT("Child-directed setting survives restart"),
 		SettingsAfterRestart->Privacy.ChildDirectedTreatment,
@@ -449,6 +493,8 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		Settings->RetryPolicy.MaxRetryAttempts
 	);
 	TestTrue(TEXT("Default no-fill retry policy is valid"), Settings->NoFillRetryPolicy.IsValid());
+	TestTrue(TEXT("Automatic preloading is globally enabled by default"), Settings->PreloadPolicy.bEnabled);
+	TestTrue(TEXT("Default preload policy is valid"), Settings->PreloadPolicy.IsValid());
 	TestTrue(
 		TEXT("No-fill retries default to a slower initial delay"),
 		Settings->NoFillRetryPolicy.InitialDelaySeconds
@@ -540,6 +586,17 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		)
 	);
 	Settings->NoFillRetryPolicy = FOpenMobileAdsRetryPolicy();
+	Settings->PreloadPolicy.RecoverableFailureDelaySeconds = 0.0;
+	const TArray<FOpenMobileAdsConfigurationIssue> PreloadIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Invalid automatic preload policies are rejected"),
+		HasIssue(
+			PreloadIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidPreloadPolicy
+		)
+	);
+	Settings->PreloadPolicy = FOpenMobileAdsPreloadPolicy();
 	Settings->bDevelopmentTestMode = true;
 	const TArray<FOpenMobileAdsConfigurationIssue> ShippingIssues =
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);

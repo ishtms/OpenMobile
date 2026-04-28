@@ -19,6 +19,7 @@ namespace OpenMobileAdsAdMobPrivate
 			Rewarded.Format = EOpenMobileAdFormat::Rewarded;
 			Rewarded.bCanLoad = true;
 			Rewarded.bCanShow = true;
+			Rewarded.bSupportsPreload = true;
 			Rewarded.bReportsImpression = true;
 			Rewarded.bReportsClick = true;
 			Rewarded.bReportsDismiss = true;
