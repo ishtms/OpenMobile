@@ -12,6 +12,7 @@
 #include "OpenMobileAdsCanShowPolicy.h"
 #include "OpenMobileAdsClock.h"
 #include "OpenMobileAdsConnectivityPolicy.h"
+#include "OpenMobileAdsCooldown.h"
 #include "OpenMobileAdsDiagnostics.h"
 #include "OpenMobileAdsFrequencyCap.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
@@ -2219,6 +2220,10 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 			GetCacheMonotonicSeconds()
 		);
 	}
+	if (!CooldownTracker)
+	{
+		CooldownTracker = MakeShared<FOpenMobileAdsCooldownTracker>();
+	}
 	EventDispatcher = MakeShared<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>(*this);
 	UGameInstance* GameInstance = GetGameInstance();
 	check(GameInstance);
@@ -4005,23 +4010,20 @@ FOpenMobileAdsCanShowResult UOpenMobileAdsSubsystem::EvaluateCanShow(
 		Context.FrequencyCapScope = CapDecision.Scope;
 		Context.FrequencyCapEndsAt = CapDecision.NextEligibleAt;
 	}
-	if (const TArray<FDateTime>* ImpressionTimestamps =
-		ImpressionTimestampsByPlacement.Find(Placement))
+	if (CooldownTracker)
 	{
-		if (
-			Resolved.CooldownSeconds > 0.0
-			&& FMath::IsFinite(Resolved.CooldownSeconds)
-			&& !ImpressionTimestamps->IsEmpty()
-		)
-		{
-			const FDateTime CooldownEndsAt = ImpressionTimestamps->Last()
-				+ FTimespan::FromSeconds(Resolved.CooldownSeconds);
-			if (CooldownEndsAt > Now)
-			{
-				Context.bCooldownActive = true;
-				Context.CooldownEndsAt = CooldownEndsAt;
-			}
-		}
+		const FOpenMobileAdsCooldownDecision CooldownDecision =
+			CooldownTracker->Evaluate(
+				Placement,
+				Resolved.Format,
+				Resolved.CooldownSeconds,
+				GetDefault<UOpenMobileAdsSettings>()
+					->CooldownPolicy.FullscreenCooldownSeconds,
+				Now,
+				GetCacheMonotonicSeconds()
+			);
+		Context.bCooldownActive = CooldownDecision.IsActive();
+		Context.CooldownEndsAt = CooldownDecision.NextEligibleAt;
 	}
 	Context.bOffline = bPlatformDefinitelyOffline.Load();
 	Context.bLifecycleConflict = !bApplicationActive || !bApplicationInForeground;
@@ -4560,19 +4562,22 @@ bool UOpenMobileAdsSubsystem::ResolveAutomaticPreloadDelay(
 		}
 		PacingEndsAt = CapDecision.NextEligibleAt;
 	}
-	if (const TArray<FDateTime>* ImpressionTimestamps =
-		ImpressionTimestampsByPlacement.Find(Placement))
+	if (CooldownTracker)
 	{
-		if (
-			Resolved.CooldownSeconds > 0.0
-			&& FMath::IsFinite(Resolved.CooldownSeconds)
-			&& !ImpressionTimestamps->IsEmpty()
-		)
-		{
-			const FDateTime CooldownEndsAt = ImpressionTimestamps->Last()
-				+ FTimespan::FromSeconds(Resolved.CooldownSeconds);
-			PacingEndsAt = FMath::Max(PacingEndsAt, CooldownEndsAt);
-		}
+		const FOpenMobileAdsCooldownDecision CooldownDecision =
+			CooldownTracker->Evaluate(
+				Placement,
+				Resolved.Format,
+				Resolved.CooldownSeconds,
+				GetDefault<UOpenMobileAdsSettings>()
+					->CooldownPolicy.FullscreenCooldownSeconds,
+				NowUtc,
+				GetCacheMonotonicSeconds()
+			);
+		PacingEndsAt = FMath::Max(
+			PacingEndsAt,
+			CooldownDecision.NextEligibleAt
+		);
 	}
 
 	const TSharedPtr<FOpenMobileAdsAutomaticPreloadContext>* Context =
@@ -5273,7 +5278,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		)
 		{
 			ImpressedCachedAds.Add(Status->CachedAdId);
-			RecordImpression(Event.Placement, Event.Timestamp);
+			RecordImpression(Event.Placement);
 			Event.PlacementState = Status->State;
 			bBroadcast = true;
 		}
@@ -5439,18 +5444,19 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 	}
 }
 
-void UOpenMobileAdsSubsystem::RecordImpression(
-	FName Placement,
-	FDateTime Timestamp
-)
+void UOpenMobileAdsSubsystem::RecordImpression(FName Placement)
 {
 	FOpenMobileAdsFrequencyCap Policy;
+	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
+	bool bConfigured = false;
 	if (const FOpenMobileAdsPlacementSettings* Configuration =
 		FindConfiguredPlacement(Placement))
 	{
 		const FOpenMobileAdsResolvedPlacement Resolved =
 			Configuration->Resolve(OpenMobileAdsGetCurrentPlatform());
 		Policy = Resolved.FrequencyCap;
+		Format = Resolved.Format;
+		bConfigured = true;
 	}
 	if (FrequencyCapTracker)
 	{
@@ -5470,20 +5476,12 @@ void UOpenMobileAdsSubsystem::RecordImpression(
 			);
 		}
 	}
-
-	if (Timestamp == FDateTime())
+	if (bConfigured && CooldownTracker)
 	{
-		Timestamp = GetCacheUtcNow();
-	}
-	TArray<FDateTime>& ImpressionTimestamps =
-		ImpressionTimestampsByPlacement.FindOrAdd(Placement);
-	ImpressionTimestamps.Add(Timestamp);
-	if (ImpressionTimestamps.Num() > 1)
-	{
-		ImpressionTimestamps.RemoveAt(
-			0,
-			ImpressionTimestamps.Num() - 1,
-			EAllowShrinking::No
+		CooldownTracker->RecordImpression(
+			Placement,
+			Format,
+			GetCacheMonotonicSeconds()
 		);
 	}
 }
@@ -5802,7 +5800,6 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 	DismissedShowRequestOrder.Reset();
 	ImpressedCachedAds.Reset();
 	CacheExpirationMonotonicDeadlines.Reset();
-	ImpressionTimestampsByPlacement.Reset();
 	if (FrequencyCapTracker)
 	{
 		FrequencyCapTracker->Flush(
@@ -5810,6 +5807,11 @@ void UOpenMobileAdsSubsystem::Deinitialize()
 			GetCacheMonotonicSeconds()
 		);
 		FrequencyCapTracker.Reset();
+	}
+	if (CooldownTracker)
+	{
+		CooldownTracker->Reset();
+		CooldownTracker.Reset();
 	}
 	PendingExpiredCachedAdEvents.Reset();
 	CacheClock.Reset();

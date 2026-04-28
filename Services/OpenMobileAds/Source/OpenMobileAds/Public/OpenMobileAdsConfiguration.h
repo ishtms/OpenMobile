@@ -117,6 +117,27 @@ struct OPENMOBILEADS_API FOpenMobileAdsPreloadPolicy
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsCooldownPolicy
+{
+	GENERATED_BODY()
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double FullscreenCooldownSeconds = 0.0;
+
+	bool IsValid() const
+	{
+		return FMath::IsFinite(FullscreenCooldownSeconds)
+			&& FullscreenCooldownSeconds >= 0.0;
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 {
 	GENERATED_BODY()
@@ -498,6 +519,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Reliability|Preloading")
 	FOpenMobileAdsPreloadPolicy PreloadPolicy;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Pacing|Cooldowns")
+	FOpenMobileAdsCooldownPolicy CooldownPolicy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Privacy")
 	FOpenMobileAdsPrivacyConfiguration Privacy;

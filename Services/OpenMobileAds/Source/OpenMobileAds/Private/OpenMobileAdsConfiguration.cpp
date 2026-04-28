@@ -40,6 +40,20 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 	}
 
+	bool UsesFullscreenCooldown(EOpenMobileAdFormat Format)
+	{
+		switch (Format)
+		{
+		case EOpenMobileAdFormat::Interstitial:
+		case EOpenMobileAdFormat::Rewarded:
+		case EOpenMobileAdFormat::RewardedInterstitial:
+		case EOpenMobileAdFormat::AppOpen:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	void ValidateResolvedPolicy(
 		const FOpenMobileAdsResolvedPlacement& Placement,
 		TArray<FOpenMobileAdsConfigurationIssue>& Issues
@@ -85,13 +99,28 @@ namespace OpenMobileAdsConfigurationPrivate
 			);
 		}
 
-		if (Placement.CooldownSeconds < 0.0)
+		if (
+			!FMath::IsFinite(Placement.CooldownSeconds)
+			|| Placement.CooldownSeconds < 0.0
+		)
 		{
 			AddIssue(
 				Issues,
 				EOpenMobileAdsConfigurationIssueCode::InvalidCooldown,
 				Placement.Placement,
-				TEXT("Cooldown must not be negative.")
+				TEXT("Cooldown must be finite and non-negative.")
+			);
+		}
+		else if (
+			Placement.CooldownSeconds > 0.0
+			&& !UsesFullscreenCooldown(Placement.Format)
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidCooldown,
+				Placement.Placement,
+				TEXT("Cooldown is only valid for full-screen placements.")
 			);
 		}
 
@@ -487,6 +516,15 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 			EOpenMobileAdsConfigurationIssueCode::InvalidPreloadPolicy,
 			NAME_None,
 			TEXT("Automatic preload delays must be finite and non-negative, and the recoverable-failure delay must be at least one second.")
+		);
+	}
+	if (!Settings.CooldownPolicy.IsValid())
+	{
+		AddIssue(
+			Issues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidCooldown,
+			NAME_None,
+			TEXT("Global full-screen cooldown must be finite and non-negative.")
 		);
 	}
 	if (Settings.bDevelopmentTestMode)

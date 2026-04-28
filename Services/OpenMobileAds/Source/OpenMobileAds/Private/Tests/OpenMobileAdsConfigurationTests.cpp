@@ -44,6 +44,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FOpenMobileAdsPlacementDefaultsTest::RunTest(const FString& Parameters)
 {
+	const FOpenMobileAdsCooldownPolicy CooldownPolicy;
+	TestEqual(
+		TEXT("Global full-screen cooldown is disabled by default"),
+		CooldownPolicy.FullscreenCooldownSeconds,
+		0.0
+	);
 	FOpenMobileAdsPlacementSettings Placement =
 		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
 			TEXT("ContinueReward"),
@@ -181,6 +187,15 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 	InvalidCooldown.CooldownSeconds = -1.0;
 	Placements.Add(InvalidCooldown);
 
+	FOpenMobileAdsPlacementSettings NonFullscreenCooldown = MakeRewardedPlacement(
+		TEXT("NonFullscreenCooldown"),
+		TEXT("android-banner-cooldown"),
+		TEXT("ios-banner-cooldown")
+	);
+	NonFullscreenCooldown.Format = EOpenMobileAdFormat::Banner;
+	NonFullscreenCooldown.CooldownSeconds = 10.0;
+	Placements.Add(NonFullscreenCooldown);
+
 	FOpenMobileAdsPlacementSettings InvalidFallbackRewardAmount = MakeRewardedPlacement(
 		TEXT("InvalidFallbackRewardAmount"),
 		TEXT("android-reward-amount"),
@@ -222,6 +237,17 @@ bool FOpenMobileAdsPlacementValidationTest::RunTest(const FString& Parameters)
 		)
 	);
 	TestTrue(TEXT("Negative cooldowns are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidCooldown));
+	TestTrue(
+		TEXT("Non-full-screen cooldowns are rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+						== EOpenMobileAdsConfigurationIssueCode::InvalidCooldown
+					&& Issue.Placement == TEXT("NonFullscreenCooldown");
+			}
+		)
+	);
 	TestTrue(TEXT("Negative reward amount fallbacks are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::InvalidFallbackRewardAmount));
 	TestTrue(TEXT("Empty provider option names are rejected"), HasIssue(Issues, EOpenMobileAdsConfigurationIssueCode::EmptyProviderOption));
 	return true;
@@ -341,6 +367,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	SavedSettings->PreloadPolicy.bEnabled = false;
 	SavedSettings->PreloadPolicy.TriggerDelaySeconds = 2.5;
 	SavedSettings->PreloadPolicy.RecoverableFailureDelaySeconds = 45.0;
+	SavedSettings->CooldownPolicy.FullscreenCooldownSeconds = 45.0;
 	SavedSettings->Privacy.ChildDirectedTreatment = EOpenMobileAdsAgeTreatment::Yes;
 	SavedSettings->Privacy.UnderAgeOfConsent = EOpenMobileAdsAgeTreatment::No;
 	SavedSettings->Privacy.bDelayProviderInitializationUntilConsent = false;
@@ -417,6 +444,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	TestEqual(
 		TEXT("Preload failure delay survives restart"),
 		SettingsAfterRestart->PreloadPolicy.RecoverableFailureDelaySeconds,
+		45.0
+	);
+	TestEqual(
+		TEXT("Global full-screen cooldown survives restart"),
+		SettingsAfterRestart->CooldownPolicy.FullscreenCooldownSeconds,
 		45.0
 	);
 	TestEqual(
@@ -527,6 +559,7 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("Default no-fill retry policy is valid"), Settings->NoFillRetryPolicy.IsValid());
 	TestTrue(TEXT("Automatic preloading is globally enabled by default"), Settings->PreloadPolicy.bEnabled);
 	TestTrue(TEXT("Default preload policy is valid"), Settings->PreloadPolicy.IsValid());
+	TestTrue(TEXT("Default cooldown policy is valid"), Settings->CooldownPolicy.IsValid());
 	TestTrue(
 		TEXT("No-fill retries default to a slower initial delay"),
 		Settings->NoFillRetryPolicy.InitialDelaySeconds
@@ -629,6 +662,17 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		)
 	);
 	Settings->PreloadPolicy = FOpenMobileAdsPreloadPolicy();
+	Settings->CooldownPolicy.FullscreenCooldownSeconds = -1.0;
+	const TArray<FOpenMobileAdsConfigurationIssue> CooldownIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, false);
+	TestTrue(
+		TEXT("Invalid global cooldown policies are rejected"),
+		HasIssue(
+			CooldownIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidCooldown
+		)
+	);
+	Settings->CooldownPolicy = FOpenMobileAdsCooldownPolicy();
 	Settings->bDevelopmentTestMode = true;
 	const TArray<FOpenMobileAdsConfigurationIssue> ShippingIssues =
 		FOpenMobileAdsConfigurationValidator::ValidateSettings(*Settings, true);

@@ -770,6 +770,7 @@ namespace OpenMobileAdsProviderContractTests
 			SavedRetryPolicy = Settings->RetryPolicy;
 			SavedNoFillRetryPolicy = Settings->NoFillRetryPolicy;
 			SavedPreloadPolicy = Settings->PreloadPolicy;
+			SavedCooldownPolicy = Settings->CooldownPolicy;
 			Settings->RetryPolicy.MaxRetryAttempts = 0;
 			Settings->NoFillRetryPolicy.MaxRetryAttempts = 0;
 			SavedPrivacy = Settings->Privacy;
@@ -794,6 +795,7 @@ namespace OpenMobileAdsProviderContractTests
 			Settings->RetryPolicy = SavedRetryPolicy;
 			Settings->NoFillRetryPolicy = SavedNoFillRetryPolicy;
 			Settings->PreloadPolicy = SavedPreloadPolicy;
+			Settings->CooldownPolicy = SavedCooldownPolicy;
 			Settings->Privacy = SavedPrivacy;
 			Settings->RequestConfiguration = SavedRequestConfiguration;
 			Settings->Placements = MoveTemp(SavedPlacements);
@@ -815,6 +817,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsRetryPolicy SavedRetryPolicy;
 		FOpenMobileAdsRetryPolicy SavedNoFillRetryPolicy;
 		FOpenMobileAdsPreloadPolicy SavedPreloadPolicy;
+		FOpenMobileAdsCooldownPolicy SavedCooldownPolicy;
 		FOpenMobileAdsPrivacyConfiguration SavedPrivacy;
 		FOpenMobileAdsRequestConfiguration SavedRequestConfiguration;
 		TArray<FOpenMobileAdsPlacementSettings> SavedPlacements;
@@ -3672,6 +3675,154 @@ bool FOpenMobileAdsFrequencyCapContractTest::RunTest(const FString& Parameters)
 		TEXT("Show returns the typed frequency-cap error"),
 		Rejected.Error.Code,
 		EOpenMobileAdsErrorCode::FrequencyCap
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsCooldownContractTest,
+	"OpenMobile.Ads.ProviderContract.Cooldown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsCooldownContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	ScopedSettings.Settings->CooldownPolicy.FullscreenCooldownSeconds = 10.0;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& First = AddRewardedPlacement(
+		*ScopedSettings.Settings,
+		TEXT("FirstCooldown")
+	);
+	First.CooldownSeconds = 20.0;
+	FOpenMobileAdsPlacementSettings& Second = AddRewardedPlacement(
+		*ScopedSettings.Settings,
+		TEXT("SecondCooldown")
+	);
+	Second.CooldownSeconds = 5.0;
+	FOpenMobileAdsPlacementSettings& Failed = AddRewardedPlacement(
+		*ScopedSettings.Settings,
+		TEXT("FailedCooldown")
+	);
+	Failed.CooldownSeconds = 30.0;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	Provider.Capabilities.Formats[0].bReportsImpression = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	TestTrue(
+		TEXT("The provider initializes before cooldown checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto LoadReady = [this, Subsystem, &Provider](FName Placement)
+	{
+		TestTrue(
+			TEXT("The cooldown placement load starts"),
+			Subsystem->LoadAd(Placement).bAccepted
+		);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		return Subsystem->IsReady(Placement);
+	};
+
+	TestTrue(TEXT("The first cooldown placement becomes ready"), LoadReady(TEXT("FirstCooldown")));
+	const FOpenMobileAdsOperationResult FirstShow =
+		Subsystem->ShowAd(TEXT("FirstCooldown"));
+	TestTrue(TEXT("The first cooldown show starts"), FirstShow.bAccepted);
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> FirstSink =
+		Provider.ShowSink;
+	FOpenMobileAdsEvent Impression;
+	Impression.Type = EOpenMobileAdsEventType::Impression;
+	FirstSink->Submit(MoveTemp(Impression));
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	FirstSink->Submit(MoveTemp(Dismissed));
+	DrainGameThreadTasks();
+
+	TestTrue(TEXT("The first cooldown replacement becomes ready"), LoadReady(TEXT("FirstCooldown")));
+	TestTrue(TEXT("The second cooldown placement becomes ready"), LoadReady(TEXT("SecondCooldown")));
+	const FOpenMobileAdsCanShowResult FirstDecision =
+		Subsystem->CanShow(TEXT("FirstCooldown"));
+	const FOpenMobileAdsCanShowResult SecondDecision =
+		Subsystem->CanShow(TEXT("SecondCooldown"));
+	TestEqual(
+		TEXT("The first placement is cooldown blocked"),
+		FirstDecision.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestEqual(
+		TEXT("The placement deadline wins when it is longer"),
+		FirstDecision.NextEligibleAt,
+		Clock->UtcNow() + FTimespan::FromSeconds(20.0)
+	);
+	TestEqual(
+		TEXT("Another placement shares the global cooldown"),
+		SecondDecision.BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestEqual(
+		TEXT("Another placement receives the global deadline"),
+		SecondDecision.NextEligibleAt,
+		Clock->UtcNow() + FTimespan::FromSeconds(10.0)
+	);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->Advance(10.0);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("The global cooldown expires while the application is backgrounded"),
+		Subsystem->CanShow(TEXT("SecondCooldown")).bCanShow
+	);
+	TestEqual(
+		TEXT("The longer placement cooldown remains active"),
+		Subsystem->CanShow(TEXT("FirstCooldown")).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	Clock->Advance(10.0);
+	TestTrue(
+		TEXT("The placement cooldown expires at its exact boundary"),
+		Subsystem->CanShow(TEXT("FirstCooldown")).bCanShow
+	);
+
+	TestTrue(TEXT("The failed-show placement becomes ready"), LoadReady(TEXT("FailedCooldown")));
+	const FOpenMobileAdsOperationResult FailedShow =
+		Subsystem->ShowAd(TEXT("FailedCooldown"));
+	TestTrue(TEXT("The failed cooldown show starts"), FailedShow.bAccepted);
+	FOpenMobileAdsEvent ShowFailure;
+	ShowFailure.Type = EOpenMobileAdsEventType::Failed;
+	ShowFailure.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("FailedCooldown"),
+		TEXT("The cooldown test show failed."),
+		Provider.Name
+	);
+	AddExpectedError(
+		TEXT("The cooldown test show failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.ShowSink->Submit(MoveTemp(ShowFailure));
+	DrainGameThreadTasks();
+	TestTrue(TEXT("The failed-show replacement becomes ready"), LoadReady(TEXT("FailedCooldown")));
+	TestTrue(
+		TEXT("A show failure without an impression starts no cooldown"),
+		Subsystem->CanShow(TEXT("FailedCooldown")).bCanShow
 	);
 
 	Subsystem->Deinitialize();
