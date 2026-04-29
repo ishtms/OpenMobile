@@ -16,13 +16,23 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		FOnOpenMobileAdMobAdLoadFailed Failed;
 	};
 
-	struct FFullscreenShowOperation
+	struct FShowOperation
 	{
 		FGuid RequestId;
+		FGuid CachedAdId;
 		EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
 		int64 LoadedRequestId = 0;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 		bool bRewardDispatched = false;
+	};
+
+	struct FBannerHideOperation
+	{
+		FGuid RequestId;
+		FGuid CachedAdId;
+		int64 LoadedRequestId = 0;
+		int64 ShowRequestId = 0;
+		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 	};
 
 	struct FCachedAdReference
@@ -47,9 +57,13 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	FOnOpenMobileAdMobRewardedClosed ClosedDelegate;
 	FOnOpenMobileAdMobRewardedFailed FailedDelegate;
 	TMap<int64, FAdLoadOperation> LoadOperations;
-	TMap<int64, FFullscreenShowOperation> ShowOperations;
+	TMap<int64, FShowOperation> ShowOperations;
+	TMap<int64, FBannerHideOperation> BannerHideOperations;
 	TMap<FGuid, int64> NativeLoadRequestIds;
 	TMap<FGuid, int64> NativeShowRequestIds;
+	TMap<FGuid, int64> NativeBannerHideRequestIds;
+	TMap<FGuid, int64> ActiveBannerShowRequestIds;
+	TMap<FGuid, int64> ActiveBannerHideRequestIds;
 	TMap<FGuid, FCachedAdReference> LoadedAds;
 	TMap<int64, FConsentOperation> ConsentOperations;
 	TMap<FGuid, int64> NativeConsentRequestIds;
@@ -114,8 +128,12 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	{
 		LoadOperations.Reset();
 		ShowOperations.Reset();
+		BannerHideOperations.Reset();
 		NativeLoadRequestIds.Reset();
 		NativeShowRequestIds.Reset();
+		NativeBannerHideRequestIds.Reset();
+		ActiveBannerShowRequestIds.Reset();
+		ActiveBannerHideRequestIds.Reset();
 		LoadedAds.Reset();
 		ConsentOperations.Reset();
 		NativeConsentRequestIds.Reset();
@@ -148,7 +166,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 
 	bool RemoveShowOperation(
 		int64 NativeRequestId,
-		FFullscreenShowOperation& OutOperation
+		FShowOperation& OutOperation
 	)
 	{
 		if (!ShowOperations.RemoveAndCopyValue(NativeRequestId, OutOperation))
@@ -156,6 +174,24 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 			return false;
 		}
 		NativeShowRequestIds.Remove(OutOperation.RequestId);
+		ActiveBannerShowRequestIds.Remove(OutOperation.CachedAdId);
+		return true;
+	}
+
+	bool RemoveBannerHideOperation(
+		int64 NativeRequestId,
+		FBannerHideOperation& OutOperation
+	)
+	{
+		if (!BannerHideOperations.RemoveAndCopyValue(
+			NativeRequestId,
+			OutOperation
+		))
+		{
+			return false;
+		}
+		NativeBannerHideRequestIds.Remove(OutOperation.RequestId);
+		ActiveBannerHideRequestIds.Remove(OutOperation.CachedAdId);
 		return true;
 	}
 
@@ -168,6 +204,13 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	{
 		switch (Request.Placement.Format)
 		{
+		case EOpenMobileAdFormat::Banner:
+			return Backend.LoadBannerAd(
+				Request.Placement.AdUnitId,
+				NativeRequestId,
+				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
+				OutError
+			);
 		case EOpenMobileAdFormat::Interstitial:
 			return Backend.LoadInterstitialAd(
 				Request.Placement.AdUnitId,
@@ -194,7 +237,11 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		int64 NativeRequestId
 	)
 	{
-		if (Format == EOpenMobileAdFormat::Interstitial)
+		if (Format == EOpenMobileAdFormat::Banner)
+		{
+			Backend.CancelBannerAd(NativeRequestId);
+		}
+		else if (Format == EOpenMobileAdFormat::Interstitial)
 		{
 			Backend.CancelInterstitialAd(NativeRequestId);
 		}
@@ -212,6 +259,15 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		FString& OutError
 	)
 	{
+		if (Request.Format == EOpenMobileAdFormat::Banner)
+		{
+			return Backend.ShowBannerAd(
+				LoadedRequestId,
+				NativeShowRequestId,
+				Request.BannerLayout,
+				OutError
+			);
+		}
 		if (Request.Format == EOpenMobileAdFormat::Interstitial)
 		{
 			return Backend.ShowInterstitialAd(
@@ -668,7 +724,22 @@ bool FOpenMobileAdsAdMobPlatform::BeginShow(
 		return false;
 	}
 	const FCachedAdReference Reference = *CachedReference;
-	LoadedAds.Remove(Request.CachedAdId);
+	const bool bPersistentBanner = Request.Format == EOpenMobileAdFormat::Banner;
+	if (
+		bPersistentBanner
+		&& (
+			ActiveBannerShowRequestIds.Contains(Request.CachedAdId)
+			|| ActiveBannerHideRequestIds.Contains(Request.CachedAdId)
+		)
+	)
+	{
+		OutError = TEXT("The AdMob banner cache is already showing or hiding.");
+		return false;
+	}
+	if (!bPersistentBanner)
+	{
+		LoadedAds.Remove(Request.CachedAdId);
+	}
 
 	++NextRequestId;
 	if (NextRequestId <= 0)
@@ -676,13 +747,18 @@ bool FOpenMobileAdsAdMobPlatform::BeginShow(
 		NextRequestId = 1;
 	}
 	const int64 NativeShowRequestId = NextRequestId;
-	FFullscreenShowOperation Operation;
+	FShowOperation Operation;
 	Operation.RequestId = Request.RequestId;
+	Operation.CachedAdId = Request.CachedAdId;
 	Operation.Format = Request.Format;
 	Operation.LoadedRequestId = Reference.LoadedRequestId;
 	Operation.EventSink = EventSink;
 	ShowOperations.Add(NativeShowRequestId, MoveTemp(Operation));
 	NativeShowRequestIds.Add(Request.RequestId, NativeShowRequestId);
+	if (bPersistentBanner)
+	{
+		ActiveBannerShowRequestIds.Add(Request.CachedAdId, NativeShowRequestId);
+	}
 
 	if (!ShowNativeAd(
 		*Backend,
@@ -692,9 +768,90 @@ bool FOpenMobileAdsAdMobPlatform::BeginShow(
 		OutError
 	))
 	{
-		FFullscreenShowOperation Removed;
+		FShowOperation Removed;
 		RemoveShowOperation(NativeShowRequestId, Removed);
-		LoadedAds.Add(Request.CachedAdId, Reference);
+		if (!bPersistentBanner)
+		{
+			LoadedAds.Add(Request.CachedAdId, Reference);
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FOpenMobileAdsAdMobPlatform::BeginHide(
+	const FOpenMobileAdsHideRequest& Request,
+	TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+	FString& OutError
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileAdsAdMobPlatformPrivate;
+
+	IOpenMobileAdsAdMobBackend* Backend = FindBackend();
+	if (!Backend)
+	{
+		OutError = TEXT("The AdMob provider has no native backend for this platform.");
+		return false;
+	}
+	if (!bInitialized)
+	{
+		OutError = TEXT("The AdMob SDK has not finished initializing.");
+		return false;
+	}
+	if (!Request.RequestId.IsValid() || !Request.CachedAdId.IsValid())
+	{
+		OutError = TEXT("The AdMob hide request or cache ID is invalid.");
+		return false;
+	}
+	if (
+		NativeBannerHideRequestIds.Contains(Request.RequestId)
+		|| ActiveBannerHideRequestIds.Contains(Request.CachedAdId)
+	)
+	{
+		OutError = TEXT("The AdMob banner hide request is already active.");
+		return false;
+	}
+
+	const FCachedAdReference* CachedReference = LoadedAds.Find(Request.CachedAdId);
+	const int64* NativeShowRequestId = ActiveBannerShowRequestIds.Find(
+		Request.CachedAdId
+	);
+	if (
+		!CachedReference
+		|| CachedReference->Format != EOpenMobileAdFormat::Banner
+		|| !NativeShowRequestId
+		|| !ShowOperations.Contains(*NativeShowRequestId)
+	)
+	{
+		OutError = TEXT("The AdMob banner cache is unavailable or not visible.");
+		return false;
+	}
+
+	++NextRequestId;
+	if (NextRequestId <= 0)
+	{
+		NextRequestId = 1;
+	}
+	const int64 NativeHideRequestId = NextRequestId;
+	FBannerHideOperation Operation;
+	Operation.RequestId = Request.RequestId;
+	Operation.CachedAdId = Request.CachedAdId;
+	Operation.LoadedRequestId = CachedReference->LoadedRequestId;
+	Operation.ShowRequestId = *NativeShowRequestId;
+	Operation.EventSink = EventSink;
+	BannerHideOperations.Add(NativeHideRequestId, MoveTemp(Operation));
+	NativeBannerHideRequestIds.Add(Request.RequestId, NativeHideRequestId);
+	ActiveBannerHideRequestIds.Add(Request.CachedAdId, NativeHideRequestId);
+
+	if (!Backend->HideBannerAd(
+		CachedReference->LoadedRequestId,
+		NativeHideRequestId,
+		OutError
+	))
+	{
+		FBannerHideOperation Removed;
+		RemoveBannerHideOperation(NativeHideRequestId, Removed);
 		return false;
 	}
 	return true;
@@ -720,11 +877,8 @@ void FOpenMobileAdsAdMobPlatform::Cancel(FGuid RequestId)
 	int64 NativeShowRequestId = 0;
 	if (NativeShowRequestIds.RemoveAndCopyValue(RequestId, NativeShowRequestId))
 	{
-		FFullscreenShowOperation Operation;
-		if (ShowOperations.RemoveAndCopyValue(
-			NativeShowRequestId,
-			Operation
-		))
+		FShowOperation Operation;
+		if (RemoveShowOperation(NativeShowRequestId, Operation))
 		{
 			if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
 			{
@@ -733,6 +887,24 @@ void FOpenMobileAdsAdMobPlatform::Cancel(FGuid RequestId)
 					Operation.Format,
 					Operation.LoadedRequestId
 				);
+			}
+		}
+	}
+
+	int64 NativeHideRequestId = 0;
+	if (NativeBannerHideRequestIds.RemoveAndCopyValue(
+		RequestId,
+		NativeHideRequestId
+	))
+	{
+		FBannerHideOperation Operation;
+		if (RemoveBannerHideOperation(NativeHideRequestId, Operation))
+		{
+			FShowOperation ShowOperation;
+			RemoveShowOperation(Operation.ShowRequestId, ShowOperation);
+			if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
+			{
+				Backend->CancelBannerAd(Operation.LoadedRequestId);
 			}
 		}
 	}
@@ -746,6 +918,24 @@ void FOpenMobileAdsAdMobPlatform::ReleaseCachedAd(FGuid CachedAdId)
 	if (!LoadedAds.RemoveAndCopyValue(CachedAdId, Reference))
 	{
 		return;
+	}
+	int64 NativeHideRequestId = 0;
+	if (ActiveBannerHideRequestIds.RemoveAndCopyValue(
+		CachedAdId,
+		NativeHideRequestId
+	))
+	{
+		FBannerHideOperation HideOperation;
+		RemoveBannerHideOperation(NativeHideRequestId, HideOperation);
+	}
+	int64 NativeShowRequestId = 0;
+	if (ActiveBannerShowRequestIds.RemoveAndCopyValue(
+		CachedAdId,
+		NativeShowRequestId
+	))
+	{
+		FShowOperation ShowOperation;
+		RemoveShowOperation(NativeShowRequestId, ShowOperation);
 	}
 	if (IOpenMobileAdsAdMobBackend* Backend = FindBackend())
 	{
@@ -1078,6 +1268,48 @@ void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 	});
 }
 
+void FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(int64 RequestId)
+{
+	OpenMobile::DispatchToGameThread([RequestId]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FAdLoadOperation Operation;
+		if (RemoveLoadOperationForFormat(
+			RequestId,
+			EOpenMobileAdFormat::Banner,
+			Operation
+		))
+		{
+			const FGuid CachedAdId = FGuid::NewGuid();
+			FCachedAdReference Reference;
+			Reference.Format = Operation.Format;
+			Reference.LoadedRequestId = RequestId;
+			LoadedAds.Add(CachedAdId, Reference);
+			Operation.Loaded.ExecuteIfBound(CachedAdId);
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+	int64 RequestId,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FAdLoadOperation Operation;
+		if (RemoveLoadOperationForFormat(
+			RequestId,
+			EOpenMobileAdFormat::Banner,
+			Operation
+		))
+		{
+			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+		}
+	});
+}
+
 void FOpenMobileAdsAdMobPlatform::NativeLoaded(int64 RequestId)
 {
 	OpenMobile::DispatchToGameThread([RequestId]
@@ -1095,7 +1327,7 @@ void FOpenMobileAdsAdMobPlatform::NativeShown(int64 RequestId)
 	OpenMobile::DispatchToGameThread([RequestId]
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
-		if (FFullscreenShowOperation* Operation = ShowOperations.Find(RequestId))
+		if (FShowOperation* Operation = ShowOperations.Find(RequestId))
 		{
 			FOpenMobileAdsEvent Event;
 			Event.Type = EOpenMobileAdsEventType::Shown;
@@ -1109,12 +1341,80 @@ void FOpenMobileAdsAdMobPlatform::NativeShown(int64 RequestId)
 	});
 }
 
+void FOpenMobileAdsAdMobPlatform::NativeBannerShown(int64 RequestId)
+{
+	NativeShown(RequestId);
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeBannerHidden(int64 RequestId)
+{
+	OpenMobile::DispatchToGameThread([RequestId]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FBannerHideOperation HideOperation;
+		if (!RemoveBannerHideOperation(RequestId, HideOperation))
+		{
+			return;
+		}
+		FShowOperation ShowOperation;
+		RemoveShowOperation(HideOperation.ShowRequestId, ShowOperation);
+		FOpenMobileAdsEvent Event;
+		Event.Type = EOpenMobileAdsEventType::Hidden;
+		HideOperation.EventSink->Submit(MoveTemp(Event));
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+	int64 RequestId,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FBannerHideOperation HideOperation;
+		if (RemoveBannerHideOperation(RequestId, HideOperation))
+		{
+			FOpenMobileAdsEvent Event;
+			Event.Type = EOpenMobileAdsEventType::Failed;
+			Event.Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::NativeFailure,
+				EOpenMobileAdsFailureStage::Hide,
+				NAME_None,
+				ErrorMessage.IsEmpty()
+					? TEXT("AdMob failed to hide the banner ad.")
+					: MoveTemp(ErrorMessage),
+				TEXT("AdMob")
+			);
+			HideOperation.EventSink->Submit(MoveTemp(Event));
+			return;
+		}
+
+		FShowOperation ShowOperation;
+		if (RemoveShowOperation(RequestId, ShowOperation))
+		{
+			FOpenMobileAdsEvent Event;
+			Event.Type = EOpenMobileAdsEventType::Failed;
+			Event.Error = FOpenMobileAdsError::Make(
+				EOpenMobileAdsErrorCode::NativeFailure,
+				EOpenMobileAdsFailureStage::Show,
+				NAME_None,
+				ErrorMessage.IsEmpty()
+					? TEXT("AdMob failed to show the banner ad.")
+					: MoveTemp(ErrorMessage),
+				TEXT("AdMob")
+			);
+			ShowOperation.EventSink->Submit(MoveTemp(Event));
+		}
+	});
+}
+
 void FOpenMobileAdsAdMobPlatform::NativeImpression(int64 RequestId)
 {
 	OpenMobile::DispatchToGameThread([RequestId]
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
-		if (FFullscreenShowOperation* Operation = ShowOperations.Find(RequestId))
+		if (FShowOperation* Operation = ShowOperations.Find(RequestId))
 		{
 			FOpenMobileAdsEvent Event;
 			Event.Type = EOpenMobileAdsEventType::Impression;
@@ -1128,7 +1428,7 @@ void FOpenMobileAdsAdMobPlatform::NativeClicked(int64 RequestId)
 	OpenMobile::DispatchToGameThread([RequestId]
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
-		if (FFullscreenShowOperation* Operation = ShowOperations.Find(RequestId))
+		if (FShowOperation* Operation = ShowOperations.Find(RequestId))
 		{
 			FOpenMobileAdsEvent Event;
 			Event.Type = EOpenMobileAdsEventType::Clicked;
@@ -1148,7 +1448,7 @@ void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		[RequestId, ValueMicros, CurrencyCode = MoveTemp(CurrencyCode), Precision]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
-			FFullscreenShowOperation* Operation = ShowOperations.Find(RequestId);
+			FShowOperation* Operation = ShowOperations.Find(RequestId);
 			if (!Operation)
 			{
 				return;
@@ -1177,7 +1477,7 @@ void FOpenMobileAdsAdMobPlatform::NativeEarned(
 		[RequestId, NetworkAmount, NetworkRewardType = MoveTemp(NetworkRewardType)]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
-			if (FFullscreenShowOperation* Operation = ShowOperations.Find(RequestId))
+			if (FShowOperation* Operation = ShowOperations.Find(RequestId))
 			{
 				if (
 					Operation->Format != EOpenMobileAdFormat::Rewarded
@@ -1210,7 +1510,7 @@ void FOpenMobileAdsAdMobPlatform::NativeClosed(int64 RequestId)
 	OpenMobile::DispatchToGameThread([RequestId]
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
-		FFullscreenShowOperation ShowOperation;
+		FShowOperation ShowOperation;
 		if (RemoveShowOperation(RequestId, ShowOperation))
 		{
 			FOpenMobileAdsEvent Event;
@@ -1233,7 +1533,7 @@ void FOpenMobileAdsAdMobPlatform::NativeFailed(int64 RequestId, FString ErrorMes
 	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
-		FFullscreenShowOperation ShowOperation;
+		FShowOperation ShowOperation;
 		if (RemoveShowOperation(RequestId, ShowOperation))
 		{
 			FOpenMobileAdsEvent Event;

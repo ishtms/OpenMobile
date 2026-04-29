@@ -44,8 +44,15 @@ public:
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
 		FString& OutError
 	) override;
+	virtual bool LoadBannerAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		EOpenMobileAdsDataProcessingMode DataProcessingMode,
+		FString& OutError
+	) override;
 	virtual void CancelRewardedAd(int64 RequestId) override;
 	virtual void CancelInterstitialAd(int64 RequestId) override;
+	virtual void CancelBannerAd(int64 RequestId) override;
 	virtual bool ShowRewardedAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
@@ -55,6 +62,17 @@ public:
 	virtual bool ShowInterstitialAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
+		FString& OutError
+	) override;
+	virtual bool ShowBannerAd(
+		int64 LoadedRequestId,
+		int64 ShowRequestId,
+		const FOpenMobileAdsBannerLayout& Layout,
+		FString& OutError
+	) override;
+	virtual bool HideBannerAd(
+		int64 LoadedRequestId,
+		int64 HideRequestId,
 		FString& OutError
 	) override;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) override;

@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=8", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=9", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -223,6 +223,12 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"nativeOpenMobileRewardedAdImpression",
 			"nativeOpenMobileRewardedAdClicked",
 			"nativeOpenMobileRewardedAdRevenuePaid",
+			"AndroidThunkJava_LoadOpenMobileBannerAd",
+			"AndroidThunkJava_ShowOpenMobileBannerAd",
+			"AndroidThunkJava_HideOpenMobileBannerAd",
+			"AdSize.BANNER",
+			"WindowInsets.Type.systemBars()",
+			"WindowInsets.Type.displayCutout()",
 		):
 			self.assertIn(token, game_activity_additions)
 		for token in (
@@ -233,8 +239,23 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"nativeOpenMobileRewardedAdImpression",
 			"nativeOpenMobileRewardedAdClicked",
 			"nativeOpenMobileRewardedAdRevenuePaid",
+			"AndroidThunkJava_LoadOpenMobileBannerAd",
+			"AndroidThunkJava_ShowOpenMobileBannerAd",
+			"AndroidThunkJava_HideOpenMobileBannerAd",
+			"nativeOpenMobileBannerAdOperationFailed",
 		):
 			self.assertIn(token, proguard_additions)
+		pause_additions = ElementTree.tostring(
+			root.find("gameActivityOnPauseAdditions"),
+			encoding="unicode",
+		)
+		resume_additions = ElementTree.tostring(
+			root.find("gameActivityOnResumeAdditions"),
+			encoding="unicode",
+		)
+		self.assertIn("entry.adView.pause()", pause_additions)
+		self.assertIn("entry.adView.resume()", resume_additions)
+		self.assertIn("requestApplyInsets", resume_additions)
 		copy_destinations = {
 			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
 		}
@@ -567,6 +588,18 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			ios_load.index("GADRewardedAd loadWithAdUnitID"),
 		)
 		self.assertIn("GADInterstitialAd loadWithAdUnitID", ios_load)
+		for token in (
+			"GADAdSizeBanner",
+			"FOpenMobileAdsAdMobIOSBackend::LoadBannerAd",
+			"FOpenMobileAdsAdMobIOSBackend::ShowBannerAd",
+			"FOpenMobileAdsAdMobIOSBackend::HideBannerAd",
+			"safeAreaLayoutGuide",
+			"constraintEqualToConstant:320.0",
+			"constraintEqualToConstant:50.0",
+			"EOpenMobileAdsBannerAnchor::Top",
+			"removeFromSuperview",
+		):
+			self.assertIn(token, ios_backend)
 
 	def test_admob_ios_upl_owns_safe_plist_merging(self) -> None:
 		upl_path = (

@@ -114,6 +114,19 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool LoadBannerAd(
+			const FString& AdUnitId,
+			int64 RequestId,
+			EOpenMobileAdsDataProcessingMode DataProcessingMode,
+			FString& OutError
+		) override
+		{
+			BannerLoadedAdUnitIds.Add(AdUnitId);
+			BannerLoadRequestIds.Add(RequestId);
+			BannerLoadDataProcessingModes.Add(DataProcessingMode);
+			return true;
+		}
+
 		virtual void CancelRewardedAd(int64 RequestId) override
 		{
 			CancelledRequestIds.Add(RequestId);
@@ -122,6 +135,11 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual void CancelInterstitialAd(int64 RequestId) override
 		{
 			CancelledInterstitialRequestIds.Add(RequestId);
+		}
+
+		virtual void CancelBannerAd(int64 RequestId) override
+		{
+			CancelledBannerRequestIds.Add(RequestId);
 		}
 
 		virtual bool ShowRewardedAd(
@@ -150,6 +168,32 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool ShowBannerAd(
+			int64 LoadedRequestId,
+			int64 InShowRequestId,
+			const FOpenMobileAdsBannerLayout& Layout,
+			FString& OutError
+		) override
+		{
+			++BannerShowCalls;
+			ShownBannerLoadedRequestId = LoadedRequestId;
+			BannerShowRequestId = InShowRequestId;
+			ShownBannerLayout = Layout;
+			return true;
+		}
+
+		virtual bool HideBannerAd(
+			int64 LoadedRequestId,
+			int64 InHideRequestId,
+			FString& OutError
+		) override
+		{
+			++BannerHideCalls;
+			HiddenBannerLoadedRequestId = LoadedRequestId;
+			BannerHideRequestId = InHideRequestId;
+			return true;
+		}
+
 		virtual bool LaunchRewardedAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -167,6 +211,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 LaunchCalls = 0;
 		int32 ShowCalls = 0;
 		int32 InterstitialShowCalls = 0;
+		int32 BannerShowCalls = 0;
+		int32 BannerHideCalls = 0;
 		int32 ConsentRefreshCalls = 0;
 		int32 ConsentFormCalls = 0;
 		int32 PrivacyOptionsFormCalls = 0;
@@ -179,6 +225,10 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int64 ShowRequestId = 0;
 		int64 ShownInterstitialLoadedRequestId = 0;
 		int64 InterstitialShowRequestId = 0;
+		int64 ShownBannerLoadedRequestId = 0;
+		int64 HiddenBannerLoadedRequestId = 0;
+		int64 BannerShowRequestId = 0;
+		int64 BannerHideRequestId = 0;
 		int64 ConsentRefreshRequestId = 0;
 		int64 ConsentFormRequestId = 0;
 		int64 PrivacyOptionsFormRequestId = 0;
@@ -188,15 +238,20 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FString LaunchedAdUnitId;
 		FString ConsentResetError;
 		FString ShownServerVerificationCustomData;
+		FOpenMobileAdsBannerLayout ShownBannerLayout;
 		TArray<FString> LoadedAdUnitIds;
 		TArray<FString> InterstitialLoadedAdUnitIds;
+		TArray<FString> BannerLoadedAdUnitIds;
 		bool bAcceptConsentReset = true;
 		TArray<int64> LoadRequestIds;
 		TArray<int64> InterstitialLoadRequestIds;
+		TArray<int64> BannerLoadRequestIds;
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> InterstitialLoadDataProcessingModes;
+		TArray<EOpenMobileAdsDataProcessingMode> BannerLoadDataProcessingModes;
 		TArray<int64> CancelledRequestIds;
 		TArray<int64> CancelledInterstitialRequestIds;
+		TArray<int64> CancelledBannerRequestIds;
 	};
 
 	class FScopedBackendRegistration
@@ -298,20 +353,26 @@ namespace OpenMobileAdsAdMobTestAdTests
 			AndroidAppId = Settings->AndroidAppId;
 			AndroidRewardedAdUnitId = Settings->AndroidRewardedAdUnitId;
 			AndroidInterstitialAdUnitId = Settings->AndroidInterstitialAdUnitId;
+			AndroidBannerAdUnitId = Settings->AndroidBannerAdUnitId;
 			IOSAppId = Settings->IOSAppId;
 			IOSRewardedAdUnitId = Settings->IOSRewardedAdUnitId;
 			IOSInterstitialAdUnitId = Settings->IOSInterstitialAdUnitId;
+			IOSBannerAdUnitId = Settings->IOSBannerAdUnitId;
 			TestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
 			Settings->AndroidAppId = TEXT("ca-app-pub-3940256099942544~3347511713");
 			Settings->AndroidRewardedAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/5224354917");
 			Settings->AndroidInterstitialAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/1033173712");
+			Settings->AndroidBannerAdUnitId =
+				TEXT("ca-app-pub-3940256099942544/6300978111");
 			Settings->IOSAppId = TEXT("ca-app-pub-3940256099942544~1458002511");
 			Settings->IOSRewardedAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/1712485313");
 			Settings->IOSInterstitialAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/4411468910");
+			Settings->IOSBannerAdUnitId =
+				TEXT("ca-app-pub-3940256099942544/2435281174");
 		}
 
 		~FScopedSettings()
@@ -319,9 +380,11 @@ namespace OpenMobileAdsAdMobTestAdTests
 			Settings->AndroidAppId = MoveTemp(AndroidAppId);
 			Settings->AndroidRewardedAdUnitId = MoveTemp(AndroidRewardedAdUnitId);
 			Settings->AndroidInterstitialAdUnitId = MoveTemp(AndroidInterstitialAdUnitId);
+			Settings->AndroidBannerAdUnitId = MoveTemp(AndroidBannerAdUnitId);
 			Settings->IOSAppId = MoveTemp(IOSAppId);
 			Settings->IOSRewardedAdUnitId = MoveTemp(IOSRewardedAdUnitId);
 			Settings->IOSInterstitialAdUnitId = MoveTemp(IOSInterstitialAdUnitId);
+			Settings->IOSBannerAdUnitId = MoveTemp(IOSBannerAdUnitId);
 			Settings->TestDeviceIdentifiers = MoveTemp(TestDeviceIdentifiers);
 		}
 
@@ -331,9 +394,11 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FString AndroidAppId;
 		FString AndroidRewardedAdUnitId;
 		FString AndroidInterstitialAdUnitId;
+		FString AndroidBannerAdUnitId;
 		FString IOSAppId;
 		FString IOSRewardedAdUnitId;
 		FString IOSInterstitialAdUnitId;
+		FString IOSBannerAdUnitId;
 		TArray<FString> TestDeviceIdentifiers;
 	};
 
@@ -1767,6 +1832,268 @@ bool FOpenMobileAdsAdMobInterstitialContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobFixedBannerCapabilitiesTest,
+	"OpenMobile.Ads.AdMob.FixedBanner.Capabilities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobFixedBannerCapabilitiesTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	const FOpenMobileAdsProviderCapabilities Capabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Banner =
+		Capabilities.FindFormat(EOpenMobileAdFormat::Banner);
+	TestNotNull(TEXT("AdMob reports fixed-banner capabilities"), Banner);
+	if (!Banner)
+	{
+		return false;
+	}
+	TestTrue(TEXT("Fixed banners can load"), Banner->bCanLoad);
+	TestTrue(TEXT("Fixed banners can show"), Banner->bCanShow);
+	TestTrue(TEXT("Fixed banners can hide"), Banner->bCanHide);
+	TestTrue(TEXT("Fixed banners preserve their cache when hidden"), Banner->bPreservesCachedAdOnHide);
+	TestTrue(TEXT("Fixed banners can preload"), Banner->bSupportsPreload);
+	TestTrue(TEXT("Fixed banners report impressions"), Banner->bReportsImpression);
+	TestTrue(TEXT("Fixed banners report clicks"), Banner->bReportsClick);
+	TestTrue(TEXT("Fixed banners report revenue"), Banner->bReportsRevenue);
+	TestFalse(TEXT("Fixed banners do not report rewards"), Banner->bReportsReward);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobFixedBannerContractTest,
+	"OpenMobile.Ads.AdMob.FixedBanner.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobFixedBannerContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob initializes before fixed-banner loading"),
+		Provider->Initialize(Initialization, InitializationSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("MenuBanner");
+	Load.Placement.Format = EOpenMobileAdFormat::Banner;
+	Load.Placement.AdUnitId = TEXT("production-banner");
+	Load.PrivacyContext.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob starts a fixed-banner load"),
+		Provider->Load(Load, LoadSink, Error)
+	);
+	TestEqual(
+		TEXT("The fixed-banner load reaches its native path"),
+		Backend.BannerLoadRequestIds.Num(),
+		1
+	);
+	if (Backend.BannerLoadRequestIds.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestEqual(
+		TEXT("Development mode selects Google's Android banner test ID"),
+		Backend.BannerLoadedAdUnitIds[0],
+		FString(TEXT("ca-app-pub-3940256099942544/6300978111"))
+	);
+	TestEqual(
+		TEXT("Banner loads preserve the current privacy mode"),
+		Backend.BannerLoadDataProcessingModes[0],
+		EOpenMobileAdsDataProcessingMode::Restricted
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(
+		Backend.BannerLoadRequestIds[0]
+	);
+	TestEqual(TEXT("The fixed-banner load completes once"), LoadSink->Events.Num(), 1);
+	if (LoadSink->Events.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	const FGuid CachedAdId = LoadSink->Events[0].CachedAdId;
+	TestTrue(TEXT("The fixed banner receives a cache identity"), CachedAdId.IsValid());
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = CachedAdId;
+	Show.Placement = Load.Placement.Placement;
+	Show.Format = EOpenMobileAdFormat::Banner;
+	Show.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Top;
+	Show.BannerLayout.bRespectSafeArea = true;
+	Show.BannerLayout.Margins.Left = 6.0f;
+	Show.BannerLayout.Margins.Top = 10.0f;
+	Show.BannerLayout.Margins.Right = 14.0f;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob shows the cached fixed banner"),
+		Provider->Show(Show, ShowSink, Error)
+	);
+	TestEqual(TEXT("Fixed-banner show reaches the native path"), Backend.BannerShowCalls, 1);
+	TestEqual(
+		TEXT("Fixed-banner show retains its native cache"),
+		Backend.ShownBannerLoadedRequestId,
+		Backend.BannerLoadRequestIds[0]
+	);
+	TestEqual(
+		TEXT("Fixed-banner show forwards top anchoring"),
+		Backend.ShownBannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Top
+	);
+	TestTrue(
+		TEXT("Fixed-banner show forwards safe-area handling"),
+		Backend.ShownBannerLayout.bRespectSafeArea
+	);
+	TestEqual(
+		TEXT("Fixed-banner show forwards asymmetric margins"),
+		Backend.ShownBannerLayout.Margins.Right,
+		14.0f
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerShown(Backend.BannerShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeImpression(Backend.BannerShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeClicked(Backend.BannerShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		Backend.BannerShowRequestId,
+		2500,
+		TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Estimated)
+	);
+	const EOpenMobileAdsEventType ExpectedShowEvents[] = {
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid
+	};
+	TestEqual(
+		TEXT("The visible fixed banner emits its callback lifecycle"),
+		ShowSink->Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedShowEvents))
+	);
+	for (
+		int32 Index = 0;
+		Index < ShowSink->Events.Num()
+			&& Index < static_cast<int32>(UE_ARRAY_COUNT(ExpectedShowEvents));
+		++Index
+	)
+	{
+		TestEqual(
+			TEXT("Fixed-banner callback order is preserved"),
+			ShowSink->Events[Index].Type,
+			ExpectedShowEvents[Index]
+		);
+	}
+
+	FOpenMobileAdsHideRequest Hide;
+	Hide.RequestId = FGuid::NewGuid();
+	Hide.CachedAdId = CachedAdId;
+	Hide.Placement = Load.Placement.Placement;
+	Hide.Format = EOpenMobileAdFormat::Banner;
+	Hide.bPreserveCachedAd = true;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> HideSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob hides the visible fixed banner"),
+		Provider->Hide(Hide, HideSink, Error)
+	);
+	TestEqual(TEXT("Fixed-banner hide reaches the native path"), Backend.BannerHideCalls, 1);
+	TestEqual(
+		TEXT("Fixed-banner hide targets the same native cache"),
+		Backend.HiddenBannerLoadedRequestId,
+		Backend.BannerLoadRequestIds[0]
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(Backend.BannerHideRequestId);
+	TestEqual(TEXT("Fixed-banner hide completes once"), HideSink->Events.Num(), 1);
+	if (HideSink->Events.Num() == 1)
+	{
+		TestEqual(
+			TEXT("Fixed-banner hide emits Hidden"),
+			HideSink->Events[0].Type,
+			EOpenMobileAdsEventType::Hidden
+		);
+	}
+
+	FOpenMobileAdsShowRequest Reshow = Show;
+	Reshow.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ReshowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("A hidden fixed banner can be shown again without reloading"),
+		Provider->Show(Reshow, ReshowSink, Error)
+	);
+	TestEqual(TEXT("Reshow uses the same native cache"), Backend.BannerShowCalls, 2);
+	TestEqual(
+		TEXT("Reshow retains the original native load"),
+		Backend.ShownBannerLoadedRequestId,
+		Backend.BannerLoadRequestIds[0]
+	);
+
+	const int32 CancelledBannersBeforeRelease =
+		Backend.CancelledBannerRequestIds.Num();
+	Provider->ReleaseCachedAd(CachedAdId);
+	TestTrue(
+		TEXT("Fixed-banner release destroys the matching native view"),
+		Backend.CancelledBannerRequestIds.Contains(Backend.BannerLoadRequestIds[0])
+	);
+	TestEqual(
+		TEXT("Fixed-banner release destroys one native view"),
+		Backend.CancelledBannerRequestIds.Num(),
+		CancelledBannersBeforeRelease + 1
+	);
+	Provider->ReleaseCachedAd(CachedAdId);
+	TestEqual(
+		TEXT("Repeated fixed-banner release is safe"),
+		Backend.CancelledBannerRequestIds.Num(),
+		CancelledBannersBeforeRelease + 1
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerShown(Backend.BannerShowRequestId);
+	TestTrue(
+		TEXT("A late callback cannot revive a destroyed fixed banner"),
+		ReshowSink->Events.IsEmpty()
+	);
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobTestAdFlowTest,
 	"OpenMobile.Ads.AdMob.TestAds.RewardedFlow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -1788,7 +2115,11 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
-		2
+		3
+	);
+	TestTrue(
+		TEXT("The supported fixed-banner format has a test-ad contract"),
+		Capabilities.FindFormat(EOpenMobileAdFormat::Banner) != nullptr
 	);
 	TestTrue(
 		TEXT("The supported interstitial format has a test-ad contract"),

@@ -24,6 +24,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Android")
 	FString AndroidInterstitialAdUnitId = TEXT("ca-app-pub-3940256099942544/1033173712");
 
+	UPROPERTY(Config, EditAnywhere, Category = "Android")
+	FString AndroidBannerAdUnitId = TEXT("ca-app-pub-3940256099942544/6300978111");
+
 	UPROPERTY(
 		Config,
 		EditAnywhere,
@@ -37,6 +40,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "iOS")
 	FString IOSInterstitialAdUnitId = TEXT("ca-app-pub-3940256099942544/4411468910");
+
+	UPROPERTY(Config, EditAnywhere, Category = "iOS")
+	FString IOSBannerAdUnitId = TEXT("ca-app-pub-3940256099942544/2435281174");
 
 	UPROPERTY(
 		Config,
@@ -105,6 +111,19 @@ public:
 		return FString();
 	}
 
+	FString GetBannerAdUnitId(EOpenMobileAdsPlatform Platform) const
+	{
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return AndroidBannerAdUnitId;
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return IOSBannerAdUnitId;
+		}
+		return FString();
+	}
+
 	bool IsConfigurationCompatibleWithMode(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAds,
@@ -119,6 +138,7 @@ public:
 			IsGoogleSampleIdentifier(GetAppId(Platform))
 			|| IsGoogleSampleIdentifier(GetRewardedAdUnitId(Platform))
 			|| IsGoogleSampleIdentifier(GetInterstitialAdUnitId(Platform))
+			|| IsGoogleSampleIdentifier(GetBannerAdUnitId(Platform))
 		)
 		{
 			OutError = TEXT("AdMob production mode cannot use Google sample identifiers.");
@@ -171,6 +191,30 @@ public:
 				: IsGoogleSampleIdentifier(IOSInterstitialAdUnitId)
 					? FString()
 					: IOSInterstitialAdUnitId;
+		}
+		return FString();
+	}
+
+	FString ResolveBannerAdUnitId(
+		EOpenMobileAdsPlatform Platform,
+		bool bUseTestAdUnitId
+	) const
+	{
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return bUseTestAdUnitId
+				? TEXT("ca-app-pub-3940256099942544/6300978111")
+				: IsGoogleSampleIdentifier(AndroidBannerAdUnitId)
+					? FString()
+					: AndroidBannerAdUnitId;
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return bUseTestAdUnitId
+				? TEXT("ca-app-pub-3940256099942544/2435281174")
+				: IsGoogleSampleIdentifier(IOSBannerAdUnitId)
+					? FString()
+					: IOSBannerAdUnitId;
 		}
 		return FString();
 	}

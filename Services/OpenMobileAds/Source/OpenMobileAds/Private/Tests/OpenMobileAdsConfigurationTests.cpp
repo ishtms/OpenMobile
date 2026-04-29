@@ -332,6 +332,87 @@ bool FOpenMobileAdsPlacementCapabilityValidationTest::RunTest(const FString& Par
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsFixedBannerConfigurationTest,
+	"OpenMobile.Ads.Configuration.FixedBanner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsFixedBannerConfigurationTest::RunTest(
+	const FString& Parameters
+)
+{
+	FOpenMobileAdsPlacementSettings Placement;
+	Placement.Placement = TEXT("MenuBanner");
+	Placement.Format = EOpenMobileAdFormat::Banner;
+	Placement.Android.AdUnitId = TEXT("android-banner");
+	Placement.IOS.AdUnitId = TEXT("ios-banner");
+	Placement.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Bottom;
+	Placement.BannerLayout.bRespectSafeArea = true;
+	Placement.BannerLayout.Margins.Left = 8.0f;
+	Placement.BannerLayout.Margins.Right = 12.0f;
+	Placement.BannerLayout.Margins.Bottom = 16.0f;
+	Placement.Android.bOverrideBannerLayout = true;
+	Placement.Android.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Top;
+	Placement.Android.BannerLayout.bRespectSafeArea = false;
+	Placement.Android.BannerLayout.Margins.Top = 24.0f;
+
+	const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+		EOpenMobileAdsPlatform::Android
+	);
+	const FOpenMobileAdsResolvedPlacement IOS = Placement.Resolve(
+		EOpenMobileAdsPlatform::IOS
+	);
+	TestEqual(
+		TEXT("Android can override fixed-banner anchoring"),
+		Android.BannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Top
+	);
+	TestFalse(
+		TEXT("Android can override fixed-banner safe-area handling"),
+		Android.BannerLayout.bRespectSafeArea
+	);
+	TestEqual(
+		TEXT("Android keeps its fixed-banner top margin"),
+		Android.BannerLayout.Margins.Top,
+		24.0f
+	);
+	TestEqual(
+		TEXT("iOS inherits shared fixed-banner anchoring"),
+		IOS.BannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Bottom
+	);
+	TestTrue(
+		TEXT("iOS inherits shared safe-area handling"),
+		IOS.BannerLayout.bRespectSafeArea
+	);
+	TestEqual(
+		TEXT("iOS inherits asymmetric horizontal margins"),
+		IOS.BannerLayout.Margins.Right,
+		12.0f
+	);
+	TestTrue(
+		TEXT("Valid fixed-banner layout passes configuration validation"),
+		FOpenMobileAdsConfigurationValidator::Validate({Placement}).IsEmpty()
+	);
+
+	Placement.IOS.bOverrideBannerLayout = true;
+	Placement.IOS.BannerLayout.Margins.Bottom = -1.0f;
+	const TArray<FOpenMobileAdsConfigurationIssue> Issues =
+		FOpenMobileAdsConfigurationValidator::Validate({Placement});
+	TestTrue(
+		TEXT("Negative platform banner margins are rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+					== EOpenMobileAdsConfigurationIssueCode::InvalidBannerLayout;
+			}
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsPlacementConfigLoadingTest,
 	"OpenMobile.Ads.Configuration.ConfigLoading",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

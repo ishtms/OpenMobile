@@ -75,6 +75,11 @@ public:
 		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
 		FString& OutError
 	);
+	static bool BeginHide(
+		const FOpenMobileAdsHideRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FString& OutError
+	);
 	static void Cancel(FGuid RequestId);
 	static void ReleaseCachedAd(FGuid CachedAdId);
 
@@ -118,6 +123,11 @@ public:
 	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeInterstitialLoadCompleted(int64 RequestId);
 	static void NativeInterstitialLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeBannerLoadCompleted(int64 RequestId);
+	static void NativeBannerLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeBannerShown(int64 RequestId);
+	static void NativeBannerHidden(int64 RequestId);
+	static void NativeBannerOperationFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeLoaded(int64 RequestId);
 	static void NativeShown(int64 RequestId);
 	static void NativeImpression(int64 RequestId);

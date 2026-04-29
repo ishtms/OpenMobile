@@ -3492,6 +3492,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 	Request.CachedAdId = Status->CachedAdId;
 	Request.Placement = Placement;
 	Request.Format = Status->Format;
+	Request.BannerLayout = ResolvedPlacement.BannerLayout;
 	Request.Options = MoveTemp(Options);
 	const bool bUsesFullscreenLifecycle =
 		OpenMobileAdsPrivate::UsesFullscreenLifecycle(Request.Format);

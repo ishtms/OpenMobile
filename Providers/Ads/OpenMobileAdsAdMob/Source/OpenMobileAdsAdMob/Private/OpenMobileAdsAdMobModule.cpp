@@ -15,6 +15,19 @@ namespace OpenMobileAdsAdMobPrivate
 		virtual bool IsSupported() const override { return FOpenMobileAdsAdMobPlatform::IsSupported(); }
 		virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const override
 		{
+			FOpenMobileAdFormatCapabilities Banner;
+			Banner.Format = EOpenMobileAdFormat::Banner;
+			Banner.bCanLoad = true;
+			Banner.bCanShow = true;
+			Banner.bCanHide = true;
+			Banner.bPreservesCachedAdOnHide = true;
+			Banner.bSupportsPreload = true;
+			Banner.bReportsImpression = true;
+			Banner.bReportsClick = true;
+			Banner.bReportsRevenue = true;
+			Banner.MaxCachedAdsPerPlacement = 1;
+			Banner.CacheLifetimeSeconds = 0.0;
+
 			FOpenMobileAdFormatCapabilities Interstitial;
 			Interstitial.Format = EOpenMobileAdFormat::Interstitial;
 			Interstitial.bCanLoad = true;
@@ -48,6 +61,7 @@ namespace OpenMobileAdsAdMobPrivate
 #elif PLATFORM_IOS
 			Capabilities.ProviderVersion = TEXT("13.8.0");
 #endif
+			Capabilities.Formats.Add(Banner);
 			Capabilities.Formats.Add(Interstitial);
 			Capabilities.Formats.Add(Rewarded);
 			return Capabilities;
@@ -357,6 +371,8 @@ namespace OpenMobileAdsAdMobPrivate
 		) override
 		{
 			if (
+				Request.Placement.Format != EOpenMobileAdFormat::Banner
+				&&
 				Request.Placement.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Placement.Format != EOpenMobileAdFormat::Rewarded
 			)
@@ -376,16 +392,21 @@ namespace OpenMobileAdsAdMobPrivate
 			{
 				const UOpenMobileAdsAdMobSettings* Settings =
 					GetDefault<UOpenMobileAdsAdMobSettings>();
-				ProviderRequest.Placement.AdUnitId =
-					Request.Placement.Format == EOpenMobileAdFormat::Interstitial
-						? Settings->ResolveInterstitialAdUnitId(
-							InitializedPlatform,
-							true
-						)
-						: Settings->ResolveRewardedAdUnitId(
-							InitializedPlatform,
-							true
-						);
+				switch (Request.Placement.Format)
+				{
+				case EOpenMobileAdFormat::Banner:
+					ProviderRequest.Placement.AdUnitId =
+						Settings->ResolveBannerAdUnitId(InitializedPlatform, true);
+					break;
+				case EOpenMobileAdFormat::Interstitial:
+					ProviderRequest.Placement.AdUnitId =
+						Settings->ResolveInterstitialAdUnitId(InitializedPlatform, true);
+					break;
+				default:
+					ProviderRequest.Placement.AdUnitId =
+						Settings->ResolveRewardedAdUnitId(InitializedPlatform, true);
+					break;
+				}
 			}
 			ProviderRequest.Placement.AdUnitId.TrimStartAndEndInline();
 			if (ProviderRequest.Placement.AdUnitId.IsEmpty())
@@ -394,9 +415,11 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsErrorCode::NotConfigured,
 					EOpenMobileAdsFailureStage::Load,
 					Request.Placement.Placement,
-					Request.Placement.Format == EOpenMobileAdFormat::Interstitial
-						? TEXT("No AdMob interstitial ad-unit ID is configured for this placement.")
-						: TEXT("No AdMob rewarded ad-unit ID is configured for this placement."),
+					Request.Placement.Format == EOpenMobileAdFormat::Banner
+						? TEXT("No AdMob banner ad-unit ID is configured for this placement.")
+						: Request.Placement.Format == EOpenMobileAdFormat::Interstitial
+							? TEXT("No AdMob interstitial ad-unit ID is configured for this placement.")
+							: TEXT("No AdMob rewarded ad-unit ID is configured for this placement."),
 					GetProviderName()
 				);
 				return false;
@@ -457,6 +480,8 @@ namespace OpenMobileAdsAdMobPrivate
 		) override
 		{
 			if (
+				Request.Format != EOpenMobileAdFormat::Banner
+				&&
 				Request.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Format != EOpenMobileAdFormat::Rewarded
 			)
@@ -484,7 +509,46 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsFailureStage::Show,
 					Request.Placement,
 					NativeError.IsEmpty()
-						? TEXT("AdMob could not present the cached full-screen ad.")
+						? TEXT("AdMob could not present the cached ad.")
+						: MoveTemp(NativeError),
+					GetProviderName()
+				);
+			}
+			return bStarted;
+		}
+
+		virtual bool Hide(
+			const FOpenMobileAdsHideRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			if (Request.Format != EOpenMobileAdFormat::Banner)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Hide,
+					Request.Placement,
+					TEXT("AdMob supports hide only for persistent banner placements."),
+					GetProviderName()
+				);
+				return false;
+			}
+
+			FString NativeError;
+			const bool bStarted = FOpenMobileAdsAdMobPlatform::BeginHide(
+				Request,
+				EventSink,
+				NativeError
+			);
+			if (!bStarted)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NativeFailure,
+					EOpenMobileAdsFailureStage::Hide,
+					Request.Placement,
+					NativeError.IsEmpty()
+						? TEXT("AdMob could not hide the cached banner ad.")
 						: MoveTemp(NativeError),
 					GetProviderName()
 				);

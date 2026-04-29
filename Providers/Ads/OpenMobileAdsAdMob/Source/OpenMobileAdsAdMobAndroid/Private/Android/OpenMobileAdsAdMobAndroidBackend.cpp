@@ -438,6 +438,52 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadInterstitialAd(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID LoadMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_LoadOpenMobileBannerAd",
+		"(Ljava/lang/String;JI)Z",
+		false
+	);
+	if (!LoadMethod)
+	{
+		OutError = TEXT("The Android banner load bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaAdUnitId = FJavaHelper::ToJavaString(
+		Env,
+		AdUnitId
+	);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		LoadMethod,
+		*JavaAdUnitId,
+		static_cast<jlong>(RequestId),
+		static_cast<jint>(DataProcessingMode)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the banner load.");
+	}
+	return bScheduled;
+}
+
 void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedAd(const int64 RequestId)
 {
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
@@ -478,6 +524,32 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelInterstitialAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_CancelOpenMobileInterstitialAdLoad",
+		"(J)V",
+		false
+	);
+	if (CancelMethod)
+	{
+		FJavaWrapper::CallVoidMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			CancelMethod,
+			static_cast<jlong>(RequestId)
+		);
+	}
+}
+
+void FOpenMobileAdsAdMobAndroidBackend::CancelBannerAd(const int64 RequestId)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return;
+	}
+
+	static jmethodID CancelMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_CancelOpenMobileBannerAd",
 		"(J)V",
 		false
 	);
@@ -574,6 +646,93 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowInterstitialAd(
 	if (!bScheduled)
 	{
 		OutError = TEXT("Android could not schedule the cached interstitial presentation.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::ShowBannerAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FOpenMobileAdsBannerLayout& Layout,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID ShowMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ShowOpenMobileBannerAd",
+		"(JJIZFFFF)Z",
+		false
+	);
+	if (!ShowMethod)
+	{
+		OutError = TEXT("The Android banner show bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ShowMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(ShowRequestId),
+		static_cast<jint>(Layout.Anchor),
+		static_cast<jboolean>(Layout.bRespectSafeArea),
+		static_cast<jfloat>(Layout.Margins.Left),
+		static_cast<jfloat>(Layout.Margins.Top),
+		static_cast<jfloat>(Layout.Margins.Right),
+		static_cast<jfloat>(Layout.Margins.Bottom)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached banner presentation.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::HideBannerAd(
+	const int64 LoadedRequestId,
+	const int64 HideRequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID HideMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_HideOpenMobileBannerAd",
+		"(JJ)Z",
+		false
+	);
+	if (!HideMethod)
+	{
+		OutError = TEXT("The Android banner hide bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		HideMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(HideRequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached banner hide.");
 	}
 	return bScheduled;
 }
@@ -676,6 +835,96 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstit
 	FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 		static_cast<int64>(RequestId),
 		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdLoadCompleted(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(
+		static_cast<int64>(RequestId)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdLoadFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdShown(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerShown(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdHidden(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdOperationFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdImpression(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeImpression(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdClicked(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeClicked(static_cast<int64>(RequestId));
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdRevenuePaid(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jlong ValueMicros,
+	jstring CurrencyCode,
+	jint Precision
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		static_cast<int64>(RequestId),
+		static_cast<int64>(ValueMicros),
+		CurrencyCode ? FJavaHelper::FStringFromParam(Env, CurrencyCode) : FString(),
+		static_cast<int32>(Precision)
 	);
 }
 

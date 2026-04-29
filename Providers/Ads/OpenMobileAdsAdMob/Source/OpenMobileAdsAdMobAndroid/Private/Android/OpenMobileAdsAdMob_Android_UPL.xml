@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=8</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=9</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -86,9 +86,19 @@ dependencies {
     <gameActivityImportAdditions>
         <insert>
 import android.preference.PreferenceManager;
+import android.graphics.Insets;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import com.google.android.gms.ads.AdError;
+import com.google.android.gms.ads.AdListener;
 import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.AdSize;
 import com.google.android.gms.ads.AdValue;
+import com.google.android.gms.ads.AdView;
 import com.google.android.gms.ads.FullScreenContentCallback;
 import com.google.android.gms.ads.LoadAdError;
 import com.google.android.gms.ads.MobileAds;
@@ -132,6 +142,28 @@ import java.util.Set;
     private final Set&lt;Long&gt; openMobileInterstitialAdLoadRequests = new HashSet&lt;&gt;();
     private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
+    private static final int OPEN_MOBILE_BANNER_TOP = 0;
+    private static final class OpenMobileBannerEntry
+    {
+        final long loadRequestId;
+        final AdView adView;
+        FrameLayout container = null;
+        long showRequestId = 0;
+        int anchor = OPEN_MOBILE_BANNER_TOP;
+        boolean respectSafeArea = true;
+        float leftMargin = 0.0f;
+        float topMargin = 0.0f;
+        float rightMargin = 0.0f;
+        float bottomMargin = 0.0f;
+
+        OpenMobileBannerEntry(long inLoadRequestId, AdView inAdView)
+        {
+            loadRequestId = inLoadRequestId;
+            adView = inAdView;
+        }
+    }
+    private final Map&lt;Long, OpenMobileBannerEntry&gt; openMobileBannerAds =
+        new HashMap&lt;&gt;();
 
     public native void nativeOpenMobileAdsInitializationCompleted(long requestId);
     public native void nativeOpenMobileAdsInitializationFailed(long requestId, String errorMessage);
@@ -180,6 +212,126 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdLoadFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long requestId);
     public native void nativeOpenMobileInterstitialAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileBannerAdLoadCompleted(long requestId);
+    public native void nativeOpenMobileBannerAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileBannerAdShown(long requestId);
+    public native void nativeOpenMobileBannerAdHidden(long requestId);
+    public native void nativeOpenMobileBannerAdOperationFailed(
+        long requestId,
+        String errorMessage
+    );
+    public native void nativeOpenMobileBannerAdImpression(long requestId);
+    public native void nativeOpenMobileBannerAdClicked(long requestId);
+    public native void nativeOpenMobileBannerAdRevenuePaid(
+        long requestId,
+        long valueMicros,
+        String currencyCode,
+        int precision
+    );
+
+    private int openMobileDensityPixels(float value)
+    {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void detachOpenMobileBanner(OpenMobileBannerEntry entry)
+    {
+        if (entry.container != null)
+        {
+            entry.container.setOnApplyWindowInsetsListener(null);
+            ViewParent parent = entry.container.getParent();
+            if (parent instanceof ViewGroup)
+            {
+                ((ViewGroup) parent).removeView(entry.container);
+            }
+            entry.container.removeAllViews();
+            entry.container = null;
+        }
+        entry.showRequestId = 0;
+    }
+
+    private void destroyOpenMobileBanner(OpenMobileBannerEntry entry)
+    {
+        detachOpenMobileBanner(entry);
+        entry.adView.setAdListener(null);
+        entry.adView.setOnPaidEventListener(null);
+        entry.adView.destroy();
+    }
+
+    private void applyOpenMobileBannerLayout(
+        final OpenMobileBannerEntry entry,
+        WindowInsets windowInsets
+    )
+    {
+        if (entry.container == null)
+        {
+            return;
+        }
+
+        int safeLeft = 0;
+        int safeTop = 0;
+        int safeRight = 0;
+        int safeBottom = 0;
+        if (entry.respectSafeArea &amp;&amp; windowInsets != null)
+        {
+            Insets safeInsets = windowInsets.getInsets(
+                WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()
+            );
+            safeLeft = safeInsets.left;
+            safeTop = safeInsets.top;
+            safeRight = safeInsets.right;
+            safeBottom = safeInsets.bottom;
+        }
+
+        FrameLayout.LayoutParams containerLayout = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            entry.anchor == OPEN_MOBILE_BANNER_TOP ? Gravity.TOP : Gravity.BOTTOM
+        );
+        containerLayout.leftMargin = safeLeft + openMobileDensityPixels(entry.leftMargin);
+        containerLayout.topMargin = safeTop + openMobileDensityPixels(entry.topMargin);
+        containerLayout.rightMargin = safeRight + openMobileDensityPixels(entry.rightMargin);
+        containerLayout.bottomMargin = safeBottom + openMobileDensityPixels(entry.bottomMargin);
+        entry.container.setLayoutParams(containerLayout);
+    }
+
+    private void attachOpenMobileBanner(final OpenMobileBannerEntry entry)
+    {
+        final FrameLayout container = new FrameLayout(GameActivity.this)
+        {
+            @Override
+            protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight)
+            {
+                super.onSizeChanged(width, height, oldWidth, oldHeight);
+                requestApplyInsets();
+            }
+        };
+        FrameLayout.LayoutParams bannerLayout = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_HORIZONTAL
+        );
+        container.addView(entry.adView, bannerLayout);
+        entry.container = container;
+        container.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener()
+        {
+            @Override
+            public WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets)
+            {
+                applyOpenMobileBannerLayout(entry, windowInsets);
+                return windowInsets;
+            }
+        });
+        GameActivity.this.addContentView(
+            container,
+            new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        );
+        applyOpenMobileBannerLayout(entry, container.getRootWindowInsets());
+        container.requestApplyInsets();
+    }
 
     private void reportOpenMobileAdsAdapterInitializationStatuses(
         long requestId,
@@ -534,6 +686,11 @@ import java.util.Set;
             @Override
             public void run()
             {
+                for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
+                {
+                    destroyOpenMobileBanner(entry);
+                }
+                openMobileBannerAds.clear();
                 openMobileRewardedAd = null;
                 openMobileRewardedAdLoading = false;
                 openMobileActiveFullscreenShowRequestId = 0;
@@ -809,6 +966,249 @@ import java.util.Set;
                 openMobileLoadedInterstitialAds.remove(requestId);
             }
         });
+    }
+
+    public boolean AndroidThunkJava_LoadOpenMobileBannerAd(
+        final String adUnitId,
+        final long requestId,
+        final int dataProcessingMode
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (adUnitId == null || adUnitId.trim().length() == 0)
+                    {
+                        nativeOpenMobileBannerAdLoadFailed(
+                            requestId,
+                            "The Android banner ad unit ID is empty."
+                        );
+                        return;
+                    }
+                    if (openMobileBannerAds.containsKey(requestId))
+                    {
+                        nativeOpenMobileBannerAdLoadFailed(
+                            requestId,
+                            "The Android banner load request is already active."
+                        );
+                        return;
+                    }
+
+                    applyOpenMobileDataProcessingMode(dataProcessingMode);
+                    try
+                    {
+                        final AdView adView = new AdView(GameActivity.this);
+                        final OpenMobileBannerEntry entry = new OpenMobileBannerEntry(
+                            requestId,
+                            adView
+                        );
+                        adView.setAdSize(AdSize.BANNER);
+                        adView.setAdUnitId(adUnitId);
+                        adView.setAdListener(new AdListener()
+                        {
+                            @Override
+                            public void onAdLoaded()
+                            {
+                                if (openMobileBannerAds.get(requestId) == entry)
+                                {
+                                    nativeOpenMobileBannerAdLoadCompleted(requestId);
+                                }
+                            }
+
+                            @Override
+                            public void onAdFailedToLoad(LoadAdError loadAdError)
+                            {
+                                if (openMobileBannerAds.remove(requestId) != entry)
+                                {
+                                    return;
+                                }
+                                destroyOpenMobileBanner(entry);
+                                nativeOpenMobileBannerAdLoadFailed(
+                                    requestId,
+                                    "Banner failed to load: " + loadAdError.getMessage()
+                                );
+                            }
+
+                            @Override
+                            public void onAdImpression()
+                            {
+                                if (entry.showRequestId != 0)
+                                {
+                                    nativeOpenMobileBannerAdImpression(entry.showRequestId);
+                                }
+                            }
+
+                            @Override
+                            public void onAdClicked()
+                            {
+                                if (entry.showRequestId != 0)
+                                {
+                                    nativeOpenMobileBannerAdClicked(entry.showRequestId);
+                                }
+                            }
+                        });
+                        adView.setOnPaidEventListener(new OnPaidEventListener()
+                        {
+                            @Override
+                            public void onPaidEvent(AdValue adValue)
+                            {
+                                if (entry.showRequestId != 0)
+                                {
+                                    nativeOpenMobileBannerAdRevenuePaid(
+                                        entry.showRequestId,
+                                        adValue.getValueMicros(),
+                                        adValue.getCurrencyCode(),
+                                        adValue.getPrecisionType()
+                                    );
+                                }
+                            }
+                        });
+                        openMobileBannerAds.put(requestId, entry);
+                        adView.loadAd(new AdRequest.Builder().build());
+                    }
+                    catch (Exception exception)
+                    {
+                        OpenMobileBannerEntry entry = openMobileBannerAds.remove(requestId);
+                        if (entry != null)
+                        {
+                            destroyOpenMobileBanner(entry);
+                        }
+                        nativeOpenMobileBannerAdLoadFailed(
+                            requestId,
+                            "Banner load could not start: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile banner load failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public void AndroidThunkJava_CancelOpenMobileBannerAd(final long requestId)
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                OpenMobileBannerEntry entry = openMobileBannerAds.remove(requestId);
+                if (entry != null)
+                {
+                    destroyOpenMobileBanner(entry);
+                }
+            }
+        });
+    }
+
+    public boolean AndroidThunkJava_ShowOpenMobileBannerAd(
+        final long loadedRequestId,
+        final long showRequestId,
+        final int anchor,
+        final boolean respectSafeArea,
+        final float leftMargin,
+        final float topMargin,
+        final float rightMargin,
+        final float bottomMargin
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    OpenMobileBannerEntry entry = openMobileBannerAds.get(loadedRequestId);
+                    if (entry == null)
+                    {
+                        nativeOpenMobileBannerAdOperationFailed(
+                            showRequestId,
+                            "The cached Android banner is unavailable."
+                        );
+                        return;
+                    }
+                    if (entry.showRequestId != 0 || entry.container != null)
+                    {
+                        nativeOpenMobileBannerAdOperationFailed(
+                            showRequestId,
+                            "The cached Android banner is already visible."
+                        );
+                        return;
+                    }
+
+                    try
+                    {
+                        entry.showRequestId = showRequestId;
+                        entry.anchor = anchor;
+                        entry.respectSafeArea = respectSafeArea;
+                        entry.leftMargin = leftMargin;
+                        entry.topMargin = topMargin;
+                        entry.rightMargin = rightMargin;
+                        entry.bottomMargin = bottomMargin;
+                        attachOpenMobileBanner(entry);
+                        nativeOpenMobileBannerAdShown(showRequestId);
+                    }
+                    catch (Exception exception)
+                    {
+                        detachOpenMobileBanner(entry);
+                        nativeOpenMobileBannerAdOperationFailed(
+                            showRequestId,
+                            "Banner could not be presented: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile banner show failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public boolean AndroidThunkJava_HideOpenMobileBannerAd(
+        final long loadedRequestId,
+        final long hideRequestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    OpenMobileBannerEntry entry = openMobileBannerAds.get(loadedRequestId);
+                    if (entry == null || entry.showRequestId == 0 || entry.container == null)
+                    {
+                        nativeOpenMobileBannerAdOperationFailed(
+                            hideRequestId,
+                            "The cached Android banner is not visible."
+                        );
+                        return;
+                    }
+
+                    detachOpenMobileBanner(entry);
+                    nativeOpenMobileBannerAdHidden(hideRequestId);
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile banner hide failed: " + exception.getMessage());
+            return false;
+        }
     }
 
     public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(
@@ -1194,6 +1594,38 @@ import java.util.Set;
         </insert>
     </gameActivityClassAdditions>
 
+    <gameActivityOnPauseAdditions>
+        <insert>
+        for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
+        {
+            entry.adView.pause();
+        }
+        </insert>
+    </gameActivityOnPauseAdditions>
+
+    <gameActivityOnResumeAdditions>
+        <insert>
+        for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
+        {
+            entry.adView.resume();
+            if (entry.container != null)
+            {
+                entry.container.requestApplyInsets();
+            }
+        }
+        </insert>
+    </gameActivityOnResumeAdditions>
+
+    <gameActivityOnDestroyAdditions>
+        <insert>
+        for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
+        {
+            destroyOpenMobileBanner(entry);
+        }
+        openMobileBannerAds.clear();
+        </insert>
+    </gameActivityOnDestroyAdditions>
+
     <proguardAdditions>
         <insert>
 -keepclassmembers class com.epicgames.unreal.GameActivity {
@@ -1227,6 +1659,23 @@ import java.util.Set;
         int
     );
     public void AndroidThunkJava_CancelOpenMobileInterstitialAdLoad(long);
+    public boolean AndroidThunkJava_LoadOpenMobileBannerAd(
+        java.lang.String,
+        long,
+        int
+    );
+    public void AndroidThunkJava_CancelOpenMobileBannerAd(long);
+    public boolean AndroidThunkJava_ShowOpenMobileBannerAd(
+        long,
+        long,
+        int,
+        boolean,
+        float,
+        float,
+        float,
+        float
+    );
+    public boolean AndroidThunkJava_HideOpenMobileBannerAd(long, long);
     public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(long, long);
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         long,
@@ -1270,6 +1719,19 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdLoadFailed(long, java.lang.String);
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long);
     public native void nativeOpenMobileInterstitialAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileBannerAdLoadCompleted(long);
+    public native void nativeOpenMobileBannerAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileBannerAdShown(long);
+    public native void nativeOpenMobileBannerAdHidden(long);
+    public native void nativeOpenMobileBannerAdOperationFailed(long, java.lang.String);
+    public native void nativeOpenMobileBannerAdImpression(long);
+    public native void nativeOpenMobileBannerAdClicked(long);
+    public native void nativeOpenMobileBannerAdRevenuePaid(
+        long,
+        long,
+        java.lang.String,
+        int
+    );
 }
         </insert>
     </proguardAdditions>

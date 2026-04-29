@@ -55,8 +55,15 @@ public:
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
 		FString& OutError
 	) = 0;
+	virtual bool LoadBannerAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		EOpenMobileAdsDataProcessingMode DataProcessingMode,
+		FString& OutError
+	) = 0;
 	virtual void CancelRewardedAd(int64 RequestId) = 0;
 	virtual void CancelInterstitialAd(int64 RequestId) = 0;
+	virtual void CancelBannerAd(int64 RequestId) = 0;
 	virtual bool ShowRewardedAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
@@ -66,6 +73,17 @@ public:
 	virtual bool ShowInterstitialAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
+		FString& OutError
+	) = 0;
+	virtual bool ShowBannerAd(
+		int64 LoadedRequestId,
+		int64 ShowRequestId,
+		const FOpenMobileAdsBannerLayout& Layout,
+		FString& OutError
+	) = 0;
+	virtual bool HideBannerAd(
+		int64 LoadedRequestId,
+		int64 HideRequestId,
 		FString& OutError
 	) = 0;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) = 0;

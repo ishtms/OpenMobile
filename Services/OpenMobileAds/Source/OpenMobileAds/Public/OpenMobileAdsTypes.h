@@ -6,7 +6,7 @@
 UENUM(BlueprintType)
 enum class EOpenMobileAdFormat : uint8
 {
-	Banner,
+	Banner UMETA(DisplayName = "320x50 Fixed Banner"),
 	Interstitial,
 	Rewarded,
 	RewardedInterstitial,

@@ -36,6 +36,63 @@ enum class EOpenMobileAdsHideCachePolicy : uint8
 	Release
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsBannerAnchor : uint8
+{
+	Top,
+	Bottom
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsBannerMargins
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	float Left = 0.0f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	float Top = 0.0f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	float Right = 0.0f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	float Bottom = 0.0f;
+
+	bool IsValid() const
+	{
+		return FMath::IsFinite(Left)
+			&& FMath::IsFinite(Top)
+			&& FMath::IsFinite(Right)
+			&& FMath::IsFinite(Bottom)
+			&& Left >= 0.0f
+			&& Top >= 0.0f
+			&& Right >= 0.0f
+			&& Bottom >= 0.0f;
+	}
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsBannerLayout
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	EOpenMobileAdsBannerAnchor Anchor = EOpenMobileAdsBannerAnchor::Bottom;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bRespectSafeArea = true;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsBannerMargins Margins;
+
+	bool IsValid() const
+	{
+		return Margins.IsValid();
+	}
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRequestConfiguration
 {
@@ -233,6 +290,12 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 	double CooldownSeconds = 0.0;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideBannerLayout = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideBannerLayout"))
+	FOpenMobileAdsBannerLayout BannerLayout;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	TMap<FName, FString> ProviderOptions;
 };
 
@@ -268,6 +331,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
 		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsBannerLayout BannerLayout;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString FallbackRewardType;
@@ -308,6 +374,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
 		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsBannerLayout BannerLayout;
 
 	UPROPERTY(
 		Config,
@@ -382,7 +451,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidTrackingUsageDescription,
 	InvalidConvenienceRewardedPlacement,
 	InvalidPlacementRetryLimit,
-	InvalidPreloadPolicy
+	InvalidPreloadPolicy,
+	InvalidBannerLayout
 };
 
 USTRUCT(BlueprintType)

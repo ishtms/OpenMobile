@@ -217,6 +217,46 @@ static NSMutableDictionary<NSNumber*, GADInterstitialAd*>*
 	GOpenMobileLoadedInterstitialAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileInterstitialAdLoadRequests = nil;
 
+@interface OpenMobileBannerAdDelegate : NSObject <GADBannerViewDelegate>
+
+@property(nonatomic, assign) int64_t loadRequestId;
+@property(nonatomic, assign) int64_t showRequestId;
+@property(nonatomic, strong, nullable) GADBannerView* bannerView;
+@property(nonatomic, weak, nullable) UIView* hostView;
+@property(nonatomic, strong, nullable) UILayoutGuide* layoutGuide;
+@property(nonatomic, strong, nullable) NSArray<NSLayoutConstraint*>* constraints;
+
+@end
+
+static NSMutableDictionary<NSNumber*, OpenMobileBannerAdDelegate*>*
+	GOpenMobileBannerAds = nil;
+
+static void DetachOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
+{
+	if (!Handler)
+	{
+		return;
+	}
+	[NSLayoutConstraint deactivateConstraints:Handler.constraints ?: @[]];
+	[Handler.bannerView removeFromSuperview];
+	if (Handler.layoutGuide && Handler.hostView)
+	{
+		[Handler.hostView removeLayoutGuide:Handler.layoutGuide];
+	}
+	Handler.constraints = nil;
+	Handler.layoutGuide = nil;
+	Handler.hostView = nil;
+	Handler.showRequestId = 0;
+}
+
+static void DestroyOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
+{
+	DetachOpenMobileBanner(Handler);
+	Handler.bannerView.delegate = nil;
+	Handler.bannerView.paidEventHandler = nil;
+	Handler.bannerView = nil;
+}
+
 @implementation OpenMobileRewardedAdDelegate
 
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
@@ -321,6 +361,54 @@ static NSMutableSet<NSNumber*>* GOpenMobileInterstitialAdLoadRequests = nil;
 
 @end
 
+@implementation OpenMobileBannerAdDelegate
+
+- (void)bannerViewDidReceiveAd:(GADBannerView*)bannerView
+{
+	if (GOpenMobileBannerAds[@(self.loadRequestId)] == self)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(self.loadRequestId);
+	}
+}
+
+- (void)bannerView:(GADBannerView*)bannerView
+	didFailToReceiveAdWithError:(NSError*)error
+{
+	NSNumber* Key = @(self.loadRequestId);
+	if (GOpenMobileBannerAds[Key] != self)
+	{
+		return;
+	}
+	[GOpenMobileBannerAds removeObjectForKey:Key];
+	const int64_t FailedRequestId = self.loadRequestId;
+	NSString* Detail = error.localizedDescription ?: @"Unknown banner load error.";
+	DestroyOpenMobileBanner(self);
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+		FailedRequestId,
+		OpenMobileAdsAdMobIOS::ToFString(
+			[@"Banner failed to load: " stringByAppendingString:Detail]
+		)
+	);
+}
+
+- (void)bannerViewDidRecordImpression:(GADBannerView*)bannerView
+{
+	if (self.showRequestId > 0)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeImpression(self.showRequestId);
+	}
+}
+
+- (void)bannerViewDidRecordClick:(GADBannerView*)bannerView
+{
+	if (self.showRequestId > 0)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeClicked(self.showRequestId);
+	}
+}
+
+@end
+
 bool FOpenMobileAdsAdMobIOSBackend::Initialize(
 	const FOpenMobileAdsInitializationRequest& Request,
 	const int64 RequestId,
@@ -389,10 +477,16 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 		[GOpenMobileRewardedAdLoadRequests removeAllObjects];
 		[GOpenMobileLoadedInterstitialAds removeAllObjects];
 		[GOpenMobileInterstitialAdLoadRequests removeAllObjects];
+		for (OpenMobileBannerAdDelegate* Handler in GOpenMobileBannerAds.allValues)
+		{
+			DestroyOpenMobileBanner(Handler);
+		}
+		[GOpenMobileBannerAds removeAllObjects];
 		GOpenMobileLoadedRewardedAds = nil;
 		GOpenMobileRewardedAdLoadRequests = nil;
 		GOpenMobileLoadedInterstitialAds = nil;
 		GOpenMobileInterstitialAdLoadRequests = nil;
+		GOpenMobileBannerAds = nil;
 	});
 }
 
@@ -725,6 +819,73 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadInterstitialAd(
 	return true;
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	if (AdUnitId.IsEmpty())
+	{
+		OutError = TEXT("The iOS banner ad unit ID is empty.");
+		return false;
+	}
+
+	NSString* IOSAdUnitId = [NSString stringWithUTF8String:TCHAR_TO_UTF8(*AdUnitId)];
+	if (!IOSAdUnitId)
+	{
+		OutError = TEXT("The iOS banner ad unit ID could not be encoded.");
+		return false;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		if (!GOpenMobileBannerAds)
+		{
+			GOpenMobileBannerAds = [[NSMutableDictionary alloc] init];
+		}
+		NSNumber* Key = @(RequestId);
+		if (GOpenMobileBannerAds[Key] != nil)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+				RequestId,
+				TEXT("The iOS banner load request is already active.")
+			);
+			return;
+		}
+
+		OpenMobileAdsAdMobIOS::ApplyDataProcessingMode(DataProcessingMode);
+		OpenMobileBannerAdDelegate* Handler =
+			[[OpenMobileBannerAdDelegate alloc] init];
+		Handler.loadRequestId = RequestId;
+		Handler.bannerView = [[GADBannerView alloc] initWithAdSize:GADAdSizeBanner];
+		Handler.bannerView.adUnitID = IOSAdUnitId;
+		Handler.bannerView.delegate = Handler;
+		Handler.bannerView.rootViewController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		__weak OpenMobileBannerAdDelegate* WeakHandler = Handler;
+		Handler.bannerView.paidEventHandler = ^(GADAdValue* AdValue)
+		{
+			OpenMobileBannerAdDelegate* StrongHandler = WeakHandler;
+			if (!StrongHandler || StrongHandler.showRequestId <= 0)
+			{
+				return;
+			}
+			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+				StrongHandler.showRequestId,
+				AdValue.value.longLongValue,
+				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
+				static_cast<int32>(AdValue.precision)
+			);
+		};
+		GOpenMobileBannerAds[Key] = Handler;
+		[Handler.bannerView loadRequest:[GADRequest request]];
+	});
+	return true;
+}
+
 void FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd(const int64 RequestId)
 {
 	dispatch_async(dispatch_get_main_queue(), ^
@@ -744,6 +905,17 @@ void FOpenMobileAdsAdMobIOSBackend::CancelInterstitialAd(
 		NSNumber* Key = @(RequestId);
 		[GOpenMobileInterstitialAdLoadRequests removeObject:Key];
 		[GOpenMobileLoadedInterstitialAds removeObjectForKey:Key];
+	});
+}
+
+void FOpenMobileAdsAdMobIOSBackend::CancelBannerAd(const int64 RequestId)
+{
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		NSNumber* Key = @(RequestId);
+		OpenMobileBannerAdDelegate* Handler = GOpenMobileBannerAds[Key];
+		[GOpenMobileBannerAds removeObjectForKey:Key];
+		DestroyOpenMobileBanner(Handler);
 	});
 }
 
@@ -914,6 +1086,141 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowInterstitialAd(
 		}
 
 		[InterstitialAd presentFromRootViewController:RootController];
+	});
+	return true;
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::ShowBannerAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FOpenMobileAdsBannerLayout& Layout,
+	FString& OutError
+)
+{
+	const FOpenMobileAdsBannerLayout BannerLayout = Layout;
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		OpenMobileBannerAdDelegate* Handler =
+			GOpenMobileBannerAds[@(LoadedRequestId)];
+		if (!Handler || !Handler.bannerView)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				ShowRequestId,
+				TEXT("The cached iOS banner is unavailable.")
+			);
+			return;
+		}
+		if (Handler.showRequestId > 0 || Handler.bannerView.superview != nil)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				ShowRequestId,
+				TEXT("The cached iOS banner is already visible.")
+			);
+			return;
+		}
+
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		UIView* HostView = RootController.view;
+		if (!RootController || !HostView)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				ShowRequestId,
+				TEXT("No iOS view is available for the banner.")
+			);
+			return;
+		}
+
+		[HostView layoutIfNeeded];
+		CGRect AvailableFrame = BannerLayout.bRespectSafeArea
+			? HostView.safeAreaLayoutGuide.layoutFrame
+			: HostView.bounds;
+		const CGFloat AvailableWidth = CGRectGetWidth(AvailableFrame)
+			- BannerLayout.Margins.Left - BannerLayout.Margins.Right;
+		const CGFloat AvailableHeight = CGRectGetHeight(AvailableFrame)
+			- BannerLayout.Margins.Top - BannerLayout.Margins.Bottom;
+		if (AvailableWidth < 320.0 || AvailableHeight < 50.0)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				ShowRequestId,
+				TEXT("The iOS safe area and margins cannot fit a 320x50 banner.")
+			);
+			return;
+		}
+
+		UILayoutGuide* Guide = [[UILayoutGuide alloc] init];
+		[HostView addLayoutGuide:Guide];
+		Handler.hostView = HostView;
+		Handler.layoutGuide = Guide;
+		Handler.showRequestId = ShowRequestId;
+		Handler.bannerView.rootViewController = RootController;
+		Handler.bannerView.translatesAutoresizingMaskIntoConstraints = NO;
+		[HostView addSubview:Handler.bannerView];
+
+		NSLayoutXAxisAnchor* LeadingAnchor = BannerLayout.bRespectSafeArea
+			? HostView.safeAreaLayoutGuide.leadingAnchor
+			: HostView.leadingAnchor;
+		NSLayoutXAxisAnchor* TrailingAnchor = BannerLayout.bRespectSafeArea
+			? HostView.safeAreaLayoutGuide.trailingAnchor
+			: HostView.trailingAnchor;
+		NSLayoutYAxisAnchor* TopAnchor = BannerLayout.bRespectSafeArea
+			? HostView.safeAreaLayoutGuide.topAnchor
+			: HostView.topAnchor;
+		NSLayoutYAxisAnchor* BottomAnchor = BannerLayout.bRespectSafeArea
+			? HostView.safeAreaLayoutGuide.bottomAnchor
+			: HostView.bottomAnchor;
+
+		NSMutableArray<NSLayoutConstraint*>* Constraints = [NSMutableArray arrayWithArray:@[
+			[Guide.leadingAnchor constraintEqualToAnchor:LeadingAnchor
+				constant:BannerLayout.Margins.Left],
+			[Guide.trailingAnchor constraintEqualToAnchor:TrailingAnchor
+				constant:-BannerLayout.Margins.Right],
+			[Guide.topAnchor constraintEqualToAnchor:TopAnchor
+				constant:BannerLayout.Margins.Top],
+			[Guide.bottomAnchor constraintEqualToAnchor:BottomAnchor
+				constant:-BannerLayout.Margins.Bottom],
+			[Handler.bannerView.centerXAnchor constraintEqualToAnchor:Guide.centerXAnchor],
+			[Handler.bannerView.widthAnchor constraintEqualToConstant:320.0],
+			[Handler.bannerView.heightAnchor constraintEqualToConstant:50.0]
+		]];
+		if (BannerLayout.Anchor == EOpenMobileAdsBannerAnchor::Top)
+		{
+			[Constraints addObject:[Handler.bannerView.topAnchor
+				constraintEqualToAnchor:Guide.topAnchor]];
+		}
+		else
+		{
+			[Constraints addObject:[Handler.bannerView.bottomAnchor
+				constraintEqualToAnchor:Guide.bottomAnchor]];
+		}
+		Handler.constraints = Constraints;
+		[NSLayoutConstraint activateConstraints:Constraints];
+		FOpenMobileAdsAdMobPlatform::NativeBannerShown(ShowRequestId);
+	});
+	return true;
+}
+
+bool FOpenMobileAdsAdMobIOSBackend::HideBannerAd(
+	const int64 LoadedRequestId,
+	const int64 HideRequestId,
+	FString& OutError
+)
+{
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		OpenMobileBannerAdDelegate* Handler =
+			GOpenMobileBannerAds[@(LoadedRequestId)];
+		if (!Handler || Handler.showRequestId <= 0 || !Handler.bannerView.superview)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				HideRequestId,
+				TEXT("The cached iOS banner is not visible.")
+			);
+			return;
+		}
+		DetachOpenMobileBanner(Handler);
+		FOpenMobileAdsAdMobPlatform::NativeBannerHidden(HideRequestId);
 	});
 	return true;
 }

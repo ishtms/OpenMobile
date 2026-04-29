@@ -172,6 +172,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsShowRequest
 
 	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
 
+	FOpenMobileAdsBannerLayout BannerLayout;
+
 	FOpenMobileAdsShowOptions Options;
 };
 

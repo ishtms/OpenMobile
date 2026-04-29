@@ -4083,6 +4083,12 @@ bool FOpenMobileAdsHideContractTest::RunTest(const FString& Parameters)
 	Preserved.Format = EOpenMobileAdFormat::Banner;
 	Preserved.HideCachePolicy =
 		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
+	Preserved.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Top;
+	Preserved.BannerLayout.bRespectSafeArea = true;
+	Preserved.BannerLayout.Margins.Left = 8.0f;
+	Preserved.BannerLayout.Margins.Top = 12.0f;
+	Preserved.BannerLayout.Margins.Right = 16.0f;
+	Preserved.BannerLayout.Margins.Bottom = 20.0f;
 	Preserved.Android.AdUnitId = TEXT("android-preserved-banner");
 	Preserved.IOS.AdUnitId = TEXT("ios-preserved-banner");
 	FOpenMobileAdsPlacementSettings& Released =
@@ -4161,6 +4167,20 @@ bool FOpenMobileAdsHideContractTest::RunTest(const FString& Parameters)
 		Subsystem->Deinitialize();
 		return false;
 	}
+	TestEqual(
+		TEXT("The resolved banner anchor reaches the provider"),
+		Provider.LastShowRequest.BannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Top
+	);
+	TestTrue(
+		TEXT("The resolved banner respects the safe area"),
+		Provider.LastShowRequest.BannerLayout.bRespectSafeArea
+	);
+	TestEqual(
+		TEXT("The resolved banner keeps asymmetric screen margins"),
+		Provider.LastShowRequest.BannerLayout.Margins.Right,
+		16.0f
+	);
 	const FOpenMobileAdsOperationResult PreserveHide =
 		Subsystem->HideAd(TEXT("PreservedBanner"));
 	TestTrue(TEXT("A visible persistent ad starts hiding"), PreserveHide.bAccepted);

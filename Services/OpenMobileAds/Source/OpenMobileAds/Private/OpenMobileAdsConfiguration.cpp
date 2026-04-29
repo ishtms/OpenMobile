@@ -133,6 +133,19 @@ namespace OpenMobileAdsConfigurationPrivate
 				TEXT("Fallback reward amount must not be negative.")
 			);
 		}
+
+		if (
+			Placement.Format == EOpenMobileAdFormat::Banner
+			&& !Placement.BannerLayout.IsValid()
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidBannerLayout,
+				Placement.Placement,
+				TEXT("Banner margins must be finite and non-negative.")
+			);
+		}
 	}
 }
 
@@ -227,6 +240,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
 	Result.HideCachePolicy = HideCachePolicy;
+	Result.BannerLayout = BannerLayout;
 	Result.FallbackRewardType = FallbackRewardType;
 	Result.FallbackRewardAmount = FallbackRewardAmount;
 	Result.ProviderOptions = ProviderOptions;
@@ -258,6 +272,9 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.CooldownSeconds = Override->bOverrideCooldown
 		? Override->CooldownSeconds
 		: Result.CooldownSeconds;
+	Result.BannerLayout = Override->bOverrideBannerLayout
+		? Override->BannerLayout
+		: Result.BannerLayout;
 	Result.ProviderOptions.Append(Override->ProviderOptions);
 	return Result;
 }

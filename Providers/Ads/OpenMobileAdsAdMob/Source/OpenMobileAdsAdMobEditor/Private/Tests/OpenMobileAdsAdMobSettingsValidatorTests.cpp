@@ -81,6 +81,16 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		Settings->ResolveInterstitialAdUnitId(EOpenMobileAdsPlatform::IOS, true),
 		FString(TEXT("ca-app-pub-3940256099942544/4411468910"))
 	);
+	TestEqual(
+		TEXT("Android development mode uses Google's fixed-banner test ID"),
+		Settings->ResolveBannerAdUnitId(EOpenMobileAdsPlatform::Android, true),
+		FString(TEXT("ca-app-pub-3940256099942544/6300978111"))
+	);
+	TestEqual(
+		TEXT("iOS development mode uses Google's fixed-banner test ID"),
+		Settings->ResolveBannerAdUnitId(EOpenMobileAdsPlatform::IOS, true),
+		FString(TEXT("ca-app-pub-3940256099942544/2435281174"))
+	);
 	TestTrue(
 		TEXT("Android production mode rejects Google's sample rewarded ID"),
 		Settings->ResolveRewardedAdUnitId(
@@ -106,6 +116,17 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 			false
 		).IsEmpty()
 	);
+	TestTrue(
+		TEXT("Production mode rejects Google's sample fixed-banner IDs"),
+		Settings->ResolveBannerAdUnitId(
+			EOpenMobileAdsPlatform::Android,
+			false
+		).IsEmpty()
+		&& Settings->ResolveBannerAdUnitId(
+			EOpenMobileAdsPlatform::IOS,
+			false
+		).IsEmpty()
+	);
 	Settings->AndroidRewardedAdUnitId = TEXT("ca-app-pub-1234567890123456/1234567890");
 	TestEqual(
 		TEXT("Production mode keeps the configured Android ID"),
@@ -119,7 +140,7 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 			TEXT("Google sample IDs are not allowed in shipping builds.")
 		)
 	);
-	Settings->AndroidRewardedAdUnitId =
+	Settings->AndroidBannerAdUnitId =
 		TEXT("ca-app-pub-3940256099942544/6300978111");
 	TestTrue(
 		TEXT("Shipping validation rejects sample IDs for other ad formats"),
