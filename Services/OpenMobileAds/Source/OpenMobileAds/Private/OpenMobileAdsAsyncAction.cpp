@@ -48,6 +48,14 @@ UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::ShowAd(
 	return Action;
 }
 
+UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::HideAd(
+	const UObject* WorldContextObject,
+	FName Placement
+)
+{
+	return Create(WorldContextObject, EOperation::Hide, Placement);
+}
+
 UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::DestroyAd(
 	const UObject* WorldContextObject,
 	FName Placement
@@ -124,6 +132,9 @@ void UOpenMobileAdsAsyncAction::Activate()
 	case EOperation::Show:
 		Result = Subsystem->ShowAd(Placement, MoveTemp(ShowOptions));
 		break;
+	case EOperation::Hide:
+		Result = Subsystem->HideAd(Placement);
+		break;
 	case EOperation::Destroy:
 		Result = Subsystem->DestroyAd(Placement);
 		break;
@@ -183,6 +194,7 @@ void UOpenMobileAdsAsyncAction::HandleAdsEvent(const FOpenMobileAdsEvent& Event)
 	const bool bCompleted =
 		(Operation == EOperation::Load && Event.Type == EOpenMobileAdsEventType::Loaded)
 		|| (Operation == EOperation::Show && Event.Type == EOpenMobileAdsEventType::Dismissed)
+		|| (Operation == EOperation::Hide && Event.Type == EOpenMobileAdsEventType::Hidden)
 		|| ((Operation == EOperation::Destroy || Operation == EOperation::DestroyAll)
 			&& Event.Type == EOpenMobileAdsEventType::Destroyed);
 	if (bCompleted)
@@ -274,6 +286,8 @@ EOpenMobileAdsFailureStage UOpenMobileAdsAsyncAction::GetFailureStage() const
 		return EOpenMobileAdsFailureStage::Load;
 	case EOperation::Show:
 		return EOpenMobileAdsFailureStage::Show;
+	case EOperation::Hide:
+		return EOpenMobileAdsFailureStage::Hide;
 	case EOperation::Destroy:
 	case EOperation::DestroyAll:
 		return EOpenMobileAdsFailureStage::Teardown;

@@ -26,6 +26,8 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	Rewarded.Format = EOpenMobileAdFormat::Rewarded;
 	Rewarded.bCanLoad = true;
 	Rewarded.bCanShow = true;
+	Rewarded.bCanHide = false;
+	Rewarded.bPreservesCachedAdOnHide = false;
 	Rewarded.bReportsReward = true;
 
 	FOpenMobileAdsProviderCapabilities Capabilities;
@@ -35,6 +37,17 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Rewarded is supported"), Capabilities.SupportsFormat(EOpenMobileAdFormat::Rewarded));
 	TestFalse(TEXT("Interstitial is unsupported"), Capabilities.SupportsFormat(EOpenMobileAdFormat::Interstitial));
 	TestTrue(TEXT("Reward support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bReportsReward);
+	TestFalse(TEXT("Hide support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bCanHide);
+
+	FOpenMobileAdsHideRequest HideRequest;
+	HideRequest.RequestId = FGuid::NewGuid();
+	HideRequest.CachedAdId = FGuid::NewGuid();
+	HideRequest.Placement = TEXT("MenuBanner");
+	HideRequest.Format = EOpenMobileAdFormat::Banner;
+	HideRequest.bPreserveCachedAd = true;
+	TestTrue(TEXT("Hide requests carry their request identity"), HideRequest.RequestId.IsValid());
+	TestTrue(TEXT("Hide requests carry their cache identity"), HideRequest.CachedAdId.IsValid());
+	TestTrue(TEXT("Hide requests carry the cache policy"), HideRequest.bPreserveCachedAd);
 
 	FOpenMobileAdsLoadRequest LoadRequest;
 	LoadRequest.RequestId = FGuid::NewGuid();
@@ -199,6 +212,7 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	const FName OperationNames[] = {
 		TEXT("LoadAd"),
 		TEXT("ShowAd"),
+		TEXT("HideAd"),
 		TEXT("DestroyAd"),
 		TEXT("DestroyAllAds")
 	};

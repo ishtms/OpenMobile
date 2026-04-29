@@ -19,6 +19,12 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 	bool bCanShow = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bCanHide = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bPreservesCachedAdOnHide = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bCanDestroy = true;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

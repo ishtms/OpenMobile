@@ -25,7 +25,8 @@ enum class EOpenMobileAdsEventType : uint8
 	Refreshed,
 	Destroyed,
 	Failed,
-	Expired
+	Expired,
+	Hidden
 };
 
 USTRUCT(BlueprintType)

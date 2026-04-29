@@ -226,6 +226,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.RefreshIntervalSeconds = RefreshIntervalSeconds;
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
+	Result.HideCachePolicy = HideCachePolicy;
 	Result.FallbackRewardType = FallbackRewardType;
 	Result.FallbackRewardAmount = FallbackRewardAmount;
 	Result.ProviderOptions = ProviderOptions;

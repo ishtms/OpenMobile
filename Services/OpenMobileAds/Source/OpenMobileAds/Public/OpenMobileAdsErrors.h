@@ -42,7 +42,8 @@ enum class EOpenMobileAdsFailureStage : uint8
 	Consent,
 	TrackingAuthorization,
 	Teardown,
-	Internal
+	Internal,
+	Hide
 };
 
 UENUM(BlueprintType)

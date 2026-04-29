@@ -29,6 +29,13 @@ enum class EOpenMobileAdsDebugGeography : uint8
 	Other UMETA(DisplayName = "Other Region")
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsHideCachePolicy : uint8
+{
+	PreserveWhenSupported,
+	Release
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRequestConfiguration
 {
@@ -259,6 +266,10 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 	double CooldownSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsHideCachePolicy HideCachePolicy =
+		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString FallbackRewardType;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
@@ -293,6 +304,10 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	EOpenMobileAdsHideCachePolicy HideCachePolicy =
+		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
 
 	UPROPERTY(
 		Config,

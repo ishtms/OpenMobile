@@ -212,6 +212,9 @@ public:
 		return ShowAd(Placement, FOpenMobileAdsShowOptions());
 	}
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Hide Ad"))
+	FOpenMobileAdsOperationResult HideAd(FName Placement);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Destroy Ad"))
 	FOpenMobileAdsOperationResult DestroyAd(FName Placement);
 

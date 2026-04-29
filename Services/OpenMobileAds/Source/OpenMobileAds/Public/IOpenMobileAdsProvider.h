@@ -118,6 +118,12 @@ public:
 		FOpenMobileAdsError& OutError
 	);
 
+	virtual bool Hide(
+		const FOpenMobileAdsHideRequest& Request,
+		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+		FOpenMobileAdsError& OutError
+	);
+
 	virtual bool Destroy(
 		const FOpenMobileAdsDestroyRequest& Request,
 		TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,

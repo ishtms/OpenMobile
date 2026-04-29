@@ -175,6 +175,19 @@ struct OPENMOBILEADS_API FOpenMobileAdsShowRequest
 	FOpenMobileAdsShowOptions Options;
 };
 
+struct OPENMOBILEADS_API FOpenMobileAdsHideRequest
+{
+	FGuid RequestId;
+
+	FGuid CachedAdId;
+
+	FName Placement;
+
+	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Banner;
+
+	bool bPreserveCachedAd = false;
+};
+
 struct OPENMOBILEADS_API FOpenMobileAdsDestroyRequest
 {
 	FGuid RequestId;

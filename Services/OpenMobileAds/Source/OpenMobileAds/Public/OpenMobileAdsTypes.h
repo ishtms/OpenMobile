@@ -31,7 +31,9 @@ enum class EOpenMobileAdPlacementState : uint8
 	Ready,
 	Showing,
 	Destroying,
-	Failed
+	Failed,
+	Hiding,
+	Hidden
 };
 
 UENUM(BlueprintType)

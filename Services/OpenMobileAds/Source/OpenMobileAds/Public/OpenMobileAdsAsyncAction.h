@@ -79,6 +79,20 @@ public:
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
+			DisplayName = "Hide Ad Async"
+		)
+	)
+	static UOpenMobileAdsAsyncAction* HideAd(
+		const UObject* WorldContextObject,
+		FName Placement
+	);
+
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "Open Mobile|Ads",
+		meta = (
+			BlueprintInternalUseOnly = "true",
+			WorldContext = "WorldContextObject",
 			DisplayName = "Destroy Ad Async"
 		)
 	)
@@ -112,6 +126,7 @@ private:
 	{
 		Load,
 		Show,
+		Hide,
 		Destroy,
 		DestroyAll
 	};

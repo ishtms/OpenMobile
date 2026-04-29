@@ -374,6 +374,24 @@ namespace OpenMobileAdsProviderContractTests
 			return true;
 		}
 
+		virtual bool Hide(
+			const FOpenMobileAdsHideRequest& Request,
+			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++HideCalls;
+			LastHideRequest = Request;
+			HideSink = EventSink;
+			if (!bAcceptHide)
+			{
+				OutError = HideRejection;
+				HideSink.Reset();
+				return false;
+			}
+			return true;
+		}
+
 		virtual bool Destroy(
 			const FOpenMobileAdsDestroyRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -487,6 +505,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bAcceptInitialization = true;
 		bool bAcceptLoad = true;
 		bool bAcceptShow = true;
+		bool bAcceptHide = true;
 		bool bAcceptDestroy = true;
 		bool bBlockChildDirectedRequests = false;
 		bool bBlockUnderAgeRequests = false;
@@ -505,6 +524,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 InitializationCalls = 0;
 		int32 LoadCalls = 0;
 		int32 ShowCalls = 0;
+		int32 HideCalls = 0;
 		int32 DestroyCalls = 0;
 		int32 LegacyRewardedRequestCalls = 0;
 		int32 ShutdownCalls = 0;
@@ -521,9 +541,11 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError InitializationRejection;
 		FOpenMobileAdsError LoadRejection;
 		FOpenMobileAdsError ShowRejection;
+		FOpenMobileAdsError HideRejection;
 		FOpenMobileAdsError DestroyRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
+		FOpenMobileAdsHideRequest LastHideRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
 		FOpenMobileAdsConsentRequest LastConsentRequest;
 		FOpenMobileAdsConsentRequest LastConsentFormRequest;
@@ -533,6 +555,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError ConsentResetError;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> LoadSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink;
+		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> HideSink;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> DestroySink;
 		TSharedPtr<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> InitializationSink;
 		TSharedPtr<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> ConsentRefreshSink;
@@ -4035,6 +4058,258 @@ bool FOpenMobileAdsInterstitialStateMachineContractTest::RunTest(
 	TestTrue(
 		TEXT("Destroy releases the exact interstitial cache"),
 		Provider.ReleasedCachedAds.Contains(PacingCachedAdId)
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsHideContractTest,
+	"OpenMobile.Ads.ProviderContract.Hide",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsHideContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Preserved =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Preserved.Placement = TEXT("PreservedBanner");
+	Preserved.Format = EOpenMobileAdFormat::Banner;
+	Preserved.HideCachePolicy =
+		EOpenMobileAdsHideCachePolicy::PreserveWhenSupported;
+	Preserved.Android.AdUnitId = TEXT("android-preserved-banner");
+	Preserved.IOS.AdUnitId = TEXT("ios-preserved-banner");
+	FOpenMobileAdsPlacementSettings& Released =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Released.Placement = TEXT("ReleasedBanner");
+	Released.Format = EOpenMobileAdFormat::Banner;
+	Released.HideCachePolicy = EOpenMobileAdsHideCachePolicy::Release;
+	Released.Android.AdUnitId = TEXT("android-released-banner");
+	Released.IOS.AdUnitId = TEXT("ios-released-banner");
+	FOpenMobileAdsPlacementSettings& FullScreen =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	FullScreen.Placement = TEXT("FullScreenReward");
+	FullScreen.Format = EOpenMobileAdFormat::Rewarded;
+	FullScreen.Android.AdUnitId = TEXT("android-full-screen");
+	FullScreen.IOS.AdUnitId = TEXT("ios-full-screen");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities Banner;
+	Banner.Format = EOpenMobileAdFormat::Banner;
+	Banner.bCanLoad = true;
+	Banner.bCanShow = true;
+	Banner.bCanHide = true;
+	Banner.bPreservesCachedAdOnHide = true;
+	Provider.Capabilities.Formats.Add(Banner);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before hide operations"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+	const FOpenMobileAdsOperationResult Unsupported =
+		Subsystem->HideAd(TEXT("FullScreenReward"));
+	TestFalse(TEXT("Full-screen formats reject hide"), Unsupported.bAccepted);
+	TestEqual(
+		TEXT("Unsupported hide remains typed"),
+		Unsupported.Error.Code,
+		EOpenMobileAdsErrorCode::UnsupportedFormat
+	);
+	TestEqual(
+		TEXT("Unsupported hide reports the hide stage"),
+		Unsupported.Error.Stage,
+		EOpenMobileAdsFailureStage::Hide
+	);
+
+	auto LoadAndShow = [this, Subsystem, &Provider](FName Placement, FGuid CachedAdId)
+	{
+		const FOpenMobileAdsOperationResult Load = Subsystem->LoadAd(Placement);
+		TestTrue(TEXT("The persistent placement starts loading"), Load.bAccepted);
+		if (!Load.bAccepted)
+		{
+			return false;
+		}
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = CachedAdId;
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+		const FOpenMobileAdsOperationResult Show = Subsystem->ShowAd(Placement);
+		TestTrue(TEXT("The persistent placement starts showing"), Show.bAccepted);
+		if (!Show.bAccepted)
+		{
+			return false;
+		}
+		FOpenMobileAdsEvent Shown;
+		Shown.Type = EOpenMobileAdsEventType::Shown;
+		Provider.ShowSink->Submit(MoveTemp(Shown));
+		DrainGameThreadTasks();
+		return true;
+	};
+
+	const FGuid PreservedCachedAdId = FGuid::NewGuid();
+	if (!LoadAndShow(TEXT("PreservedBanner"), PreservedCachedAdId))
+	{
+		Subsystem->Deinitialize();
+		return false;
+	}
+	const FOpenMobileAdsOperationResult PreserveHide =
+		Subsystem->HideAd(TEXT("PreservedBanner"));
+	TestTrue(TEXT("A visible persistent ad starts hiding"), PreserveHide.bAccepted);
+	TestEqual(
+		TEXT("An accepted hide enters Hiding"),
+		Subsystem->GetPlacementStatus(TEXT("PreservedBanner")).State,
+		EOpenMobileAdPlacementState::Hiding
+	);
+	TestEqual(TEXT("The provider receives one hide"), Provider.HideCalls, 1);
+	TestEqual(
+		TEXT("Hide targets the exact cached ad"),
+		Provider.LastHideRequest.CachedAdId,
+		PreservedCachedAdId
+	);
+	TestTrue(
+		TEXT("Provider capability and placement policy preserve the cache"),
+		Provider.LastHideRequest.bPreserveCachedAd
+	);
+	FOpenMobileAdsEvent Hidden;
+	Hidden.Type = EOpenMobileAdsEventType::Hidden;
+	Provider.HideSink->Submit(MoveTemp(Hidden));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A completed hide enters Hidden"),
+		Subsystem->GetPlacementStatus(TEXT("PreservedBanner")).State,
+		EOpenMobileAdPlacementState::Hidden
+	);
+	TestTrue(
+		TEXT("A preserved hidden ad remains ready"),
+		Subsystem->IsReady(TEXT("PreservedBanner"))
+	);
+	TestFalse(
+		TEXT("A preserved hide does not release the cache"),
+		Provider.ReleasedCachedAds.Contains(PreservedCachedAdId)
+	);
+
+	const int32 HideCallsBeforeRepeat = Provider.HideCalls;
+	const FOpenMobileAdsOperationResult Repeated =
+		Subsystem->HideAd(TEXT("PreservedBanner"));
+	TestTrue(TEXT("Repeated hide is accepted"), Repeated.bAccepted);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("Repeated hide stays Hidden"),
+		Subsystem->GetPlacementStatus(TEXT("PreservedBanner")).State,
+		EOpenMobileAdPlacementState::Hidden
+	);
+	TestEqual(
+		TEXT("Repeated hide does not call the provider again"),
+		Provider.HideCalls,
+		HideCallsBeforeRepeat
+	);
+	TestTrue(
+		TEXT("A preserved hidden ad can be shown again"),
+		Subsystem->ShowAd(TEXT("PreservedBanner")).bAccepted
+	);
+	FOpenMobileAdsEvent Reshown;
+	Reshown.Type = EOpenMobileAdsEventType::Shown;
+	Provider.ShowSink->Submit(MoveTemp(Reshown));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsOperationResult FailedHide =
+		Subsystem->HideAd(TEXT("PreservedBanner"));
+	TestTrue(TEXT("The asynchronous failure path starts"), FailedHide.bAccepted);
+	FOpenMobileAdsEvent Failure;
+	Failure.Type = EOpenMobileAdsEventType::Failed;
+	Failure.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Hide,
+		TEXT("PreservedBanner"),
+		TEXT("The persistent ad could not be hidden."),
+		Provider.Name
+	);
+	AddExpectedError(
+		TEXT("The persistent ad could not be hidden."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.HideSink->Submit(MoveTemp(Failure));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("An asynchronous hide failure enters Failed"),
+		Subsystem->GetPlacementStatus(TEXT("PreservedBanner")).State,
+		EOpenMobileAdPlacementState::Failed
+	);
+	TestTrue(
+		TEXT("An asynchronous hide failure releases uncertain cache state"),
+		Provider.ReleasedCachedAds.Contains(PreservedCachedAdId)
+	);
+
+	const FGuid ReleasedCachedAdId = FGuid::NewGuid();
+	if (!LoadAndShow(TEXT("ReleasedBanner"), ReleasedCachedAdId))
+	{
+		Subsystem->Deinitialize();
+		return false;
+	}
+	Provider.bAcceptHide = false;
+	Provider.HideRejection = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Hide,
+		TEXT("ReleasedBanner"),
+		TEXT("The mock provider rejected hide."),
+		Provider.Name
+	);
+	const FOpenMobileAdsOperationResult Rejected =
+		Subsystem->HideAd(TEXT("ReleasedBanner"));
+	TestFalse(TEXT("Immediate provider hide rejection is returned"), Rejected.bAccepted);
+	TestEqual(
+		TEXT("Immediate rejection restores Showing"),
+		Subsystem->GetPlacementStatus(TEXT("ReleasedBanner")).State,
+		EOpenMobileAdPlacementState::Showing
+	);
+	TestFalse(
+		TEXT("Immediate rejection keeps the cache"),
+		Provider.ReleasedCachedAds.Contains(ReleasedCachedAdId)
+	);
+	Provider.bAcceptHide = true;
+	const FOpenMobileAdsOperationResult ReleaseHide =
+		Subsystem->HideAd(TEXT("ReleasedBanner"));
+	TestTrue(TEXT("The release-policy hide starts"), ReleaseHide.bAccepted);
+	TestFalse(
+		TEXT("The placement policy requests cache release"),
+		Provider.LastHideRequest.bPreserveCachedAd
+	);
+	FOpenMobileAdsEvent ReleasedHidden;
+	ReleasedHidden.Type = EOpenMobileAdsEventType::Hidden;
+	Provider.HideSink->Submit(MoveTemp(ReleasedHidden));
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("A released hide still records Hidden"),
+		Subsystem->GetPlacementStatus(TEXT("ReleasedBanner")).State,
+		EOpenMobileAdPlacementState::Hidden
+	);
+	TestFalse(
+		TEXT("A released hidden placement is not ready"),
+		Subsystem->IsReady(TEXT("ReleasedBanner"))
+	);
+	TestTrue(
+		TEXT("Release policy releases the exact cache"),
+		Provider.ReleasedCachedAds.Contains(ReleasedCachedAdId)
+	);
+	const int32 HideCallsBeforeReleasedRepeat = Provider.HideCalls;
+	TestTrue(
+		TEXT("Repeated hide after cache release is accepted"),
+		Subsystem->HideAd(TEXT("ReleasedBanner")).bAccepted
+	);
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("Repeated released hide avoids another provider call"),
+		Provider.HideCalls,
+		HideCallsBeforeReleasedRepeat
 	);
 
 	Subsystem->Deinitialize();

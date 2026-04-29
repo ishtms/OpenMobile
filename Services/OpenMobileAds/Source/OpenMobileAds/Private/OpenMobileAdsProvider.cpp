@@ -153,6 +153,20 @@ bool IOpenMobileAdsProvider::Show(
 	return false;
 }
 
+bool IOpenMobileAdsProvider::Hide(
+	const FOpenMobileAdsHideRequest& Request,
+	TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
+	FOpenMobileAdsError& OutError
+)
+{
+	OutError = OpenMobileAdsProviderPrivate::MakeUnsupportedError(
+		GetProviderName(),
+		Request.Placement,
+		EOpenMobileAdsFailureStage::Hide
+	);
+	return false;
+}
+
 bool IOpenMobileAdsProvider::Destroy(
 	const FOpenMobileAdsDestroyRequest& Request,
 	TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,

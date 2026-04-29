@@ -80,7 +80,10 @@ FOpenMobileAdsCanShowResult FOpenMobileAdsCanShowPolicy::Evaluate(
 		);
 	}
 	if (
-		Context.PlacementState != EOpenMobileAdPlacementState::Ready
+		(
+			Context.PlacementState != EOpenMobileAdPlacementState::Ready
+			&& Context.PlacementState != EOpenMobileAdPlacementState::Hidden
+		)
 		|| !Context.bHasCachedAd
 	)
 	{
