@@ -15,6 +15,18 @@ namespace OpenMobileAdsAdMobPrivate
 		virtual bool IsSupported() const override { return FOpenMobileAdsAdMobPlatform::IsSupported(); }
 		virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const override
 		{
+			FOpenMobileAdFormatCapabilities Interstitial;
+			Interstitial.Format = EOpenMobileAdFormat::Interstitial;
+			Interstitial.bCanLoad = true;
+			Interstitial.bCanShow = true;
+			Interstitial.bSupportsPreload = true;
+			Interstitial.bReportsImpression = true;
+			Interstitial.bReportsClick = true;
+			Interstitial.bReportsDismiss = true;
+			Interstitial.bReportsRevenue = true;
+			Interstitial.MaxCachedAdsPerPlacement = 1;
+			Interstitial.CacheLifetimeSeconds = 60.0 * 60.0;
+
 			FOpenMobileAdFormatCapabilities Rewarded;
 			Rewarded.Format = EOpenMobileAdFormat::Rewarded;
 			Rewarded.bCanLoad = true;
@@ -36,6 +48,7 @@ namespace OpenMobileAdsAdMobPrivate
 #elif PLATFORM_IOS
 			Capabilities.ProviderVersion = TEXT("13.8.0");
 #endif
+			Capabilities.Formats.Add(Interstitial);
 			Capabilities.Formats.Add(Rewarded);
 			return Capabilities;
 		}
@@ -343,7 +356,10 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsError& OutError
 		) override
 		{
-			if (Request.Placement.Format != EOpenMobileAdFormat::Rewarded)
+			if (
+				Request.Placement.Format != EOpenMobileAdFormat::Interstitial
+				&& Request.Placement.Format != EOpenMobileAdFormat::Rewarded
+			)
 			{
 				OutError = FOpenMobileAdsError::Make(
 					EOpenMobileAdsErrorCode::UnsupportedFormat,
@@ -358,11 +374,18 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsLoadRequest ProviderRequest = Request;
 			if (bUseTestAdUnitIds)
 			{
+				const UOpenMobileAdsAdMobSettings* Settings =
+					GetDefault<UOpenMobileAdsAdMobSettings>();
 				ProviderRequest.Placement.AdUnitId =
-					GetDefault<UOpenMobileAdsAdMobSettings>()->ResolveRewardedAdUnitId(
-						InitializedPlatform,
-						true
-					);
+					Request.Placement.Format == EOpenMobileAdFormat::Interstitial
+						? Settings->ResolveInterstitialAdUnitId(
+							InitializedPlatform,
+							true
+						)
+						: Settings->ResolveRewardedAdUnitId(
+							InitializedPlatform,
+							true
+						);
 			}
 			ProviderRequest.Placement.AdUnitId.TrimStartAndEndInline();
 			if (ProviderRequest.Placement.AdUnitId.IsEmpty())
@@ -371,7 +394,9 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsErrorCode::NotConfigured,
 					EOpenMobileAdsFailureStage::Load,
 					Request.Placement.Placement,
-					TEXT("No AdMob rewarded-ad unit ID is configured for this placement."),
+					Request.Placement.Format == EOpenMobileAdFormat::Interstitial
+						? TEXT("No AdMob interstitial ad-unit ID is configured for this placement.")
+						: TEXT("No AdMob rewarded ad-unit ID is configured for this placement."),
 					GetProviderName()
 				);
 				return false;
@@ -380,14 +405,14 @@ namespace OpenMobileAdsAdMobPrivate
 			FString NativeError;
 			const bool bStarted = FOpenMobileAdsAdMobPlatform::BeginLoad(
 				ProviderRequest,
-				FOnOpenMobileAdMobRewardedCached::CreateLambda([EventSink](FGuid CachedAdId)
+				FOnOpenMobileAdMobAdCached::CreateLambda([EventSink](FGuid CachedAdId)
 				{
 					FOpenMobileAdsEvent Loaded;
 					Loaded.Type = EOpenMobileAdsEventType::Loaded;
 					Loaded.CachedAdId = CachedAdId;
 					EventSink->Submit(MoveTemp(Loaded));
 				}),
-				FOnOpenMobileAdMobRewardedFailed::CreateLambda(
+				FOnOpenMobileAdMobAdLoadFailed::CreateLambda(
 					[EventSink](FString ErrorMessage)
 					{
 						FOpenMobileAdsEvent Failed;
@@ -397,7 +422,7 @@ namespace OpenMobileAdsAdMobPrivate
 							EOpenMobileAdsFailureStage::Load,
 							NAME_None,
 							ErrorMessage.IsEmpty()
-								? TEXT("AdMob failed to load a rewarded ad.")
+								? TEXT("AdMob failed to load an ad.")
 								: MoveTemp(ErrorMessage),
 							TEXT("AdMob"),
 							FString(),
@@ -415,7 +440,7 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsFailureStage::Load,
 					Request.Placement.Placement,
 					NativeError.IsEmpty()
-						? TEXT("AdMob could not start the rewarded-ad load.")
+						? TEXT("AdMob could not start the ad load.")
 						: MoveTemp(NativeError),
 					GetProviderName(),
 					FString(),
@@ -431,7 +456,10 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsError& OutError
 		) override
 		{
-			if (Request.Format != EOpenMobileAdFormat::Rewarded)
+			if (
+				Request.Format != EOpenMobileAdFormat::Interstitial
+				&& Request.Format != EOpenMobileAdFormat::Rewarded
+			)
 			{
 				OutError = FOpenMobileAdsError::Make(
 					EOpenMobileAdsErrorCode::UnsupportedFormat,
@@ -456,7 +484,7 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsFailureStage::Show,
 					Request.Placement,
 					NativeError.IsEmpty()
-						? TEXT("AdMob could not present the cached rewarded ad.")
+						? TEXT("AdMob could not present the cached full-screen ad.")
 						: MoveTemp(NativeError),
 					GetProviderName()
 				);

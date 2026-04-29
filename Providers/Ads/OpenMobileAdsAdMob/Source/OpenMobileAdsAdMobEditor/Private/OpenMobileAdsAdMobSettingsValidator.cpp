@@ -54,7 +54,7 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 )
 {
 	TArray<FString> Errors;
-	Errors.Reserve(6 + Settings.TestDeviceIdentifiers.Num());
+	Errors.Reserve(8 + Settings.TestDeviceIdentifiers.Num());
 	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
 		TEXT("Android app ID"),
 		Settings.AndroidAppId,
@@ -68,6 +68,12 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 		Errors
 	);
 	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
+		TEXT("Android interstitial ad-unit ID"),
+		Settings.AndroidInterstitialAdUnitId,
+		TEXT('/'),
+		Errors
+	);
+	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
 		TEXT("iOS app ID"),
 		Settings.IOSAppId,
 		TEXT('~'),
@@ -76,6 +82,12 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
 		TEXT("iOS rewarded ad-unit ID"),
 		Settings.IOSRewardedAdUnitId,
+		TEXT('/'),
+		Errors
+	);
+	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
+		TEXT("iOS interstitial ad-unit ID"),
+		Settings.IOSInterstitialAdUnitId,
 		TEXT('/'),
 		Errors
 	);
@@ -107,9 +119,15 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
 				Settings.AndroidRewardedAdUnitId
 			)
+			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+				Settings.AndroidInterstitialAdUnitId
+			)
 			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.IOSAppId)
 			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
 				Settings.IOSRewardedAdUnitId
+			)
+			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+				Settings.IOSInterstitialAdUnitId
 			)
 		)
 	)

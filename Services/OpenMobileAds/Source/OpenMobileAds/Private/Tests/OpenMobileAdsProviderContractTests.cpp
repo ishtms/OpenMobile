@@ -3830,6 +3830,218 @@ bool FOpenMobileAdsCooldownContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInterstitialStateMachineContractTest,
+	"OpenMobile.Ads.ProviderContract.Interstitial.StateMachine",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInterstitialStateMachineContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	ScopedSettings.Settings->CooldownPolicy.FullscreenCooldownSeconds = 5.0;
+	ScopedSettings.Settings->Placements.Reset();
+	const FName FirstPlacement = TEXT("LevelCompleteInterstitial");
+	const FName SecondPlacement = TEXT("MenuInterstitial");
+	FOpenMobileAdsPlacementSettings& First =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	First.Placement = FirstPlacement;
+	First.Format = EOpenMobileAdFormat::Interstitial;
+	First.Android.AdUnitId = TEXT("android-level-complete");
+	First.IOS.AdUnitId = TEXT("ios-level-complete");
+	First.CooldownSeconds = 10.0;
+	First.FrequencyCap.MaxSessionImpressions = 1;
+	FOpenMobileAdsPlacementSettings& Second =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Second.Placement = SecondPlacement;
+	Second.Format = EOpenMobileAdFormat::Interstitial;
+	Second.Android.AdUnitId = TEXT("android-menu");
+	Second.IOS.AdUnitId = TEXT("ios-menu");
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities Interstitial;
+	Interstitial.Format = EOpenMobileAdFormat::Interstitial;
+	Interstitial.bCanLoad = true;
+	Interstitial.bCanShow = true;
+	Interstitial.bSupportsPreload = true;
+	Interstitial.bReportsImpression = true;
+	Interstitial.bReportsClick = true;
+	Interstitial.bReportsDismiss = true;
+	Provider.Capabilities.Formats.Add(Interstitial);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	TestTrue(
+		TEXT("The provider initializes before interstitial operations"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto CompleteLoad = [this, &Provider](FGuid CachedAdId)
+	{
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = CachedAdId;
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	};
+	const FGuid FirstCachedAdId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("The first interstitial starts loading"),
+		Subsystem->LoadAd(FirstPlacement).bAccepted
+	);
+	TestEqual(
+		TEXT("The interstitial format reaches the provider load"),
+		Provider.LastLoadRequest.Placement.Format,
+		EOpenMobileAdFormat::Interstitial
+	);
+	CompleteLoad(FirstCachedAdId);
+	TestTrue(
+		TEXT("The loaded interstitial reports ready"),
+		Subsystem->IsReady(FirstPlacement)
+	);
+
+	const FGuid ReloadedCachedAdId = FGuid::NewGuid();
+	TestTrue(
+		TEXT("The interstitial reload starts independently"),
+		Subsystem->ReloadAd(FirstPlacement).bAccepted
+	);
+	TestTrue(
+		TEXT("Reload uses replacement semantics"),
+		Provider.LastLoadRequest.Options.bForceReload
+	);
+	CompleteLoad(ReloadedCachedAdId);
+	TestTrue(
+		TEXT("Reload releases the replaced interstitial"),
+		Provider.ReleasedCachedAds.Contains(FirstCachedAdId)
+	);
+
+	TestTrue(
+		TEXT("A second interstitial loads into an independent cache"),
+		Subsystem->LoadAd(SecondPlacement).bAccepted
+	);
+	CompleteLoad(FGuid::NewGuid());
+	const FOpenMobileAdsOperationResult Show = Subsystem->ShowAd(FirstPlacement);
+	TestTrue(TEXT("The ready interstitial starts showing"), Show.bAccepted);
+	TestEqual(
+		TEXT("The interstitial format reaches the provider show"),
+		Provider.LastShowRequest.Format,
+		EOpenMobileAdFormat::Interstitial
+	);
+	TestEqual(
+		TEXT("The exact interstitial cache reaches the provider show"),
+		Provider.LastShowRequest.CachedAdId,
+		ReloadedCachedAdId
+	);
+	TestEqual(
+		TEXT("Another interstitial cannot overlap the active full-screen show"),
+		Subsystem->ShowAd(SecondPlacement).Error.Code,
+		EOpenMobileAdsErrorCode::InvalidState
+	);
+
+	const TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> ShowSink =
+		Provider.ShowSink;
+	FOpenMobileAdsEvent Shown;
+	Shown.Type = EOpenMobileAdsEventType::Shown;
+	ShowSink->Submit(MoveTemp(Shown));
+	FOpenMobileAdsEvent Impression;
+	Impression.Type = EOpenMobileAdsEventType::Impression;
+	ShowSink->Submit(MoveTemp(Impression));
+	FOpenMobileAdsEvent Clicked;
+	Clicked.Type = EOpenMobileAdsEventType::Clicked;
+	ShowSink->Submit(MoveTemp(Clicked));
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	ShowSink->Submit(MoveTemp(Dismissed));
+	DrainGameThreadTasks();
+
+	TestTrue(
+		TEXT("The dismissed interstitial can reload"),
+		Subsystem->ReloadAd(FirstPlacement).bAccepted
+	);
+	const FGuid PacingCachedAdId = FGuid::NewGuid();
+	CompleteLoad(PacingCachedAdId);
+	TestEqual(
+		TEXT("The interstitial impression activates its frequency cap"),
+		Subsystem->CanShow(FirstPlacement).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::FrequencyCap
+	);
+	ScopedSettings.Settings->Placements[0].FrequencyCap =
+		FOpenMobileAdsFrequencyCap();
+	TestEqual(
+		TEXT("The interstitial impression also activates placement cooldown"),
+		Subsystem->CanShow(FirstPlacement).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	TestEqual(
+		TEXT("The global cooldown applies to another interstitial"),
+		Subsystem->CanShow(SecondPlacement).BlockReason,
+		EOpenMobileAdsCanShowBlockReason::Cooldown
+	);
+	Clock->Advance(5.0);
+	TestTrue(
+		TEXT("The second interstitial is eligible at the global boundary"),
+		Subsystem->CanShow(SecondPlacement).bCanShow
+	);
+	Clock->Advance(5.0);
+	TestTrue(
+		TEXT("The first interstitial is eligible at its placement boundary"),
+		Subsystem->CanShow(FirstPlacement).bCanShow
+	);
+
+	const FOpenMobileAdsOperationResult FailedShow =
+		Subsystem->ShowAd(SecondPlacement);
+	TestTrue(TEXT("A second interstitial show starts"), FailedShow.bAccepted);
+	FOpenMobileAdsEvent Failure;
+	Failure.Type = EOpenMobileAdsEventType::Failed;
+	Failure.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NativeFailure,
+		EOpenMobileAdsFailureStage::Show,
+		SecondPlacement,
+		TEXT("The interstitial presentation failed."),
+		Provider.Name
+	);
+	AddExpectedError(
+		TEXT("The interstitial presentation failed."),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.ShowSink->Submit(MoveTemp(Failure));
+	DrainGameThreadTasks();
+	TestFalse(
+		TEXT("A failed interstitial show does not leave the lifecycle occupied"),
+		Subsystem->CanShow(FirstPlacement).BlockReason
+			== EOpenMobileAdsCanShowBlockReason::LifecycleConflict
+	);
+
+	const FOpenMobileAdsOperationResult Destroy =
+		Subsystem->DestroyAd(FirstPlacement);
+	TestTrue(TEXT("The interstitial destroy starts"), Destroy.bAccepted);
+	FOpenMobileAdsEvent Destroyed;
+	Destroyed.Type = EOpenMobileAdsEventType::Destroyed;
+	Provider.DestroySink->Submit(MoveTemp(Destroyed));
+	DrainGameThreadTasks();
+	TestFalse(
+		TEXT("Destroy releases interstitial readiness"),
+		Subsystem->IsReady(FirstPlacement)
+	);
+	TestTrue(
+		TEXT("Destroy releases the exact interstitial cache"),
+		Provider.ReleasedCachedAds.Contains(PacingCachedAdId)
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsClickCallbackContractTest,
 	"OpenMobile.Ads.ProviderContract.Click.Callback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

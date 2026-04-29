@@ -235,10 +235,16 @@ public class OpenMobileAdsAdMob : ModuleRules
 	string AndroidRewardedAdUnitId = "ca-app-pub-3940256099942544/5224354917";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
+	string AndroidInterstitialAdUnitId = "ca-app-pub-3940256099942544/1033173712";
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSAppId = "ca-app-pub-3940256099942544~1458002511";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSRewardedAdUnitId = "ca-app-pub-3940256099942544/1712485313";
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
+	string IOSInterstitialAdUnitId = "ca-app-pub-3940256099942544/4411468910";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	List<string> TestDeviceIdentifiers = new List<string>();
@@ -307,8 +313,10 @@ public class OpenMobileAdsAdMob : ModuleRules
 			{
 				AndroidAppId,
 				AndroidRewardedAdUnitId,
+				AndroidInterstitialAdUnitId,
 				IOSAppId,
-				IOSRewardedAdUnitId
+				IOSRewardedAdUnitId,
+				IOSInterstitialAdUnitId
 			};
 			foreach (string Identifier in Identifiers)
 			{

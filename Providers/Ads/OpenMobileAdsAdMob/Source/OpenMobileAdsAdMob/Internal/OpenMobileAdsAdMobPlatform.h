@@ -21,7 +21,8 @@ DECLARE_DELEGATE_OneParam(
 	FOpenMobileAdsError
 );
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
-DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobRewardedCached, FGuid);
+DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobAdCached, FGuid);
+DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobAdLoadFailed, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
 DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobRewardedEarned, int32, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedClosed);
@@ -65,8 +66,8 @@ public:
 	static void CancelConsent(FGuid RequestId);
 	static bool BeginLoad(
 		const FOpenMobileAdsLoadRequest& Request,
-		FOnOpenMobileAdMobRewardedCached&& OnLoaded,
-		FOnOpenMobileAdMobRewardedFailed&& OnFailed,
+		FOnOpenMobileAdMobAdCached&& OnLoaded,
+		FOnOpenMobileAdMobAdLoadFailed&& OnFailed,
 		FString& OutError
 	);
 	static bool BeginShow(
@@ -115,6 +116,8 @@ public:
 	);
 	static void NativeRewardedLoadCompleted(int64 RequestId);
 	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeInterstitialLoadCompleted(int64 RequestId);
+	static void NativeInterstitialLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeLoaded(int64 RequestId);
 	static void NativeShown(int64 RequestId);
 	static void NativeImpression(int64 RequestId);

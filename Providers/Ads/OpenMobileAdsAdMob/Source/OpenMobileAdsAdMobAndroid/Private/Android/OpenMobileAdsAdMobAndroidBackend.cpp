@@ -395,6 +395,49 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedAd(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::LoadInterstitialAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID LoadMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_LoadOpenMobileInterstitialAd",
+		"(Ljava/lang/String;JI)Z",
+		false
+	);
+	if (!LoadMethod)
+	{
+		OutError = TEXT("The Android interstitial load bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		LoadMethod,
+		*JavaAdUnitId,
+		static_cast<jlong>(RequestId),
+		static_cast<jint>(DataProcessingMode)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the interstitial load.");
+	}
+	return bScheduled;
+}
+
 void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedAd(const int64 RequestId)
 {
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
@@ -407,6 +450,34 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedAd(const int64 RequestId)
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_CancelOpenMobileRewardedAdLoad",
+		"(J)V",
+		false
+	);
+	if (CancelMethod)
+	{
+		FJavaWrapper::CallVoidMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			CancelMethod,
+			static_cast<jlong>(RequestId)
+		);
+	}
+}
+
+void FOpenMobileAdsAdMobAndroidBackend::CancelInterstitialAd(
+	const int64 RequestId
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return;
+	}
+
+	static jmethodID CancelMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_CancelOpenMobileInterstitialAdLoad",
 		"(J)V",
 		false
 	);
@@ -463,6 +534,46 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
 	if (!bScheduled)
 	{
 		OutError = TEXT("Android could not schedule the cached rewarded-ad presentation.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::ShowInterstitialAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID ShowMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ShowOpenMobileInterstitialAd",
+		"(JJ)Z",
+		false
+	);
+	if (!ShowMethod)
+	{
+		OutError = TEXT("The Android interstitial show bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ShowMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(ShowRequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached interstitial presentation.");
 	}
 	return bScheduled;
 }
@@ -539,6 +650,30 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstitialAdLoadCompleted(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadCompleted(
+		static_cast<int64>(RequestId)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstitialAdLoadFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 		static_cast<int64>(RequestId),
 		FJavaHelper::FStringFromParam(Env, ErrorMessage)
 	);

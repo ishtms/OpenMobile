@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=7</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=8</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -98,6 +98,8 @@ import com.google.android.gms.ads.RequestConfiguration;
 import com.google.android.gms.ads.initialization.AdapterStatus;
 import com.google.android.gms.ads.initialization.InitializationStatus;
 import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
+import com.google.android.gms.ads.interstitial.InterstitialAd;
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback;
 import com.google.android.gms.ads.rewarded.RewardItem;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
@@ -124,7 +126,10 @@ import java.util.Set;
     private static final int OPEN_MOBILE_DATA_PROCESSING_RESTRICTED = 3;
     private boolean openMobileRewardedAdsInitializing = false;
     private InitializationStatus openMobileRewardedAdsInitializationStatus = null;
-    private long openMobileActiveRewardedShowRequestId = 0;
+    private long openMobileActiveFullscreenShowRequestId = 0;
+    private final Map&lt;Long, InterstitialAd&gt; openMobileLoadedInterstitialAds =
+        new HashMap&lt;&gt;();
+    private final Set&lt;Long&gt; openMobileInterstitialAdLoadRequests = new HashSet&lt;&gt;();
     private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
 
@@ -173,6 +178,8 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileRewardedAdLoadCompleted(long requestId);
     public native void nativeOpenMobileRewardedAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileInterstitialAdLoadCompleted(long requestId);
+    public native void nativeOpenMobileInterstitialAdLoadFailed(long requestId, String errorMessage);
 
     private void reportOpenMobileAdsAdapterInitializationStatuses(
         long requestId,
@@ -529,7 +536,9 @@ import java.util.Set;
             {
                 openMobileRewardedAd = null;
                 openMobileRewardedAdLoading = false;
-                openMobileActiveRewardedShowRequestId = 0;
+                openMobileActiveFullscreenShowRequestId = 0;
+                openMobileLoadedInterstitialAds.clear();
+                openMobileInterstitialAdLoadRequests.clear();
                 openMobileLoadedRewardedAds.clear();
                 openMobileRewardedAdLoadRequests.clear();
             }
@@ -695,6 +704,228 @@ import java.util.Set;
         });
     }
 
+    public boolean AndroidThunkJava_LoadOpenMobileInterstitialAd(
+        final String adUnitId,
+        final long requestId,
+        final int dataProcessingMode
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (adUnitId == null || adUnitId.trim().length() == 0)
+                    {
+                        nativeOpenMobileInterstitialAdLoadFailed(
+                            requestId,
+                            "The Android interstitial ad unit ID is empty."
+                        );
+                        return;
+                    }
+                    if (
+                        openMobileInterstitialAdLoadRequests.contains(requestId)
+                        || openMobileLoadedInterstitialAds.containsKey(requestId)
+                    )
+                    {
+                        nativeOpenMobileInterstitialAdLoadFailed(
+                            requestId,
+                            "The Android interstitial load request is already active."
+                        );
+                        return;
+                    }
+
+                    openMobileInterstitialAdLoadRequests.add(requestId);
+                    applyOpenMobileDataProcessingMode(dataProcessingMode);
+                    try
+                    {
+                        InterstitialAd.load(
+                            activityContext,
+                            adUnitId,
+                            new AdRequest.Builder().build(),
+                            new InterstitialAdLoadCallback()
+                            {
+                                @Override
+                                public void onAdLoaded(InterstitialAd interstitialAd)
+                                {
+                                    if (!openMobileInterstitialAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    openMobileLoadedInterstitialAds.put(
+                                        requestId,
+                                        interstitialAd
+                                    );
+                                    nativeOpenMobileInterstitialAdLoadCompleted(requestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToLoad(LoadAdError loadAdError)
+                                {
+                                    if (!openMobileInterstitialAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    nativeOpenMobileInterstitialAdLoadFailed(
+                                        requestId,
+                                        "Interstitial failed to load: "
+                                            + loadAdError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileInterstitialAdLoadRequests.remove(requestId);
+                        nativeOpenMobileInterstitialAdLoadFailed(
+                            requestId,
+                            "Interstitial load could not start: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile interstitial load failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public void AndroidThunkJava_CancelOpenMobileInterstitialAdLoad(
+        final long requestId
+    )
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                openMobileInterstitialAdLoadRequests.remove(requestId);
+                openMobileLoadedInterstitialAds.remove(requestId);
+            }
+        });
+    }
+
+    public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(
+        final long loadedRequestId,
+        final long showRequestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (
+                        openMobileActiveFullscreenShowRequestId != 0
+                        || openMobileRewardedAdLoading
+                        || openMobileRewardedAd != null
+                    )
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "A full-screen ad is already loading or showing."
+                        );
+                        return;
+                    }
+
+                    final InterstitialAd interstitialAd =
+                        openMobileLoadedInterstitialAds.remove(loadedRequestId);
+                    if (interstitialAd == null)
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "The cached Android interstitial is unavailable or already consumed."
+                        );
+                        return;
+                    }
+
+                    openMobileActiveFullscreenShowRequestId = showRequestId;
+                    try
+                    {
+                        interstitialAd.setFullScreenContentCallback(
+                            new FullScreenContentCallback()
+                            {
+                                @Override
+                                public void onAdShowedFullScreenContent()
+                                {
+                                    nativeOpenMobileRewardedAdShown(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdImpression()
+                                {
+                                    nativeOpenMobileRewardedAdImpression(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdClicked()
+                                {
+                                    nativeOpenMobileRewardedAdClicked(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdDismissedFullScreenContent()
+                                {
+                                    openMobileActiveFullscreenShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdClosed(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToShowFullScreenContent(AdError adError)
+                                {
+                                    openMobileActiveFullscreenShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdFailed(
+                                        showRequestId,
+                                        "Interstitial failed to show: " + adError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                        interstitialAd.setOnPaidEventListener(new OnPaidEventListener()
+                        {
+                            @Override
+                            public void onPaidEvent(AdValue adValue)
+                            {
+                                nativeOpenMobileRewardedAdRevenuePaid(
+                                    showRequestId,
+                                    adValue.getValueMicros(),
+                                    adValue.getCurrencyCode(),
+                                    adValue.getPrecisionType()
+                                );
+                            }
+                        });
+                        interstitialAd.show(GameActivity.this);
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileActiveFullscreenShowRequestId = 0;
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "Interstitial could not be presented: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error(
+                "OpenMobile cached interstitial could not be scheduled: "
+                    + exception.getMessage()
+            );
+            return false;
+        }
+    }
+
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         final long loadedRequestId,
         final long showRequestId,
@@ -709,7 +940,7 @@ import java.util.Set;
                 public void run()
                 {
                     if (
-                        openMobileActiveRewardedShowRequestId != 0
+                        openMobileActiveFullscreenShowRequestId != 0
                         || openMobileRewardedAdLoading
                         || openMobileRewardedAd != null
                     )
@@ -733,7 +964,7 @@ import java.util.Set;
                         return;
                     }
 
-                    openMobileActiveRewardedShowRequestId = showRequestId;
+                    openMobileActiveFullscreenShowRequestId = showRequestId;
                     try
                     {
                         if (
@@ -771,14 +1002,14 @@ import java.util.Set;
                                 @Override
                                 public void onAdDismissedFullScreenContent()
                                 {
-                                    openMobileActiveRewardedShowRequestId = 0;
+                                    openMobileActiveFullscreenShowRequestId = 0;
                                     nativeOpenMobileRewardedAdClosed(showRequestId);
                                 }
 
                                 @Override
                                 public void onAdFailedToShowFullScreenContent(AdError adError)
                                 {
-                                    openMobileActiveRewardedShowRequestId = 0;
+                                    openMobileActiveFullscreenShowRequestId = 0;
                                     nativeOpenMobileRewardedAdFailed(
                                         showRequestId,
                                         "Rewarded ad failed to show: " + adError.getMessage()
@@ -817,7 +1048,7 @@ import java.util.Set;
                     }
                     catch (Exception exception)
                     {
-                        openMobileActiveRewardedShowRequestId = 0;
+                        openMobileActiveFullscreenShowRequestId = 0;
                         nativeOpenMobileRewardedAdFailed(
                             showRequestId,
                             "Rewarded ad could not be presented: " + exception.getMessage()
@@ -849,7 +1080,7 @@ import java.util.Set;
                     if (
                         openMobileRewardedAdLoading
                         || openMobileRewardedAd != null
-                        || openMobileActiveRewardedShowRequestId != 0
+                        || openMobileActiveFullscreenShowRequestId != 0
                     )
                     {
                         nativeOpenMobileRewardedAdFailed(
@@ -990,6 +1221,13 @@ import java.util.Set;
         int
     );
     public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(long);
+    public boolean AndroidThunkJava_LoadOpenMobileInterstitialAd(
+        java.lang.String,
+        long,
+        int
+    );
+    public void AndroidThunkJava_CancelOpenMobileInterstitialAdLoad(long);
+    public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(long, long);
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         long,
         long,
@@ -1030,6 +1268,8 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdFailed(long, java.lang.String);
     public native void nativeOpenMobileRewardedAdLoadCompleted(long);
     public native void nativeOpenMobileRewardedAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileInterstitialAdLoadCompleted(long);
+    public native void nativeOpenMobileInterstitialAdLoadFailed(long, java.lang.String);
 }
         </insert>
     </proguardAdditions>

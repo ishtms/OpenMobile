@@ -71,6 +71,16 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		Settings->ResolveRewardedAdUnitId(EOpenMobileAdsPlatform::IOS, true),
 		FString(TEXT("ca-app-pub-3940256099942544/1712485313"))
 	);
+	TestEqual(
+		TEXT("Android development mode uses Google's interstitial test ID"),
+		Settings->ResolveInterstitialAdUnitId(EOpenMobileAdsPlatform::Android, true),
+		FString(TEXT("ca-app-pub-3940256099942544/1033173712"))
+	);
+	TestEqual(
+		TEXT("iOS development mode uses Google's interstitial test ID"),
+		Settings->ResolveInterstitialAdUnitId(EOpenMobileAdsPlatform::IOS, true),
+		FString(TEXT("ca-app-pub-3940256099942544/4411468910"))
+	);
 	TestTrue(
 		TEXT("Android production mode rejects Google's sample rewarded ID"),
 		Settings->ResolveRewardedAdUnitId(
@@ -81,6 +91,17 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 	TestTrue(
 		TEXT("iOS production mode rejects Google's sample rewarded ID"),
 		Settings->ResolveRewardedAdUnitId(
+			EOpenMobileAdsPlatform::IOS,
+			false
+		).IsEmpty()
+	);
+	TestTrue(
+		TEXT("Production mode rejects Google's sample interstitial IDs"),
+		Settings->ResolveInterstitialAdUnitId(
+			EOpenMobileAdsPlatform::Android,
+			false
+		).IsEmpty()
+		&& Settings->ResolveInterstitialAdUnitId(
 			EOpenMobileAdsPlatform::IOS,
 			false
 		).IsEmpty()

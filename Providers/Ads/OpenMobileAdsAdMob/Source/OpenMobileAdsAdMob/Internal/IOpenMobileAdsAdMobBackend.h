@@ -49,11 +49,23 @@ public:
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
 		FString& OutError
 	) = 0;
+	virtual bool LoadInterstitialAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		EOpenMobileAdsDataProcessingMode DataProcessingMode,
+		FString& OutError
+	) = 0;
 	virtual void CancelRewardedAd(int64 RequestId) = 0;
+	virtual void CancelInterstitialAd(int64 RequestId) = 0;
 	virtual bool ShowRewardedAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
 		const FString& ServerVerificationCustomData,
+		FString& OutError
+	) = 0;
+	virtual bool ShowInterstitialAd(
+		int64 LoadedRequestId,
+		int64 ShowRequestId,
 		FString& OutError
 	) = 0;
 	virtual bool LaunchRewardedAd(const FString& AdUnitId, int64 RequestId, FString& OutError) = 0;
