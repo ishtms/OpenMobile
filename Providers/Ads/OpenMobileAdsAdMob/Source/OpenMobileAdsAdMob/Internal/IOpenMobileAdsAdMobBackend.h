@@ -59,6 +59,8 @@ public:
 		const FString& AdUnitId,
 		int64 RequestId,
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
+		bool bAnchoredAdaptive,
+		const FOpenMobileAdsBannerLayout& Layout,
 		FString& OutError
 	) = 0;
 	virtual void CancelRewardedAd(int64 RequestId) = 0;

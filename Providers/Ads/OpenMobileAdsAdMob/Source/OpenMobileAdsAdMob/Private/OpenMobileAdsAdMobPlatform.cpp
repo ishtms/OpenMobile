@@ -164,6 +164,21 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 			&& RemoveLoadOperation(NativeRequestId, OutOperation);
 	}
 
+	bool RemoveBannerLoadOperation(
+		int64 NativeRequestId,
+		FAdLoadOperation& OutOperation
+	)
+	{
+		const FAdLoadOperation* Operation = LoadOperations.Find(NativeRequestId);
+		return Operation
+			&& (
+				Operation->Format == EOpenMobileAdFormat::Banner
+				|| Operation->Format
+					== EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			)
+			&& RemoveLoadOperation(NativeRequestId, OutOperation);
+	}
+
 	bool RemoveShowOperation(
 		int64 NativeRequestId,
 		FShowOperation& OutOperation
@@ -205,10 +220,14 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		switch (Request.Placement.Format)
 		{
 		case EOpenMobileAdFormat::Banner:
+		case EOpenMobileAdFormat::AnchoredAdaptiveBanner:
 			return Backend.LoadBannerAd(
 				Request.Placement.AdUnitId,
 				NativeRequestId,
 				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
+				Request.Placement.Format
+					== EOpenMobileAdFormat::AnchoredAdaptiveBanner,
+				Request.Placement.BannerLayout,
 				OutError
 			);
 		case EOpenMobileAdFormat::Interstitial:
@@ -237,7 +256,10 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		int64 NativeRequestId
 	)
 	{
-		if (Format == EOpenMobileAdFormat::Banner)
+		if (
+			Format == EOpenMobileAdFormat::Banner
+			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+		)
 		{
 			Backend.CancelBannerAd(NativeRequestId);
 		}
@@ -259,7 +281,10 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		FString& OutError
 	)
 	{
-		if (Request.Format == EOpenMobileAdFormat::Banner)
+		if (
+			Request.Format == EOpenMobileAdFormat::Banner
+			|| Request.Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+		)
 		{
 			return Backend.ShowBannerAd(
 				LoadedRequestId,
@@ -724,7 +749,8 @@ bool FOpenMobileAdsAdMobPlatform::BeginShow(
 		return false;
 	}
 	const FCachedAdReference Reference = *CachedReference;
-	const bool bPersistentBanner = Request.Format == EOpenMobileAdFormat::Banner;
+	const bool bPersistentBanner = Request.Format == EOpenMobileAdFormat::Banner
+		|| Request.Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner;
 	if (
 		bPersistentBanner
 		&& (
@@ -819,7 +845,11 @@ bool FOpenMobileAdsAdMobPlatform::BeginHide(
 	);
 	if (
 		!CachedReference
-		|| CachedReference->Format != EOpenMobileAdFormat::Banner
+		|| (
+			CachedReference->Format != EOpenMobileAdFormat::Banner
+			&& CachedReference->Format
+				!= EOpenMobileAdFormat::AnchoredAdaptiveBanner
+		)
 		|| !NativeShowRequestId
 		|| !ShowOperations.Contains(*NativeShowRequestId)
 	)
@@ -1274,11 +1304,7 @@ void FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(int64 RequestId)
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
 		FAdLoadOperation Operation;
-		if (RemoveLoadOperationForFormat(
-			RequestId,
-			EOpenMobileAdFormat::Banner,
-			Operation
-		))
+		if (RemoveBannerLoadOperation(RequestId, Operation))
 		{
 			const FGuid CachedAdId = FGuid::NewGuid();
 			FCachedAdReference Reference;
@@ -1299,11 +1325,7 @@ void FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
 		FAdLoadOperation Operation;
-		if (RemoveLoadOperationForFormat(
-			RequestId,
-			EOpenMobileAdFormat::Banner,
-			Operation
-		))
+		if (RemoveBannerLoadOperation(RequestId, Operation))
 		{
 			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
 		}

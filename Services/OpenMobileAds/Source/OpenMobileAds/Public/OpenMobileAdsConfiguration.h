@@ -87,9 +87,14 @@ struct OPENMOBILEADS_API FOpenMobileAdsBannerLayout
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FOpenMobileAdsBannerMargins Margins;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
+	float AvailableWidth = 0.0f;
+
 	bool IsValid() const
 	{
-		return Margins.IsValid();
+		return Margins.IsValid()
+			&& FMath::IsFinite(AvailableWidth)
+			&& AvailableWidth >= 0.0f;
 	}
 };
 

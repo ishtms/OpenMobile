@@ -54,6 +54,12 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 	}
 
+	bool IsBannerFormat(EOpenMobileAdFormat Format)
+	{
+		return Format == EOpenMobileAdFormat::Banner
+			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+	}
+
 	void ValidateResolvedPolicy(
 		const FOpenMobileAdsResolvedPlacement& Placement,
 		TArray<FOpenMobileAdsConfigurationIssue>& Issues
@@ -70,7 +76,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 		else if (
 			Placement.RefreshIntervalSeconds > 0.0
-			&& Placement.Format != EOpenMobileAdFormat::Banner
+			&& !IsBannerFormat(Placement.Format)
 		)
 		{
 			AddIssue(
@@ -135,7 +141,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 
 		if (
-			Placement.Format == EOpenMobileAdFormat::Banner
+			IsBannerFormat(Placement.Format)
 			&& !Placement.BannerLayout.IsValid()
 		)
 		{
@@ -143,7 +149,7 @@ namespace OpenMobileAdsConfigurationPrivate
 				Issues,
 				EOpenMobileAdsConfigurationIssueCode::InvalidBannerLayout,
 				Placement.Placement,
-				TEXT("Banner margins must be finite and non-negative.")
+				TEXT("Banner margins and available width must be finite and non-negative.")
 			);
 		}
 	}

@@ -442,6 +442,8 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
 	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	bool bAnchoredAdaptive,
+	const FOpenMobileAdsBannerLayout& Layout,
 	FString& OutError
 )
 {
@@ -456,7 +458,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_LoadOpenMobileBannerAd",
-		"(Ljava/lang/String;JI)Z",
+		"(Ljava/lang/String;JIZIZFFFFF)Z",
 		false
 	);
 	if (!LoadMethod)
@@ -475,7 +477,15 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 		LoadMethod,
 		*JavaAdUnitId,
 		static_cast<jlong>(RequestId),
-		static_cast<jint>(DataProcessingMode)
+		static_cast<jint>(DataProcessingMode),
+		static_cast<jboolean>(bAnchoredAdaptive),
+		static_cast<jint>(Layout.Anchor),
+		static_cast<jboolean>(Layout.bRespectSafeArea),
+		static_cast<jfloat>(Layout.AvailableWidth),
+		static_cast<jfloat>(Layout.Margins.Left),
+		static_cast<jfloat>(Layout.Margins.Top),
+		static_cast<jfloat>(Layout.Margins.Right),
+		static_cast<jfloat>(Layout.Margins.Bottom)
 	);
 	if (!bScheduled)
 	{
@@ -668,7 +678,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowBannerAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_ShowOpenMobileBannerAd",
-		"(JJIZFFFF)Z",
+		"(JJIZFFFFF)Z",
 		false
 	);
 	if (!ShowMethod)
@@ -685,6 +695,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowBannerAd(
 		static_cast<jlong>(ShowRequestId),
 		static_cast<jint>(Layout.Anchor),
 		static_cast<jboolean>(Layout.bRespectSafeArea),
+		static_cast<jfloat>(Layout.AvailableWidth),
 		static_cast<jfloat>(Layout.Margins.Left),
 		static_cast<jfloat>(Layout.Margins.Top),
 		static_cast<jfloat>(Layout.Margins.Right),

@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=9", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=10", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -227,8 +227,12 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"AndroidThunkJava_ShowOpenMobileBannerAd",
 			"AndroidThunkJava_HideOpenMobileBannerAd",
 			"AdSize.BANNER",
-			"WindowInsets.Type.systemBars()",
-			"WindowInsets.Type.displayCutout()",
+			"AdSize.getLargeAnchoredAdaptiveBannerAdSize",
+			"availableWidth",
+			"getSystemWindowInsetLeft()",
+			"getDisplayCutout()",
+			"!entry.bannerReady",
+			"detachOpenMobileBanner(entry, false)",
 		):
 			self.assertIn(token, game_activity_additions)
 		for token in (
@@ -350,6 +354,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		android_backend = (
 			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
+		self.assertIn('"(Ljava/lang/String;JIZIZFFFFF)Z"', android_backend)
+		self.assertIn('"(JJIZFFFFF)Z"', android_backend)
 		self.assertIn('"(JZ[Ljava/lang/String;I)Z"', android_backend)
 		self.assertIn('"(J)Z"', android_backend)
 		self.assertIn("Request.Development.bEnableConsentDebug", android_backend)
@@ -590,13 +596,17 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("GADInterstitialAd loadWithAdUnitID", ios_load)
 		for token in (
 			"GADAdSizeBanner",
+			"GADLargeAnchoredAdaptiveBannerAdSizeWithWidth",
+			"ResolveOpenMobileBannerSize",
+			"ScheduleOpenMobileAdaptiveBannerLayout",
+			"GADAdSizeEqualToSize",
+			"availableWidth",
+			"OpenMobileBannerLayoutObserver",
 			"FOpenMobileAdsAdMobIOSBackend::LoadBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::ShowBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::HideBannerAd",
 			"safeAreaLayoutGuide",
-			"constraintEqualToConstant:320.0",
-			"constraintEqualToConstant:50.0",
-			"EOpenMobileAdsBannerAnchor::Top",
+			"CGSizeFromGADAdSize",
 			"removeFromSuperview",
 		):
 			self.assertIn(token, ios_backend)

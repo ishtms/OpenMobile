@@ -413,6 +413,71 @@ bool FOpenMobileAdsFixedBannerConfigurationTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdaptiveBannerConfigurationTest,
+	"OpenMobile.Ads.Configuration.AdaptiveBanner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdaptiveBannerConfigurationTest::RunTest(
+	const FString& Parameters
+)
+{
+	FOpenMobileAdsPlacementSettings Placement;
+	Placement.Placement = TEXT("AdaptiveFooter");
+	Placement.Format = EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+	Placement.Android.AdUnitId = TEXT("android-adaptive");
+	Placement.IOS.AdUnitId = TEXT("ios-adaptive");
+	Placement.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Bottom;
+	Placement.BannerLayout.AvailableWidth = 360.0f;
+	Placement.IOS.bOverrideBannerLayout = true;
+	Placement.IOS.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Top;
+	Placement.IOS.BannerLayout.AvailableWidth = 0.0f;
+
+	const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+		EOpenMobileAdsPlatform::Android
+	);
+	const FOpenMobileAdsResolvedPlacement IOS = Placement.Resolve(
+		EOpenMobileAdsPlatform::IOS
+	);
+	TestEqual(
+		TEXT("Android keeps the configured adaptive width"),
+		Android.BannerLayout.AvailableWidth,
+		360.0f
+	);
+	TestEqual(
+		TEXT("iOS can derive adaptive width from its safe area"),
+		IOS.BannerLayout.AvailableWidth,
+		0.0f
+	);
+	TestEqual(
+		TEXT("Adaptive banners keep platform-specific anchoring"),
+		IOS.BannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Top
+	);
+	TestTrue(
+		TEXT("Explicit and automatically resolved adaptive widths are valid"),
+		FOpenMobileAdsConfigurationValidator::Validate({Placement}).IsEmpty()
+	);
+
+	Placement.Android.bOverrideBannerLayout = true;
+	Placement.Android.BannerLayout = Placement.BannerLayout;
+	Placement.Android.BannerLayout.AvailableWidth = -1.0f;
+	const TArray<FOpenMobileAdsConfigurationIssue> Issues =
+		FOpenMobileAdsConfigurationValidator::Validate({Placement});
+	TestTrue(
+		TEXT("Negative adaptive widths are rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+					== EOpenMobileAdsConfigurationIssueCode::InvalidBannerLayout;
+			}
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsPlacementConfigLoadingTest,
 	"OpenMobile.Ads.Configuration.ConfigLoading",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

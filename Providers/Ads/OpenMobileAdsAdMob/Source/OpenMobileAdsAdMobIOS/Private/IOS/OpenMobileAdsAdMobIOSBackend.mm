@@ -225,13 +225,70 @@ static NSMutableSet<NSNumber*>* GOpenMobileInterstitialAdLoadRequests = nil;
 @property(nonatomic, weak, nullable) UIView* hostView;
 @property(nonatomic, strong, nullable) UILayoutGuide* layoutGuide;
 @property(nonatomic, strong, nullable) NSArray<NSLayoutConstraint*>* constraints;
+@property(nonatomic, copy, nullable) NSString* adUnitId;
+@property(nonatomic, assign) BOOL anchoredAdaptive;
+@property(nonatomic, assign) NSInteger anchor;
+@property(nonatomic, assign) BOOL respectSafeArea;
+@property(nonatomic, assign) CGFloat availableWidth;
+@property(nonatomic, assign) CGFloat leftMargin;
+@property(nonatomic, assign) CGFloat topMargin;
+@property(nonatomic, assign) CGFloat rightMargin;
+@property(nonatomic, assign) CGFloat bottomMargin;
+@property(nonatomic, assign) GADAdSize currentAdSize;
+@property(nonatomic, assign) BOOL initialLoadComplete;
+@property(nonatomic, assign) BOOL bannerReady;
+@property(nonatomic, assign) BOOL notifyShownAfterLoad;
+@property(nonatomic, assign) BOOL layoutRefreshScheduled;
+
+@end
+
+@interface OpenMobileBannerLayoutObserver : UIView
+
+@property(nonatomic, copy, nullable) dispatch_block_t layoutHandler;
+
+@end
+
+
+@implementation OpenMobileBannerLayoutObserver
+
+- (void)layoutSubviews
+{
+	[super layoutSubviews];
+	if (self.layoutHandler)
+	{
+		self.layoutHandler();
+	}
+}
+
+- (void)safeAreaInsetsDidChange
+{
+	[super safeAreaInsetsDidChange];
+	if (self.layoutHandler)
+	{
+		self.layoutHandler();
+	}
+}
+
+@end
+
+@interface OpenMobileBannerAdDelegate ()
+
+@property(nonatomic, strong, nullable) OpenMobileBannerLayoutObserver* layoutObserver;
 
 @end
 
 static NSMutableDictionary<NSNumber*, OpenMobileBannerAdDelegate*>*
 	GOpenMobileBannerAds = nil;
 
-static void DetachOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
+static BOOL AttachOpenMobileBanner(
+	OpenMobileBannerAdDelegate* Handler,
+	NSString** OutError
+);
+
+static void DetachOpenMobileBanner(
+	OpenMobileBannerAdDelegate* Handler,
+	BOOL ClearShowRequest
+)
 {
 	if (!Handler)
 	{
@@ -239,6 +296,8 @@ static void DetachOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 	}
 	[NSLayoutConstraint deactivateConstraints:Handler.constraints ?: @[]];
 	[Handler.bannerView removeFromSuperview];
+	Handler.layoutObserver.layoutHandler = nil;
+	[Handler.layoutObserver removeFromSuperview];
 	if (Handler.layoutGuide && Handler.hostView)
 	{
 		[Handler.hostView removeLayoutGuide:Handler.layoutGuide];
@@ -246,15 +305,290 @@ static void DetachOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 	Handler.constraints = nil;
 	Handler.layoutGuide = nil;
 	Handler.hostView = nil;
-	Handler.showRequestId = 0;
+	Handler.layoutObserver = nil;
+	Handler.layoutRefreshScheduled = NO;
+	if (ClearShowRequest)
+	{
+		Handler.showRequestId = 0;
+		Handler.notifyShownAfterLoad = NO;
+	}
+}
+
+static void DestroyOpenMobileBannerView(OpenMobileBannerAdDelegate* Handler)
+{
+	Handler.bannerView.delegate = nil;
+	Handler.bannerView.paidEventHandler = nil;
+	Handler.bannerView = nil;
 }
 
 static void DestroyOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 {
-	DetachOpenMobileBanner(Handler);
-	Handler.bannerView.delegate = nil;
-	Handler.bannerView.paidEventHandler = nil;
-	Handler.bannerView = nil;
+	DetachOpenMobileBanner(Handler, YES);
+	DestroyOpenMobileBannerView(Handler);
+}
+
+static void UpdateOpenMobileBannerLayout(
+	OpenMobileBannerAdDelegate* Handler,
+	const FOpenMobileAdsBannerLayout& Layout
+)
+{
+	Handler.anchor = static_cast<NSInteger>(Layout.Anchor);
+	Handler.respectSafeArea = Layout.bRespectSafeArea;
+	Handler.availableWidth = Layout.AvailableWidth;
+	Handler.leftMargin = Layout.Margins.Left;
+	Handler.topMargin = Layout.Margins.Top;
+	Handler.rightMargin = Layout.Margins.Right;
+	Handler.bottomMargin = Layout.Margins.Bottom;
+}
+
+static BOOL ResolveOpenMobileBannerSize(
+	OpenMobileBannerAdDelegate* Handler,
+	UIView* HostView,
+	GADAdSize* OutSize,
+	NSString** OutError
+)
+{
+	if (!Handler.anchoredAdaptive)
+	{
+		*OutSize = GADAdSizeBanner;
+		return YES;
+	}
+	[HostView layoutIfNeeded];
+	CGRect AvailableFrame = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.layoutFrame
+		: HostView.bounds;
+	CGFloat AvailableWidth = CGRectGetWidth(AvailableFrame)
+		- Handler.leftMargin - Handler.rightMargin;
+	if (Handler.availableWidth > 0.0)
+	{
+		AvailableWidth = MIN(AvailableWidth, Handler.availableWidth);
+	}
+	if (AvailableWidth < 320.0)
+	{
+		if (OutError)
+		{
+			*OutError = @"The iOS safe area and margins cannot fit an adaptive banner.";
+		}
+		return NO;
+	}
+	*OutSize = GADLargeAnchoredAdaptiveBannerAdSizeWithWidth(
+		floor(AvailableWidth)
+	);
+	return YES;
+}
+
+static void LoadOpenMobileBannerView(
+	OpenMobileBannerAdDelegate* Handler,
+	GADAdSize AdSize
+)
+{
+	DestroyOpenMobileBannerView(Handler);
+	Handler.bannerReady = NO;
+	GADBannerView* BannerView = [[GADBannerView alloc] initWithAdSize:AdSize];
+	Handler.bannerView = BannerView;
+	Handler.currentAdSize = AdSize;
+	BannerView.adUnitID = Handler.adUnitId;
+	BannerView.delegate = Handler;
+	BannerView.rootViewController = OpenMobileAdsAdMobIOS::TopViewController(
+		(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+	);
+	__weak OpenMobileBannerAdDelegate* WeakHandler = Handler;
+	BannerView.paidEventHandler = ^(GADAdValue* AdValue)
+	{
+		OpenMobileBannerAdDelegate* StrongHandler = WeakHandler;
+		if (!StrongHandler || StrongHandler.showRequestId <= 0)
+		{
+			return;
+		}
+		FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+			StrongHandler.showRequestId,
+			AdValue.value.longLongValue,
+			OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
+			static_cast<int32>(AdValue.precision)
+		);
+	};
+	[BannerView loadRequest:[GADRequest request]];
+}
+
+static void FailOpenMobileAdaptiveBanner(
+	OpenMobileBannerAdDelegate* Handler,
+	NSString* ErrorMessage
+)
+{
+	const int64_t FailedShowRequestId = Handler.showRequestId;
+	[GOpenMobileBannerAds removeObjectForKey:@(Handler.loadRequestId)];
+	DestroyOpenMobileBanner(Handler);
+	FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+		FailedShowRequestId,
+		OpenMobileAdsAdMobIOS::ToFString(ErrorMessage)
+	);
+}
+
+static void ScheduleOpenMobileAdaptiveBannerLayout(
+	OpenMobileBannerAdDelegate* Handler
+)
+{
+	if (Handler.layoutRefreshScheduled)
+	{
+		return;
+	}
+	Handler.layoutRefreshScheduled = YES;
+	__weak OpenMobileBannerAdDelegate* WeakHandler = Handler;
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		OpenMobileBannerAdDelegate* StrongHandler = WeakHandler;
+		if (!StrongHandler)
+		{
+			return;
+		}
+		StrongHandler.layoutRefreshScheduled = NO;
+		if (
+			StrongHandler.showRequestId <= 0
+			|| GOpenMobileBannerAds[@(StrongHandler.loadRequestId)] != StrongHandler
+		)
+		{
+			return;
+		}
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		NSString* Error = nil;
+		GADAdSize DesiredSize;
+		if (!RootController.view || !ResolveOpenMobileBannerSize(
+			StrongHandler,
+			RootController.view,
+			&DesiredSize,
+			&Error
+		))
+		{
+			FailOpenMobileAdaptiveBanner(
+				StrongHandler,
+				Error ?: @"No iOS view is available for adaptive banner layout."
+			);
+			return;
+		}
+		if (GADAdSizeEqualToSize(DesiredSize, StrongHandler.currentAdSize))
+		{
+			return;
+		}
+		DetachOpenMobileBanner(StrongHandler, NO);
+		StrongHandler.notifyShownAfterLoad = NO;
+		LoadOpenMobileBannerView(StrongHandler, DesiredSize);
+	});
+}
+
+static BOOL AttachOpenMobileBanner(
+	OpenMobileBannerAdDelegate* Handler,
+	NSString** OutError
+)
+{
+	UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+		(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+	);
+	UIView* HostView = RootController.view;
+	if (!RootController || !HostView || !Handler.bannerView)
+	{
+		if (OutError)
+		{
+			*OutError = @"No iOS view is available for the banner.";
+		}
+		return NO;
+	}
+
+	[HostView layoutIfNeeded];
+	CGRect AvailableFrame = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.layoutFrame
+		: HostView.bounds;
+	CGSize BannerSize = CGSizeFromGADAdSize(Handler.currentAdSize);
+	CGFloat AvailableWidth = CGRectGetWidth(AvailableFrame)
+		- Handler.leftMargin - Handler.rightMargin;
+	CGFloat AvailableHeight = CGRectGetHeight(AvailableFrame)
+		- Handler.topMargin - Handler.bottomMargin;
+	if (
+		AvailableWidth < BannerSize.width
+		|| AvailableHeight < BannerSize.height
+	)
+	{
+		if (OutError)
+		{
+			*OutError = @"The iOS safe area and margins cannot fit the banner.";
+		}
+		return NO;
+	}
+
+	UILayoutGuide* Guide = [[UILayoutGuide alloc] init];
+	[HostView addLayoutGuide:Guide];
+	Handler.hostView = HostView;
+	Handler.layoutGuide = Guide;
+	Handler.bannerView.rootViewController = RootController;
+	Handler.bannerView.translatesAutoresizingMaskIntoConstraints = NO;
+	[HostView addSubview:Handler.bannerView];
+
+	NSLayoutXAxisAnchor* LeadingAnchor = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.leadingAnchor
+		: HostView.leadingAnchor;
+	NSLayoutXAxisAnchor* TrailingAnchor = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.trailingAnchor
+		: HostView.trailingAnchor;
+	NSLayoutYAxisAnchor* TopAnchor = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.topAnchor
+		: HostView.topAnchor;
+	NSLayoutYAxisAnchor* BottomAnchor = Handler.respectSafeArea
+		? HostView.safeAreaLayoutGuide.bottomAnchor
+		: HostView.bottomAnchor;
+
+	NSMutableArray<NSLayoutConstraint*>* Constraints = [NSMutableArray arrayWithArray:@[
+		[Guide.leadingAnchor constraintEqualToAnchor:LeadingAnchor
+			constant:Handler.leftMargin],
+		[Guide.trailingAnchor constraintEqualToAnchor:TrailingAnchor
+			constant:-Handler.rightMargin],
+		[Guide.topAnchor constraintEqualToAnchor:TopAnchor
+			constant:Handler.topMargin],
+		[Guide.bottomAnchor constraintEqualToAnchor:BottomAnchor
+			constant:-Handler.bottomMargin],
+		[Handler.bannerView.centerXAnchor constraintEqualToAnchor:Guide.centerXAnchor],
+		[Handler.bannerView.widthAnchor constraintEqualToConstant:BannerSize.width],
+		[Handler.bannerView.heightAnchor constraintEqualToConstant:BannerSize.height]
+	]];
+	if (Handler.anchor == static_cast<NSInteger>(EOpenMobileAdsBannerAnchor::Top))
+	{
+		[Constraints addObject:[Handler.bannerView.topAnchor
+			constraintEqualToAnchor:Guide.topAnchor]];
+	}
+	else
+	{
+		[Constraints addObject:[Handler.bannerView.bottomAnchor
+			constraintEqualToAnchor:Guide.bottomAnchor]];
+	}
+
+	if (Handler.anchoredAdaptive)
+	{
+		OpenMobileBannerLayoutObserver* Observer =
+			[[OpenMobileBannerLayoutObserver alloc] initWithFrame:CGRectZero];
+		Observer.translatesAutoresizingMaskIntoConstraints = NO;
+		Observer.userInteractionEnabled = NO;
+		__weak OpenMobileBannerAdDelegate* WeakHandler = Handler;
+		Observer.layoutHandler = ^
+		{
+			OpenMobileBannerAdDelegate* StrongHandler = WeakHandler;
+			if (StrongHandler)
+			{
+				ScheduleOpenMobileAdaptiveBannerLayout(StrongHandler);
+			}
+		};
+		[HostView insertSubview:Observer belowSubview:Handler.bannerView];
+		[Constraints addObjectsFromArray:@[
+			[Observer.leadingAnchor constraintEqualToAnchor:HostView.leadingAnchor],
+			[Observer.trailingAnchor constraintEqualToAnchor:HostView.trailingAnchor],
+			[Observer.topAnchor constraintEqualToAnchor:HostView.topAnchor],
+			[Observer.bottomAnchor constraintEqualToAnchor:HostView.bottomAnchor]
+		]];
+		Handler.layoutObserver = Observer;
+	}
+
+	Handler.constraints = Constraints;
+	[NSLayoutConstraint activateConstraints:Constraints];
+	return YES;
 }
 
 @implementation OpenMobileRewardedAdDelegate
@@ -365,9 +699,40 @@ static void DestroyOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 
 - (void)bannerViewDidReceiveAd:(GADBannerView*)bannerView
 {
-	if (GOpenMobileBannerAds[@(self.loadRequestId)] == self)
+	if (
+		GOpenMobileBannerAds[@(self.loadRequestId)] != self
+		|| self.bannerView != bannerView
+	)
 	{
+		return;
+	}
+	if (!self.initialLoadComplete)
+	{
+		self.bannerReady = YES;
+		self.initialLoadComplete = YES;
 		FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(self.loadRequestId);
+		return;
+	}
+	if (self.showRequestId <= 0)
+	{
+		self.bannerReady = YES;
+		return;
+	}
+	self.bannerReady = YES;
+
+	NSString* Error = nil;
+	if (!AttachOpenMobileBanner(self, &Error))
+	{
+		FailOpenMobileAdaptiveBanner(
+			self,
+			Error ?: @"The resized iOS adaptive banner could not be attached."
+		);
+		return;
+	}
+	if (self.notifyShownAfterLoad)
+	{
+		self.notifyShownAfterLoad = NO;
+		FOpenMobileAdsAdMobPlatform::NativeBannerShown(self.showRequestId);
 	}
 }
 
@@ -379,16 +744,29 @@ static void DestroyOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 	{
 		return;
 	}
-	[GOpenMobileBannerAds removeObjectForKey:Key];
-	const int64_t FailedRequestId = self.loadRequestId;
 	NSString* Detail = error.localizedDescription ?: @"Unknown banner load error.";
-	DestroyOpenMobileBanner(self);
-	FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
-		FailedRequestId,
-		OpenMobileAdsAdMobIOS::ToFString(
-			[@"Banner failed to load: " stringByAppendingString:Detail]
-		)
-	);
+	NSString* Message = [@"Banner failed to load: " stringByAppendingString:Detail];
+	if (self.initialLoadComplete)
+	{
+		if (self.showRequestId > 0)
+		{
+			FailOpenMobileAdaptiveBanner(self, Message);
+		}
+		else
+		{
+			DestroyOpenMobileBannerView(self);
+		}
+	}
+	else
+	{
+		[GOpenMobileBannerAds removeObjectForKey:Key];
+		const int64_t FailedRequestId = self.loadRequestId;
+		DestroyOpenMobileBanner(self);
+		FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+			FailedRequestId,
+			OpenMobileAdsAdMobIOS::ToFString(Message)
+		);
+	}
 }
 
 - (void)bannerViewDidRecordImpression:(GADBannerView*)bannerView
@@ -823,6 +1201,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
 	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	bool bAnchoredAdaptive,
+	const FOpenMobileAdsBannerLayout& Layout,
 	FString& OutError
 )
 {
@@ -839,6 +1219,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
 		return false;
 	}
 
+	const bool bAdaptive = bAnchoredAdaptive;
+	const FOpenMobileAdsBannerLayout BannerLayout = Layout;
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
 		if (!GOpenMobileBannerAds)
@@ -859,29 +1241,32 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
 		OpenMobileBannerAdDelegate* Handler =
 			[[OpenMobileBannerAdDelegate alloc] init];
 		Handler.loadRequestId = RequestId;
-		Handler.bannerView = [[GADBannerView alloc] initWithAdSize:GADAdSizeBanner];
-		Handler.bannerView.adUnitID = IOSAdUnitId;
-		Handler.bannerView.delegate = Handler;
-		Handler.bannerView.rootViewController = OpenMobileAdsAdMobIOS::TopViewController(
+		Handler.adUnitId = IOSAdUnitId;
+		Handler.anchoredAdaptive = bAdaptive;
+		UpdateOpenMobileBannerLayout(Handler, BannerLayout);
+
+		GADAdSize BannerSize = GADAdSizeBanner;
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
 			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
 		);
-		__weak OpenMobileBannerAdDelegate* WeakHandler = Handler;
-		Handler.bannerView.paidEventHandler = ^(GADAdValue* AdValue)
+		NSString* Error = nil;
+		if (bAdaptive && (!RootController.view || !ResolveOpenMobileBannerSize(
+			Handler,
+			RootController.view,
+			&BannerSize,
+			&Error
+		)))
 		{
-			OpenMobileBannerAdDelegate* StrongHandler = WeakHandler;
-			if (!StrongHandler || StrongHandler.showRequestId <= 0)
-			{
-				return;
-			}
-			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
-				StrongHandler.showRequestId,
-				AdValue.value.longLongValue,
-				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-				static_cast<int32>(AdValue.precision)
+			FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
+				RequestId,
+				OpenMobileAdsAdMobIOS::ToFString(
+					Error ?: @"No iOS view is available for adaptive banner sizing."
+				)
 			);
-		};
+			return;
+		}
 		GOpenMobileBannerAds[Key] = Handler;
-		[Handler.bannerView loadRequest:[GADRequest request]];
+		LoadOpenMobileBannerView(Handler, BannerSize);
 	});
 	return true;
 }
@@ -1102,7 +1487,7 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowBannerAd(
 	{
 		OpenMobileBannerAdDelegate* Handler =
 			GOpenMobileBannerAds[@(LoadedRequestId)];
-		if (!Handler || !Handler.bannerView)
+		if (!Handler)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
 				ShowRequestId,
@@ -1119,83 +1504,53 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowBannerAd(
 			return;
 		}
 
+		UpdateOpenMobileBannerLayout(Handler, BannerLayout);
 		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
 			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
 		);
-		UIView* HostView = RootController.view;
-		if (!RootController || !HostView)
+		GADAdSize DesiredSize;
+		NSString* Error = nil;
+		if (!RootController.view || !ResolveOpenMobileBannerSize(
+			Handler,
+			RootController.view,
+			&DesiredSize,
+			&Error
+		))
 		{
 			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
 				ShowRequestId,
-				TEXT("No iOS view is available for the banner.")
+				OpenMobileAdsAdMobIOS::ToFString(
+					Error ?: @"No iOS view is available for the banner."
+				)
 			);
 			return;
 		}
 
-		[HostView layoutIfNeeded];
-		CGRect AvailableFrame = BannerLayout.bRespectSafeArea
-			? HostView.safeAreaLayoutGuide.layoutFrame
-			: HostView.bounds;
-		const CGFloat AvailableWidth = CGRectGetWidth(AvailableFrame)
-			- BannerLayout.Margins.Left - BannerLayout.Margins.Right;
-		const CGFloat AvailableHeight = CGRectGetHeight(AvailableFrame)
-			- BannerLayout.Margins.Top - BannerLayout.Margins.Bottom;
-		if (AvailableWidth < 320.0 || AvailableHeight < 50.0)
-		{
-			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
-				ShowRequestId,
-				TEXT("The iOS safe area and margins cannot fit a 320x50 banner.")
-			);
-			return;
-		}
-
-		UILayoutGuide* Guide = [[UILayoutGuide alloc] init];
-		[HostView addLayoutGuide:Guide];
-		Handler.hostView = HostView;
-		Handler.layoutGuide = Guide;
 		Handler.showRequestId = ShowRequestId;
-		Handler.bannerView.rootViewController = RootController;
-		Handler.bannerView.translatesAutoresizingMaskIntoConstraints = NO;
-		[HostView addSubview:Handler.bannerView];
-
-		NSLayoutXAxisAnchor* LeadingAnchor = BannerLayout.bRespectSafeArea
-			? HostView.safeAreaLayoutGuide.leadingAnchor
-			: HostView.leadingAnchor;
-		NSLayoutXAxisAnchor* TrailingAnchor = BannerLayout.bRespectSafeArea
-			? HostView.safeAreaLayoutGuide.trailingAnchor
-			: HostView.trailingAnchor;
-		NSLayoutYAxisAnchor* TopAnchor = BannerLayout.bRespectSafeArea
-			? HostView.safeAreaLayoutGuide.topAnchor
-			: HostView.topAnchor;
-		NSLayoutYAxisAnchor* BottomAnchor = BannerLayout.bRespectSafeArea
-			? HostView.safeAreaLayoutGuide.bottomAnchor
-			: HostView.bottomAnchor;
-
-		NSMutableArray<NSLayoutConstraint*>* Constraints = [NSMutableArray arrayWithArray:@[
-			[Guide.leadingAnchor constraintEqualToAnchor:LeadingAnchor
-				constant:BannerLayout.Margins.Left],
-			[Guide.trailingAnchor constraintEqualToAnchor:TrailingAnchor
-				constant:-BannerLayout.Margins.Right],
-			[Guide.topAnchor constraintEqualToAnchor:TopAnchor
-				constant:BannerLayout.Margins.Top],
-			[Guide.bottomAnchor constraintEqualToAnchor:BottomAnchor
-				constant:-BannerLayout.Margins.Bottom],
-			[Handler.bannerView.centerXAnchor constraintEqualToAnchor:Guide.centerXAnchor],
-			[Handler.bannerView.widthAnchor constraintEqualToConstant:320.0],
-			[Handler.bannerView.heightAnchor constraintEqualToConstant:50.0]
-		]];
-		if (BannerLayout.Anchor == EOpenMobileAdsBannerAnchor::Top)
+		if (
+			Handler.anchoredAdaptive
+			&& (
+				!Handler.bannerReady
+				|| !GADAdSizeEqualToSize(DesiredSize, Handler.currentAdSize)
+			)
+		)
 		{
-			[Constraints addObject:[Handler.bannerView.topAnchor
-				constraintEqualToAnchor:Guide.topAnchor]];
+			Handler.notifyShownAfterLoad = YES;
+			LoadOpenMobileBannerView(Handler, DesiredSize);
+			return;
 		}
-		else
+
+		if (!AttachOpenMobileBanner(Handler, &Error))
 		{
-			[Constraints addObject:[Handler.bannerView.bottomAnchor
-				constraintEqualToAnchor:Guide.bottomAnchor]];
+			Handler.showRequestId = 0;
+			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
+				ShowRequestId,
+				OpenMobileAdsAdMobIOS::ToFString(
+					Error ?: @"The iOS banner could not be attached."
+				)
+			);
+			return;
 		}
-		Handler.constraints = Constraints;
-		[NSLayoutConstraint activateConstraints:Constraints];
 		FOpenMobileAdsAdMobPlatform::NativeBannerShown(ShowRequestId);
 	});
 	return true;
@@ -1211,7 +1566,11 @@ bool FOpenMobileAdsAdMobIOSBackend::HideBannerAd(
 	{
 		OpenMobileBannerAdDelegate* Handler =
 			GOpenMobileBannerAds[@(LoadedRequestId)];
-		if (!Handler || Handler.showRequestId <= 0 || !Handler.bannerView.superview)
+		if (
+			!Handler
+			|| Handler.showRequestId <= 0
+			|| (!Handler.anchoredAdaptive && !Handler.bannerView.superview)
+		)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
 				HideRequestId,
@@ -1219,7 +1578,7 @@ bool FOpenMobileAdsAdMobIOSBackend::HideBannerAd(
 			);
 			return;
 		}
-		DetachOpenMobileBanner(Handler);
+		DetachOpenMobileBanner(Handler, YES);
 		FOpenMobileAdsAdMobPlatform::NativeBannerHidden(HideRequestId);
 	});
 	return true;

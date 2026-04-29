@@ -118,12 +118,16 @@ namespace OpenMobileAdsAdMobTestAdTests
 			const FString& AdUnitId,
 			int64 RequestId,
 			EOpenMobileAdsDataProcessingMode DataProcessingMode,
+			bool bAnchoredAdaptive,
+			const FOpenMobileAdsBannerLayout& Layout,
 			FString& OutError
 		) override
 		{
 			BannerLoadedAdUnitIds.Add(AdUnitId);
 			BannerLoadRequestIds.Add(RequestId);
 			BannerLoadDataProcessingModes.Add(DataProcessingMode);
+			BannerLoadAdaptiveFlags.Add(bAnchoredAdaptive);
+			BannerLoadLayouts.Add(Layout);
 			return true;
 		}
 
@@ -249,6 +253,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> InterstitialLoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> BannerLoadDataProcessingModes;
+		TArray<bool> BannerLoadAdaptiveFlags;
+		TArray<FOpenMobileAdsBannerLayout> BannerLoadLayouts;
 		TArray<int64> CancelledRequestIds;
 		TArray<int64> CancelledInterstitialRequestIds;
 		TArray<int64> CancelledBannerRequestIds;
@@ -1871,6 +1877,172 @@ bool FOpenMobileAdsAdMobFixedBannerCapabilitiesTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobAdaptiveBannerCapabilitiesTest,
+	"OpenMobile.Ads.AdMob.AdaptiveBanner.Capabilities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobAdaptiveBannerCapabilitiesTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	const FOpenMobileAdsProviderCapabilities Capabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Adaptive =
+		Capabilities.FindFormat(EOpenMobileAdFormat::AnchoredAdaptiveBanner);
+	TestNotNull(TEXT("AdMob reports adaptive-banner capabilities"), Adaptive);
+	if (!Adaptive)
+	{
+		return false;
+	}
+	TestTrue(TEXT("Adaptive banners can load"), Adaptive->bCanLoad);
+	TestTrue(TEXT("Adaptive banners can show"), Adaptive->bCanShow);
+	TestTrue(TEXT("Adaptive banners can hide"), Adaptive->bCanHide);
+	TestTrue(
+		TEXT("Adaptive banners preserve their cache when hidden"),
+		Adaptive->bPreservesCachedAdOnHide
+	);
+	TestTrue(TEXT("Adaptive banners can preload"), Adaptive->bSupportsPreload);
+	TestTrue(TEXT("Adaptive banners report impressions"), Adaptive->bReportsImpression);
+	TestTrue(TEXT("Adaptive banners report clicks"), Adaptive->bReportsClick);
+	TestTrue(TEXT("Adaptive banners report revenue"), Adaptive->bReportsRevenue);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobAdaptiveBannerContractTest,
+	"OpenMobile.Ads.AdMob.AdaptiveBanner.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobAdaptiveBannerContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob initializes before adaptive-banner loading"),
+		Provider->Initialize(Initialization, InitializationSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("AdaptiveFooter");
+	Load.Placement.Format = EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+	Load.Placement.AdUnitId = TEXT("production-adaptive");
+	Load.Placement.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Bottom;
+	Load.Placement.BannerLayout.bRespectSafeArea = true;
+	Load.Placement.BannerLayout.AvailableWidth = 360.0f;
+	Load.Placement.BannerLayout.Margins.Left = 8.0f;
+	Load.Placement.BannerLayout.Margins.Right = 12.0f;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob starts an adaptive-banner load"),
+		Provider->Load(Load, LoadSink, Error)
+	);
+	TestEqual(
+		TEXT("Adaptive loading uses the banner native path"),
+		Backend.BannerLoadRequestIds.Num(),
+		1
+	);
+	if (Backend.BannerLoadRequestIds.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestTrue(
+		TEXT("The native load is marked anchored adaptive"),
+		Backend.BannerLoadAdaptiveFlags[0]
+	);
+	TestEqual(
+		TEXT("The native load receives the requested maximum width"),
+		Backend.BannerLoadLayouts[0].AvailableWidth,
+		360.0f
+	);
+	TestEqual(
+		TEXT("Adaptive development mode uses Google's banner test ID"),
+		Backend.BannerLoadedAdUnitIds[0],
+		FString(TEXT("ca-app-pub-3940256099942544/6300978111"))
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(
+		Backend.BannerLoadRequestIds[0]
+	);
+	if (LoadSink->Events.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	const FGuid CachedAdId = LoadSink->Events[0].CachedAdId;
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = CachedAdId;
+	Show.Placement = Load.Placement.Placement;
+	Show.Format = EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+	Show.BannerLayout = Load.Placement.BannerLayout;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob shows the cached adaptive banner"),
+		Provider->Show(Show, ShowSink, Error)
+	);
+	TestEqual(
+		TEXT("Adaptive show preserves the requested width"),
+		Backend.ShownBannerLayout.AvailableWidth,
+		360.0f
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerShown(Backend.BannerShowRequestId);
+
+	FOpenMobileAdsHideRequest Hide;
+	Hide.RequestId = FGuid::NewGuid();
+	Hide.CachedAdId = CachedAdId;
+	Hide.Placement = Load.Placement.Placement;
+	Hide.Format = EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+	Hide.bPreserveCachedAd = true;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> HideSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob hides the adaptive banner without consuming it"),
+		Provider->Hide(Hide, HideSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(Backend.BannerHideRequestId);
+	TestEqual(TEXT("Adaptive hide completes once"), HideSink->Events.Num(), 1);
+	Provider->ReleaseCachedAd(CachedAdId);
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobFixedBannerContractTest,
 	"OpenMobile.Ads.AdMob.FixedBanner.Contract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -2115,11 +2287,17 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
-		3
+		4
 	);
 	TestTrue(
 		TEXT("The supported fixed-banner format has a test-ad contract"),
 		Capabilities.FindFormat(EOpenMobileAdFormat::Banner) != nullptr
+	);
+	TestTrue(
+		TEXT("The supported adaptive-banner format has a test-ad contract"),
+		Capabilities.FindFormat(
+			EOpenMobileAdFormat::AnchoredAdaptiveBanner
+		) != nullptr
 	);
 	TestTrue(
 		TEXT("The supported interstitial format has a test-ad contract"),
