@@ -118,7 +118,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 			const FString& AdUnitId,
 			int64 RequestId,
 			EOpenMobileAdsDataProcessingMode DataProcessingMode,
-			bool bAnchoredAdaptive,
+			EOpenMobileAdFormat Format,
 			const FOpenMobileAdsBannerLayout& Layout,
 			FString& OutError
 		) override
@@ -126,7 +126,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 			BannerLoadedAdUnitIds.Add(AdUnitId);
 			BannerLoadRequestIds.Add(RequestId);
 			BannerLoadDataProcessingModes.Add(DataProcessingMode);
-			BannerLoadAdaptiveFlags.Add(bAnchoredAdaptive);
+			BannerLoadFormats.Add(Format);
 			BannerLoadLayouts.Add(Layout);
 			return true;
 		}
@@ -253,7 +253,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> InterstitialLoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> BannerLoadDataProcessingModes;
-		TArray<bool> BannerLoadAdaptiveFlags;
+		TArray<EOpenMobileAdFormat> BannerLoadFormats;
 		TArray<FOpenMobileAdsBannerLayout> BannerLoadLayouts;
 		TArray<int64> CancelledRequestIds;
 		TArray<int64> CancelledInterstitialRequestIds;
@@ -1980,9 +1980,10 @@ bool FOpenMobileAdsAdMobAdaptiveBannerContractTest::RunTest(
 		Provider->Shutdown();
 		return false;
 	}
-	TestTrue(
+	TestEqual(
 		TEXT("The native load is marked anchored adaptive"),
-		Backend.BannerLoadAdaptiveFlags[0]
+		Backend.BannerLoadFormats[0],
+		EOpenMobileAdFormat::AnchoredAdaptiveBanner
 	);
 	TestEqual(
 		TEXT("The native load receives the requested maximum width"),
@@ -2037,6 +2038,150 @@ bool FOpenMobileAdsAdMobAdaptiveBannerContractTest::RunTest(
 	);
 	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(Backend.BannerHideRequestId);
 	TestEqual(TEXT("Adaptive hide completes once"), HideSink->Events.Num(), 1);
+	Provider->ReleaseCachedAd(CachedAdId);
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobMrecCapabilitiesTest,
+	"OpenMobile.Ads.AdMob.Mrec.Capabilities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobMrecCapabilitiesTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	const FOpenMobileAdsProviderCapabilities Capabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Mrec =
+		Capabilities.FindFormat(EOpenMobileAdFormat::MediumRectangle);
+	TestNotNull(TEXT("AdMob reports MREC capabilities"), Mrec);
+	if (!Mrec)
+	{
+		return false;
+	}
+	TestTrue(TEXT("MREC can load"), Mrec->bCanLoad);
+	TestTrue(TEXT("MREC can show"), Mrec->bCanShow);
+	TestTrue(TEXT("MREC can hide"), Mrec->bCanHide);
+	TestTrue(TEXT("MREC preserves its cache when hidden"), Mrec->bPreservesCachedAdOnHide);
+	TestTrue(TEXT("MREC can preload"), Mrec->bSupportsPreload);
+	TestTrue(TEXT("MREC reports impressions"), Mrec->bReportsImpression);
+	TestTrue(TEXT("MREC reports clicks"), Mrec->bReportsClick);
+	TestTrue(TEXT("MREC reports revenue"), Mrec->bReportsRevenue);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobMrecContractTest,
+	"OpenMobile.Ads.AdMob.Mrec.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobMrecContractTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob initializes before MREC loading"),
+		Provider->Initialize(Initialization, InitializationSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("MenuOffer");
+	Load.Placement.Format = EOpenMobileAdFormat::MediumRectangle;
+	Load.Placement.AdUnitId = TEXT("production-mrec");
+	Load.Placement.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Center;
+	Load.Placement.BannerLayout.HorizontalAlignment =
+		EOpenMobileAdsBannerHorizontalAlignment::Left;
+	Load.Placement.BannerLayout.Margins.Left = 20.0f;
+	Load.Placement.BannerLayout.Margins.Top = 16.0f;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(TEXT("AdMob starts an MREC load"), Provider->Load(Load, LoadSink, Error));
+	TestEqual(TEXT("MREC uses the persistent native path"), Backend.BannerLoadRequestIds.Num(), 1);
+	if (Backend.BannerLoadRequestIds.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestEqual(
+		TEXT("The native load receives the MREC format"),
+		Backend.BannerLoadFormats[0],
+		EOpenMobileAdFormat::MediumRectangle
+	);
+	TestEqual(
+		TEXT("MREC development mode uses Google's banner test ID"),
+		Backend.BannerLoadedAdUnitIds[0],
+		FString(TEXT("ca-app-pub-3940256099942544/6300978111"))
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(
+		Backend.BannerLoadRequestIds[0]
+	);
+	if (LoadSink->Events.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	const FGuid CachedAdId = LoadSink->Events[0].CachedAdId;
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = CachedAdId;
+	Show.Placement = Load.Placement.Placement;
+	Show.Format = EOpenMobileAdFormat::MediumRectangle;
+	Show.BannerLayout = Load.Placement.BannerLayout;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(TEXT("AdMob shows the cached MREC"), Provider->Show(Show, ShowSink, Error));
+	TestEqual(
+		TEXT("MREC show preserves horizontal positioning"),
+		Backend.ShownBannerLayout.HorizontalAlignment,
+		EOpenMobileAdsBannerHorizontalAlignment::Left
+	);
+	FOpenMobileAdsAdMobPlatform::NativeBannerShown(Backend.BannerShowRequestId);
+
+	FOpenMobileAdsHideRequest Hide;
+	Hide.RequestId = FGuid::NewGuid();
+	Hide.CachedAdId = CachedAdId;
+	Hide.Placement = Load.Placement.Placement;
+	Hide.Format = EOpenMobileAdFormat::MediumRectangle;
+	Hide.bPreserveCachedAd = true;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> HideSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(TEXT("AdMob hides the MREC without consuming it"), Provider->Hide(Hide, HideSink, Error));
+	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(Backend.BannerHideRequestId);
+	TestEqual(TEXT("MREC hide completes once"), HideSink->Events.Num(), 1);
 	Provider->ReleaseCachedAd(CachedAdId);
 	Provider->Shutdown();
 	return true;
@@ -2287,7 +2432,7 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
-		4
+		5
 	);
 	TestTrue(
 		TEXT("The supported fixed-banner format has a test-ad contract"),
@@ -2298,6 +2443,10 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 		Capabilities.FindFormat(
 			EOpenMobileAdFormat::AnchoredAdaptiveBanner
 		) != nullptr
+	);
+	TestTrue(
+		TEXT("The supported MREC format has a test-ad contract"),
+		Capabilities.FindFormat(EOpenMobileAdFormat::MediumRectangle) != nullptr
 	);
 	TestTrue(
 		TEXT("The supported interstitial format has a test-ad contract"),

@@ -40,7 +40,16 @@ UENUM(BlueprintType)
 enum class EOpenMobileAdsBannerAnchor : uint8
 {
 	Top,
-	Bottom
+	Bottom,
+	Center
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsBannerHorizontalAlignment : uint8
+{
+	Left,
+	Center,
+	Right
 };
 
 USTRUCT(BlueprintType)
@@ -80,6 +89,10 @@ struct OPENMOBILEADS_API FOpenMobileAdsBannerLayout
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	EOpenMobileAdsBannerAnchor Anchor = EOpenMobileAdsBannerAnchor::Bottom;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	EOpenMobileAdsBannerHorizontalAlignment HorizontalAlignment =
+		EOpenMobileAdsBannerHorizontalAlignment::Center;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	bool bRespectSafeArea = true;

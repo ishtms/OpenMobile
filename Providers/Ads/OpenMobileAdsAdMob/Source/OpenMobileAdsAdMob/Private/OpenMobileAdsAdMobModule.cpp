@@ -8,10 +8,11 @@
 
 namespace OpenMobileAdsAdMobPrivate
 {
-	bool IsBannerFormat(EOpenMobileAdFormat Format)
+	bool IsPersistentDisplayFormat(EOpenMobileAdFormat Format)
 	{
 		return Format == EOpenMobileAdFormat::Banner
-			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			|| Format == EOpenMobileAdFormat::MediumRectangle;
 	}
 
 	class FProvider final : public IOpenMobileAdsProvider
@@ -37,6 +38,8 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdFormatCapabilities AdaptiveBanner = Banner;
 			AdaptiveBanner.Format =
 				EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+			FOpenMobileAdFormatCapabilities MediumRectangle = Banner;
+			MediumRectangle.Format = EOpenMobileAdFormat::MediumRectangle;
 
 			FOpenMobileAdFormatCapabilities Interstitial;
 			Interstitial.Format = EOpenMobileAdFormat::Interstitial;
@@ -73,6 +76,7 @@ namespace OpenMobileAdsAdMobPrivate
 #endif
 			Capabilities.Formats.Add(Banner);
 			Capabilities.Formats.Add(AdaptiveBanner);
+			Capabilities.Formats.Add(MediumRectangle);
 			Capabilities.Formats.Add(Interstitial);
 			Capabilities.Formats.Add(Rewarded);
 			return Capabilities;
@@ -382,7 +386,7 @@ namespace OpenMobileAdsAdMobPrivate
 		) override
 		{
 			if (
-				!IsBannerFormat(Request.Placement.Format)
+				!IsPersistentDisplayFormat(Request.Placement.Format)
 				&&
 				Request.Placement.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Placement.Format != EOpenMobileAdFormat::Rewarded
@@ -407,6 +411,7 @@ namespace OpenMobileAdsAdMobPrivate
 				{
 				case EOpenMobileAdFormat::Banner:
 				case EOpenMobileAdFormat::AnchoredAdaptiveBanner:
+				case EOpenMobileAdFormat::MediumRectangle:
 					ProviderRequest.Placement.AdUnitId =
 						Settings->ResolveBannerAdUnitId(InitializedPlatform, true);
 					break;
@@ -427,7 +432,7 @@ namespace OpenMobileAdsAdMobPrivate
 					EOpenMobileAdsErrorCode::NotConfigured,
 					EOpenMobileAdsFailureStage::Load,
 					Request.Placement.Placement,
-					IsBannerFormat(Request.Placement.Format)
+					IsPersistentDisplayFormat(Request.Placement.Format)
 						? TEXT("No AdMob banner ad-unit ID is configured for this placement.")
 						: Request.Placement.Format == EOpenMobileAdFormat::Interstitial
 							? TEXT("No AdMob interstitial ad-unit ID is configured for this placement.")
@@ -492,7 +497,7 @@ namespace OpenMobileAdsAdMobPrivate
 		) override
 		{
 			if (
-				!IsBannerFormat(Request.Format)
+				!IsPersistentDisplayFormat(Request.Format)
 				&&
 				Request.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Format != EOpenMobileAdFormat::Rewarded
@@ -535,7 +540,7 @@ namespace OpenMobileAdsAdMobPrivate
 			FOpenMobileAdsError& OutError
 		) override
 		{
-			if (!IsBannerFormat(Request.Format))
+			if (!IsPersistentDisplayFormat(Request.Format))
 			{
 				OutError = FOpenMobileAdsError::Make(
 					EOpenMobileAdsErrorCode::UnsupportedFormat,

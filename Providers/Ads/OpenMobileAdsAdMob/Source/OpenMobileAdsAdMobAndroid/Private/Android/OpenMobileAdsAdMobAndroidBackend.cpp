@@ -442,11 +442,26 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
 	EOpenMobileAdsDataProcessingMode DataProcessingMode,
-	bool bAnchoredAdaptive,
+	EOpenMobileAdFormat Format,
 	const FOpenMobileAdsBannerLayout& Layout,
 	FString& OutError
 )
 {
+	int32 NativeFormat = 0;
+	if (Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner)
+	{
+		NativeFormat = 1;
+	}
+	else if (Format == EOpenMobileAdFormat::MediumRectangle)
+	{
+		NativeFormat = 2;
+	}
+	else if (Format != EOpenMobileAdFormat::Banner)
+	{
+		OutError = TEXT("Android received an unsupported persistent ad format.");
+		return false;
+	}
+
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
 	if (!Env)
 	{
@@ -458,7 +473,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_LoadOpenMobileBannerAd",
-		"(Ljava/lang/String;JIZIZFFFFF)Z",
+		"(Ljava/lang/String;JIIIIZFFFFF)Z",
 		false
 	);
 	if (!LoadMethod)
@@ -478,8 +493,9 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 		*JavaAdUnitId,
 		static_cast<jlong>(RequestId),
 		static_cast<jint>(DataProcessingMode),
-		static_cast<jboolean>(bAnchoredAdaptive),
+		static_cast<jint>(NativeFormat),
 		static_cast<jint>(Layout.Anchor),
+		static_cast<jint>(Layout.HorizontalAlignment),
 		static_cast<jboolean>(Layout.bRespectSafeArea),
 		static_cast<jfloat>(Layout.AvailableWidth),
 		static_cast<jfloat>(Layout.Margins.Left),
@@ -678,7 +694,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowBannerAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_ShowOpenMobileBannerAd",
-		"(JJIZFFFFF)Z",
+		"(JJIIZFFFFF)Z",
 		false
 	);
 	if (!ShowMethod)
@@ -694,6 +710,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowBannerAd(
 		static_cast<jlong>(LoadedRequestId),
 		static_cast<jlong>(ShowRequestId),
 		static_cast<jint>(Layout.Anchor),
+		static_cast<jint>(Layout.HorizontalAlignment),
 		static_cast<jboolean>(Layout.bRespectSafeArea),
 		static_cast<jfloat>(Layout.AvailableWidth),
 		static_cast<jfloat>(Layout.Margins.Left),

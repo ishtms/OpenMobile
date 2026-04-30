@@ -59,7 +59,7 @@ public:
 		const FString& AdUnitId,
 		int64 RequestId,
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
-		bool bAnchoredAdaptive,
+		EOpenMobileAdFormat Format,
 		const FOpenMobileAdsBannerLayout& Layout,
 		FString& OutError
 	) = 0;

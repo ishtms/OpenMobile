@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=10</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=11</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -143,15 +143,22 @@ import java.util.Set;
     private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
     private static final int OPEN_MOBILE_BANNER_TOP = 0;
+    private static final int OPEN_MOBILE_BANNER_CENTER = 2;
+    private static final int OPEN_MOBILE_HORIZONTAL_LEFT = 0;
+    private static final int OPEN_MOBILE_HORIZONTAL_RIGHT = 2;
+    private static final int OPEN_MOBILE_DISPLAY_FIXED_BANNER = 0;
+    private static final int OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER = 1;
+    private static final int OPEN_MOBILE_DISPLAY_MREC = 2;
     private static final class OpenMobileBannerEntry
     {
         final long loadRequestId;
         final String adUnitId;
-        final boolean anchoredAdaptive;
+        final int displayFormat;
         AdView adView = null;
         FrameLayout container = null;
         long showRequestId = 0;
         int anchor = OPEN_MOBILE_BANNER_TOP;
+        int horizontalAlignment = 1;
         boolean respectSafeArea = true;
         float availableWidth = 0.0f;
         float leftMargin = 0.0f;
@@ -167,12 +174,12 @@ import java.util.Set;
         OpenMobileBannerEntry(
             long inLoadRequestId,
             String inAdUnitId,
-            boolean inAnchoredAdaptive
+            int inDisplayFormat
         )
         {
             loadRequestId = inLoadRequestId;
             adUnitId = inAdUnitId;
-            anchoredAdaptive = inAnchoredAdaptive;
+            displayFormat = inDisplayFormat;
         }
     }
     private final Map&lt;Long, OpenMobileBannerEntry&gt; openMobileBannerAds =
@@ -342,7 +349,11 @@ import java.util.Set;
         WindowInsets windowInsets
     )
     {
-        if (!entry.anchoredAdaptive)
+        if (entry.displayFormat == OPEN_MOBILE_DISPLAY_MREC)
+        {
+            return AdSize.MEDIUM_RECTANGLE;
+        }
+        if (entry.displayFormat != OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER)
         {
             return AdSize.BANNER;
         }
@@ -493,6 +504,65 @@ import java.util.Set;
         adView.loadAd(new AdRequest.Builder().build());
     }
 
+    private boolean canOpenMobileBannerFit(
+        OpenMobileBannerEntry entry,
+        WindowInsets windowInsets
+    )
+    {
+        int safeLeft = 0;
+        int safeTop = 0;
+        int safeRight = 0;
+        int safeBottom = 0;
+        if (entry.respectSafeArea &amp;&amp; windowInsets != null)
+        {
+            safeLeft = windowInsets.getSystemWindowInsetLeft();
+            safeTop = windowInsets.getSystemWindowInsetTop();
+            safeRight = windowInsets.getSystemWindowInsetRight();
+            safeBottom = windowInsets.getSystemWindowInsetBottom();
+            if (Build.VERSION.SDK_INT >= 28 &amp;&amp; windowInsets.getDisplayCutout() != null)
+            {
+                safeLeft = Math.max(
+                    safeLeft,
+                    windowInsets.getDisplayCutout().getSafeInsetLeft()
+                );
+                safeTop = Math.max(
+                    safeTop,
+                    windowInsets.getDisplayCutout().getSafeInsetTop()
+                );
+                safeRight = Math.max(
+                    safeRight,
+                    windowInsets.getDisplayCutout().getSafeInsetRight()
+                );
+                safeBottom = Math.max(
+                    safeBottom,
+                    windowInsets.getDisplayCutout().getSafeInsetBottom()
+                );
+            }
+        }
+
+        View decorView = GameActivity.this.getWindow().getDecorView();
+        int availableWidth = decorView.getWidth();
+        int availableHeight = decorView.getHeight();
+        if (availableWidth &lt;= 0)
+        {
+            availableWidth = getResources().getDisplayMetrics().widthPixels;
+        }
+        if (availableHeight &lt;= 0)
+        {
+            availableHeight = getResources().getDisplayMetrics().heightPixels;
+        }
+        availableWidth -= safeLeft + safeRight + openMobileDensityPixels(
+            entry.leftMargin + entry.rightMargin
+        );
+        availableHeight -= safeTop + safeBottom + openMobileDensityPixels(
+            entry.topMargin + entry.bottomMargin
+        );
+        AdSize currentSize = entry.adView == null ? null : entry.adView.getAdSize();
+        return currentSize != null
+            &amp;&amp; availableWidth >= currentSize.getWidthInPixels(GameActivity.this)
+            &amp;&amp; availableHeight >= currentSize.getHeightInPixels(GameActivity.this);
+    }
+
     private void applyOpenMobileBannerLayout(
         final OpenMobileBannerEntry entry,
         WindowInsets windowInsets
@@ -500,6 +570,45 @@ import java.util.Set;
     {
         if (entry.container == null)
         {
+            return;
+        }
+        if (
+            entry.displayFormat == OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER
+            &amp;&amp; entry.showRequestId != 0
+        )
+        {
+            try
+            {
+                AdSize desiredSize = resolveOpenMobileBannerAdSize(entry, windowInsets);
+                if (!hasOpenMobileBannerSize(entry, desiredSize))
+                {
+                    detachOpenMobileBanner(entry, false);
+                    entry.notifyShownAfterLoad = false;
+                    loadOpenMobileBannerView(entry, desiredSize);
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                final long failedShowRequestId = entry.showRequestId;
+                openMobileBannerAds.remove(entry.loadRequestId);
+                destroyOpenMobileBanner(entry);
+                nativeOpenMobileBannerAdOperationFailed(
+                    failedShowRequestId,
+                    "Adaptive banner could not resize: " + exception.getMessage()
+                );
+                return;
+            }
+        }
+        if (!canOpenMobileBannerFit(entry, windowInsets))
+        {
+            final long failedShowRequestId = entry.showRequestId;
+            openMobileBannerAds.remove(entry.loadRequestId);
+            destroyOpenMobileBanner(entry);
+            nativeOpenMobileBannerAdOperationFailed(
+                failedShowRequestId,
+                "The Android safe area and margins cannot fit the ad."
+            );
             return;
         }
 
@@ -534,10 +643,18 @@ import java.util.Set;
             }
         }
 
+        int containerHeight = entry.anchor == OPEN_MOBILE_BANNER_CENTER
+            ? ViewGroup.LayoutParams.MATCH_PARENT
+            : ViewGroup.LayoutParams.WRAP_CONTENT;
+        int containerGravity = entry.anchor == OPEN_MOBILE_BANNER_TOP
+            ? Gravity.TOP
+            : entry.anchor == OPEN_MOBILE_BANNER_CENTER
+                ? Gravity.CENTER_VERTICAL
+                : Gravity.BOTTOM;
         FrameLayout.LayoutParams containerLayout = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            entry.anchor == OPEN_MOBILE_BANNER_TOP ? Gravity.TOP : Gravity.BOTTOM
+            containerHeight,
+            containerGravity
         );
         containerLayout.leftMargin = safeLeft + openMobileDensityPixels(entry.leftMargin);
         containerLayout.topMargin = safeTop + openMobileDensityPixels(entry.topMargin);
@@ -545,29 +662,6 @@ import java.util.Set;
         containerLayout.bottomMargin = safeBottom + openMobileDensityPixels(entry.bottomMargin);
         entry.container.setLayoutParams(containerLayout);
 
-        if (entry.anchoredAdaptive &amp;&amp; entry.showRequestId != 0)
-        {
-            try
-            {
-                AdSize desiredSize = resolveOpenMobileBannerAdSize(entry, windowInsets);
-                if (!hasOpenMobileBannerSize(entry, desiredSize))
-                {
-                    detachOpenMobileBanner(entry, false);
-                    entry.notifyShownAfterLoad = false;
-                    loadOpenMobileBannerView(entry, desiredSize);
-                }
-            }
-            catch (Exception exception)
-            {
-                final long failedShowRequestId = entry.showRequestId;
-                openMobileBannerAds.remove(entry.loadRequestId);
-                destroyOpenMobileBanner(entry);
-                nativeOpenMobileBannerAdOperationFailed(
-                    failedShowRequestId,
-                    "Adaptive banner could not resize: " + exception.getMessage()
-                );
-            }
-        }
     }
 
     private void attachOpenMobileBanner(final OpenMobileBannerEntry entry)
@@ -575,6 +669,14 @@ import java.util.Set;
         if (entry.adView == null || !entry.bannerReady)
         {
             throw new IllegalStateException("The Android banner view is unavailable.");
+        }
+        WindowInsets windowInsets = GameActivity.this.getWindow()
+            .getDecorView().getRootWindowInsets();
+        if (!canOpenMobileBannerFit(entry, windowInsets))
+        {
+            throw new IllegalStateException(
+                "The Android safe area and margins cannot fit the ad."
+            );
         }
         final FrameLayout container = new FrameLayout(GameActivity.this)
         {
@@ -585,10 +687,18 @@ import java.util.Set;
                 requestApplyInsets();
             }
         };
+        int horizontalGravity = entry.horizontalAlignment == OPEN_MOBILE_HORIZONTAL_LEFT
+            ? Gravity.LEFT
+            : entry.horizontalAlignment == OPEN_MOBILE_HORIZONTAL_RIGHT
+                ? Gravity.RIGHT
+                : Gravity.CENTER_HORIZONTAL;
+        int verticalGravity = entry.anchor == OPEN_MOBILE_BANNER_CENTER
+            ? Gravity.CENTER_VERTICAL
+            : Gravity.TOP;
         FrameLayout.LayoutParams bannerLayout = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER_HORIZONTAL
+            horizontalGravity | verticalGravity
         );
         container.addView(entry.adView, bannerLayout);
         entry.container = container;
@@ -605,7 +715,9 @@ import java.util.Set;
             container,
             new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                entry.anchor == OPEN_MOBILE_BANNER_CENTER
+                    ? ViewGroup.LayoutParams.MATCH_PARENT
+                    : ViewGroup.LayoutParams.WRAP_CONTENT
             )
         );
         applyOpenMobileBannerLayout(entry, container.getRootWindowInsets());
@@ -1251,8 +1363,9 @@ import java.util.Set;
         final String adUnitId,
         final long requestId,
         final int dataProcessingMode,
-        final boolean anchoredAdaptive,
+        final int displayFormat,
         final int anchor,
+        final int horizontalAlignment,
         final boolean respectSafeArea,
         final float availableWidth,
         final float leftMargin,
@@ -1291,9 +1404,10 @@ import java.util.Set;
                         final OpenMobileBannerEntry entry = new OpenMobileBannerEntry(
                             requestId,
                             adUnitId,
-                            anchoredAdaptive
+                            displayFormat
                         );
                         entry.anchor = anchor;
+                        entry.horizontalAlignment = horizontalAlignment;
                         entry.respectSafeArea = respectSafeArea;
                         entry.availableWidth = availableWidth;
                         entry.leftMargin = leftMargin;
@@ -1351,6 +1465,7 @@ import java.util.Set;
         final long loadedRequestId,
         final long showRequestId,
         final int anchor,
+        final int horizontalAlignment,
         final boolean respectSafeArea,
         final float availableWidth,
         final float leftMargin,
@@ -1388,6 +1503,7 @@ import java.util.Set;
                     {
                         entry.showRequestId = showRequestId;
                         entry.anchor = anchor;
+                        entry.horizontalAlignment = horizontalAlignment;
                         entry.respectSafeArea = respectSafeArea;
                         entry.availableWidth = availableWidth;
                         entry.leftMargin = leftMargin;
@@ -1401,7 +1517,7 @@ import java.util.Set;
                             windowInsets
                         );
                         if (
-                            entry.anchoredAdaptive
+                            entry.displayFormat == OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER
                             &amp;&amp; (
                                 !entry.bannerReady
                                 || !hasOpenMobileBannerSize(entry, desiredSize)
@@ -1453,7 +1569,10 @@ import java.util.Set;
                     if (
                         entry == null
                         || entry.showRequestId == 0
-                        || (!entry.anchoredAdaptive &amp;&amp; entry.container == null)
+                        || (
+                            entry.displayFormat != OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER
+                            &amp;&amp; entry.container == null
+                        )
                     )
                     {
                         nativeOpenMobileBannerAdOperationFailed(
@@ -1934,7 +2053,8 @@ import java.util.Set;
         java.lang.String,
         long,
         int,
-        boolean,
+        int,
+        int,
         int,
         boolean,
         float,
@@ -1947,6 +2067,7 @@ import java.util.Set;
     public boolean AndroidThunkJava_ShowOpenMobileBannerAd(
         long,
         long,
+        int,
         int,
         boolean,
         float,

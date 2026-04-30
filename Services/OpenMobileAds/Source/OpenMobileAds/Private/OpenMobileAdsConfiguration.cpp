@@ -54,10 +54,11 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 	}
 
-	bool IsBannerFormat(EOpenMobileAdFormat Format)
+	bool IsPersistentDisplayFormat(EOpenMobileAdFormat Format)
 	{
 		return Format == EOpenMobileAdFormat::Banner
-			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			|| Format == EOpenMobileAdFormat::MediumRectangle;
 	}
 
 	void ValidateResolvedPolicy(
@@ -76,14 +77,14 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 		else if (
 			Placement.RefreshIntervalSeconds > 0.0
-			&& !IsBannerFormat(Placement.Format)
+			&& !IsPersistentDisplayFormat(Placement.Format)
 		)
 		{
 			AddIssue(
 				Issues,
 				EOpenMobileAdsConfigurationIssueCode::RefreshNotSupported,
 				Placement.Placement,
-				TEXT("Automatic refresh is only valid for banner placements.")
+				TEXT("Automatic refresh is only valid for persistent display placements.")
 			);
 		}
 
@@ -141,7 +142,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 
 		if (
-			IsBannerFormat(Placement.Format)
+			IsPersistentDisplayFormat(Placement.Format)
 			&& !Placement.BannerLayout.IsValid()
 		)
 		{
@@ -149,7 +150,7 @@ namespace OpenMobileAdsConfigurationPrivate
 				Issues,
 				EOpenMobileAdsConfigurationIssueCode::InvalidBannerLayout,
 				Placement.Placement,
-				TEXT("Banner margins and available width must be finite and non-negative.")
+				TEXT("Persistent ad margins and available width must be finite and non-negative.")
 			);
 		}
 	}

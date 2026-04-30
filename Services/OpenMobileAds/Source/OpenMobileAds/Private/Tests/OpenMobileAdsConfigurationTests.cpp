@@ -478,6 +478,45 @@ bool FOpenMobileAdsAdaptiveBannerConfigurationTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsMrecConfigurationTest,
+	"OpenMobile.Ads.Configuration.Mrec",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsMrecConfigurationTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileAdsPlacementSettings Placement;
+	Placement.Placement = TEXT("MenuOffer");
+	Placement.Format = EOpenMobileAdFormat::MediumRectangle;
+	Placement.Android.AdUnitId = TEXT("android-mrec");
+	Placement.IOS.AdUnitId = TEXT("ios-mrec");
+	Placement.BannerLayout.Anchor = EOpenMobileAdsBannerAnchor::Center;
+	Placement.BannerLayout.HorizontalAlignment =
+		EOpenMobileAdsBannerHorizontalAlignment::Right;
+	Placement.BannerLayout.Margins.Right = 24.0f;
+	Placement.BannerLayout.Margins.Bottom = 32.0f;
+
+	const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+		EOpenMobileAdsPlatform::Android
+	);
+	TestEqual(
+		TEXT("MREC keeps its vertical overlay anchor"),
+		Android.BannerLayout.Anchor,
+		EOpenMobileAdsBannerAnchor::Center
+	);
+	TestEqual(
+		TEXT("MREC keeps its horizontal overlay alignment"),
+		Android.BannerLayout.HorizontalAlignment,
+		EOpenMobileAdsBannerHorizontalAlignment::Right
+	);
+	TestTrue(
+		TEXT("A positioned MREC passes configuration validation"),
+		FOpenMobileAdsConfigurationValidator::Validate({Placement}).IsEmpty()
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsPlacementConfigLoadingTest,
 	"OpenMobile.Ads.Configuration.ConfigLoading",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

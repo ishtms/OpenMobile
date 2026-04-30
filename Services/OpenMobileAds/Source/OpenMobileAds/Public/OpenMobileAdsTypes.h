@@ -12,7 +12,8 @@ enum class EOpenMobileAdFormat : uint8
 	RewardedInterstitial,
 	AppOpen,
 	NativeDisplay UMETA(DisplayName = "Native"),
-	AnchoredAdaptiveBanner UMETA(DisplayName = "Anchored Adaptive Banner")
+	AnchoredAdaptiveBanner UMETA(DisplayName = "Anchored Adaptive Banner"),
+	MediumRectangle UMETA(DisplayName = "300x250 MREC")
 };
 
 UENUM(BlueprintType)

@@ -175,6 +175,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 				Operation->Format == EOpenMobileAdFormat::Banner
 				|| Operation->Format
 					== EOpenMobileAdFormat::AnchoredAdaptiveBanner
+				|| Operation->Format == EOpenMobileAdFormat::MediumRectangle
 			)
 			&& RemoveLoadOperation(NativeRequestId, OutOperation);
 	}
@@ -221,12 +222,12 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		{
 		case EOpenMobileAdFormat::Banner:
 		case EOpenMobileAdFormat::AnchoredAdaptiveBanner:
+		case EOpenMobileAdFormat::MediumRectangle:
 			return Backend.LoadBannerAd(
 				Request.Placement.AdUnitId,
 				NativeRequestId,
 				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
-				Request.Placement.Format
-					== EOpenMobileAdFormat::AnchoredAdaptiveBanner,
+				Request.Placement.Format,
 				Request.Placement.BannerLayout,
 				OutError
 			);
@@ -259,6 +260,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		if (
 			Format == EOpenMobileAdFormat::Banner
 			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			|| Format == EOpenMobileAdFormat::MediumRectangle
 		)
 		{
 			Backend.CancelBannerAd(NativeRequestId);
@@ -284,6 +286,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		if (
 			Request.Format == EOpenMobileAdFormat::Banner
 			|| Request.Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			|| Request.Format == EOpenMobileAdFormat::MediumRectangle
 		)
 		{
 			return Backend.ShowBannerAd(
@@ -750,7 +753,8 @@ bool FOpenMobileAdsAdMobPlatform::BeginShow(
 	}
 	const FCachedAdReference Reference = *CachedReference;
 	const bool bPersistentBanner = Request.Format == EOpenMobileAdFormat::Banner
-		|| Request.Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner;
+		|| Request.Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+		|| Request.Format == EOpenMobileAdFormat::MediumRectangle;
 	if (
 		bPersistentBanner
 		&& (
@@ -849,6 +853,7 @@ bool FOpenMobileAdsAdMobPlatform::BeginHide(
 			CachedReference->Format != EOpenMobileAdFormat::Banner
 			&& CachedReference->Format
 				!= EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			&& CachedReference->Format != EOpenMobileAdFormat::MediumRectangle
 		)
 		|| !NativeShowRequestId
 		|| !ShowOperations.Contains(*NativeShowRequestId)
