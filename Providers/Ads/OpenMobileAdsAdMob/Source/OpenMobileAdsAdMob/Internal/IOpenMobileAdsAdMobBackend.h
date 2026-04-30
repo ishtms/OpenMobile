@@ -55,6 +55,12 @@ public:
 		EOpenMobileAdsDataProcessingMode DataProcessingMode,
 		FString& OutError
 	) = 0;
+	virtual bool LoadRewardedInterstitialAd(
+		const FString& AdUnitId,
+		int64 RequestId,
+		EOpenMobileAdsDataProcessingMode DataProcessingMode,
+		FString& OutError
+	) = 0;
 	virtual bool LoadBannerAd(
 		const FString& AdUnitId,
 		int64 RequestId,
@@ -65,6 +71,7 @@ public:
 	) = 0;
 	virtual void CancelRewardedAd(int64 RequestId) = 0;
 	virtual void CancelInterstitialAd(int64 RequestId) = 0;
+	virtual void CancelRewardedInterstitialAd(int64 RequestId) = 0;
 	virtual void CancelBannerAd(int64 RequestId) = 0;
 	virtual bool ShowRewardedAd(
 		int64 LoadedRequestId,
@@ -75,6 +82,12 @@ public:
 	virtual bool ShowInterstitialAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
+		FString& OutError
+	) = 0;
+	virtual bool ShowRewardedInterstitialAd(
+		int64 LoadedRequestId,
+		int64 ShowRequestId,
+		const FString& ServerVerificationCustomData,
 		FString& OutError
 	) = 0;
 	virtual bool ShowBannerAd(

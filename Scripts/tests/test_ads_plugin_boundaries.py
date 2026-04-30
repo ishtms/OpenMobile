@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=11", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=12", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -232,6 +232,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"availableWidth",
 			"horizontalAlignment",
 			"OPEN_MOBILE_DISPLAY_MREC",
+			"RewardedInterstitialAd.load",
+			"openMobileLoadedRewardedInterstitialAds",
+			"AndroidThunkJava_LoadOpenMobileRewardedInterstitialAd",
+			"AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd",
 			"getSystemWindowInsetLeft()",
 			"getDisplayCutout()",
 			"!entry.bannerReady",
@@ -608,6 +612,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"OpenMobileBannerLayoutObserver",
 			"EOpenMobileAdsBannerHorizontalAlignment::Left",
 			"EOpenMobileAdsBannerAnchor::Center",
+			"GADRewardedInterstitialAd loadWithAdUnitID",
+			"GOpenMobileLoadedRewardedInterstitialAds",
+			"FOpenMobileAdsAdMobIOSBackend::LoadRewardedInterstitialAd",
+			"FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd",
 			"FOpenMobileAdsAdMobIOSBackend::LoadBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::ShowBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::HideBannerAd",

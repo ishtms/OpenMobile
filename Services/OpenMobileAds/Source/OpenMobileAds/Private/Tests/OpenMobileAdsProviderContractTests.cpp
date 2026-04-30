@@ -3275,6 +3275,182 @@ bool FOpenMobileAdsRewardedConvenienceContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardedInterstitialContractTest,
+	"OpenMobile.Ads.ProviderContract.RewardedInterstitial.IntroductionAndMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardedInterstitialContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("LevelCompleteReward");
+	Placement.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	Placement.Android.AdUnitId = TEXT("android-rewarded-interstitial");
+	Placement.IOS.AdUnitId = TEXT("ios-rewarded-interstitial");
+	Placement.FallbackRewardType = TEXT("coin");
+	Placement.FallbackRewardAmount = 10;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before rewarded-interstitial checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	const FOpenMobileAdsOperationResult Unsupported =
+		Subsystem->LoadAd(TEXT("LevelCompleteReward"));
+	TestFalse(
+		TEXT("A provider without rewarded-interstitial capability is rejected"),
+		Unsupported.bAccepted
+	);
+	TestEqual(
+		TEXT("Unsupported rewarded interstitials use the typed format error"),
+		Unsupported.Error.Code,
+		EOpenMobileAdsErrorCode::UnsupportedFormat
+	);
+
+	FOpenMobileAdFormatCapabilities RewardedInterstitial;
+	RewardedInterstitial.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	RewardedInterstitial.bCanLoad = true;
+	RewardedInterstitial.bCanShow = true;
+	RewardedInterstitial.bReportsDismiss = true;
+	RewardedInterstitial.bReportsReward = true;
+	RewardedInterstitial.bRequiresIntroduction = true;
+	Provider.Capabilities.Formats.Add(RewardedInterstitial);
+
+	const FOpenMobileAdsOperationResult Load =
+		Subsystem->LoadAd(TEXT("LevelCompleteReward"));
+	TestTrue(TEXT("A supported rewarded interstitial starts loading"), Load.bAccepted);
+	if (!Load.bAccepted || !Provider.LoadSink)
+	{
+		Subsystem->Deinitialize();
+		return false;
+	}
+
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Loaded.bHasReward = true;
+	Loaded.Reward.Type = TEXT("gem");
+	Loaded.Reward.Amount = 25;
+	Provider.LoadSink->Submit(MoveTemp(Loaded));
+	DrainGameThreadTasks();
+	const FOpenMobileAdsPlacementStatus Ready =
+		Subsystem->GetPlacementStatus(TEXT("LevelCompleteReward"));
+	TestEqual(
+		TEXT("Rewarded interstitial becomes ready after loading"),
+		Ready.State,
+		EOpenMobileAdPlacementState::Ready
+	);
+	TestTrue(
+		TEXT("Ready status exposes provider reward metadata"),
+		Ready.bHasRewardMetadata
+	);
+	TestEqual(
+		TEXT("Ready status preserves provider reward type"),
+		Ready.RewardMetadata.Type,
+		FString(TEXT("gem"))
+	);
+	TestEqual(
+		TEXT("Ready status preserves provider reward amount"),
+		Ready.RewardMetadata.Amount,
+		static_cast<int64>(25)
+	);
+
+	const FOpenMobileAdsOperationResult MissingIntroduction =
+		Subsystem->ShowAd(TEXT("LevelCompleteReward"));
+	TestFalse(
+		TEXT("Show rejects a missing introduction acknowledgment"),
+		MissingIntroduction.bAccepted
+	);
+	TestEqual(
+		TEXT("A missing introduction is an invalid show state"),
+		MissingIntroduction.Error.Code,
+		EOpenMobileAdsErrorCode::InvalidState
+	);
+	TestEqual(
+		TEXT("A rejected introduction does not reach the provider"),
+		Provider.ShowCalls,
+		0
+	);
+
+	FOpenMobileAdsShowOptions ShowOptions;
+	ShowOptions.bRewardedInterstitialIntroductionPresented = true;
+	const FOpenMobileAdsOperationResult Show = Subsystem->ShowAd(
+		TEXT("LevelCompleteReward"),
+		ShowOptions
+	);
+	TestTrue(
+		TEXT("Show accepts an acknowledged rewarded-interstitial introduction"),
+		Show.bAccepted
+	);
+	TestEqual(
+		TEXT("The provider receives the distinct rewarded-interstitial format"),
+		Provider.LastShowRequest.Format,
+		EOpenMobileAdFormat::RewardedInterstitial
+	);
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent Reward;
+		Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+		Reward.bHasReward = true;
+		Reward.Reward.Type = TEXT("gem");
+		Reward.Reward.Amount = 25;
+		Provider.ShowSink->Submit(MoveTemp(Reward));
+
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	}
+	TestEqual(
+		TEXT("Rewarded interstitial returns to idle after dismissal"),
+		Subsystem->GetPlacementStatus(TEXT("LevelCompleteReward")).State,
+		EOpenMobileAdPlacementState::Idle
+	);
+
+	const FOpenMobileAdsOperationResult Reload =
+		Subsystem->LoadAd(TEXT("LevelCompleteReward"));
+	TestTrue(TEXT("Another rewarded interstitial starts loading"), Reload.bAccepted);
+	if (Reload.bAccepted && Provider.LoadSink)
+	{
+		FOpenMobileAdsEvent Reloaded;
+		Reloaded.Type = EOpenMobileAdsEventType::Loaded;
+		Reloaded.CachedAdId = FGuid::NewGuid();
+		Reloaded.bHasReward = true;
+		Reloaded.Reward.Type = TEXT("gem");
+		Reloaded.Reward.Amount = 25;
+		Provider.LoadSink->Submit(MoveTemp(Reloaded));
+		DrainGameThreadTasks();
+	}
+	Registration.Unregister();
+	const FOpenMobileAdsPlacementStatus Unregistered =
+		Subsystem->GetPlacementStatus(TEXT("LevelCompleteReward"));
+	TestFalse(
+		TEXT("Provider loss clears loaded reward metadata"),
+		Unregistered.bHasRewardMetadata
+	);
+	TestEqual(
+		TEXT("Provider loss clears the loaded reward value"),
+		Unregistered.RewardMetadata.Amount,
+		static_cast<int64>(0)
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsShowCallbackContractTest,
 	"OpenMobile.Ads.ProviderContract.Show.Callback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

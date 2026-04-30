@@ -21,7 +21,12 @@ DECLARE_DELEGATE_OneParam(
 	FOpenMobileAdsError
 );
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedLoaded);
-DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobAdCached, FGuid);
+DECLARE_DELEGATE_ThreeParams(
+	FOnOpenMobileAdMobAdCached,
+	FGuid,
+	int64,
+	FString
+);
 DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobAdLoadFailed, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
 DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobRewardedEarned, int32, FString);
@@ -123,6 +128,15 @@ public:
 	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeInterstitialLoadCompleted(int64 RequestId);
 	static void NativeInterstitialLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeRewardedInterstitialLoadCompleted(
+		int64 RequestId,
+		int64 RewardAmount,
+		FString RewardType
+	);
+	static void NativeRewardedInterstitialLoadFailed(
+		int64 RequestId,
+		FString ErrorMessage
+	);
 	static void NativeBannerLoadCompleted(int64 RequestId);
 	static void NativeBannerLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeBannerShown(int64 RequestId);

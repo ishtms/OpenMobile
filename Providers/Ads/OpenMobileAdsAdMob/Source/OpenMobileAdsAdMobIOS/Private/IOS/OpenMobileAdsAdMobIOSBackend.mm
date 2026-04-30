@@ -205,6 +205,19 @@ static OpenMobileRewardedAdDelegate* GOpenMobileRewardedAdDelegate = nil;
 static NSMutableDictionary<NSNumber*, GADRewardedAd*>* GOpenMobileLoadedRewardedAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileRewardedAdLoadRequests = nil;
 
+@interface OpenMobileRewardedInterstitialAdDelegate : NSObject <GADFullScreenContentDelegate>
+
+@property(nonatomic, assign) int64_t requestId;
+@property(nonatomic, strong, nullable) GADRewardedInterstitialAd* rewardedInterstitialAd;
+
+@end
+
+static OpenMobileRewardedInterstitialAdDelegate*
+	GOpenMobileRewardedInterstitialAdDelegate = nil;
+static NSMutableDictionary<NSNumber*, GADRewardedInterstitialAd*>*
+	GOpenMobileLoadedRewardedInterstitialAds = nil;
+static NSMutableSet<NSNumber*>* GOpenMobileRewardedInterstitialAdLoadRequests = nil;
+
 @interface OpenMobileInterstitialAdDelegate : NSObject <GADFullScreenContentDelegate>
 
 @property(nonatomic, assign) int64_t requestId;
@@ -701,6 +714,58 @@ static BOOL AttachOpenMobileBanner(
 
 @end
 
+@implementation OpenMobileRewardedInterstitialAdDelegate
+
+- (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
+{
+	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
+}
+
+- (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
+{
+	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
+}
+
+- (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
+{
+	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
+}
+
+- (void)ad:(id<GADFullScreenPresentingAd>)ad
+	didFailToPresentFullScreenContentWithError:(NSError*)error
+{
+	const int64_t FailedRequestId = self.requestId;
+	self.rewardedInterstitialAd.paidEventHandler = nil;
+	self.rewardedInterstitialAd = nil;
+	if (GOpenMobileRewardedInterstitialAdDelegate == self)
+	{
+		GOpenMobileRewardedInterstitialAdDelegate = nil;
+	}
+
+	NSString* Detail = error.localizedDescription ?: @"Unknown presentation error.";
+	FOpenMobileAdsAdMobPlatform::NativeFailed(
+		FailedRequestId,
+		OpenMobileAdsAdMobIOS::ToFString(
+			[@"Rewarded interstitial failed to show: " stringByAppendingString:Detail]
+		)
+	);
+}
+
+- (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
+{
+	const int64_t ClosedRequestId = self.requestId;
+	self.rewardedInterstitialAd.paidEventHandler = nil;
+	self.rewardedInterstitialAd = nil;
+	if (GOpenMobileRewardedInterstitialAdDelegate == self)
+	{
+		GOpenMobileRewardedInterstitialAdDelegate = nil;
+	}
+
+	FOpenMobileAdsAdMobPlatform::NativeClosed(ClosedRequestId);
+}
+
+@end
+
 @implementation OpenMobileInterstitialAdDelegate
 
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
@@ -906,11 +971,17 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 		GOpenMobileRewardedAdDelegate.rewardedAd.fullScreenContentDelegate = nil;
 		GOpenMobileRewardedAdDelegate.rewardedAd = nil;
 		GOpenMobileRewardedAdDelegate = nil;
+		GOpenMobileRewardedInterstitialAdDelegate.rewardedInterstitialAd
+			.fullScreenContentDelegate = nil;
+		GOpenMobileRewardedInterstitialAdDelegate.rewardedInterstitialAd = nil;
+		GOpenMobileRewardedInterstitialAdDelegate = nil;
 		GOpenMobileInterstitialAdDelegate.interstitialAd.fullScreenContentDelegate = nil;
 		GOpenMobileInterstitialAdDelegate.interstitialAd = nil;
 		GOpenMobileInterstitialAdDelegate = nil;
 		[GOpenMobileLoadedRewardedAds removeAllObjects];
 		[GOpenMobileRewardedAdLoadRequests removeAllObjects];
+		[GOpenMobileLoadedRewardedInterstitialAds removeAllObjects];
+		[GOpenMobileRewardedInterstitialAdLoadRequests removeAllObjects];
 		[GOpenMobileLoadedInterstitialAds removeAllObjects];
 		[GOpenMobileInterstitialAdLoadRequests removeAllObjects];
 		for (OpenMobileBannerAdDelegate* Handler in GOpenMobileBannerAds.allValues)
@@ -920,6 +991,8 @@ void FOpenMobileAdsAdMobIOSBackend::Shutdown()
 		[GOpenMobileBannerAds removeAllObjects];
 		GOpenMobileLoadedRewardedAds = nil;
 		GOpenMobileRewardedAdLoadRequests = nil;
+		GOpenMobileLoadedRewardedInterstitialAds = nil;
+		GOpenMobileRewardedInterstitialAdLoadRequests = nil;
 		GOpenMobileLoadedInterstitialAds = nil;
 		GOpenMobileInterstitialAdLoadRequests = nil;
 		GOpenMobileBannerAds = nil;
@@ -1181,6 +1254,91 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 	return true;
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedInterstitialAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	if (AdUnitId.IsEmpty())
+	{
+		OutError = TEXT("The iOS rewarded-interstitial ad unit ID is empty.");
+		return false;
+	}
+
+	NSString* IOSAdUnitId = [NSString stringWithUTF8String:TCHAR_TO_UTF8(*AdUnitId)];
+	if (!IOSAdUnitId)
+	{
+		OutError = TEXT("The iOS rewarded-interstitial ad unit ID could not be encoded.");
+		return false;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		if (!GOpenMobileLoadedRewardedInterstitialAds)
+		{
+			GOpenMobileLoadedRewardedInterstitialAds =
+				[[NSMutableDictionary alloc] init];
+		}
+		if (!GOpenMobileRewardedInterstitialAdLoadRequests)
+		{
+			GOpenMobileRewardedInterstitialAdLoadRequests =
+				[[NSMutableSet alloc] init];
+		}
+		NSNumber* Key = @(RequestId);
+		if (
+			[GOpenMobileRewardedInterstitialAdLoadRequests containsObject:Key]
+			|| GOpenMobileLoadedRewardedInterstitialAds[Key] != nil
+		)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
+				RequestId,
+				TEXT("The iOS rewarded-interstitial load request is already active.")
+			);
+			return;
+		}
+
+		[GOpenMobileRewardedInterstitialAdLoadRequests addObject:Key];
+		OpenMobileAdsAdMobIOS::ApplyDataProcessingMode(DataProcessingMode);
+		[GADRewardedInterstitialAd loadWithAdUnitID:IOSAdUnitId
+			request:[GADRequest request]
+			completionHandler:^(
+				GADRewardedInterstitialAd* RewardedInterstitialAd,
+				NSError* Error
+			)
+		{
+			if (![GOpenMobileRewardedInterstitialAdLoadRequests containsObject:Key])
+			{
+				return;
+			}
+			[GOpenMobileRewardedInterstitialAdLoadRequests removeObject:Key];
+			if (Error || !RewardedInterstitialAd)
+			{
+				NSString* Detail = Error.localizedDescription
+					?: @"No rewarded interstitial was returned.";
+				FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
+					RequestId,
+					OpenMobileAdsAdMobIOS::ToFString(
+						[@"Rewarded interstitial failed to load: "
+							stringByAppendingString:Detail]
+					)
+				);
+				return;
+			}
+
+			GOpenMobileLoadedRewardedInterstitialAds[Key] = RewardedInterstitialAd;
+			GADAdReward* Reward = RewardedInterstitialAd.adReward;
+			FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+				RequestId,
+				Reward.amount.longLongValue,
+				OpenMobileAdsAdMobIOS::ToFString(Reward.type)
+			);
+		}];
+	});
+	return true;
+}
+
 bool FOpenMobileAdsAdMobIOSBackend::LoadInterstitialAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -1348,6 +1506,18 @@ void FOpenMobileAdsAdMobIOSBackend::CancelRewardedAd(const int64 RequestId)
 	});
 }
 
+void FOpenMobileAdsAdMobIOSBackend::CancelRewardedInterstitialAd(
+	const int64 RequestId
+)
+{
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		NSNumber* Key = @(RequestId);
+		[GOpenMobileRewardedInterstitialAdLoadRequests removeObject:Key];
+		[GOpenMobileLoadedRewardedInterstitialAds removeObjectForKey:Key];
+	});
+}
+
 void FOpenMobileAdsAdMobIOSBackend::CancelInterstitialAd(
 	const int64 RequestId
 )
@@ -1371,6 +1541,111 @@ void FOpenMobileAdsAdMobIOSBackend::CancelBannerAd(const int64 RequestId)
 	});
 }
 
+bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FString& ServerVerificationCustomData,
+	FString& OutError
+)
+{
+	const FString VerificationData = ServerVerificationCustomData;
+	dispatch_async(dispatch_get_main_queue(), ^
+	{
+		if (
+			GOpenMobileRewardedAdDelegate != nil
+			|| GOpenMobileRewardedInterstitialAdDelegate != nil
+			|| GOpenMobileInterstitialAdDelegate != nil
+		)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				TEXT("An iOS full-screen ad is already loading or showing.")
+			);
+			return;
+		}
+
+		NSNumber* Key = @(LoadedRequestId);
+		GADRewardedInterstitialAd* RewardedInterstitialAd =
+			GOpenMobileLoadedRewardedInterstitialAds[Key];
+		[GOpenMobileLoadedRewardedInterstitialAds removeObjectForKey:Key];
+		if (!RewardedInterstitialAd)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				TEXT("The cached iOS rewarded interstitial is unavailable or already consumed.")
+			);
+			return;
+		}
+
+		OpenMobileRewardedInterstitialAdDelegate* Handler =
+			[[OpenMobileRewardedInterstitialAdDelegate alloc] init];
+		Handler.requestId = ShowRequestId;
+		Handler.rewardedInterstitialAd = RewardedInterstitialAd;
+		GOpenMobileRewardedInterstitialAdDelegate = Handler;
+		RewardedInterstitialAd.fullScreenContentDelegate = Handler;
+		if (!VerificationData.IsEmpty())
+		{
+			GADServerSideVerificationOptions* Options =
+				[[GADServerSideVerificationOptions alloc] init];
+			Options.customRewardString =
+				FAppleStringUtils::ConvertToNSString(VerificationData);
+			RewardedInterstitialAd.serverSideVerificationOptions = Options;
+		}
+		RewardedInterstitialAd.paidEventHandler = ^(GADAdValue* AdValue)
+		{
+			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+				ShowRequestId,
+				AdValue.value.longLongValue,
+				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
+				static_cast<int32>(AdValue.precision)
+			);
+		};
+
+		UIViewController* RootController = OpenMobileAdsAdMobIOS::TopViewController(
+			(UIViewController*)[IOSAppDelegate GetDelegate].IOSController
+		);
+		NSError* PresentationError = nil;
+		if (![RewardedInterstitialAd canPresentFromRootViewController:RootController
+			error:&PresentationError])
+		{
+			RewardedInterstitialAd.paidEventHandler = nil;
+			Handler.rewardedInterstitialAd = nil;
+			GOpenMobileRewardedInterstitialAdDelegate = nil;
+			NSString* Detail = PresentationError.localizedDescription
+				?: @"No presenter is available.";
+			FOpenMobileAdsAdMobPlatform::NativeFailed(
+				ShowRequestId,
+				OpenMobileAdsAdMobIOS::ToFString(
+					[@"Rewarded interstitial could not be presented: "
+						stringByAppendingString:Detail]
+				)
+			);
+			return;
+		}
+
+		__weak OpenMobileRewardedInterstitialAdDelegate* WeakHandler = Handler;
+		[RewardedInterstitialAd presentFromRootViewController:RootController
+			userDidEarnRewardHandler:^
+		{
+			OpenMobileRewardedInterstitialAdDelegate* StrongHandler = WeakHandler;
+			if (
+				!StrongHandler
+				|| GOpenMobileRewardedInterstitialAdDelegate != StrongHandler
+			)
+			{
+				return;
+			}
+			GADAdReward* Reward = StrongHandler.rewardedInterstitialAd.adReward;
+			FOpenMobileAdsAdMobPlatform::NativeEarned(
+				ShowRequestId,
+				Reward.amount.intValue,
+				OpenMobileAdsAdMobIOS::ToFString(Reward.type)
+			);
+		}];
+	});
+	return true;
+}
+
 bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 	const int64 LoadedRequestId,
 	const int64 ShowRequestId,
@@ -1383,6 +1658,7 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 	{
 		if (
 			GOpenMobileRewardedAdDelegate != nil
+			|| GOpenMobileRewardedInterstitialAdDelegate != nil
 			|| GOpenMobileInterstitialAdDelegate != nil
 		)
 		{
@@ -1479,6 +1755,7 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowInterstitialAd(
 	{
 		if (
 			GOpenMobileRewardedAdDelegate != nil
+			|| GOpenMobileRewardedInterstitialAdDelegate != nil
 			|| GOpenMobileInterstitialAdDelegate != nil
 		)
 		{
@@ -1674,6 +1951,7 @@ bool FOpenMobileAdsAdMobIOSBackend::LaunchRewardedAd(
 	{
 		if (
 			GOpenMobileRewardedAdDelegate != nil
+			|| GOpenMobileRewardedInterstitialAdDelegate != nil
 			|| GOpenMobileInterstitialAdDelegate != nil
 		)
 		{

@@ -147,6 +147,16 @@ struct OPENMOBILEADS_API FOpenMobileAdsShowOptions
 {
 	GENERATED_BODY()
 
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (
+			ToolTip = "Set only after presenting the rewarded-interstitial introduction with clear reward messaging and a skip option."
+		)
+	)
+	bool bRewardedInterstitialIntroductionPresented = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FString ServerVerificationCustomData;
 };

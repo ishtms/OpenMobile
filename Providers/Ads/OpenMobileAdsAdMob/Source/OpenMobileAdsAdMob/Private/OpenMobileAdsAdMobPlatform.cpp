@@ -245,6 +245,13 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
 				OutError
 			);
+		case EOpenMobileAdFormat::RewardedInterstitial:
+			return Backend.LoadRewardedInterstitialAd(
+				Request.Placement.AdUnitId,
+				NativeRequestId,
+				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
+				OutError
+			);
 		default:
 			OutError = TEXT("The AdMob native backend does not support this load format.");
 			return false;
@@ -272,6 +279,10 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		else if (Format == EOpenMobileAdFormat::Rewarded)
 		{
 			Backend.CancelRewardedAd(NativeRequestId);
+		}
+		else if (Format == EOpenMobileAdFormat::RewardedInterstitial)
+		{
+			Backend.CancelRewardedInterstitialAd(NativeRequestId);
 		}
 	}
 
@@ -307,6 +318,15 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		if (Request.Format == EOpenMobileAdFormat::Rewarded)
 		{
 			return Backend.ShowRewardedAd(
+				LoadedRequestId,
+				NativeShowRequestId,
+				Request.Options.ServerVerificationCustomData,
+				OutError
+			);
+		}
+		if (Request.Format == EOpenMobileAdFormat::RewardedInterstitial)
+		{
+			return Backend.ShowRewardedInterstitialAd(
 				LoadedRequestId,
 				NativeShowRequestId,
 				Request.Options.ServerVerificationCustomData,
@@ -1236,7 +1256,7 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(int64 RequestId)
 			Reference.Format = Operation.Format;
 			Reference.LoadedRequestId = RequestId;
 			LoadedAds.Add(CachedAdId, Reference);
-			Operation.Loaded.ExecuteIfBound(CachedAdId);
+			Operation.Loaded.ExecuteIfBound(CachedAdId, 0, FString());
 		}
 	});
 }
@@ -1278,9 +1298,63 @@ void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadCompleted(int64 RequestI
 			Reference.Format = Operation.Format;
 			Reference.LoadedRequestId = RequestId;
 			LoadedAds.Add(CachedAdId, Reference);
-			Operation.Loaded.ExecuteIfBound(CachedAdId);
+			Operation.Loaded.ExecuteIfBound(CachedAdId, 0, FString());
 		}
 	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+	int64 RequestId,
+	int64 RewardAmount,
+	FString RewardType
+)
+{
+	OpenMobile::DispatchToGameThread(
+		[RequestId, RewardAmount, RewardType = MoveTemp(RewardType)]() mutable
+		{
+			using namespace OpenMobileAdsAdMobPlatformPrivate;
+			FAdLoadOperation Operation;
+			if (RemoveLoadOperationForFormat(
+				RequestId,
+				EOpenMobileAdFormat::RewardedInterstitial,
+				Operation
+			))
+			{
+				const FGuid CachedAdId = FGuid::NewGuid();
+				FCachedAdReference Reference;
+				Reference.Format = Operation.Format;
+				Reference.LoadedRequestId = RequestId;
+				LoadedAds.Add(CachedAdId, Reference);
+				Operation.Loaded.ExecuteIfBound(
+					CachedAdId,
+					RewardAmount,
+					MoveTemp(RewardType)
+				);
+			}
+		}
+	);
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
+	int64 RequestId,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread(
+		[RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+		{
+			using namespace OpenMobileAdsAdMobPlatformPrivate;
+			FAdLoadOperation Operation;
+			if (RemoveLoadOperationForFormat(
+				RequestId,
+				EOpenMobileAdFormat::RewardedInterstitial,
+				Operation
+			))
+			{
+				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+			}
+		}
+	);
 }
 
 void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
@@ -1316,7 +1390,7 @@ void FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(int64 RequestId)
 			Reference.Format = Operation.Format;
 			Reference.LoadedRequestId = RequestId;
 			LoadedAds.Add(CachedAdId, Reference);
-			Operation.Loaded.ExecuteIfBound(CachedAdId);
+			Operation.Loaded.ExecuteIfBound(CachedAdId, 0, FString());
 		}
 	});
 }
@@ -1507,7 +1581,11 @@ void FOpenMobileAdsAdMobPlatform::NativeEarned(
 			if (FShowOperation* Operation = ShowOperations.Find(RequestId))
 			{
 				if (
-					Operation->Format != EOpenMobileAdFormat::Rewarded
+					(
+						Operation->Format != EOpenMobileAdFormat::Rewarded
+						&& Operation->Format
+							!= EOpenMobileAdFormat::RewardedInterstitial
+					)
 					|| Operation->bRewardDispatched
 				)
 				{

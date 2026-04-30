@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileAdsErrors.h"
+#include "OpenMobileAdsEvents.h"
 #include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsResults.generated.h"
 
@@ -112,6 +113,12 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementStatus
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FDateTime ExpiresAt;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bHasRewardMetadata = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsReward RewardMetadata;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError LastError;

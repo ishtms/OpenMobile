@@ -635,7 +635,13 @@ namespace OpenMobileAdsPrivate
 			{
 				Event.CachedAdId = CachedAdId;
 			}
-			if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
+			if (
+				Event.Type == EOpenMobileAdsEventType::RewardEarned
+				|| (
+					Event.Type == EOpenMobileAdsEventType::Loaded
+					&& Format == EOpenMobileAdFormat::RewardedInterstitial
+				)
+			)
 			{
 				if (Event.Reward.Type.IsEmpty() && !FallbackRewardType.IsEmpty())
 				{
@@ -649,6 +655,10 @@ namespace OpenMobileAdsPrivate
 				{
 					Event.Reward.Amount = 0;
 					Event.bHasReward = false;
+				}
+				else
+				{
+					Event.bHasReward = true;
 				}
 			}
 			if (
@@ -3363,7 +3373,10 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::LoadAd(
 			Placement,
 			Status.Format,
 			EOpenMobileAdsFailureStage::Load,
-			Status.ActiveRequestId
+			Status.ActiveRequestId,
+			FGuid(),
+			Request.Placement.FallbackRewardType,
+			Request.Placement.FallbackRewardAmount
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();
@@ -3479,6 +3492,25 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 				Decision
 			)
 		);
+	}
+	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
+		ProviderCapabilities.FindFormat(ResolvedPlacement.Format);
+	if (
+		FormatCapabilities
+		&& FormatCapabilities->bRequiresIntroduction
+		&& !Options.bRewardedInterstitialIntroductionPresented
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::InvalidState,
+			EOpenMobileAdsFailureStage::Show,
+			Placement,
+			TEXT("This ad requires an introduction with clear reward messaging and a skip option before it can be shown."),
+			Provider->GetProviderName(),
+			TEXT("Present the introduction, let the user skip, then acknowledge it in the show options only when continuing.")
+		));
 	}
 
 	FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
@@ -4519,7 +4551,10 @@ void UOpenMobileAdsSubsystem::StartPendingLoadRetry(FGuid RequestId)
 			Context->Placement,
 			Context->Format,
 			EOpenMobileAdsFailureStage::Load,
-			RequestId
+			RequestId,
+			FGuid(),
+			Request.Placement.FallbackRewardType,
+			Request.Placement.FallbackRewardAmount
 		);
 	Context->EventSink = Sink;
 	Context->PendingRetryDelaySeconds = 0.0;
@@ -4995,6 +5030,8 @@ void UOpenMobileAdsSubsystem::ReleaseCachedAd(FOpenMobileAdsPlacementStatus& Sta
 	}
 	Status.CachedAt = FDateTime();
 	Status.ExpiresAt = FDateTime();
+	Status.bHasRewardMetadata = false;
+	Status.RewardMetadata = FOpenMobileAdsReward();
 }
 
 void UOpenMobileAdsSubsystem::RememberDismissedShow(
@@ -5419,6 +5456,10 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 				Status->CachedAdId = Event.CachedAdId;
 				Status->CachedAt = Event.Timestamp;
 				Status->ExpiresAt = Event.CacheExpiresAt;
+				Status->bHasRewardMetadata = Event.bHasReward;
+				Status->RewardMetadata = Event.bHasReward
+					? Event.Reward
+					: FOpenMobileAdsReward();
 				if (Status->ExpiresAt == FDateTime())
 				{
 					if (IOpenMobileAdsProvider* Provider =
@@ -5910,6 +5951,8 @@ void UOpenMobileAdsSubsystem::HandleProviderUnavailable(FName ProviderName)
 		Status.CachedAdId.Invalidate();
 		Status.CachedAt = FDateTime();
 		Status.ExpiresAt = FDateTime();
+		Status.bHasRewardMetadata = false;
+		Status.RewardMetadata = FOpenMobileAdsReward();
 		if (ServiceWideRequests.Contains(Status.ActiveRequestId))
 		{
 			Status.State = EOpenMobileAdPlacementState::Failed;

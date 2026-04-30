@@ -67,6 +67,10 @@ namespace OpenMobileAdsAdMobPrivate
 			Rewarded.MaxCachedAdsPerPlacement = 1;
 			Rewarded.CacheLifetimeSeconds = 60.0 * 60.0;
 
+			FOpenMobileAdFormatCapabilities RewardedInterstitial = Rewarded;
+			RewardedInterstitial.Format = EOpenMobileAdFormat::RewardedInterstitial;
+			RewardedInterstitial.bRequiresIntroduction = true;
+
 			FOpenMobileAdsProviderCapabilities Capabilities;
 			Capabilities.Provider = GetProviderName();
 #if PLATFORM_ANDROID
@@ -79,6 +83,7 @@ namespace OpenMobileAdsAdMobPrivate
 			Capabilities.Formats.Add(MediumRectangle);
 			Capabilities.Formats.Add(Interstitial);
 			Capabilities.Formats.Add(Rewarded);
+			Capabilities.Formats.Add(RewardedInterstitial);
 			return Capabilities;
 		}
 
@@ -390,6 +395,8 @@ namespace OpenMobileAdsAdMobPrivate
 				&&
 				Request.Placement.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Placement.Format != EOpenMobileAdFormat::Rewarded
+				&& Request.Placement.Format
+					!= EOpenMobileAdFormat::RewardedInterstitial
 			)
 			{
 				OutError = FOpenMobileAdsError::Make(
@@ -419,6 +426,13 @@ namespace OpenMobileAdsAdMobPrivate
 					ProviderRequest.Placement.AdUnitId =
 						Settings->ResolveInterstitialAdUnitId(InitializedPlatform, true);
 					break;
+				case EOpenMobileAdFormat::RewardedInterstitial:
+					ProviderRequest.Placement.AdUnitId =
+						Settings->ResolveRewardedInterstitialAdUnitId(
+							InitializedPlatform,
+							true
+						);
+					break;
 				default:
 					ProviderRequest.Placement.AdUnitId =
 						Settings->ResolveRewardedAdUnitId(InitializedPlatform, true);
@@ -445,13 +459,22 @@ namespace OpenMobileAdsAdMobPrivate
 			FString NativeError;
 			const bool bStarted = FOpenMobileAdsAdMobPlatform::BeginLoad(
 				ProviderRequest,
-				FOnOpenMobileAdMobAdCached::CreateLambda([EventSink](FGuid CachedAdId)
-				{
-					FOpenMobileAdsEvent Loaded;
-					Loaded.Type = EOpenMobileAdsEventType::Loaded;
-					Loaded.CachedAdId = CachedAdId;
-					EventSink->Submit(MoveTemp(Loaded));
-				}),
+				FOnOpenMobileAdMobAdCached::CreateLambda(
+					[EventSink](
+						FGuid CachedAdId,
+						int64 RewardAmount,
+						FString RewardType
+					)
+					{
+						FOpenMobileAdsEvent Loaded;
+						Loaded.Type = EOpenMobileAdsEventType::Loaded;
+						Loaded.CachedAdId = CachedAdId;
+						Loaded.bHasReward = RewardAmount > 0;
+						Loaded.Reward.Amount = RewardAmount;
+						Loaded.Reward.Type = MoveTemp(RewardType);
+						EventSink->Submit(MoveTemp(Loaded));
+					}
+				),
 				FOnOpenMobileAdMobAdLoadFailed::CreateLambda(
 					[EventSink](FString ErrorMessage)
 					{
@@ -501,6 +524,7 @@ namespace OpenMobileAdsAdMobPrivate
 				&&
 				Request.Format != EOpenMobileAdFormat::Interstitial
 				&& Request.Format != EOpenMobileAdFormat::Rewarded
+				&& Request.Format != EOpenMobileAdFormat::RewardedInterstitial
 			)
 			{
 				OutError = FOpenMobileAdsError::Make(

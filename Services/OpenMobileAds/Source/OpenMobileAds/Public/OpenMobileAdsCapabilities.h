@@ -55,6 +55,9 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 	bool bSupportsServerVerification = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bRequiresIntroduction = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	int32 MaxCachedAdsPerPlacement = 1;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

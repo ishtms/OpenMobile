@@ -39,6 +39,43 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Reward support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bReportsReward);
 	TestFalse(TEXT("Hide support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bCanHide);
 
+	FOpenMobileAdFormatCapabilities RewardedInterstitial = Rewarded;
+	RewardedInterstitial.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	RewardedInterstitial.bRequiresIntroduction = true;
+	Capabilities.Formats.Add(RewardedInterstitial);
+	TestNotEqual(
+		TEXT("Rewarded interstitial remains distinct from rewarded video"),
+		EOpenMobileAdFormat::RewardedInterstitial,
+		EOpenMobileAdFormat::Rewarded
+	);
+	TestTrue(
+		TEXT("Rewarded interstitial introduction requirements are explicit"),
+		Capabilities.FindFormat(EOpenMobileAdFormat::RewardedInterstitial)
+			->bRequiresIntroduction
+	);
+
+	FOpenMobileAdsShowOptions RewardedInterstitialShow;
+	RewardedInterstitialShow.bRewardedInterstitialIntroductionPresented = true;
+	TestTrue(
+		TEXT("Show options carry the rewarded-interstitial introduction acknowledgment"),
+		RewardedInterstitialShow.bRewardedInterstitialIntroductionPresented
+	);
+
+	FOpenMobileAdsPlacementStatus RewardedInterstitialStatus;
+	RewardedInterstitialStatus.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	RewardedInterstitialStatus.bHasRewardMetadata = true;
+	RewardedInterstitialStatus.RewardMetadata.Type = TEXT("coin");
+	RewardedInterstitialStatus.RewardMetadata.Amount = 25;
+	TestTrue(
+		TEXT("Placement status exposes loaded reward metadata"),
+		RewardedInterstitialStatus.bHasRewardMetadata
+	);
+	TestEqual(
+		TEXT("Placement status preserves the loaded reward amount"),
+		RewardedInterstitialStatus.RewardMetadata.Amount,
+		static_cast<int64>(25)
+	);
+
 	FOpenMobileAdsHideRequest HideRequest;
 	HideRequest.RequestId = FGuid::NewGuid();
 	HideRequest.CachedAdId = FGuid::NewGuid();

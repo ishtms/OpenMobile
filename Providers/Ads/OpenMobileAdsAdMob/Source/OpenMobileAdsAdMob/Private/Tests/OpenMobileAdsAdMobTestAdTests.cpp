@@ -114,6 +114,19 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool LoadRewardedInterstitialAd(
+			const FString& AdUnitId,
+			int64 RequestId,
+			EOpenMobileAdsDataProcessingMode DataProcessingMode,
+			FString& OutError
+		) override
+		{
+			RewardedInterstitialLoadedAdUnitIds.Add(AdUnitId);
+			RewardedInterstitialLoadRequestIds.Add(RequestId);
+			RewardedInterstitialLoadDataProcessingModes.Add(DataProcessingMode);
+			return true;
+		}
+
 		virtual bool LoadBannerAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -139,6 +152,11 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual void CancelInterstitialAd(int64 RequestId) override
 		{
 			CancelledInterstitialRequestIds.Add(RequestId);
+		}
+
+		virtual void CancelRewardedInterstitialAd(int64 RequestId) override
+		{
+			CancelledRewardedInterstitialRequestIds.Add(RequestId);
 		}
 
 		virtual void CancelBannerAd(int64 RequestId) override
@@ -169,6 +187,21 @@ namespace OpenMobileAdsAdMobTestAdTests
 			++InterstitialShowCalls;
 			ShownInterstitialLoadedRequestId = LoadedRequestId;
 			InterstitialShowRequestId = InShowRequestId;
+			return true;
+		}
+
+		virtual bool ShowRewardedInterstitialAd(
+			int64 LoadedRequestId,
+			int64 InShowRequestId,
+			const FString& ServerVerificationCustomData,
+			FString& OutError
+		) override
+		{
+			++RewardedInterstitialShowCalls;
+			ShownRewardedInterstitialLoadedRequestId = LoadedRequestId;
+			RewardedInterstitialShowRequestId = InShowRequestId;
+			ShownRewardedInterstitialVerificationData =
+				ServerVerificationCustomData;
 			return true;
 		}
 
@@ -215,6 +248,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 LaunchCalls = 0;
 		int32 ShowCalls = 0;
 		int32 InterstitialShowCalls = 0;
+		int32 RewardedInterstitialShowCalls = 0;
 		int32 BannerShowCalls = 0;
 		int32 BannerHideCalls = 0;
 		int32 ConsentRefreshCalls = 0;
@@ -229,6 +263,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int64 ShowRequestId = 0;
 		int64 ShownInterstitialLoadedRequestId = 0;
 		int64 InterstitialShowRequestId = 0;
+		int64 ShownRewardedInterstitialLoadedRequestId = 0;
+		int64 RewardedInterstitialShowRequestId = 0;
 		int64 ShownBannerLoadedRequestId = 0;
 		int64 HiddenBannerLoadedRequestId = 0;
 		int64 BannerShowRequestId = 0;
@@ -242,21 +278,27 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FString LaunchedAdUnitId;
 		FString ConsentResetError;
 		FString ShownServerVerificationCustomData;
+		FString ShownRewardedInterstitialVerificationData;
 		FOpenMobileAdsBannerLayout ShownBannerLayout;
 		TArray<FString> LoadedAdUnitIds;
 		TArray<FString> InterstitialLoadedAdUnitIds;
+		TArray<FString> RewardedInterstitialLoadedAdUnitIds;
 		TArray<FString> BannerLoadedAdUnitIds;
 		bool bAcceptConsentReset = true;
 		TArray<int64> LoadRequestIds;
 		TArray<int64> InterstitialLoadRequestIds;
+		TArray<int64> RewardedInterstitialLoadRequestIds;
 		TArray<int64> BannerLoadRequestIds;
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> InterstitialLoadDataProcessingModes;
+		TArray<EOpenMobileAdsDataProcessingMode>
+			RewardedInterstitialLoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> BannerLoadDataProcessingModes;
 		TArray<EOpenMobileAdFormat> BannerLoadFormats;
 		TArray<FOpenMobileAdsBannerLayout> BannerLoadLayouts;
 		TArray<int64> CancelledRequestIds;
 		TArray<int64> CancelledInterstitialRequestIds;
+		TArray<int64> CancelledRewardedInterstitialRequestIds;
 		TArray<int64> CancelledBannerRequestIds;
 	};
 
@@ -1838,6 +1880,288 @@ bool FOpenMobileAdsAdMobInterstitialContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobRewardedInterstitialContractTest,
+	"OpenMobile.Ads.AdMob.RewardedInterstitial.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobRewardedInterstitialContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Capabilities =
+		ProviderCapabilities.FindFormat(
+			EOpenMobileAdFormat::RewardedInterstitial
+		);
+	TestNotNull(
+		TEXT("AdMob reports rewarded-interstitial capabilities"),
+		Capabilities
+	);
+	if (!Capabilities)
+	{
+		return false;
+	}
+	TestTrue(TEXT("Rewarded interstitials can load"), Capabilities->bCanLoad);
+	TestTrue(TEXT("Rewarded interstitials can show"), Capabilities->bCanShow);
+	TestTrue(TEXT("Rewarded interstitials can preload"), Capabilities->bSupportsPreload);
+	TestTrue(TEXT("Rewarded interstitials report impressions"), Capabilities->bReportsImpression);
+	TestTrue(TEXT("Rewarded interstitials report clicks"), Capabilities->bReportsClick);
+	TestTrue(TEXT("Rewarded interstitials report dismissal"), Capabilities->bReportsDismiss);
+	TestTrue(TEXT("Rewarded interstitials report rewards"), Capabilities->bReportsReward);
+	TestTrue(TEXT("Rewarded interstitials report revenue"), Capabilities->bReportsRevenue);
+	TestTrue(TEXT("Rewarded interstitials support server verification"), Capabilities->bSupportsServerVerification);
+	TestTrue(TEXT("Rewarded interstitials require an introduction"), Capabilities->bRequiresIntroduction);
+	const FOpenMobileAdFormatCapabilities* Rewarded =
+		ProviderCapabilities.FindFormat(EOpenMobileAdFormat::Rewarded);
+	TestTrue(
+		TEXT("Normal rewarded video does not require the interstitial introduction"),
+		Rewarded && !Rewarded->bRequiresIntroduction
+	);
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob initializes before rewarded-interstitial loading"),
+		Provider->Initialize(Initialization, InitializationSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("LevelCompleteReward");
+	Load.Placement.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	Load.Placement.AdUnitId = TEXT("production-rewarded-interstitial");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob starts a rewarded-interstitial load"),
+		Provider->Load(Load, LoadSink, Error)
+	);
+	TestEqual(
+		TEXT("Rewarded interstitial loading uses its native path"),
+		Backend.RewardedInterstitialLoadRequestIds.Num(),
+		1
+	);
+	if (Backend.RewardedInterstitialLoadRequestIds.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestEqual(
+		TEXT("Development mode uses Google's Android rewarded-interstitial test ID"),
+		Backend.RewardedInterstitialLoadedAdUnitIds[0],
+		FString(TEXT("ca-app-pub-3940256099942544/5354046379"))
+	);
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+		Backend.RewardedInterstitialLoadRequestIds[0],
+		25,
+		TEXT("coin")
+	);
+	TestEqual(TEXT("Rewarded interstitial loading completes once"), LoadSink->Events.Num(), 1);
+	if (LoadSink->Events.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestTrue(
+		TEXT("Loaded rewarded interstitial exposes reward metadata"),
+		LoadSink->Events[0].bHasReward
+	);
+	TestEqual(
+		TEXT("Loaded rewarded interstitial preserves reward type"),
+		LoadSink->Events[0].Reward.Type,
+		FString(TEXT("coin"))
+	);
+	TestEqual(
+		TEXT("Loaded rewarded interstitial preserves reward amount"),
+		LoadSink->Events[0].Reward.Amount,
+		static_cast<int64>(25)
+	);
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = LoadSink->Events[0].CachedAdId;
+	Show.Placement = Load.Placement.Placement;
+	Show.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	Show.Options.bRewardedInterstitialIntroductionPresented = true;
+	Show.Options.ServerVerificationCustomData = TEXT("player-42");
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob shows the exact cached rewarded interstitial"),
+		Provider->Show(Show, ShowSink, Error)
+	);
+	TestEqual(
+		TEXT("Rewarded interstitial showing uses its native path"),
+		Backend.RewardedInterstitialShowCalls,
+		1
+	);
+	TestEqual(
+		TEXT("Rewarded interstitial forwards server verification data"),
+		Backend.ShownRewardedInterstitialVerificationData,
+		FString(TEXT("player-42"))
+	);
+
+	const int64 ShowRequestId = Backend.RewardedInterstitialShowRequestId;
+	FOpenMobileAdsAdMobPlatform::NativeShown(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeImpression(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeClicked(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		ShowRequestId,
+		12345,
+		TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
+	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
+	FOpenMobileAdsAdMobPlatform::NativeClosed(ShowRequestId);
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::RewardEarned,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	TestEqual(
+		TEXT("Rewarded interstitial emits one complete callback lifecycle"),
+		ShowSink->Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes))
+	);
+	if (ShowSink->Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)))
+	{
+		for (int32 Index = 0; Index < ShowSink->Events.Num(); ++Index)
+		{
+			TestEqual(
+				TEXT("Rewarded-interstitial callback order is preserved"),
+				ShowSink->Events[Index].Type,
+				ExpectedTypes[Index]
+			);
+		}
+	}
+
+	FOpenMobileAdsLoadRequest ReleasedLoad = Load;
+	ReleasedLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ReleasedSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another rewarded interstitial loads for release"),
+		Provider->Load(ReleasedLoad, ReleasedSink, Error)
+	);
+	const int64 ReleasedRequestId =
+		Backend.RewardedInterstitialLoadRequestIds.Last();
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+		ReleasedRequestId,
+		10,
+		TEXT("gem")
+	);
+	if (!ReleasedSink->Events.IsEmpty())
+	{
+		Provider->ReleaseCachedAd(ReleasedSink->Events[0].CachedAdId);
+	}
+	TestTrue(
+		TEXT("Rewarded-interstitial release reaches its native cache"),
+		Backend.CancelledRewardedInterstitialRequestIds.Contains(
+			ReleasedRequestId
+		)
+	);
+
+	FOpenMobileAdsLoadRequest FailedLoad = Load;
+	FailedLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedLoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another rewarded interstitial starts for load failure"),
+		Provider->Load(FailedLoad, FailedLoadSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
+		Backend.RewardedInterstitialLoadRequestIds.Last(),
+		TEXT("test rewarded-interstitial load failure")
+	);
+	TestEqual(
+		TEXT("Rewarded-interstitial load failure emits one terminal event"),
+		FailedLoadSink->Events.Num(),
+		1
+	);
+	if (!FailedLoadSink->Events.IsEmpty())
+	{
+		TestEqual(
+			TEXT("Rewarded-interstitial load failure is normalized"),
+			FailedLoadSink->Events[0].Type,
+			EOpenMobileAdsEventType::LoadFailed
+		);
+	}
+
+	FOpenMobileAdsLoadRequest FailedShowLoad = Load;
+	FailedShowLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedShowLoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another rewarded interstitial loads for show failure"),
+		Provider->Load(FailedShowLoad, FailedShowLoadSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+		Backend.RewardedInterstitialLoadRequestIds.Last(),
+		5,
+		TEXT("coin")
+	);
+	if (!FailedShowLoadSink->Events.IsEmpty())
+	{
+		FOpenMobileAdsShowRequest FailedShow = Show;
+		FailedShow.RequestId = FGuid::NewGuid();
+		FailedShow.CachedAdId = FailedShowLoadSink->Events[0].CachedAdId;
+		const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedShowSink =
+			MakeShared<FEventSink, ESPMode::ThreadSafe>();
+		TestTrue(
+			TEXT("The failure-path rewarded interstitial starts showing"),
+			Provider->Show(FailedShow, FailedShowSink, Error)
+		);
+		FOpenMobileAdsAdMobPlatform::NativeFailed(
+			Backend.RewardedInterstitialShowRequestId,
+			TEXT("test rewarded-interstitial show failure")
+		);
+		TestEqual(
+			TEXT("Rewarded-interstitial show failure emits one terminal event"),
+			FailedShowSink->Events.Num(),
+			1
+		);
+		if (!FailedShowSink->Events.IsEmpty())
+		{
+			TestEqual(
+				TEXT("Rewarded-interstitial show failure is normalized"),
+				FailedShowSink->Events[0].Type,
+				EOpenMobileAdsEventType::Failed
+			);
+		}
+	}
+
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobFixedBannerCapabilitiesTest,
 	"OpenMobile.Ads.AdMob.FixedBanner.Capabilities",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -2432,7 +2756,7 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
-		5
+		6
 	);
 	TestTrue(
 		TEXT("The supported fixed-banner format has a test-ad contract"),
@@ -2447,6 +2771,11 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("The supported MREC format has a test-ad contract"),
 		Capabilities.FindFormat(EOpenMobileAdFormat::MediumRectangle) != nullptr
+	);
+	TestTrue(
+		TEXT("The supported rewarded-interstitial format has a test-ad contract"),
+		Capabilities.FindFormat(EOpenMobileAdFormat::RewardedInterstitial)
+			!= nullptr
 	);
 	TestTrue(
 		TEXT("The supported interstitial format has a test-ad contract"),

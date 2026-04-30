@@ -438,6 +438,50 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadInterstitialAd(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedInterstitialAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID LoadMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_LoadOpenMobileRewardedInterstitialAd",
+		"(Ljava/lang/String;JI)Z",
+		false
+	);
+	if (!LoadMethod)
+	{
+		OutError = TEXT("The Android rewarded-interstitial load bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaAdUnitId =
+		FJavaHelper::ToJavaString(Env, AdUnitId);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		LoadMethod,
+		*JavaAdUnitId,
+		static_cast<jlong>(RequestId),
+		static_cast<jint>(DataProcessingMode)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the rewarded-interstitial load.");
+	}
+	return bScheduled;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -564,6 +608,34 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelInterstitialAd(
 	}
 }
 
+void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedInterstitialAd(
+	const int64 RequestId
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return;
+	}
+
+	static jmethodID CancelMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_CancelOpenMobileRewardedInterstitialAdLoad",
+		"(J)V",
+		false
+	);
+	if (CancelMethod)
+	{
+		FJavaWrapper::CallVoidMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			CancelMethod,
+			static_cast<jlong>(RequestId)
+		);
+	}
+}
+
 void FOpenMobileAdsAdMobAndroidBackend::CancelBannerAd(const int64 RequestId)
 {
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
@@ -672,6 +744,52 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowInterstitialAd(
 	if (!bScheduled)
 	{
 		OutError = TEXT("Android could not schedule the cached interstitial presentation.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	const FString& ServerVerificationCustomData,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID ShowMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd",
+		"(JJLjava/lang/String;)Z",
+		false
+	);
+	if (!ShowMethod)
+	{
+		OutError = TEXT("The Android rewarded-interstitial show bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaCustomData = FJavaHelper::ToJavaString(
+		Env,
+		ServerVerificationCustomData
+	);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ShowMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(ShowRequestId),
+		*JavaCustomData
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached rewarded-interstitial presentation.");
 	}
 	return bScheduled;
 }
@@ -837,6 +955,34 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedInterstitialAdLoadCompleted(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jint RewardAmount,
+	jstring RewardType
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
+		static_cast<int64>(RequestId),
+		static_cast<int64>(RewardAmount),
+		RewardType ? FJavaHelper::FStringFromParam(Env, RewardType) : FString()
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedInterstitialAdLoadFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 		static_cast<int64>(RequestId),
 		FJavaHelper::FStringFromParam(Env, ErrorMessage)
 	);
