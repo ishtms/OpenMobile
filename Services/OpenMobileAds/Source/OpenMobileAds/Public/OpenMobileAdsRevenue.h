@@ -17,7 +17,24 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	static constexpr int64 MicrosPerMajorUnit = 1000000;
+
+	static bool TryConvertMajorUnitsToMicros(
+		double MajorUnits,
+		int64& OutValueMicros
+	);
+
+	static bool TryScaleToMicros(
+		int64 ProviderValue,
+		int64 MicrosPerProviderUnit,
+		int64& OutValueMicros
+	);
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Revenue in micro-units, where 1,000,000 micros equal one major currency unit.")
+	)
 	int64 ValueMicros = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

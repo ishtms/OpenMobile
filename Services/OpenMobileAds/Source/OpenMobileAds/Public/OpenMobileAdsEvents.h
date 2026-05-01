@@ -95,7 +95,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsEvent
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsReward Reward;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "True when Revenue contains a provider-reported amount. Reported zero is valid.")
+	)
 	bool bHasRevenue = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

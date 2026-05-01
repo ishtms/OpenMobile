@@ -10,6 +10,8 @@
 #include "OpenMobileAdsResults.h"
 #include "OpenMobileAdsRevenue.h"
 
+#include <limits>
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
@@ -279,6 +281,123 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 #endif
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRevenueAmountContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.Amount",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRevenueAmountContractTest::RunTest(const FString& Parameters)
+{
+	TestEqual(
+		TEXT("One major currency unit contains one million micros"),
+		FOpenMobileAdsRevenue::MicrosPerMajorUnit,
+		static_cast<int64>(1000000)
+	);
+
+	int64 ValueMicros = -1;
+	TestTrue(
+		TEXT("Major currency units convert to exact public micros"),
+		FOpenMobileAdsRevenue::TryConvertMajorUnitsToMicros(
+			1.234567,
+			ValueMicros
+		)
+	);
+	TestEqual(
+		TEXT("Major currency conversion preserves six decimal places"),
+		ValueMicros,
+		static_cast<int64>(1234567)
+	);
+
+	ValueMicros = -1;
+	TestTrue(
+		TEXT("Provider milliunits convert through an explicit scale"),
+		FOpenMobileAdsRevenue::TryScaleToMicros(1234, 1000, ValueMicros)
+	);
+	TestEqual(
+		TEXT("Provider scaling produces public micros"),
+		ValueMicros,
+		static_cast<int64>(1234000)
+	);
+	TestTrue(
+		TEXT("The signed 64-bit boundary remains valid at unit scale"),
+		FOpenMobileAdsRevenue::TryScaleToMicros(MAX_int64, 1, ValueMicros)
+	);
+	TestEqual(
+		TEXT("The signed 64-bit boundary does not narrow"),
+		ValueMicros,
+		static_cast<int64>(MAX_int64)
+	);
+
+	const double InvalidMajorValues[] = {
+		-0.000001,
+		std::numeric_limits<double>::quiet_NaN(),
+		std::numeric_limits<double>::infinity(),
+		1.0e20
+	};
+	for (const double InvalidValue : InvalidMajorValues)
+	{
+		ValueMicros = 77;
+		TestFalse(
+			TEXT("Invalid major currency values are rejected"),
+			FOpenMobileAdsRevenue::TryConvertMajorUnitsToMicros(
+				InvalidValue,
+				ValueMicros
+			)
+		);
+		TestEqual(
+			TEXT("Rejected major currency values clear the output"),
+			ValueMicros,
+			static_cast<int64>(0)
+		);
+	}
+
+	for (const TPair<int64, int64>& InvalidScale : {
+		TPair<int64, int64>(-1, 1),
+		TPair<int64, int64>(1, 0),
+		TPair<int64, int64>(1, -1),
+		TPair<int64, int64>(MAX_int64, 2)
+	})
+	{
+		ValueMicros = 77;
+		TestFalse(
+			TEXT("Invalid provider-scaled values are rejected"),
+			FOpenMobileAdsRevenue::TryScaleToMicros(
+				InvalidScale.Key,
+				InvalidScale.Value,
+				ValueMicros
+			)
+		);
+		TestEqual(
+			TEXT("Rejected provider-scaled values clear the output"),
+			ValueMicros,
+			static_cast<int64>(0)
+		);
+	}
+
+	const FProperty* ValueProperty =
+		FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(TEXT("ValueMicros"));
+	TestNotNull(TEXT("Revenue micros are reflected"), ValueProperty);
+	if (ValueProperty)
+	{
+		TestTrue(
+			TEXT("Revenue micros are visible to Blueprint"),
+			ValueProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+
+	FOpenMobileAdsEvent MissingRevenue;
+	TestFalse(
+		TEXT("A missing revenue amount remains distinct from zero"),
+		MissingRevenue.bHasRevenue
+	);
+	FOpenMobileAdsEvent ZeroRevenue;
+	ZeroRevenue.bHasRevenue = true;
+	ZeroRevenue.Revenue.ValueMicros = 0;
+	TestTrue(TEXT("A reported zero revenue amount remains present"), ZeroRevenue.bHasRevenue);
 	return true;
 }
 

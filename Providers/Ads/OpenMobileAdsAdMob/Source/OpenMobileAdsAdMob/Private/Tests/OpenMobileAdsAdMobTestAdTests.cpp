@@ -1611,6 +1611,12 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 	FOpenMobileAdsAdMobPlatform::NativeClicked(Backend.ShowRequestId);
 	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		Backend.ShowRequestId,
+		-1,
+		TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		Backend.ShowRequestId,
 		12345,
 		TEXT("USD"),
 		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)

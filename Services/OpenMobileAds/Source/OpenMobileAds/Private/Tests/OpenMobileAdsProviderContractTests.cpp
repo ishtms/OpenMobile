@@ -3878,8 +3878,18 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	FOpenMobileAdsEvent Clicked;
 	Clicked.Type = EOpenMobileAdsEventType::Clicked;
 	ShowSink->Submit(MoveTemp(Clicked));
+	FOpenMobileAdsEvent MissingRevenue;
+	MissingRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+	ShowSink->Submit(MoveTemp(MissingRevenue));
+	FOpenMobileAdsEvent NegativeRevenue;
+	NegativeRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+	NegativeRevenue.bHasRevenue = true;
+	NegativeRevenue.Revenue.ValueMicros = -1;
+	ShowSink->Submit(MoveTemp(NegativeRevenue));
 	FOpenMobileAdsEvent RevenuePaid;
 	RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
+	RevenuePaid.bHasRevenue = true;
+	RevenuePaid.Revenue.ValueMicros = 0;
 	ShowSink->Submit(MoveTemp(RevenuePaid));
 	FOpenMobileAdsEvent RewardEarned;
 	RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
@@ -3924,6 +3934,12 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		TestEqual(TEXT("The impression has the shown cache ID"), ImpressionEvent.CachedAdId, CachedAdId);
 		TestEqual(TEXT("The impression reports showing state"), ImpressionEvent.PlacementState, EOpenMobileAdPlacementState::Showing);
 		TestTrue(TEXT("The impression has a service timestamp"), ImpressionEvent.Timestamp != FDateTime());
+		TestTrue(TEXT("Reported zero revenue remains present"), Events[4].bHasRevenue);
+		TestEqual(
+			TEXT("Reported zero revenue keeps its exact amount"),
+			Events[4].Revenue.ValueMicros,
+			static_cast<int64>(0)
+		);
 	}
 
 	TestTrue(
@@ -8835,6 +8851,7 @@ bool FOpenMobileAdsProviderEventContractTest::RunTest(const FString& Parameters)
 	{
 		FOpenMobileAdsEvent Revenue;
 		Revenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+		Revenue.bHasRevenue = true;
 		Provider.ShowSink->Submit(Revenue);
 	});
 	ClickCallback.Wait();

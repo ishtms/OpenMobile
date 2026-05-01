@@ -1613,14 +1613,22 @@ void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
 			FShowOperation* Operation = ShowOperations.Find(RequestId);
-			if (!Operation)
+			int64 NormalizedValueMicros = 0;
+			if (
+				!Operation
+				|| !FOpenMobileAdsRevenue::TryScaleToMicros(
+					ValueMicros,
+					1,
+					NormalizedValueMicros
+				)
+			)
 			{
 				return;
 			}
 			FOpenMobileAdsEvent Event;
 			Event.Type = EOpenMobileAdsEventType::RevenuePaid;
 			Event.bHasRevenue = true;
-			Event.Revenue.ValueMicros = ValueMicros;
+			Event.Revenue.ValueMicros = NormalizedValueMicros;
 			Event.Revenue.CurrencyCode = MoveTemp(CurrencyCode);
 			Event.Revenue.Precision = Precision >= 0
 				&& Precision <= static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)

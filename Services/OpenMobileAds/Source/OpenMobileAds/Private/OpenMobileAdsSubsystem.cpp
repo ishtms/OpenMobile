@@ -509,7 +509,7 @@ namespace OpenMobileAdsPrivate
 			bool bForward = false;
 			{
 				FScopeLock Lock(&Mutex);
-				if (!bValid || !TryAcceptEvent(Event.Type))
+				if (!bValid || !TryAcceptEvent(Event))
 				{
 					return;
 				}
@@ -550,8 +550,16 @@ namespace OpenMobileAdsPrivate
 		}
 
 	private:
-		bool TryAcceptEvent(EOpenMobileAdsEventType Type)
+		bool TryAcceptEvent(const FOpenMobileAdsEvent& Event)
 		{
+			const EOpenMobileAdsEventType Type = Event.Type;
+			if (
+				Type == EOpenMobileAdsEventType::RevenuePaid
+				&& (!Event.bHasRevenue || Event.Revenue.ValueMicros < 0)
+			)
+			{
+				return false;
+			}
 			if (OperationStage == EOpenMobileAdsFailureStage::Load)
 			{
 				if (
