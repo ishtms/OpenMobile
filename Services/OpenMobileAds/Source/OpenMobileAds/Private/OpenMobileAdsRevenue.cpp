@@ -82,3 +82,18 @@ bool FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(
 	OutCurrencyCode.AppendChars(NormalizedCode, UE_ARRAY_COUNT(NormalizedCode));
 	return true;
 }
+
+EOpenMobileAdsRevenuePrecision FOpenMobileAdsRevenue::NormalizePrecision(
+	EOpenMobileAdsRevenuePrecision ProviderPrecision
+)
+{
+	switch (ProviderPrecision)
+	{
+	case EOpenMobileAdsRevenuePrecision::Estimated:
+	case EOpenMobileAdsRevenuePrecision::PublisherProvided:
+	case EOpenMobileAdsRevenuePrecision::Precise:
+		return ProviderPrecision;
+	default:
+		return EOpenMobileAdsRevenuePrecision::Unknown;
+	}
+}

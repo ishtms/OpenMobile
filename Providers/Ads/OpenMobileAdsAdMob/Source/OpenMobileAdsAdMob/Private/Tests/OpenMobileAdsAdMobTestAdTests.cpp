@@ -3291,4 +3291,40 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobRevenuePrecisionMappingTest,
+	"OpenMobile.Ads.AdMob.Revenue.Precision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobRevenuePrecisionMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	const TPair<int32, EOpenMobileAdsRevenuePrecision> KnownMappings[] = {
+		{0, EOpenMobileAdsRevenuePrecision::Unknown},
+		{1, EOpenMobileAdsRevenuePrecision::Estimated},
+		{2, EOpenMobileAdsRevenuePrecision::PublisherProvided},
+		{3, EOpenMobileAdsRevenuePrecision::Precise}
+	};
+	for (const TPair<int32, EOpenMobileAdsRevenuePrecision>& Mapping : KnownMappings)
+	{
+		TestEqual(
+			TEXT("AdMob precision maps explicitly"),
+			FOpenMobileAdsAdMobPlatform::MapRevenuePrecision(Mapping.Key),
+			Mapping.Value
+		);
+	}
+
+	for (const int32 UnknownValue : {-1, 4, MAX_int32})
+	{
+		TestEqual(
+			TEXT("Unknown AdMob precision does not overstate certainty"),
+			FOpenMobileAdsAdMobPlatform::MapRevenuePrecision(UnknownValue),
+			EOpenMobileAdsRevenuePrecision::Unknown
+		);
+	}
+	return true;
+}
+
 #endif

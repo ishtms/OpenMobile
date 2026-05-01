@@ -3891,11 +3891,14 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	RevenuePaid.bHasRevenue = true;
 	RevenuePaid.Revenue.ValueMicros = 0;
 	RevenuePaid.Revenue.CurrencyCode = TEXT("uSd");
+	RevenuePaid.Revenue.Precision = EOpenMobileAdsRevenuePrecision::Estimated;
 	ShowSink->Submit(MoveTemp(RevenuePaid));
 	FOpenMobileAdsEvent MissingCurrencyRevenue;
 	MissingCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
 	MissingCurrencyRevenue.bHasRevenue = true;
 	MissingCurrencyRevenue.Revenue.ValueMicros = 1;
+	MissingCurrencyRevenue.Revenue.Precision =
+		static_cast<EOpenMobileAdsRevenuePrecision>(255);
 	ShowSink->Submit(MoveTemp(MissingCurrencyRevenue));
 	FOpenMobileAdsEvent MalformedCurrencyRevenue;
 	MalformedCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
@@ -3968,6 +3971,16 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		TestTrue(
 			TEXT("Malformed provider currency remains unavailable"),
 			Events[6].Revenue.CurrencyCode.IsEmpty()
+		);
+		TestEqual(
+			TEXT("Known provider precision is preserved"),
+			Events[4].Revenue.Precision,
+			EOpenMobileAdsRevenuePrecision::Estimated
+		);
+		TestEqual(
+			TEXT("Unknown provider precision does not overstate certainty"),
+			Events[5].Revenue.Precision,
+			EOpenMobileAdsRevenuePrecision::Unknown
 		);
 	}
 

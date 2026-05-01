@@ -4,6 +4,7 @@
 #include "OpenMobileAdsErrors.h"
 #include "OpenMobileAdsInitialization.h"
 #include "OpenMobileAdsOperations.h"
+#include "OpenMobileAdsRevenue.h"
 
 class IOpenMobileAdsProviderEventSink;
 
@@ -87,6 +88,9 @@ public:
 	);
 	static void Cancel(FGuid RequestId);
 	static void ReleaseCachedAd(FGuid CachedAdId);
+	static EOpenMobileAdsRevenuePrecision MapRevenuePrecision(
+		int32 ProviderPrecision
+	);
 
 	static bool BeginRequest(
 		const FString& AdUnitId,

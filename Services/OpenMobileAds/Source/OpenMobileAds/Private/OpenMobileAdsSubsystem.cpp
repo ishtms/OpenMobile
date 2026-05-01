@@ -647,6 +647,9 @@ namespace OpenMobileAdsPrivate
 					NormalizedCurrencyCode
 				);
 				Event.Revenue.CurrencyCode = MoveTemp(NormalizedCurrencyCode);
+				Event.Revenue.Precision = FOpenMobileAdsRevenue::NormalizePrecision(
+					Event.Revenue.Precision
+				);
 			}
 			if (CachedAdId.IsValid())
 			{

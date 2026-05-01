@@ -471,4 +471,59 @@ bool FOpenMobileAdsRevenueCurrencyContractTest::RunTest(const FString& Parameter
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRevenuePrecisionContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.Precision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRevenuePrecisionContractTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileAdsRevenue Revenue;
+	TestEqual(
+		TEXT("Revenue precision defaults to unknown"),
+		Revenue.Precision,
+		EOpenMobileAdsRevenuePrecision::Unknown
+	);
+	TestNotEqual(
+		TEXT("Estimated revenue stays distinct from unknown"),
+		EOpenMobileAdsRevenuePrecision::Estimated,
+		EOpenMobileAdsRevenuePrecision::Unknown
+	);
+	TestNotEqual(
+		TEXT("Publisher-provided revenue stays distinct from estimates"),
+		EOpenMobileAdsRevenuePrecision::PublisherProvided,
+		EOpenMobileAdsRevenuePrecision::Estimated
+	);
+	TestNotEqual(
+		TEXT("Precise revenue stays distinct from publisher-provided values"),
+		EOpenMobileAdsRevenuePrecision::Precise,
+		EOpenMobileAdsRevenuePrecision::PublisherProvided
+	);
+	const UEnum* PrecisionEnum = StaticEnum<EOpenMobileAdsRevenuePrecision>();
+	TestNotNull(TEXT("Revenue precision is a reflected enum"), PrecisionEnum);
+	if (PrecisionEnum)
+	{
+		TestEqual(
+			TEXT("Blueprint describes precise provider values as exact"),
+			PrecisionEnum->GetDisplayNameTextByValue(
+				static_cast<int64>(EOpenMobileAdsRevenuePrecision::Precise)
+			).ToString(),
+			FString(TEXT("Exact"))
+		);
+	}
+
+	const FProperty* PrecisionProperty =
+		FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(TEXT("Precision"));
+	TestNotNull(TEXT("Revenue precision is reflected"), PrecisionProperty);
+	if (PrecisionProperty)
+	{
+		TestTrue(
+			TEXT("Revenue precision is visible to Blueprint"),
+			PrecisionProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+	return true;
+}
+
 #endif

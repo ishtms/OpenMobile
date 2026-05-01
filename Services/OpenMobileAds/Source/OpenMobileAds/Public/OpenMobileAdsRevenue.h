@@ -8,8 +8,8 @@ enum class EOpenMobileAdsRevenuePrecision : uint8
 {
 	Unknown,
 	Estimated,
-	PublisherProvided,
-	Precise
+	PublisherProvided UMETA(DisplayName = "Publisher Provided"),
+	Precise UMETA(DisplayName = "Exact")
 };
 
 USTRUCT(BlueprintType)
@@ -35,6 +35,10 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 		FString& OutCurrencyCode
 	);
 
+	static EOpenMobileAdsRevenuePrecision NormalizePrecision(
+		EOpenMobileAdsRevenuePrecision ProviderPrecision
+	);
+
 	UPROPERTY(
 		BlueprintReadOnly,
 		Category = "Open Mobile|Ads",
@@ -49,7 +53,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 	)
 	FString CurrencyCode;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported certainty for the revenue amount. Unknown is used for missing or unrecognized provider values.")
+	)
 	EOpenMobileAdsRevenuePrecision Precision = EOpenMobileAdsRevenuePrecision::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

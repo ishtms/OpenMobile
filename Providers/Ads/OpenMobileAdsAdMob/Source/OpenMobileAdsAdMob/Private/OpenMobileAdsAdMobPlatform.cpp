@@ -1601,6 +1601,23 @@ void FOpenMobileAdsAdMobPlatform::NativeClicked(int64 RequestId)
 	});
 }
 
+EOpenMobileAdsRevenuePrecision FOpenMobileAdsAdMobPlatform::MapRevenuePrecision(
+	int32 ProviderPrecision
+)
+{
+	switch (ProviderPrecision)
+	{
+	case 1:
+		return EOpenMobileAdsRevenuePrecision::Estimated;
+	case 2:
+		return EOpenMobileAdsRevenuePrecision::PublisherProvided;
+	case 3:
+		return EOpenMobileAdsRevenuePrecision::Precise;
+	default:
+		return EOpenMobileAdsRevenuePrecision::Unknown;
+	}
+}
+
 void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 	int64 RequestId,
 	int64 ValueMicros,
@@ -1630,10 +1647,7 @@ void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 			Event.bHasRevenue = true;
 			Event.Revenue.ValueMicros = NormalizedValueMicros;
 			Event.Revenue.CurrencyCode = MoveTemp(CurrencyCode);
-			Event.Revenue.Precision = Precision >= 0
-				&& Precision <= static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
-				? static_cast<EOpenMobileAdsRevenuePrecision>(Precision)
-				: EOpenMobileAdsRevenuePrecision::Unknown;
+			Event.Revenue.Precision = MapRevenuePrecision(Precision);
 			Operation->EventSink->Submit(MoveTemp(Event));
 		}
 	);
