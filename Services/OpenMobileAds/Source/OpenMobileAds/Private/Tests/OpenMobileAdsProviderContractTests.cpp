@@ -3892,11 +3892,17 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	RevenuePaid.Revenue.ValueMicros = 0;
 	RevenuePaid.Revenue.CurrencyCode = TEXT("uSd");
 	RevenuePaid.Revenue.Precision = EOpenMobileAdsRevenuePrecision::Estimated;
+	RevenuePaid.Revenue.Source.SourceName = TEXT("Example Network");
+	RevenuePaid.Revenue.Source.SourceId = TEXT("source-42");
+	RevenuePaid.Revenue.Source.AdapterClassName = TEXT("com.example.ads.Adapter");
+	RevenuePaid.Revenue.Source.InstanceName = TEXT("Example bidding instance");
+	RevenuePaid.Revenue.Source.InstanceId = TEXT("instance-7");
 	ShowSink->Submit(MoveTemp(RevenuePaid));
 	FOpenMobileAdsEvent MissingCurrencyRevenue;
 	MissingCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
 	MissingCurrencyRevenue.bHasRevenue = true;
 	MissingCurrencyRevenue.Revenue.ValueMicros = 1;
+	MissingCurrencyRevenue.Revenue.Network = TEXT("Legacy Waterfall Network");
 	MissingCurrencyRevenue.Revenue.Precision =
 		static_cast<EOpenMobileAdsRevenuePrecision>(255);
 	ShowSink->Submit(MoveTemp(MissingCurrencyRevenue));
@@ -3905,6 +3911,8 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	MalformedCurrencyRevenue.bHasRevenue = true;
 	MalformedCurrencyRevenue.Revenue.ValueMicros = 2;
 	MalformedCurrencyRevenue.Revenue.CurrencyCode = TEXT("U1D");
+	MalformedCurrencyRevenue.Revenue.Source.SourceName = TEXT("Winning Source");
+	MalformedCurrencyRevenue.Revenue.Network = TEXT("Stale Network");
 	ShowSink->Submit(MoveTemp(MalformedCurrencyRevenue));
 	FOpenMobileAdsEvent RewardEarned;
 	RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
@@ -3976,6 +3984,55 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 			TEXT("Known provider precision is preserved"),
 			Events[4].Revenue.Precision,
 			EOpenMobileAdsRevenuePrecision::Estimated
+		);
+		TestEqual(
+			TEXT("Winning source name is preserved"),
+			Events[4].Revenue.Source.SourceName,
+			FString(TEXT("Example Network"))
+		);
+		TestEqual(
+			TEXT("Winning source ID is preserved"),
+			Events[4].Revenue.Source.SourceId,
+			FString(TEXT("source-42"))
+		);
+		TestEqual(
+			TEXT("Winning adapter is preserved"),
+			Events[4].Revenue.Source.AdapterClassName,
+			FString(TEXT("com.example.ads.Adapter"))
+		);
+		TestEqual(
+			TEXT("Winning instance name is preserved"),
+			Events[4].Revenue.Source.InstanceName,
+			FString(TEXT("Example bidding instance"))
+		);
+		TestEqual(
+			TEXT("Winning instance ID is preserved"),
+			Events[4].Revenue.Source.InstanceId,
+			FString(TEXT("instance-7"))
+		);
+		TestEqual(
+			TEXT("The normalized source name populates the event network alias"),
+			Events[4].Network,
+			FString(TEXT("Example Network"))
+		);
+		TestEqual(
+			TEXT("The normalized source name populates the revenue network alias"),
+			Events[4].Revenue.Network,
+			FString(TEXT("Example Network"))
+		);
+		TestEqual(
+			TEXT("A legacy network remains available as a source name"),
+			Events[5].Revenue.Source.SourceName,
+			FString(TEXT("Legacy Waterfall Network"))
+		);
+		TestTrue(
+			TEXT("A legacy network does not invent a source ID"),
+			Events[5].Revenue.Source.SourceId.IsEmpty()
+		);
+		TestEqual(
+			TEXT("The structured winning source overrides a stale legacy alias"),
+			Events[6].Revenue.Network,
+			FString(TEXT("Winning Source"))
 		);
 		TestEqual(
 			TEXT("Unknown provider precision does not overstate certainty"),

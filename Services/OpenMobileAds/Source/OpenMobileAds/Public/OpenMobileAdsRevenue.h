@@ -13,6 +13,56 @@ enum class EOpenMobileAdsRevenuePrecision : uint8
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsRevenueSource
+{
+	GENERATED_BODY()
+
+	bool IsEmpty() const
+	{
+		return SourceName.IsEmpty()
+			&& SourceId.IsEmpty()
+			&& AdapterClassName.IsEmpty()
+			&& InstanceName.IsEmpty()
+			&& InstanceId.IsEmpty();
+	}
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported display name for the source that served the ad, or empty when unavailable.")
+	)
+	FString SourceName;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported stable source identifier, or empty when unavailable.")
+	)
+	FString SourceId;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported adapter class or adapter identifier, or empty when unavailable.")
+	)
+	FString AdapterClassName;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported source instance name, or empty when unavailable.")
+	)
+	FString InstanceName;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported stable source instance identifier, or empty when unavailable.")
+	)
+	FString InstanceId;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 {
 	GENERATED_BODY()
@@ -39,6 +89,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 		EOpenMobileAdsRevenuePrecision ProviderPrecision
 	);
 
+	void NormalizeSource();
+
 	UPROPERTY(
 		BlueprintReadOnly,
 		Category = "Open Mobile|Ads",
@@ -59,6 +111,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 		meta = (ToolTip = "Provider-reported certainty for the revenue amount. Unknown is used for missing or unrecognized provider values.")
 	)
 	EOpenMobileAdsRevenuePrecision Precision = EOpenMobileAdsRevenuePrecision::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsRevenueSource Source;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString Network;

@@ -97,3 +97,15 @@ EOpenMobileAdsRevenuePrecision FOpenMobileAdsRevenue::NormalizePrecision(
 		return EOpenMobileAdsRevenuePrecision::Unknown;
 	}
 }
+
+void FOpenMobileAdsRevenue::NormalizeSource()
+{
+	if (!Source.SourceName.IsEmpty())
+	{
+		Network = Source.SourceName;
+	}
+	else if (!Network.IsEmpty())
+	{
+		Source.SourceName = Network;
+	}
+}

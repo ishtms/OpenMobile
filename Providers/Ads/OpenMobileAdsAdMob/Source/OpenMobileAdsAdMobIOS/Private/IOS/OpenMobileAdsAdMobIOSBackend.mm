@@ -89,6 +89,24 @@ namespace OpenMobileAdsAdMobIOS
 		return String ? FString(UTF8_TO_TCHAR(String.UTF8String)) : FString();
 	}
 
+	FOpenMobileAdsRevenueSource ToRevenueSource(GADResponseInfo* ResponseInfo)
+	{
+		FOpenMobileAdsRevenueSource Source;
+		GADAdNetworkResponseInfo* LoadedSource =
+			ResponseInfo.loadedAdNetworkResponseInfo;
+		if (!LoadedSource)
+		{
+			return Source;
+		}
+
+		Source.SourceName = ToFString(LoadedSource.adSourceName);
+		Source.SourceId = ToFString(LoadedSource.adSourceID);
+		Source.AdapterClassName = ToFString(LoadedSource.adNetworkClassName);
+		Source.InstanceName = ToFString(LoadedSource.adSourceInstanceName);
+		Source.InstanceId = ToFString(LoadedSource.adSourceInstanceID);
+		return Source;
+	}
+
 	int32 ToCanonicalConsentStatus(UMPConsentStatus Status)
 	{
 		switch (Status)
@@ -437,7 +455,10 @@ static void LoadOpenMobileBannerView(
 			StrongHandler.showRequestId,
 			AdValue.value.longLongValue,
 			OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-			static_cast<int32>(AdValue.precision)
+			static_cast<int32>(AdValue.precision),
+			OpenMobileAdsAdMobIOS::ToRevenueSource(
+				StrongHandler.bannerView.responseInfo
+			)
 		);
 	};
 	[BannerView loadRequest:[GADRequest request]];
@@ -1739,13 +1760,16 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowAppOpenAd(
 		Handler.appOpenAd = AppOpenAd;
 		GOpenMobileAppOpenAdDelegate = Handler;
 		AppOpenAd.fullScreenContentDelegate = Handler;
+		const FOpenMobileAdsRevenueSource RevenueSource =
+			OpenMobileAdsAdMobIOS::ToRevenueSource(AppOpenAd.responseInfo);
 		AppOpenAd.paidEventHandler = ^(GADAdValue* AdValue)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 				ShowRequestId,
 				AdValue.value.longLongValue,
 				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-				static_cast<int32>(AdValue.precision)
+				static_cast<int32>(AdValue.precision),
+				RevenueSource
 			);
 		};
 
@@ -1827,13 +1851,18 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
 				FAppleStringUtils::ConvertToNSString(VerificationData);
 			RewardedInterstitialAd.serverSideVerificationOptions = Options;
 		}
+		const FOpenMobileAdsRevenueSource RevenueSource =
+			OpenMobileAdsAdMobIOS::ToRevenueSource(
+				RewardedInterstitialAd.responseInfo
+			);
 		RewardedInterstitialAd.paidEventHandler = ^(GADAdValue* AdValue)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 				ShowRequestId,
 				AdValue.value.longLongValue,
 				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-				static_cast<int32>(AdValue.precision)
+				static_cast<int32>(AdValue.precision),
+				RevenueSource
 			);
 		};
 
@@ -1932,13 +1961,16 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 				FAppleStringUtils::ConvertToNSString(VerificationData);
 			RewardedAd.serverSideVerificationOptions = Options;
 		}
+		const FOpenMobileAdsRevenueSource RevenueSource =
+			OpenMobileAdsAdMobIOS::ToRevenueSource(RewardedAd.responseInfo);
 		RewardedAd.paidEventHandler = ^(GADAdValue* AdValue)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 				ShowRequestId,
 				AdValue.value.longLongValue,
 				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-				static_cast<int32>(AdValue.precision)
+				static_cast<int32>(AdValue.precision),
+				RevenueSource
 			);
 		};
 
@@ -2022,13 +2054,16 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowInterstitialAd(
 		Handler.interstitialAd = InterstitialAd;
 		GOpenMobileInterstitialAdDelegate = Handler;
 		InterstitialAd.fullScreenContentDelegate = Handler;
+		const FOpenMobileAdsRevenueSource RevenueSource =
+			OpenMobileAdsAdMobIOS::ToRevenueSource(InterstitialAd.responseInfo);
 		InterstitialAd.paidEventHandler = ^(GADAdValue* AdValue)
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 				ShowRequestId,
 				AdValue.value.longLongValue,
 				OpenMobileAdsAdMobIOS::ToFString(AdValue.currencyCode),
-				static_cast<int32>(AdValue.precision)
+				static_cast<int32>(AdValue.precision),
+				RevenueSource
 			);
 		};
 

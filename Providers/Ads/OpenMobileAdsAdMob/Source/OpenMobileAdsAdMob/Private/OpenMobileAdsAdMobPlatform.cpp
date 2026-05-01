@@ -1622,11 +1622,18 @@ void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 	int64 RequestId,
 	int64 ValueMicros,
 	FString CurrencyCode,
-	int32 Precision
+	int32 Precision,
+	FOpenMobileAdsRevenueSource Source
 )
 {
 	OpenMobile::DispatchToGameThread(
-		[RequestId, ValueMicros, CurrencyCode = MoveTemp(CurrencyCode), Precision]() mutable
+		[
+			RequestId,
+			ValueMicros,
+			CurrencyCode = MoveTemp(CurrencyCode),
+			Precision,
+			Source = MoveTemp(Source)
+		]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
 			FShowOperation* Operation = ShowOperations.Find(RequestId);
@@ -1648,6 +1655,9 @@ void FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 			Event.Revenue.ValueMicros = NormalizedValueMicros;
 			Event.Revenue.CurrencyCode = MoveTemp(CurrencyCode);
 			Event.Revenue.Precision = MapRevenuePrecision(Precision);
+			Event.Revenue.Source = MoveTemp(Source);
+			Event.Revenue.NormalizeSource();
+			Event.Network = Event.Revenue.Source.SourceName;
 			Operation->EventSink->Submit(MoveTemp(Event));
 		}
 	);

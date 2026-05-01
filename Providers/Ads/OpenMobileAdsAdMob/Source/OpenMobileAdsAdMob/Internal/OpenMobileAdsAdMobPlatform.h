@@ -156,7 +156,8 @@ public:
 		int64 RequestId,
 		int64 ValueMicros,
 		FString CurrencyCode,
-		int32 Precision
+		int32 Precision,
+		FOpenMobileAdsRevenueSource Source = {}
 	);
 	static void NativeEarned(int64 RequestId, int32 NetworkAmount, FString NetworkRewardType);
 	static void NativeClosed(int64 RequestId);

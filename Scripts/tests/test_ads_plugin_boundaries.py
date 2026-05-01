@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=13", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=14", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -278,6 +278,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		copy_destinations = {
 			element.get("dst") for element in root.findall("./gradleCopies/copyFile")
 		}
+
 		self.assertEqual(
 			{
 				"$S(BuildDir)/gradle/OpenMobileAdsAdMob_Android.gradle",
@@ -318,6 +319,49 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("proguard.txt", dependency_validation)
 		self.assertIn("AndroidManifest.xml", dependency_validation)
 		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
+
+	def test_admob_paid_events_include_winning_source_metadata(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"getLoadedAdapterResponseInfo",
+			"getAdSourceName",
+			"getAdSourceId",
+			"getAdapterClassName",
+			"getAdSourceInstanceName",
+			"getAdSourceInstanceId",
+		):
+			self.assertIn(token, android_upl)
+		self.assertIn("FOpenMobileAdsRevenueSource", android_backend)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"loadedAdNetworkResponseInfo",
+			"adSourceName",
+			"adSourceID",
+			"adNetworkClassName",
+			"adSourceInstanceName",
+			"adSourceInstanceID",
+		):
+			self.assertIn(token, ios_backend)
 
 	def test_admob_ump_refreshes_before_presenting_a_required_form(self) -> None:
 		android_root = (

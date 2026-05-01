@@ -2941,11 +2941,19 @@ bool FOpenMobileAdsAdMobFixedBannerContractTest::RunTest(
 	FOpenMobileAdsAdMobPlatform::NativeBannerShown(Backend.BannerShowRequestId);
 	FOpenMobileAdsAdMobPlatform::NativeImpression(Backend.BannerShowRequestId);
 	FOpenMobileAdsAdMobPlatform::NativeClicked(Backend.BannerShowRequestId);
+	FOpenMobileAdsRevenueSource RevenueSource;
+	RevenueSource.SourceName = TEXT("Google Ads");
+	RevenueSource.SourceId = TEXT("5450213213286189855");
+	RevenueSource.AdapterClassName =
+		TEXT("com.google.ads.mediation.admob.AdMobAdapter");
+	RevenueSource.InstanceName = TEXT("AdMob Network");
+	RevenueSource.InstanceId = TEXT("4665218928925097");
 	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		Backend.BannerShowRequestId,
 		2500,
 		TEXT("USD"),
-		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Estimated)
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Estimated),
+		RevenueSource
 	);
 	const EOpenMobileAdsEventType ExpectedShowEvents[] = {
 		EOpenMobileAdsEventType::Shown,
@@ -2969,6 +2977,36 @@ bool FOpenMobileAdsAdMobFixedBannerContractTest::RunTest(
 			TEXT("Fixed-banner callback order is preserved"),
 			ShowSink->Events[Index].Type,
 			ExpectedShowEvents[Index]
+		);
+	}
+	if (ShowSink->Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedShowEvents)))
+	{
+		const FOpenMobileAdsRevenueSource& ReportedSource =
+			ShowSink->Events[3].Revenue.Source;
+		TestEqual(
+			TEXT("AdMob preserves the winning source name"),
+			ReportedSource.SourceName,
+			RevenueSource.SourceName
+		);
+		TestEqual(
+			TEXT("AdMob preserves the winning source ID"),
+			ReportedSource.SourceId,
+			RevenueSource.SourceId
+		);
+		TestEqual(
+			TEXT("AdMob preserves the winning adapter class"),
+			ReportedSource.AdapterClassName,
+			RevenueSource.AdapterClassName
+		);
+		TestEqual(
+			TEXT("AdMob preserves the winning instance name"),
+			ReportedSource.InstanceName,
+			RevenueSource.InstanceName
+		);
+		TestEqual(
+			TEXT("AdMob preserves the winning instance ID"),
+			ReportedSource.InstanceId,
+			RevenueSource.InstanceId
 		);
 	}
 

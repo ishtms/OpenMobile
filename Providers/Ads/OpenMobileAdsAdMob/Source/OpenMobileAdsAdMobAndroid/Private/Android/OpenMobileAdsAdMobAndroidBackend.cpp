@@ -53,6 +53,40 @@ namespace OpenMobileAdsAdMobAndroidBackendPrivate
 			return 0;
 		}
 	}
+
+	FOpenMobileAdsRevenueSource ToRevenueSource(
+		JNIEnv* Env,
+		jstring SourceName,
+		jstring SourceId,
+		jstring AdapterClassName,
+		jstring InstanceName,
+		jstring InstanceId
+	)
+	{
+		FOpenMobileAdsRevenueSource Source;
+		if (SourceName)
+		{
+			Source.SourceName = FJavaHelper::FStringFromParam(Env, SourceName);
+		}
+		if (SourceId)
+		{
+			Source.SourceId = FJavaHelper::FStringFromParam(Env, SourceId);
+		}
+		if (AdapterClassName)
+		{
+			Source.AdapterClassName =
+				FJavaHelper::FStringFromParam(Env, AdapterClassName);
+		}
+		if (InstanceName)
+		{
+			Source.InstanceName = FJavaHelper::FStringFromParam(Env, InstanceName);
+		}
+		if (InstanceId)
+		{
+			Source.InstanceId = FJavaHelper::FStringFromParam(Env, InstanceId);
+		}
+		return Source;
+	}
 }
 
 bool FOpenMobileAdsAdMobAndroidBackend::Initialize(
@@ -1227,14 +1261,27 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdR
 	jlong RequestId,
 	jlong ValueMicros,
 	jstring CurrencyCode,
-	jint Precision
+	jint Precision,
+	jstring SourceName,
+	jstring SourceId,
+	jstring AdapterClassName,
+	jstring InstanceName,
+	jstring InstanceId
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		static_cast<int64>(RequestId),
 		static_cast<int64>(ValueMicros),
 		CurrencyCode ? FJavaHelper::FStringFromParam(Env, CurrencyCode) : FString(),
-		static_cast<int32>(Precision)
+		static_cast<int32>(Precision),
+		OpenMobileAdsAdMobAndroidBackendPrivate::ToRevenueSource(
+			Env,
+			SourceName,
+			SourceId,
+			AdapterClassName,
+			InstanceName,
+			InstanceId
+		)
 	);
 }
 
@@ -1361,14 +1408,27 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	jlong RequestId,
 	jlong ValueMicros,
 	jstring CurrencyCode,
-	jint Precision
+	jint Precision,
+	jstring SourceName,
+	jstring SourceId,
+	jstring AdapterClassName,
+	jstring InstanceName,
+	jstring InstanceId
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
 		static_cast<int64>(RequestId),
 		static_cast<int64>(ValueMicros),
 		CurrencyCode ? FJavaHelper::FStringFromParam(Env, CurrencyCode) : FString(),
-		static_cast<int32>(Precision)
+		static_cast<int32>(Precision),
+		OpenMobileAdsAdMobAndroidBackendPrivate::ToRevenueSource(
+			Env,
+			SourceName,
+			SourceId,
+			AdapterClassName,
+			InstanceName,
+			InstanceId
+		)
 	);
 }
 

@@ -650,6 +650,19 @@ namespace OpenMobileAdsPrivate
 				Event.Revenue.Precision = FOpenMobileAdsRevenue::NormalizePrecision(
 					Event.Revenue.Precision
 				);
+				if (
+					Event.Revenue.Source.SourceName.IsEmpty()
+					&& Event.Revenue.Network.IsEmpty()
+					&& !Event.Network.IsEmpty()
+				)
+				{
+					Event.Revenue.Network = Event.Network;
+				}
+				Event.Revenue.NormalizeSource();
+				if (!Event.Revenue.Source.SourceName.IsEmpty())
+				{
+					Event.Network = Event.Revenue.Source.SourceName;
+				}
 			}
 			if (CachedAdId.IsValid())
 			{

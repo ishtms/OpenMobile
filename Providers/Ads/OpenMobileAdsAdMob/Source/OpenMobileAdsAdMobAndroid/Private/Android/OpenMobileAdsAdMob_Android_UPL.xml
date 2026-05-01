@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=13</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=14</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -98,6 +98,7 @@ import com.google.android.gms.ads.AdListener;
 import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.AdSize;
 import com.google.android.gms.ads.AdValue;
+import com.google.android.gms.ads.AdapterResponseInfo;
 import com.google.android.gms.ads.AdView;
 import com.google.android.gms.ads.FullScreenContentCallback;
 import com.google.android.gms.ads.LoadAdError;
@@ -105,6 +106,7 @@ import com.google.android.gms.ads.MobileAds;
 import com.google.android.gms.ads.OnPaidEventListener;
 import com.google.android.gms.ads.OnUserEarnedRewardListener;
 import com.google.android.gms.ads.RequestConfiguration;
+import com.google.android.gms.ads.ResponseInfo;
 import com.google.android.gms.ads.appopen.AppOpenAd;
 import com.google.android.gms.ads.appopen.AppOpenAdLoadCallback;
 import com.google.android.gms.ads.initialization.AdapterStatus;
@@ -230,7 +232,12 @@ import java.util.Set;
         long requestId,
         long valueMicros,
         String currencyCode,
-        int precision
+        int precision,
+        String sourceName,
+        String sourceId,
+        String adapterClassName,
+        String instanceName,
+        String instanceId
     );
     public native void nativeOpenMobileRewardedAdEarned(
         long requestId,
@@ -259,8 +266,57 @@ import java.util.Set;
         long requestId,
         long valueMicros,
         String currencyCode,
-        int precision
+        int precision,
+        String sourceName,
+        String sourceId,
+        String adapterClassName,
+        String instanceName,
+        String instanceId
     );
+
+    private void dispatchOpenMobileRevenuePaid(
+        boolean banner,
+        long requestId,
+        AdValue adValue,
+        ResponseInfo responseInfo
+    )
+    {
+        AdapterResponseInfo source = responseInfo == null
+            ? null
+            : responseInfo.getLoadedAdapterResponseInfo();
+        String sourceName = source == null ? null : source.getAdSourceName();
+        String sourceId = source == null ? null : source.getAdSourceId();
+        String adapterClassName = source == null ? null : source.getAdapterClassName();
+        String instanceName = source == null ? null : source.getAdSourceInstanceName();
+        String instanceId = source == null ? null : source.getAdSourceInstanceId();
+        if (banner)
+        {
+            nativeOpenMobileBannerAdRevenuePaid(
+                requestId,
+                adValue.getValueMicros(),
+                adValue.getCurrencyCode(),
+                adValue.getPrecisionType(),
+                sourceName,
+                sourceId,
+                adapterClassName,
+                instanceName,
+                instanceId
+            );
+            return;
+        }
+
+        nativeOpenMobileRewardedAdRevenuePaid(
+            requestId,
+            adValue.getValueMicros(),
+            adValue.getCurrencyCode(),
+            adValue.getPrecisionType(),
+            sourceName,
+            sourceId,
+            adapterClassName,
+            instanceName,
+            instanceId
+        );
+    }
 
     private int openMobileDensityPixels(float value)
     {
@@ -505,11 +561,11 @@ import java.util.Set;
             {
                 if (entry.showRequestId != 0)
                 {
-                    nativeOpenMobileBannerAdRevenuePaid(
+                    dispatchOpenMobileRevenuePaid(
+                        true,
                         entry.showRequestId,
-                        adValue.getValueMicros(),
-                        adValue.getCurrencyCode(),
-                        adValue.getPrecisionType()
+                        adValue,
+                        entry.adView.getResponseInfo()
                     );
                 }
             }
@@ -1924,11 +1980,11 @@ import java.util.Set;
                             @Override
                             public void onPaidEvent(AdValue adValue)
                             {
-                                nativeOpenMobileRewardedAdRevenuePaid(
+                                dispatchOpenMobileRevenuePaid(
+                                    false,
                                     showRequestId,
-                                    adValue.getValueMicros(),
-                                    adValue.getCurrencyCode(),
-                                    adValue.getPrecisionType()
+                                    adValue,
+                                    interstitialAd.getResponseInfo()
                                 );
                             }
                         });
@@ -2042,11 +2098,11 @@ import java.util.Set;
                             @Override
                             public void onPaidEvent(AdValue adValue)
                             {
-                                nativeOpenMobileRewardedAdRevenuePaid(
+                                dispatchOpenMobileRevenuePaid(
+                                    false,
                                     showRequestId,
-                                    adValue.getValueMicros(),
-                                    adValue.getCurrencyCode(),
-                                    adValue.getPrecisionType()
+                                    adValue,
+                                    appOpenAd.getResponseInfo()
                                 );
                             }
                         });
@@ -2174,11 +2230,11 @@ import java.util.Set;
                                 @Override
                                 public void onPaidEvent(AdValue adValue)
                                 {
-                                    nativeOpenMobileRewardedAdRevenuePaid(
+                                    dispatchOpenMobileRevenuePaid(
+                                        false,
                                         showRequestId,
-                                        adValue.getValueMicros(),
-                                        adValue.getCurrencyCode(),
-                                        adValue.getPrecisionType()
+                                        adValue,
+                                        rewardedInterstitialAd.getResponseInfo()
                                     );
                                 }
                             }
@@ -2318,11 +2374,11 @@ import java.util.Set;
                             @Override
                             public void onPaidEvent(AdValue adValue)
                             {
-                                nativeOpenMobileRewardedAdRevenuePaid(
+                                dispatchOpenMobileRevenuePaid(
+                                    false,
                                     showRequestId,
-                                    adValue.getValueMicros(),
-                                    adValue.getCurrencyCode(),
-                                    adValue.getPrecisionType()
+                                    adValue,
+                                    rewardedAd.getResponseInfo()
                                 );
                             }
                         });
@@ -2641,7 +2697,12 @@ import java.util.Set;
         long,
         long,
         java.lang.String,
-        int
+        int,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String
     );
     public native void nativeOpenMobileRewardedAdEarned(long, int, java.lang.String);
     public native void nativeOpenMobileRewardedAdClosed(long);
@@ -2672,7 +2733,12 @@ import java.util.Set;
         long,
         long,
         java.lang.String,
-        int
+        int,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String,
+        java.lang.String
     );
 }
         </insert>

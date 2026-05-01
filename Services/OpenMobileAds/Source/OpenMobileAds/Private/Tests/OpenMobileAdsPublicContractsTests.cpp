@@ -526,4 +526,154 @@ bool FOpenMobileAdsRevenuePrecisionContractTest::RunTest(const FString& Paramete
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRevenueSourceContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.Source",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRevenueSourceContractTest::RunTest(const FString& Parameters)
+{
+	struct FSourceCase
+	{
+		const TCHAR* Label;
+		FOpenMobileAdsRevenueSource Source;
+		bool bExpectedEmpty;
+	};
+
+	FSourceCase Cases[] = {
+		{
+			TEXT("Direct"),
+			{
+				TEXT("Google Ads"),
+				TEXT("5450213213286189855"),
+				TEXT("com.google.ads.mediation.admob.AdMobAdapter"),
+				TEXT("AdMob Network"),
+				TEXT("4665218928925097")
+			},
+			false
+		},
+		{
+			TEXT("Mediated"),
+			{
+				TEXT("Example Network"),
+				TEXT("source-42"),
+				TEXT("com.example.ads.Adapter"),
+				TEXT("Example waterfall"),
+				TEXT("instance-7")
+			},
+			false
+		},
+		{
+			TEXT("Bidding"),
+			{
+				TEXT("Bidder Network"),
+				TEXT("bidder-source"),
+				TEXT("com.example.bidder.Adapter"),
+				TEXT(""),
+				TEXT("")
+			},
+			false
+		},
+		{
+			TEXT("Waterfall"),
+			{
+				TEXT("Waterfall Network"),
+				TEXT(""),
+				TEXT("com.example.waterfall.Adapter"),
+				TEXT("Waterfall instance"),
+				TEXT("instance-waterfall")
+			},
+			false
+		},
+		{TEXT("Unknown"), {}, true}
+	};
+
+	for (const FSourceCase& SourceCase : Cases)
+	{
+		FOpenMobileAdsRevenue Revenue;
+		Revenue.Source = SourceCase.Source;
+		Revenue.NormalizeSource();
+		TestEqual(
+			FString::Printf(TEXT("%s source emptiness is explicit"), SourceCase.Label),
+			Revenue.Source.IsEmpty(),
+			SourceCase.bExpectedEmpty
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s source name remains exact"), SourceCase.Label),
+			Revenue.Source.SourceName,
+			SourceCase.Source.SourceName
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s source ID remains exact"), SourceCase.Label),
+			Revenue.Source.SourceId,
+			SourceCase.Source.SourceId
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s adapter remains exact"), SourceCase.Label),
+			Revenue.Source.AdapterClassName,
+			SourceCase.Source.AdapterClassName
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s instance name remains exact"), SourceCase.Label),
+			Revenue.Source.InstanceName,
+			SourceCase.Source.InstanceName
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s instance ID remains exact"), SourceCase.Label),
+			Revenue.Source.InstanceId,
+			SourceCase.Source.InstanceId
+		);
+		TestEqual(
+			FString::Printf(TEXT("%s network alias is normalized"), SourceCase.Label),
+			Revenue.Network,
+			SourceCase.Source.SourceName
+		);
+	}
+
+	TestTrue(
+		TEXT("Missing source IDs remain unavailable"),
+		Cases[2].Source.InstanceId.IsEmpty()
+	);
+	TestTrue(
+		TEXT("A source display name is not parsed into an ID"),
+		Cases[3].Source.SourceId.IsEmpty()
+	);
+
+	const FProperty* SourceProperty =
+		FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(TEXT("Source"));
+	TestNotNull(TEXT("Revenue source is reflected"), SourceProperty);
+	if (SourceProperty)
+	{
+		TestTrue(
+			TEXT("Revenue source is visible to Blueprint"),
+			SourceProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+
+	for (const FName PropertyName : {
+		FName(TEXT("SourceName")),
+		FName(TEXT("SourceId")),
+		FName(TEXT("AdapterClassName")),
+		FName(TEXT("InstanceName")),
+		FName(TEXT("InstanceId"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsRevenueSource::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(TEXT("Revenue source field %s is reflected"), *PropertyName.ToString()),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("Revenue source fields are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+	return true;
+}
+
 #endif
