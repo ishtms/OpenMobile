@@ -3890,7 +3890,19 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
 	RevenuePaid.bHasRevenue = true;
 	RevenuePaid.Revenue.ValueMicros = 0;
+	RevenuePaid.Revenue.CurrencyCode = TEXT("uSd");
 	ShowSink->Submit(MoveTemp(RevenuePaid));
+	FOpenMobileAdsEvent MissingCurrencyRevenue;
+	MissingCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+	MissingCurrencyRevenue.bHasRevenue = true;
+	MissingCurrencyRevenue.Revenue.ValueMicros = 1;
+	ShowSink->Submit(MoveTemp(MissingCurrencyRevenue));
+	FOpenMobileAdsEvent MalformedCurrencyRevenue;
+	MalformedCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
+	MalformedCurrencyRevenue.bHasRevenue = true;
+	MalformedCurrencyRevenue.Revenue.ValueMicros = 2;
+	MalformedCurrencyRevenue.Revenue.CurrencyCode = TEXT("U1D");
+	ShowSink->Submit(MoveTemp(MalformedCurrencyRevenue));
 	FOpenMobileAdsEvent RewardEarned;
 	RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
 	ShowSink->Submit(MoveTemp(RewardEarned));
@@ -3908,6 +3920,8 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		EOpenMobileAdsEventType::Shown,
 		EOpenMobileAdsEventType::Impression,
 		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RewardEarned,
 		EOpenMobileAdsEventType::Dismissed
@@ -3939,6 +3953,21 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 			TEXT("Reported zero revenue keeps its exact amount"),
 			Events[4].Revenue.ValueMicros,
 			static_cast<int64>(0)
+		);
+		TestTrue(
+			TEXT("Provider currency is normalized at the service boundary"),
+			Events[4].Revenue.CurrencyCode.Equals(
+				TEXT("USD"),
+				ESearchCase::CaseSensitive
+			)
+		);
+		TestTrue(
+			TEXT("Missing provider currency remains unavailable"),
+			Events[5].Revenue.CurrencyCode.IsEmpty()
+		);
+		TestTrue(
+			TEXT("Malformed provider currency remains unavailable"),
+			Events[6].Revenue.CurrencyCode.IsEmpty()
 		);
 	}
 

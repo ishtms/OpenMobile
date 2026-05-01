@@ -30,6 +30,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 		int64& OutValueMicros
 	);
 
+	static bool TryNormalizeCurrencyCode(
+		const FString& ProviderCurrencyCode,
+		FString& OutCurrencyCode
+	);
+
 	UPROPERTY(
 		BlueprintReadOnly,
 		Category = "Open Mobile|Ads",
@@ -37,7 +42,11 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 	)
 	int64 ValueMicros = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Uppercase three-letter ISO 4217 currency code, or empty when unavailable or invalid.")
+	)
 	FString CurrencyCode;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

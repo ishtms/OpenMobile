@@ -47,3 +47,38 @@ bool FOpenMobileAdsRevenue::TryScaleToMicros(
 	OutValueMicros = ProviderValue * MicrosPerProviderUnit;
 	return true;
 }
+
+bool FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(
+	const FString& ProviderCurrencyCode,
+	FString& OutCurrencyCode
+)
+{
+	if (ProviderCurrencyCode.Len() != 3)
+	{
+		OutCurrencyCode.Reset();
+		return false;
+	}
+
+	TCHAR NormalizedCode[3];
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(NormalizedCode); ++Index)
+	{
+		const TCHAR Character = ProviderCurrencyCode[Index];
+		if (Character >= TEXT('A') && Character <= TEXT('Z'))
+		{
+			NormalizedCode[Index] = Character;
+		}
+		else if (Character >= TEXT('a') && Character <= TEXT('z'))
+		{
+			NormalizedCode[Index] = Character - TEXT('a') + TEXT('A');
+		}
+		else
+		{
+			OutCurrencyCode.Reset();
+			return false;
+		}
+	}
+
+	OutCurrencyCode.Reset();
+	OutCurrencyCode.AppendChars(NormalizedCode, UE_ARRAY_COUNT(NormalizedCode));
+	return true;
+}

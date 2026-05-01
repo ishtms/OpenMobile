@@ -401,4 +401,74 @@ bool FOpenMobileAdsRevenueAmountContractTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRevenueCurrencyContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.Currency",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRevenueCurrencyContractTest::RunTest(const FString& Parameters)
+{
+	FString CurrencyCode = TEXT("stale");
+	TestTrue(
+		TEXT("Lowercase ISO currency codes are accepted"),
+		FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(TEXT("usd"), CurrencyCode)
+	);
+	TestTrue(
+		TEXT("Currency codes are normalized to uppercase"),
+		CurrencyCode.Equals(TEXT("USD"), ESearchCase::CaseSensitive)
+	);
+	CurrencyCode = TEXT("gBp");
+	TestTrue(
+		TEXT("Currency normalization supports in-place use"),
+		FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(CurrencyCode, CurrencyCode)
+	);
+	TestTrue(
+		TEXT("In-place currency normalization preserves the normalized value"),
+		CurrencyCode.Equals(TEXT("GBP"), ESearchCase::CaseSensitive)
+	);
+
+	CurrencyCode = TEXT("stale");
+	TestFalse(
+		TEXT("Missing currency remains unavailable"),
+		FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(TEXT(""), CurrencyCode)
+	);
+	TestTrue(TEXT("Missing currency does not invent a value"), CurrencyCode.IsEmpty());
+
+	const TCHAR* MalformedCodes[] = {
+		TEXT("US"),
+		TEXT("USDD"),
+		TEXT("U1D"),
+		TEXT(" USD"),
+		TEXT("\u20acUR")
+	};
+	for (const TCHAR* MalformedCode : MalformedCodes)
+	{
+		CurrencyCode = TEXT("stale");
+		TestFalse(
+			TEXT("Malformed currency codes are rejected"),
+			FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(
+				MalformedCode,
+				CurrencyCode
+			)
+		);
+		TestTrue(
+			TEXT("Malformed currency codes remain unavailable"),
+			CurrencyCode.IsEmpty()
+		);
+	}
+
+	const FProperty* CurrencyProperty =
+		FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(TEXT("CurrencyCode"));
+	TestNotNull(TEXT("Revenue currency is reflected"), CurrencyProperty);
+	if (CurrencyProperty)
+	{
+		TestTrue(
+			TEXT("Revenue currency is visible to Blueprint"),
+			CurrencyProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+	return true;
+}
+
 #endif

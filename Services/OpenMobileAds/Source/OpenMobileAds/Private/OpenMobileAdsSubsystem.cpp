@@ -639,6 +639,15 @@ namespace OpenMobileAdsPrivate
 			Event.Placement = Placement;
 			Event.Format = Format;
 			Event.RequestId = RequestId;
+			if (Event.Type == EOpenMobileAdsEventType::RevenuePaid)
+			{
+				FString NormalizedCurrencyCode;
+				FOpenMobileAdsRevenue::TryNormalizeCurrencyCode(
+					Event.Revenue.CurrencyCode,
+					NormalizedCurrencyCode
+				);
+				Event.Revenue.CurrencyCode = MoveTemp(NormalizedCurrencyCode);
+			}
 			if (CachedAdId.IsValid())
 			{
 				Event.CachedAdId = CachedAdId;
