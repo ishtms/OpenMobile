@@ -490,7 +490,8 @@ namespace OpenMobileAdsPrivate
 			FGuid InRequestId,
 			FGuid InCachedAdId = FGuid(),
 			FString InFallbackRewardType = FString(),
-			int64 InFallbackRewardAmount = 0
+			int64 InFallbackRewardAmount = 0,
+			FGuid InImpressionId = FGuid()
 		)
 			: Dispatcher(MoveTemp(InDispatcher))
 			, Provider(InProvider)
@@ -501,6 +502,7 @@ namespace OpenMobileAdsPrivate
 			, CachedAdId(InCachedAdId)
 			, FallbackRewardType(MoveTemp(InFallbackRewardType))
 			, FallbackRewardAmount(InFallbackRewardAmount)
+			, ImpressionId(InImpressionId)
 		{
 		}
 
@@ -509,11 +511,15 @@ namespace OpenMobileAdsPrivate
 			bool bForward = false;
 			{
 				FScopeLock Lock(&Mutex);
-				if (!bValid || !TryAcceptEvent(Event))
+				if (!bValid)
 				{
 					return;
 				}
 				Normalize(Event);
+				if (!TryAcceptEvent(Event))
+				{
+					return;
+				}
 				if (!bCommitted)
 				{
 					PendingEvents.Add(MoveTemp(Event));
@@ -550,7 +556,22 @@ namespace OpenMobileAdsPrivate
 		}
 
 	private:
-		bool TryAcceptEvent(const FOpenMobileAdsEvent& Event)
+		static bool IsSameRevenueReport(
+			const FOpenMobileAdsRevenue& Left,
+			const FOpenMobileAdsRevenue& Right
+		)
+		{
+			return Left.ValueMicros == Right.ValueMicros
+				&& Left.CurrencyCode == Right.CurrencyCode
+				&& Left.Precision == Right.Precision
+				&& Left.Source.SourceName == Right.Source.SourceName
+				&& Left.Source.SourceId == Right.Source.SourceId
+				&& Left.Source.AdapterClassName == Right.Source.AdapterClassName
+				&& Left.Source.InstanceName == Right.Source.InstanceName
+				&& Left.Source.InstanceId == Right.Source.InstanceId;
+		}
+
+		bool TryAcceptEvent(FOpenMobileAdsEvent& Event)
 		{
 			const EOpenMobileAdsEventType Type = Event.Type;
 			if (
@@ -615,8 +636,20 @@ namespace OpenMobileAdsPrivate
 
 			case EOpenMobileAdsEventType::Impression:
 			case EOpenMobileAdsEventType::Clicked:
-			case EOpenMobileAdsEventType::RevenuePaid:
 			case EOpenMobileAdsEventType::Refreshed:
+				return true;
+
+			case EOpenMobileAdsEventType::RevenuePaid:
+				for (const FOpenMobileAdsRevenue& Accepted : RevenueReports)
+				{
+					if (IsSameRevenueReport(Accepted, Event.Revenue))
+					{
+						return false;
+					}
+				}
+				Event.Revenue.Revision = RevenueReports.Num() + 1;
+				Event.Revenue.bIsUpdate = !RevenueReports.IsEmpty();
+				RevenueReports.Add(Event.Revenue);
 				return true;
 
 			case EOpenMobileAdsEventType::Dismissed:
@@ -639,6 +672,7 @@ namespace OpenMobileAdsPrivate
 			Event.Placement = Placement;
 			Event.Format = Format;
 			Event.RequestId = RequestId;
+			Event.ImpressionId = ImpressionId;
 			if (Event.Type == EOpenMobileAdsEventType::RevenuePaid)
 			{
 				FString NormalizedCurrencyCode;
@@ -742,6 +776,8 @@ namespace OpenMobileAdsPrivate
 		FGuid CachedAdId;
 		FString FallbackRewardType;
 		int64 FallbackRewardAmount = 0;
+		FGuid ImpressionId;
+		TArray<FOpenMobileAdsRevenue> RevenueReports;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
 		bool bRewardSubmitted = false;
@@ -3586,6 +3622,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 	Request.Format = Status->Format;
 	Request.BannerLayout = ResolvedPlacement.BannerLayout;
 	Request.Options = MoveTemp(Options);
+	const FGuid ImpressionId = FGuid::NewGuid();
 	const bool bUsesFullscreenLifecycle =
 		OpenMobileAdsPrivate::UsesFullscreenLifecycle(Request.Format);
 	const bool bReserved = !bUsesFullscreenLifecycle || (FullscreenLifecycle
@@ -3631,7 +3668,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			Status->ActiveRequestId,
 			Status->CachedAdId,
 			ResolvedPlacement.FallbackRewardType,
-			ResolvedPlacement.FallbackRewardAmount
+			ResolvedPlacement.FallbackRewardAmount,
+			ImpressionId
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();
@@ -3677,6 +3715,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 	Accepted.Provider = Status->Provider;
 	Accepted.RequestId = Status->ActiveRequestId;
 	Accepted.CachedAdId = Status->CachedAdId;
+	Accepted.ImpressionId = ImpressionId;
 	SubmitServiceEvent(MoveTemp(Accepted));
 	Sink->Commit();
 	return FOpenMobileAdsOperationResult::Accepted(Status->ActiveRequestId);

@@ -3866,6 +3866,22 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	FOpenMobileAdsEvent Shown;
 	Shown.Type = EOpenMobileAdsEventType::Shown;
 	ShowSink->Submit(MoveTemp(Shown));
+	FOpenMobileAdsEvent RevenuePaid;
+	RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
+	RevenuePaid.bHasRevenue = true;
+	RevenuePaid.Revenue.ValueMicros = 0;
+	RevenuePaid.Revenue.CurrencyCode = TEXT("uSd");
+	RevenuePaid.Revenue.Precision = EOpenMobileAdsRevenuePrecision::Estimated;
+	RevenuePaid.Revenue.Source.SourceName = TEXT("Example Network");
+	RevenuePaid.Revenue.Source.SourceId = TEXT("source-42");
+	RevenuePaid.Revenue.Source.AdapterClassName = TEXT("com.example.ads.Adapter");
+	RevenuePaid.Revenue.Source.InstanceName = TEXT("Example bidding instance");
+	RevenuePaid.Revenue.Source.InstanceId = TEXT("instance-7");
+	RevenuePaid.Revenue.Revision = 99;
+	RevenuePaid.Revenue.bIsUpdate = true;
+	const FGuid ProviderRevenueImpressionId = FGuid::NewGuid();
+	RevenuePaid.ImpressionId = ProviderRevenueImpressionId;
+	ShowSink->Submit(RevenuePaid);
 	FOpenMobileAdsEvent Impression;
 	Impression.Type = EOpenMobileAdsEventType::Impression;
 	Impression.Placement = TEXT("WrongPlacement");
@@ -3886,18 +3902,12 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	NegativeRevenue.bHasRevenue = true;
 	NegativeRevenue.Revenue.ValueMicros = -1;
 	ShowSink->Submit(MoveTemp(NegativeRevenue));
-	FOpenMobileAdsEvent RevenuePaid;
-	RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
-	RevenuePaid.bHasRevenue = true;
-	RevenuePaid.Revenue.ValueMicros = 0;
-	RevenuePaid.Revenue.CurrencyCode = TEXT("uSd");
-	RevenuePaid.Revenue.Precision = EOpenMobileAdsRevenuePrecision::Estimated;
-	RevenuePaid.Revenue.Source.SourceName = TEXT("Example Network");
-	RevenuePaid.Revenue.Source.SourceId = TEXT("source-42");
-	RevenuePaid.Revenue.Source.AdapterClassName = TEXT("com.example.ads.Adapter");
-	RevenuePaid.Revenue.Source.InstanceName = TEXT("Example bidding instance");
-	RevenuePaid.Revenue.Source.InstanceId = TEXT("instance-7");
-	ShowSink->Submit(MoveTemp(RevenuePaid));
+	FOpenMobileAdsEvent DuplicateRevenue = RevenuePaid;
+	DuplicateRevenue.Revenue.CurrencyCode = TEXT("USD");
+	DuplicateRevenue.Revenue.Source.SourceName.Reset();
+	DuplicateRevenue.Revenue.Network = TEXT("Example Network");
+	DuplicateRevenue.Revenue.Revision = 500;
+	ShowSink->Submit(MoveTemp(DuplicateRevenue));
 	FOpenMobileAdsEvent MissingCurrencyRevenue;
 	MissingCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
 	MissingCurrencyRevenue.bHasRevenue = true;
@@ -3929,9 +3939,9 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	const EOpenMobileAdsEventType ExpectedTypes[] = {
 		EOpenMobileAdsEventType::ShowAccepted,
 		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::Impression,
 		EOpenMobileAdsEventType::Clicked,
-		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RewardEarned,
@@ -3950,7 +3960,52 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 			}
 		}
 
-		const FOpenMobileAdsEvent& ImpressionEvent = Events[2];
+		const FOpenMobileAdsEvent& RevenueEvent = Events[2];
+		const FOpenMobileAdsEvent& ImpressionEvent = Events[3];
+		TestTrue(
+			TEXT("The service assigns one impression identity"),
+			RevenueEvent.ImpressionId.IsValid()
+		);
+		TestNotEqual(
+			TEXT("Provider impression identities cannot replace the service identity"),
+			RevenueEvent.ImpressionId,
+			ProviderRevenueImpressionId
+		);
+		TestEqual(
+			TEXT("Revenue before the impression callback remains correlated"),
+			RevenueEvent.ImpressionId,
+			ImpressionEvent.ImpressionId
+		);
+		TestEqual(
+			TEXT("Show acceptance exposes the same impression identity"),
+			Events[0].ImpressionId,
+			RevenueEvent.ImpressionId
+		);
+		TestEqual(
+			TEXT("ILRD preserves the normalized placement"),
+			RevenueEvent.Placement,
+			FName(TEXT("ImpressionCallback"))
+		);
+		TestEqual(
+			TEXT("ILRD preserves the normalized format"),
+			RevenueEvent.Format,
+			EOpenMobileAdFormat::Rewarded
+		);
+		TestEqual(
+			TEXT("ILRD preserves the normalized provider"),
+			RevenueEvent.Provider,
+			Provider.Name
+		);
+		TestEqual(
+			TEXT("ILRD preserves the show request"),
+			RevenueEvent.RequestId,
+			Show.RequestId
+		);
+		TestEqual(
+			TEXT("ILRD preserves the displayed cache"),
+			RevenueEvent.CachedAdId,
+			CachedAdId
+		);
 		TestEqual(TEXT("The impression has the normalized placement"), ImpressionEvent.Placement, FName(TEXT("ImpressionCallback")));
 		TestEqual(TEXT("The impression has the normalized format"), ImpressionEvent.Format, EOpenMobileAdFormat::Rewarded);
 		TestEqual(TEXT("The impression has the normalized provider"), ImpressionEvent.Provider, Provider.Name);
@@ -3959,15 +4014,15 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		TestEqual(TEXT("The impression has the shown cache ID"), ImpressionEvent.CachedAdId, CachedAdId);
 		TestEqual(TEXT("The impression reports showing state"), ImpressionEvent.PlacementState, EOpenMobileAdPlacementState::Showing);
 		TestTrue(TEXT("The impression has a service timestamp"), ImpressionEvent.Timestamp != FDateTime());
-		TestTrue(TEXT("Reported zero revenue remains present"), Events[4].bHasRevenue);
+		TestTrue(TEXT("Reported zero revenue remains present"), RevenueEvent.bHasRevenue);
 		TestEqual(
 			TEXT("Reported zero revenue keeps its exact amount"),
-			Events[4].Revenue.ValueMicros,
+			RevenueEvent.Revenue.ValueMicros,
 			static_cast<int64>(0)
 		);
 		TestTrue(
 			TEXT("Provider currency is normalized at the service boundary"),
-			Events[4].Revenue.CurrencyCode.Equals(
+			RevenueEvent.Revenue.CurrencyCode.Equals(
 				TEXT("USD"),
 				ESearchCase::CaseSensitive
 			)
@@ -3982,42 +4037,69 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		);
 		TestEqual(
 			TEXT("Known provider precision is preserved"),
-			Events[4].Revenue.Precision,
+			RevenueEvent.Revenue.Precision,
 			EOpenMobileAdsRevenuePrecision::Estimated
 		);
 		TestEqual(
+			TEXT("The first accepted revenue report has revision one"),
+			RevenueEvent.Revenue.Revision,
+			1
+		);
+		TestFalse(
+			TEXT("The first accepted revenue report is not an update"),
+			RevenueEvent.Revenue.bIsUpdate
+		);
+		TestEqual(
+			TEXT("A changed provider report advances the revision"),
+			Events[5].Revenue.Revision,
+			2
+		);
+		TestTrue(
+			TEXT("A changed provider report is marked as an update"),
+			Events[5].Revenue.bIsUpdate
+		);
+		TestEqual(
+			TEXT("A second changed provider report advances the revision"),
+			Events[6].Revenue.Revision,
+			3
+		);
+		TestTrue(
+			TEXT("An updated report may omit optional source IDs"),
+			Events[5].Revenue.Source.SourceId.IsEmpty()
+		);
+		TestEqual(
 			TEXT("Winning source name is preserved"),
-			Events[4].Revenue.Source.SourceName,
+			RevenueEvent.Revenue.Source.SourceName,
 			FString(TEXT("Example Network"))
 		);
 		TestEqual(
 			TEXT("Winning source ID is preserved"),
-			Events[4].Revenue.Source.SourceId,
+			RevenueEvent.Revenue.Source.SourceId,
 			FString(TEXT("source-42"))
 		);
 		TestEqual(
 			TEXT("Winning adapter is preserved"),
-			Events[4].Revenue.Source.AdapterClassName,
+			RevenueEvent.Revenue.Source.AdapterClassName,
 			FString(TEXT("com.example.ads.Adapter"))
 		);
 		TestEqual(
 			TEXT("Winning instance name is preserved"),
-			Events[4].Revenue.Source.InstanceName,
+			RevenueEvent.Revenue.Source.InstanceName,
 			FString(TEXT("Example bidding instance"))
 		);
 		TestEqual(
 			TEXT("Winning instance ID is preserved"),
-			Events[4].Revenue.Source.InstanceId,
+			RevenueEvent.Revenue.Source.InstanceId,
 			FString(TEXT("instance-7"))
 		);
 		TestEqual(
 			TEXT("The normalized source name populates the event network alias"),
-			Events[4].Network,
+			RevenueEvent.Network,
 			FString(TEXT("Example Network"))
 		);
 		TestEqual(
 			TEXT("The normalized source name populates the revenue network alias"),
-			Events[4].Revenue.Network,
+			RevenueEvent.Revenue.Network,
 			FString(TEXT("Example Network"))
 		);
 		TestEqual(

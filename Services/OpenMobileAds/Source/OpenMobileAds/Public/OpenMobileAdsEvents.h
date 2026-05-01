@@ -86,6 +86,13 @@ struct OPENMOBILEADS_API FOpenMobileAdsEvent
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FGuid CachedAdId;
 
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Service-owned identity shared by one impression and its revenue reports.")
+	)
+	FGuid ImpressionId;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FDateTime CacheExpiresAt;
 

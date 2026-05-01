@@ -676,4 +676,62 @@ bool FOpenMobileAdsRevenueSourceContractTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsImpressionRevenueContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.ImpressionLevel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsImpressionRevenueContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	FOpenMobileAdsEvent Event;
+	TestFalse(
+		TEXT("Events do not invent an impression identity"),
+		Event.ImpressionId.IsValid()
+	);
+	TestEqual(
+		TEXT("Unreported revenue has no revision"),
+		Event.Revenue.Revision,
+		0
+	);
+	TestFalse(
+		TEXT("The first revenue report is not an update"),
+		Event.Revenue.bIsUpdate
+	);
+
+	const FProperty* ImpressionIdProperty =
+		FOpenMobileAdsEvent::StaticStruct()->FindPropertyByName(TEXT("ImpressionId"));
+	TestNotNull(TEXT("Impression identity is reflected"), ImpressionIdProperty);
+	if (ImpressionIdProperty)
+	{
+		TestTrue(
+			TEXT("Impression identity is visible to Blueprint"),
+			ImpressionIdProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+
+	for (const FName PropertyName : {
+		FName(TEXT("Revision")),
+		FName(TEXT("bIsUpdate"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(TEXT("ILRD field %s is reflected"), *PropertyName.ToString()),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("ILRD fields are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+	return true;
+}
+
 #endif

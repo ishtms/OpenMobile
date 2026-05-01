@@ -112,6 +112,20 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 	)
 	EOpenMobileAdsRevenuePrecision Precision = EOpenMobileAdsRevenuePrecision::Unknown;
 
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "One-based revision of the accepted revenue report for this impression. Zero means no report.")
+	)
+	int32 Revision = 0;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "True when this changed report supersedes the previous revision for the impression. The amount is not a delta.")
+	)
+	bool bIsUpdate = false;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsRevenueSource Source;
 
