@@ -584,7 +584,7 @@ class OPENMOBILEADS_API UOpenMobileAdsSettings : public UDeveloperSettings
 public:
 	UOpenMobileAdsSettings();
 
-	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
+	virtual FName GetCategoryName() const override { return TEXT("OpenMobile"); }
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile Ads"); }
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Providers")

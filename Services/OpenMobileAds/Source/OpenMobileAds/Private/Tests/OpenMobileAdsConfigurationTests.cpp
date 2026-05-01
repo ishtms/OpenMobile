@@ -777,6 +777,23 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 {
 	using namespace OpenMobileAdsConfigurationTests;
 	UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
+	TestEqual(
+		TEXT("Ads settings use the OpenMobile category"),
+		Settings->GetCategoryName(),
+		FName(TEXT("OpenMobile"))
+	);
+	TestEqual(
+		TEXT("Ads settings keep their own section"),
+		Settings->GetSectionName(),
+		FName(TEXT("OpenMobile Ads"))
+	);
+#if WITH_METADATA
+	TestEqual(
+		TEXT("Ads settings display their section name"),
+		Settings->GetClass()->GetMetaData(TEXT("DisplayName")),
+		FString(TEXT("OpenMobile Ads"))
+	);
+#endif
 	Settings->Placements.Add(MakeRewardedPlacement(
 		TEXT("ContinueReward"),
 		TEXT("android-reward"),

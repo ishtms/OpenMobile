@@ -6,13 +6,13 @@
 #include "OpenMobileAdsAdMobSettings.generated.h"
 
 /** AdMob-owned build, ad-unit, and test-device configuration. */
-UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "AdMob"))
+UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "OpenMobile - AdMob"))
 class OPENMOBILEADSADMOB_API UOpenMobileAdsAdMobSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
-	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
+	virtual FName GetCategoryName() const override { return TEXT("OpenMobile"); }
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile - AdMob"); }
 
 	UPROPERTY(Config, EditAnywhere, Category = "Android")

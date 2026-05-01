@@ -22,6 +22,21 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 	}
 
 	TestEqual(
+		TEXT("AdMob settings use the OpenMobile category"),
+		Settings->GetCategoryName(),
+		FName(TEXT("OpenMobile"))
+	);
+	TestEqual(
+		TEXT("AdMob settings keep their own section"),
+		Settings->GetSectionName(),
+		FName(TEXT("OpenMobile - AdMob"))
+	);
+	TestEqual(
+		TEXT("AdMob settings display their section name"),
+		Settings->GetClass()->GetMetaData(TEXT("DisplayName")),
+		FString(TEXT("OpenMobile - AdMob"))
+	);
+	TestEqual(
 		TEXT("Default test identifiers are valid"),
 		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings).Num(),
 		0
