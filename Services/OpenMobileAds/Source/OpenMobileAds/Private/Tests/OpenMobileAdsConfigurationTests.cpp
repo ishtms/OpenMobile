@@ -517,6 +517,80 @@ bool FOpenMobileAdsMrecConfigurationTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAppOpenConfigurationTest,
+	"OpenMobile.Ads.Configuration.AppOpen",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAppOpenConfigurationTest::RunTest(
+	const FString& Parameters
+)
+{
+	FOpenMobileAdsPlacementSettings Placement;
+	Placement.Placement = TEXT("ForegroundOpen");
+	Placement.Format = EOpenMobileAdFormat::AppOpen;
+	Placement.Android.AdUnitId = TEXT("android-app-open");
+	Placement.IOS.AdUnitId = TEXT("ios-app-open");
+	Placement.AppOpenPolicy.bShowOnColdStart = true;
+	Placement.AppOpenPolicy.bShowOnForeground = true;
+	Placement.AppOpenPolicy.ColdStartPresentationWindowSeconds = 8.0;
+	Placement.AppOpenPolicy.ForegroundPresentationWindowSeconds = 3.0;
+	Placement.AppOpenPolicy.MinimumBackgroundDurationSeconds = 20.0;
+	Placement.AppOpenPolicy.MaximumCacheAgeSeconds = 7200.0;
+	Placement.Android.bOverrideAppOpenPolicy = true;
+	Placement.Android.AppOpenPolicy = Placement.AppOpenPolicy;
+	Placement.Android.AppOpenPolicy.bShowOnColdStart = false;
+	Placement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds = 45.0;
+
+	const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+		EOpenMobileAdsPlatform::Android
+	);
+	const FOpenMobileAdsResolvedPlacement IOS = Placement.Resolve(
+		EOpenMobileAdsPlatform::IOS
+	);
+	TestFalse(
+		TEXT("Android can suppress automatic cold-start presentation"),
+		Android.AppOpenPolicy.bShowOnColdStart
+	);
+	TestEqual(
+		TEXT("Android keeps its minimum background exclusion window"),
+		Android.AppOpenPolicy.MinimumBackgroundDurationSeconds,
+		45.0
+	);
+	TestTrue(
+		TEXT("iOS inherits automatic cold-start presentation"),
+		IOS.AppOpenPolicy.bShowOnColdStart
+	);
+	TestEqual(
+		TEXT("iOS inherits the configured app-open expiration ceiling"),
+		IOS.AppOpenPolicy.MaximumCacheAgeSeconds,
+		7200.0
+	);
+	TestTrue(
+		TEXT("Finite app-open timing policy passes validation"),
+		FOpenMobileAdsConfigurationValidator::Validate({Placement}).IsEmpty()
+	);
+
+	Placement.IOS.bOverrideAppOpenPolicy = true;
+	Placement.IOS.AppOpenPolicy = Placement.AppOpenPolicy;
+	Placement.IOS.AppOpenPolicy.ForegroundPresentationWindowSeconds = -1.0;
+	Placement.IOS.AppOpenPolicy.MaximumCacheAgeSeconds = 0.0;
+	const TArray<FOpenMobileAdsConfigurationIssue> Issues =
+		FOpenMobileAdsConfigurationValidator::Validate({Placement});
+	TestTrue(
+		TEXT("Invalid app-open timing and expiration are rejected"),
+		Issues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+					== EOpenMobileAdsConfigurationIssueCode::InvalidAppOpenPolicy;
+			}
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsPlacementConfigLoadingTest,
 	"OpenMobile.Ads.Configuration.ConfigLoading",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -568,6 +642,9 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.bPreload = true;
 	Placement.MaxRetryAttempts = 1;
 	Placement.CooldownSeconds = 30.0;
+	Placement.AppOpenPolicy.bShowOnColdStart = true;
+	Placement.AppOpenPolicy.ForegroundPresentationWindowSeconds = 4.0;
+	Placement.AppOpenPolicy.MaximumCacheAgeSeconds = 7200.0;
 	Placement.FallbackRewardType = TEXT("gold-token");
 	Placement.FallbackRewardAmount = 25;
 	Placement.FrequencyCap.MaxImpressions = 2;
@@ -575,6 +652,9 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.FrequencyCap.MaxSessionImpressions = 3;
 	Placement.Android.bOverridePreload = true;
 	Placement.Android.bPreload = false;
+	Placement.Android.bOverrideAppOpenPolicy = true;
+	Placement.Android.AppOpenPolicy = Placement.AppOpenPolicy;
+	Placement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds = 75.0;
 	SavedSettings->Placements.Add(Placement);
 	SavedSettings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 
@@ -672,11 +752,16 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Frequency cap window survives restart"), LoadedPlacement.FrequencyCap.WindowSeconds, 60.0);
 		TestEqual(TEXT("Session frequency cap survives restart"), LoadedPlacement.FrequencyCap.MaxSessionImpressions, 3);
 		TestEqual(TEXT("Cooldown survives restart"), LoadedPlacement.CooldownSeconds, 30.0);
+		TestTrue(TEXT("Cold-start app-open policy survives restart"), LoadedPlacement.AppOpenPolicy.bShowOnColdStart);
+		TestEqual(TEXT("App-open foreground window survives restart"), LoadedPlacement.AppOpenPolicy.ForegroundPresentationWindowSeconds, 4.0);
+		TestEqual(TEXT("App-open cache age survives restart"), LoadedPlacement.AppOpenPolicy.MaximumCacheAgeSeconds, 7200.0);
 		TestEqual(TEXT("Reward type fallback survives restart"), LoadedPlacement.FallbackRewardType, FString(TEXT("gold-token")));
 		TestEqual(TEXT("Reward amount fallback survives restart"), LoadedPlacement.FallbackRewardAmount, static_cast<int64>(25));
 		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
 		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
 		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);
+		TestTrue(TEXT("Android app-open override flag survives restart"), LoadedPlacement.Android.bOverrideAppOpenPolicy);
+		TestEqual(TEXT("Android app-open exclusion survives restart"), LoadedPlacement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds, 75.0);
 		TestEqual(TEXT("iOS ID survives restart"), LoadedPlacement.IOS.AdUnitId, FString(TEXT("ios-config")));
 	}
 	return true;

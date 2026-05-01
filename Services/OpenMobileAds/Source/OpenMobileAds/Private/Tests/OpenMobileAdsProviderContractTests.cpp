@@ -3451,6 +3451,196 @@ bool FOpenMobileAdsRewardedInterstitialContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAppOpenLifecycleContractTest,
+	"OpenMobile.Ads.ProviderContract.AppOpen.Lifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAppOpenLifecycleContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->PreloadPolicy.bEnabled = false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("ForegroundOpen");
+	Placement.Format = EOpenMobileAdFormat::AppOpen;
+	Placement.Android.AdUnitId = TEXT("android-app-open");
+	Placement.IOS.AdUnitId = TEXT("ios-app-open");
+	Placement.AppOpenPolicy.bShowOnColdStart = true;
+	Placement.AppOpenPolicy.bShowOnForeground = true;
+	Placement.AppOpenPolicy.ColdStartPresentationWindowSeconds = 5.0;
+	Placement.AppOpenPolicy.ForegroundPresentationWindowSeconds = 3.0;
+	Placement.AppOpenPolicy.MinimumBackgroundDurationSeconds = 20.0;
+	Placement.AppOpenPolicy.MaximumCacheAgeSeconds = 60.0;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities AppOpen;
+	AppOpen.Format = EOpenMobileAdFormat::AppOpen;
+	AppOpen.bCanLoad = true;
+	AppOpen.bCanShow = true;
+	AppOpen.bCanDestroy = true;
+	AppOpen.bSupportsPreload = true;
+	AppOpen.bReportsImpression = true;
+	AppOpen.bReportsDismiss = true;
+	AppOpen.CacheLifetimeSeconds = 14400.0;
+	Provider.Capabilities.Formats.Add(AppOpen);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	const TSharedRef<FControlledAdsClock> Clock =
+		MakeShared<FControlledAdsClock>();
+	FOpenMobileAdsClockTestAccess::SetClock(*Subsystem, Clock);
+	TestTrue(
+		TEXT("The provider initializes before app-open lifecycle checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto LoadAppOpen = [&]()
+	{
+		const FOpenMobileAdsOperationResult Load =
+			Subsystem->LoadAd(TEXT("ForegroundOpen"));
+		TestTrue(TEXT("The app-open placement starts loading"), Load.bAccepted);
+		if (!Load.bAccepted || !Provider.LoadSink)
+		{
+			return;
+		}
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Loaded.Timestamp = Clock->UtcNow();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	};
+
+	LoadAppOpen();
+	TestEqual(
+		TEXT("First-run readiness blocks automatic app-open presentation"),
+		Provider.ShowCalls,
+		0
+	);
+	FOpenMobileAdsAppOpenPresentationState PresentationState;
+	PresentationState.bApplicationReady = true;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	TestEqual(
+		TEXT("Cold start remains blocked without a loading screen"),
+		Provider.ShowCalls,
+		0
+	);
+	PresentationState.bColdStartLoadingScreenVisible = true;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	TestEqual(
+		TEXT("A ready cold-start loading screen presents the cached app-open ad"),
+		Provider.ShowCalls,
+		1
+	);
+	TestEqual(
+		TEXT("Automatic presentation keeps the distinct app-open format"),
+		Provider.LastShowRequest.Format,
+		EOpenMobileAdFormat::AppOpen
+	);
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	}
+
+	PresentationState.bColdStartLoadingScreenVisible = false;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	LoadAppOpen();
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->Advance(19.999);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestEqual(
+		TEXT("A rapid foreground return stays inside the exclusion window"),
+		Provider.ShowCalls,
+		1
+	);
+
+	PresentationState.bPresentationSuppressed = true;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->Advance(20.0);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestEqual(
+		TEXT("Runtime suppression blocks an eligible warm foreground"),
+		Provider.ShowCalls,
+		1
+	);
+	PresentationState.bPresentationSuppressed = false;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	TestEqual(
+		TEXT("Clearing suppression inside the foreground window presents once"),
+		Provider.ShowCalls,
+		2
+	);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->Advance(20.0);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestEqual(
+		TEXT("Returning from an active full-screen ad does not present again"),
+		Provider.ShowCalls,
+		2
+	);
+	if (Provider.ShowSink)
+	{
+		FOpenMobileAdsEvent Dismissed;
+		Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+		Provider.ShowSink->Submit(MoveTemp(Dismissed));
+		DrainGameThreadTasks();
+	}
+
+	LoadAppOpen();
+	TestEqual(
+		TEXT("An ad-click return leaves no late foreground opportunity"),
+		Provider.ShowCalls,
+		2
+	);
+	PresentationState.bPresentationSuppressed = true;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Clock->Advance(20.0);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	Clock->Advance(3.0);
+	PresentationState.bPresentationSuppressed = false;
+	Subsystem->SetAppOpenPresentationState(PresentationState);
+	TestEqual(
+		TEXT("The exact foreground presentation deadline does not show late"),
+		Provider.ShowCalls,
+		2
+	);
+	const FOpenMobileAdsPlacementStatus Fresh =
+		Subsystem->GetPlacementStatus(TEXT("ForegroundOpen"));
+	TestEqual(
+		TEXT("Placement policy shortens the provider cache lifetime"),
+		Fresh.ExpiresAt,
+		Fresh.CachedAt + FTimespan::FromSeconds(60.0)
+	);
+	Clock->Advance(37.0);
+	FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
+	TestFalse(
+		TEXT("The exact app-open expiry boundary is stale"),
+		Subsystem->IsReady(TEXT("ForegroundOpen"))
+	);
+	TestEqual(
+		TEXT("Expired app-open cache is not presented"),
+		Provider.ShowCalls,
+		2
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsShowCallbackContractTest,
 	"OpenMobile.Ads.ProviderContract.Show.Callback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

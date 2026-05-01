@@ -137,6 +137,8 @@ public:
 		int64 RequestId,
 		FString ErrorMessage
 	);
+	static void NativeAppOpenLoadCompleted(int64 RequestId);
+	static void NativeAppOpenLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeBannerLoadCompleted(int64 RequestId);
 	static void NativeBannerLoadFailed(int64 RequestId, FString ErrorMessage);
 	static void NativeBannerShown(int64 RequestId);

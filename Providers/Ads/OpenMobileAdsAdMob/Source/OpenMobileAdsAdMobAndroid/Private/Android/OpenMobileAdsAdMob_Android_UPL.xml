@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=12</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=13</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -105,6 +105,8 @@ import com.google.android.gms.ads.MobileAds;
 import com.google.android.gms.ads.OnPaidEventListener;
 import com.google.android.gms.ads.OnUserEarnedRewardListener;
 import com.google.android.gms.ads.RequestConfiguration;
+import com.google.android.gms.ads.appopen.AppOpenAd;
+import com.google.android.gms.ads.appopen.AppOpenAdLoadCallback;
 import com.google.android.gms.ads.initialization.AdapterStatus;
 import com.google.android.gms.ads.initialization.InitializationStatus;
 import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
@@ -142,6 +144,9 @@ import java.util.Set;
     private final Map&lt;Long, InterstitialAd&gt; openMobileLoadedInterstitialAds =
         new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileInterstitialAdLoadRequests = new HashSet&lt;&gt;();
+    private final Map&lt;Long, AppOpenAd&gt; openMobileLoadedAppOpenAds =
+        new HashMap&lt;&gt;();
+    private final Set&lt;Long&gt; openMobileAppOpenAdLoadRequests = new HashSet&lt;&gt;();
     private final Map&lt;Long, RewardedAd&gt; openMobileLoadedRewardedAds = new HashMap&lt;&gt;();
     private final Set&lt;Long&gt; openMobileRewardedAdLoadRequests = new HashSet&lt;&gt;();
     private final Map&lt;Long, RewardedInterstitialAd&gt;
@@ -238,6 +243,8 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdLoadFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long requestId);
     public native void nativeOpenMobileInterstitialAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileAppOpenAdLoadCompleted(long requestId);
+    public native void nativeOpenMobileAppOpenAdLoadFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileBannerAdLoadCompleted(long requestId);
     public native void nativeOpenMobileBannerAdLoadFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileBannerAdShown(long requestId);
@@ -1093,6 +1100,8 @@ import java.util.Set;
                 openMobileActiveFullscreenShowRequestId = 0;
                 openMobileLoadedInterstitialAds.clear();
                 openMobileInterstitialAdLoadRequests.clear();
+                openMobileLoadedAppOpenAds.clear();
+                openMobileAppOpenAdLoadRequests.clear();
                 openMobileLoadedRewardedAds.clear();
                 openMobileRewardedAdLoadRequests.clear();
                 openMobileLoadedRewardedInterstitialAds.clear();
@@ -1492,6 +1501,110 @@ import java.util.Set;
         });
     }
 
+    public boolean AndroidThunkJava_LoadOpenMobileAppOpenAd(
+        final String adUnitId,
+        final long requestId,
+        final int dataProcessingMode
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (adUnitId == null || adUnitId.trim().length() == 0)
+                    {
+                        nativeOpenMobileAppOpenAdLoadFailed(
+                            requestId,
+                            "The Android app-open ad unit ID is empty."
+                        );
+                        return;
+                    }
+                    if (
+                        openMobileAppOpenAdLoadRequests.contains(requestId)
+                        || openMobileLoadedAppOpenAds.containsKey(requestId)
+                    )
+                    {
+                        nativeOpenMobileAppOpenAdLoadFailed(
+                            requestId,
+                            "The Android app-open load request is already active."
+                        );
+                        return;
+                    }
+
+                    openMobileAppOpenAdLoadRequests.add(requestId);
+                    applyOpenMobileDataProcessingMode(dataProcessingMode);
+                    try
+                    {
+                        AppOpenAd.load(
+                            activityContext,
+                            adUnitId,
+                            new AdRequest.Builder().build(),
+                            new AppOpenAdLoadCallback()
+                            {
+                                @Override
+                                public void onAdLoaded(AppOpenAd appOpenAd)
+                                {
+                                    if (!openMobileAppOpenAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    openMobileLoadedAppOpenAds.put(requestId, appOpenAd);
+                                    nativeOpenMobileAppOpenAdLoadCompleted(requestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToLoad(LoadAdError loadAdError)
+                                {
+                                    if (!openMobileAppOpenAdLoadRequests.remove(requestId))
+                                    {
+                                        return;
+                                    }
+                                    nativeOpenMobileAppOpenAdLoadFailed(
+                                        requestId,
+                                        "App-open ad failed to load: "
+                                            + loadAdError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileAppOpenAdLoadRequests.remove(requestId);
+                        nativeOpenMobileAppOpenAdLoadFailed(
+                            requestId,
+                            "App-open load could not start: " + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error("OpenMobile app-open load failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public void AndroidThunkJava_CancelOpenMobileAppOpenAdLoad(
+        final long requestId
+    )
+    {
+        GameActivity.this.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                openMobileAppOpenAdLoadRequests.remove(requestId);
+                openMobileLoadedAppOpenAds.remove(requestId);
+            }
+        });
+    }
+
     public boolean AndroidThunkJava_LoadOpenMobileBannerAd(
         final String adUnitId,
         final long requestId,
@@ -1837,6 +1950,125 @@ import java.util.Set;
         {
             Log.error(
                 "OpenMobile cached interstitial could not be scheduled: "
+                    + exception.getMessage()
+            );
+            return false;
+        }
+    }
+
+    public boolean AndroidThunkJava_ShowOpenMobileAppOpenAd(
+        final long loadedRequestId,
+        final long showRequestId
+    )
+    {
+        try
+        {
+            GameActivity.this.runOnUiThread(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    if (
+                        openMobileActiveFullscreenShowRequestId != 0
+                        || openMobileRewardedAdLoading
+                        || openMobileRewardedAd != null
+                    )
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "A full-screen ad is already loading or showing."
+                        );
+                        return;
+                    }
+
+                    final AppOpenAd appOpenAd =
+                        openMobileLoadedAppOpenAds.remove(loadedRequestId);
+                    if (appOpenAd == null)
+                    {
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "The cached Android app-open ad is unavailable or already consumed."
+                        );
+                        return;
+                    }
+
+                    openMobileActiveFullscreenShowRequestId = showRequestId;
+                    try
+                    {
+                        appOpenAd.setFullScreenContentCallback(
+                            new FullScreenContentCallback()
+                            {
+                                @Override
+                                public void onAdShowedFullScreenContent()
+                                {
+                                    nativeOpenMobileRewardedAdShown(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdImpression()
+                                {
+                                    nativeOpenMobileRewardedAdImpression(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdClicked()
+                                {
+                                    nativeOpenMobileRewardedAdClicked(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdDismissedFullScreenContent()
+                                {
+                                    openMobileActiveFullscreenShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdClosed(showRequestId);
+                                }
+
+                                @Override
+                                public void onAdFailedToShowFullScreenContent(
+                                    AdError adError
+                                )
+                                {
+                                    openMobileActiveFullscreenShowRequestId = 0;
+                                    nativeOpenMobileRewardedAdFailed(
+                                        showRequestId,
+                                        "App-open ad failed to show: "
+                                            + adError.getMessage()
+                                    );
+                                }
+                            }
+                        );
+                        appOpenAd.setOnPaidEventListener(new OnPaidEventListener()
+                        {
+                            @Override
+                            public void onPaidEvent(AdValue adValue)
+                            {
+                                nativeOpenMobileRewardedAdRevenuePaid(
+                                    showRequestId,
+                                    adValue.getValueMicros(),
+                                    adValue.getCurrencyCode(),
+                                    adValue.getPrecisionType()
+                                );
+                            }
+                        });
+                        appOpenAd.show(GameActivity.this);
+                    }
+                    catch (Exception exception)
+                    {
+                        openMobileActiveFullscreenShowRequestId = 0;
+                        nativeOpenMobileRewardedAdFailed(
+                            showRequestId,
+                            "App-open ad could not be presented: "
+                                + exception.getMessage()
+                        );
+                    }
+                }
+            });
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log.error(
+                "OpenMobile cached app-open ad could not be scheduled: "
                     + exception.getMessage()
             );
             return false;
@@ -2335,6 +2567,12 @@ import java.util.Set;
         int
     );
     public void AndroidThunkJava_CancelOpenMobileInterstitialAdLoad(long);
+    public boolean AndroidThunkJava_LoadOpenMobileAppOpenAd(
+        java.lang.String,
+        long,
+        int
+    );
+    public void AndroidThunkJava_CancelOpenMobileAppOpenAdLoad(long);
     public boolean AndroidThunkJava_LoadOpenMobileBannerAd(
         java.lang.String,
         long,
@@ -2364,6 +2602,7 @@ import java.util.Set;
     );
     public boolean AndroidThunkJava_HideOpenMobileBannerAd(long, long);
     public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(long, long);
+    public boolean AndroidThunkJava_ShowOpenMobileAppOpenAd(long, long);
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         long,
         long,
@@ -2420,6 +2659,8 @@ import java.util.Set;
     );
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long);
     public native void nativeOpenMobileInterstitialAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileAppOpenAdLoadCompleted(long);
+    public native void nativeOpenMobileAppOpenAdLoadFailed(long, java.lang.String);
     public native void nativeOpenMobileBannerAdLoadCompleted(long);
     public native void nativeOpenMobileBannerAdLoadFailed(long, java.lang.String);
     public native void nativeOpenMobileBannerAdShown(long);

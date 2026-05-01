@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=12", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=13", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -236,6 +236,11 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"openMobileLoadedRewardedInterstitialAds",
 			"AndroidThunkJava_LoadOpenMobileRewardedInterstitialAd",
 			"AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd",
+			"AppOpenAd.load",
+			"openMobileLoadedAppOpenAds",
+			"AndroidThunkJava_LoadOpenMobileAppOpenAd",
+			"AndroidThunkJava_ShowOpenMobileAppOpenAd",
+			"nativeOpenMobileAppOpenAdLoadCompleted",
 			"getSystemWindowInsetLeft()",
 			"getDisplayCutout()",
 			"!entry.bannerReady",
@@ -254,6 +259,9 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"AndroidThunkJava_ShowOpenMobileBannerAd",
 			"AndroidThunkJava_HideOpenMobileBannerAd",
 			"nativeOpenMobileBannerAdOperationFailed",
+			"AndroidThunkJava_LoadOpenMobileAppOpenAd",
+			"AndroidThunkJava_ShowOpenMobileAppOpenAd",
+			"nativeOpenMobileAppOpenAdLoadCompleted",
 		):
 			self.assertIn(token, proguard_additions)
 		pause_additions = ElementTree.tostring(
@@ -541,6 +549,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			android_upl.index("AndroidThunkJava_LoadOpenMobileInterstitialAd"):
 			android_upl.index("AndroidThunkJava_CancelOpenMobileInterstitialAdLoad")
 		]
+		android_app_open_load = android_upl[
+			android_upl.index("AndroidThunkJava_LoadOpenMobileAppOpenAd"):
+			android_upl.index("AndroidThunkJava_CancelOpenMobileAppOpenAdLoad")
+		]
 		self.assertIn("final int dataProcessingMode", android_load)
 		self.assertIn("applyOpenMobileDataProcessingMode", android_load)
 		self.assertIn('putInt("gad_rdp", 1)', android_consent_signals)
@@ -552,6 +564,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertLess(
 			android_interstitial_load.index("applyOpenMobileDataProcessingMode"),
 			android_interstitial_load.index("InterstitialAd.load"),
+		)
+		self.assertLess(
+			android_app_open_load.index("applyOpenMobileDataProcessingMode"),
+			android_app_open_load.index("AppOpenAd.load"),
 		)
 		android_backend = (
 			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
@@ -616,6 +632,11 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"GOpenMobileLoadedRewardedInterstitialAds",
 			"FOpenMobileAdsAdMobIOSBackend::LoadRewardedInterstitialAd",
 			"FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd",
+			"GADAppOpenAd loadWithAdUnitID",
+			"GOpenMobileLoadedAppOpenAds",
+			"OpenMobileAppOpenAdDelegate",
+			"FOpenMobileAdsAdMobIOSBackend::LoadAppOpenAd",
+			"FOpenMobileAdsAdMobIOSBackend::ShowAppOpenAd",
 			"FOpenMobileAdsAdMobIOSBackend::LoadBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::ShowBannerAd",
 			"FOpenMobileAdsAdMobIOSBackend::HideBannerAd",

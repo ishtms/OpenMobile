@@ -252,6 +252,13 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
 				OutError
 			);
+		case EOpenMobileAdFormat::AppOpen:
+			return Backend.LoadAppOpenAd(
+				Request.Placement.AdUnitId,
+				NativeRequestId,
+				Request.PrivacyContext.UsPrivacy.DataProcessingMode,
+				OutError
+			);
 		default:
 			OutError = TEXT("The AdMob native backend does not support this load format.");
 			return false;
@@ -283,6 +290,10 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		else if (Format == EOpenMobileAdFormat::RewardedInterstitial)
 		{
 			Backend.CancelRewardedInterstitialAd(NativeRequestId);
+		}
+		else if (Format == EOpenMobileAdFormat::AppOpen)
+		{
+			Backend.CancelAppOpenAd(NativeRequestId);
 		}
 	}
 
@@ -330,6 +341,14 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 				LoadedRequestId,
 				NativeShowRequestId,
 				Request.Options.ServerVerificationCustomData,
+				OutError
+			);
+		}
+		if (Request.Format == EOpenMobileAdFormat::AppOpen)
+		{
+			return Backend.ShowAppOpenAd(
+				LoadedRequestId,
+				NativeShowRequestId,
 				OutError
 			);
 		}
@@ -1375,6 +1394,50 @@ void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
 		}
 	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(int64 RequestId)
+{
+	OpenMobile::DispatchToGameThread([RequestId]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		FAdLoadOperation Operation;
+		if (RemoveLoadOperationForFormat(
+			RequestId,
+			EOpenMobileAdFormat::AppOpen,
+			Operation
+		))
+		{
+			const FGuid CachedAdId = FGuid::NewGuid();
+			FCachedAdReference Reference;
+			Reference.Format = Operation.Format;
+			Reference.LoadedRequestId = RequestId;
+			LoadedAds.Add(CachedAdId, Reference);
+			Operation.Loaded.ExecuteIfBound(CachedAdId, 0, FString());
+		}
+	});
+}
+
+void FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
+	int64 RequestId,
+	FString ErrorMessage
+)
+{
+	OpenMobile::DispatchToGameThread(
+		[RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+		{
+			using namespace OpenMobileAdsAdMobPlatformPrivate;
+			FAdLoadOperation Operation;
+			if (RemoveLoadOperationForFormat(
+				RequestId,
+				EOpenMobileAdFormat::AppOpen,
+				Operation
+			))
+			{
+				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+			}
+		}
+	);
 }
 
 void FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(int64 RequestId)

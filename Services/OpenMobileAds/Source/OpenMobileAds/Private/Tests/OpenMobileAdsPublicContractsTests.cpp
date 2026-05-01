@@ -61,6 +61,20 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 		RewardedInterstitialShow.bRewardedInterstitialIntroductionPresented
 	);
 
+	FOpenMobileAdsAppOpenPresentationState AppOpenPresentation;
+	TestFalse(
+		TEXT("Automatic app-open presentation waits for application readiness"),
+		AppOpenPresentation.bApplicationReady
+	);
+	TestFalse(
+		TEXT("Cold-start app-open presentation requires a visible loading screen"),
+		AppOpenPresentation.bColdStartLoadingScreenVisible
+	);
+	TestFalse(
+		TEXT("App-open presentation is not explicitly suppressed by default"),
+		AppOpenPresentation.bPresentationSuppressed
+	);
+
 	FOpenMobileAdsPlacementStatus RewardedInterstitialStatus;
 	RewardedInterstitialStatus.Format = EOpenMobileAdFormat::RewardedInterstitial;
 	RewardedInterstitialStatus.bHasRewardMetadata = true;

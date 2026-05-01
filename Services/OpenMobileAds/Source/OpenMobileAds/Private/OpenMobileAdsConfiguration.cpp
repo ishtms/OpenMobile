@@ -153,6 +153,19 @@ namespace OpenMobileAdsConfigurationPrivate
 				TEXT("Persistent ad margins and available width must be finite and non-negative.")
 			);
 		}
+
+		if (
+			Placement.Format == EOpenMobileAdFormat::AppOpen
+			&& !Placement.AppOpenPolicy.IsValid()
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidAppOpenPolicy,
+				Placement.Placement,
+				TEXT("App-open presentation windows and minimum background duration must be finite and non-negative, and maximum cache age must be finite and positive.")
+			);
+		}
 	}
 }
 
@@ -183,6 +196,18 @@ bool FOpenMobileAdsPreloadPolicy::IsValid() const
 		&& TriggerDelaySeconds >= 0.0
 		&& FMath::IsFinite(RecoverableFailureDelaySeconds)
 		&& RecoverableFailureDelaySeconds >= 1.0;
+}
+
+bool FOpenMobileAdsAppOpenPolicy::IsValid() const
+{
+	return FMath::IsFinite(ColdStartPresentationWindowSeconds)
+		&& ColdStartPresentationWindowSeconds >= 0.0
+		&& FMath::IsFinite(ForegroundPresentationWindowSeconds)
+		&& ForegroundPresentationWindowSeconds >= 0.0
+		&& FMath::IsFinite(MinimumBackgroundDurationSeconds)
+		&& MinimumBackgroundDurationSeconds >= 0.0
+		&& FMath::IsFinite(MaximumCacheAgeSeconds)
+		&& MaximumCacheAgeSeconds > 0.0;
 }
 
 UOpenMobileAdsSettings::UOpenMobileAdsSettings()
@@ -246,6 +271,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.RefreshIntervalSeconds = RefreshIntervalSeconds;
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
+	Result.AppOpenPolicy = AppOpenPolicy;
 	Result.HideCachePolicy = HideCachePolicy;
 	Result.BannerLayout = BannerLayout;
 	Result.FallbackRewardType = FallbackRewardType;
@@ -279,6 +305,9 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.CooldownSeconds = Override->bOverrideCooldown
 		? Override->CooldownSeconds
 		: Result.CooldownSeconds;
+	Result.AppOpenPolicy = Override->bOverrideAppOpenPolicy
+		? Override->AppOpenPolicy
+		: Result.AppOpenPolicy;
 	Result.BannerLayout = Override->bOverrideBannerLayout
 		? Override->BannerLayout
 		: Result.BannerLayout;

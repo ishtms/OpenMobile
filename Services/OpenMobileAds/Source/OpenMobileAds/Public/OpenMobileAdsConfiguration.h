@@ -270,6 +270,56 @@ struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsAppOpenPolicy
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bShowOnColdStart = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bShowOnForeground = true;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double ColdStartPresentationWindowSeconds = 5.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double ForegroundPresentationWindowSeconds = 2.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.0", Units = "s")
+	)
+	double MinimumBackgroundDurationSeconds = 30.0;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ClampMin = "0.001", Units = "s")
+	)
+	double MaximumCacheAgeSeconds = 14400.0;
+
+	bool IsValid() const;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 {
 	GENERATED_BODY()
@@ -306,6 +356,12 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideCooldown", ClampMin = "0.0"))
 	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideAppOpenPolicy = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideAppOpenPolicy"))
+	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	bool bOverrideBannerLayout = false;
@@ -345,6 +401,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	double CooldownSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
@@ -388,6 +447,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	double CooldownSeconds = 0.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
@@ -470,7 +532,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidConvenienceRewardedPlacement,
 	InvalidPlacementRetryLimit,
 	InvalidPreloadPolicy,
-	InvalidBannerLayout
+	InvalidBannerLayout,
+	InvalidAppOpenPolicy
 };
 
 USTRUCT(BlueprintType)

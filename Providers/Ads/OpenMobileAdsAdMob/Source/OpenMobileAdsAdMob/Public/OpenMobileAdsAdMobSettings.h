@@ -215,6 +215,26 @@ public:
 		return FString();
 	}
 
+	FString ResolveAppOpenAdUnitId(
+		EOpenMobileAdsPlatform Platform,
+		bool bUseTestAdUnitId
+	) const
+	{
+		if (!bUseTestAdUnitId)
+		{
+			return FString();
+		}
+		if (Platform == EOpenMobileAdsPlatform::Android)
+		{
+			return TEXT("ca-app-pub-3940256099942544/9257395921");
+		}
+		if (Platform == EOpenMobileAdsPlatform::IOS)
+		{
+			return TEXT("ca-app-pub-3940256099942544/5575463023");
+		}
+		return FString();
+	}
+
 	FString ResolveBannerAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId

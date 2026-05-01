@@ -127,6 +127,19 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool LoadAppOpenAd(
+			const FString& AdUnitId,
+			int64 RequestId,
+			EOpenMobileAdsDataProcessingMode DataProcessingMode,
+			FString& OutError
+		) override
+		{
+			AppOpenLoadedAdUnitIds.Add(AdUnitId);
+			AppOpenLoadRequestIds.Add(RequestId);
+			AppOpenLoadDataProcessingModes.Add(DataProcessingMode);
+			return true;
+		}
+
 		virtual bool LoadBannerAd(
 			const FString& AdUnitId,
 			int64 RequestId,
@@ -157,6 +170,11 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual void CancelRewardedInterstitialAd(int64 RequestId) override
 		{
 			CancelledRewardedInterstitialRequestIds.Add(RequestId);
+		}
+
+		virtual void CancelAppOpenAd(int64 RequestId) override
+		{
+			CancelledAppOpenRequestIds.Add(RequestId);
 		}
 
 		virtual void CancelBannerAd(int64 RequestId) override
@@ -205,6 +223,18 @@ namespace OpenMobileAdsAdMobTestAdTests
 			return true;
 		}
 
+		virtual bool ShowAppOpenAd(
+			int64 LoadedRequestId,
+			int64 InShowRequestId,
+			FString& OutError
+		) override
+		{
+			++AppOpenShowCalls;
+			ShownAppOpenLoadedRequestId = LoadedRequestId;
+			AppOpenShowRequestId = InShowRequestId;
+			return true;
+		}
+
 		virtual bool ShowBannerAd(
 			int64 LoadedRequestId,
 			int64 InShowRequestId,
@@ -249,6 +279,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int32 ShowCalls = 0;
 		int32 InterstitialShowCalls = 0;
 		int32 RewardedInterstitialShowCalls = 0;
+		int32 AppOpenShowCalls = 0;
 		int32 BannerShowCalls = 0;
 		int32 BannerHideCalls = 0;
 		int32 ConsentRefreshCalls = 0;
@@ -265,6 +296,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 		int64 InterstitialShowRequestId = 0;
 		int64 ShownRewardedInterstitialLoadedRequestId = 0;
 		int64 RewardedInterstitialShowRequestId = 0;
+		int64 ShownAppOpenLoadedRequestId = 0;
+		int64 AppOpenShowRequestId = 0;
 		int64 ShownBannerLoadedRequestId = 0;
 		int64 HiddenBannerLoadedRequestId = 0;
 		int64 BannerShowRequestId = 0;
@@ -283,22 +316,26 @@ namespace OpenMobileAdsAdMobTestAdTests
 		TArray<FString> LoadedAdUnitIds;
 		TArray<FString> InterstitialLoadedAdUnitIds;
 		TArray<FString> RewardedInterstitialLoadedAdUnitIds;
+		TArray<FString> AppOpenLoadedAdUnitIds;
 		TArray<FString> BannerLoadedAdUnitIds;
 		bool bAcceptConsentReset = true;
 		TArray<int64> LoadRequestIds;
 		TArray<int64> InterstitialLoadRequestIds;
 		TArray<int64> RewardedInterstitialLoadRequestIds;
+		TArray<int64> AppOpenLoadRequestIds;
 		TArray<int64> BannerLoadRequestIds;
 		TArray<EOpenMobileAdsDataProcessingMode> LoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> InterstitialLoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode>
 			RewardedInterstitialLoadDataProcessingModes;
+		TArray<EOpenMobileAdsDataProcessingMode> AppOpenLoadDataProcessingModes;
 		TArray<EOpenMobileAdsDataProcessingMode> BannerLoadDataProcessingModes;
 		TArray<EOpenMobileAdFormat> BannerLoadFormats;
 		TArray<FOpenMobileAdsBannerLayout> BannerLoadLayouts;
 		TArray<int64> CancelledRequestIds;
 		TArray<int64> CancelledInterstitialRequestIds;
 		TArray<int64> CancelledRewardedInterstitialRequestIds;
+		TArray<int64> CancelledAppOpenRequestIds;
 		TArray<int64> CancelledBannerRequestIds;
 	};
 
@@ -2162,6 +2199,272 @@ bool FOpenMobileAdsAdMobRewardedInterstitialContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobAppOpenContractTest,
+	"OpenMobile.Ads.AdMob.AppOpen.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobAppOpenContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+	Provider->Shutdown();
+
+	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
+		Provider->GetCapabilities();
+	const FOpenMobileAdFormatCapabilities* Capabilities =
+		ProviderCapabilities.FindFormat(EOpenMobileAdFormat::AppOpen);
+	TestNotNull(TEXT("AdMob reports app-open capabilities"), Capabilities);
+	if (!Capabilities)
+	{
+		return false;
+	}
+	TestTrue(TEXT("App-open ads can load"), Capabilities->bCanLoad);
+	TestTrue(TEXT("App-open ads can show"), Capabilities->bCanShow);
+	TestTrue(TEXT("App-open ads can be destroyed"), Capabilities->bCanDestroy);
+	TestTrue(TEXT("App-open ads can preload"), Capabilities->bSupportsPreload);
+	TestTrue(TEXT("App-open ads report impressions"), Capabilities->bReportsImpression);
+	TestTrue(TEXT("App-open ads report clicks"), Capabilities->bReportsClick);
+	TestTrue(TEXT("App-open ads report dismissal"), Capabilities->bReportsDismiss);
+	TestTrue(TEXT("App-open ads report revenue"), Capabilities->bReportsRevenue);
+	TestFalse(TEXT("App-open ads do not report rewards"), Capabilities->bReportsReward);
+	TestEqual(
+		TEXT("App-open cache lifetime matches the SDK freshness limit"),
+		Capabilities->CacheLifetimeSeconds,
+		60.0 * 60.0 * 4.0
+	);
+	TestEqual(
+		TEXT("Development mode has Google's iOS app-open test ID"),
+		ScopedSettings.Settings->ResolveAppOpenAdUnitId(
+			EOpenMobileAdsPlatform::IOS,
+			true
+		),
+		FString(TEXT("ca-app-pub-3940256099942544/5575463023"))
+	);
+
+	FOpenMobileAdsInitializationRequest Initialization;
+	Initialization.RequestId = FGuid::NewGuid();
+	Initialization.Platform = EOpenMobileAdsPlatform::Android;
+	Initialization.Development =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(true);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> InitializationSink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	TestTrue(
+		TEXT("AdMob initializes before app-open loading"),
+		Provider->Initialize(Initialization, InitializationSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+		Backend.InitializationRequestId
+	);
+
+	FOpenMobileAdsLoadRequest Load;
+	Load.RequestId = FGuid::NewGuid();
+	Load.Placement.Placement = TEXT("ForegroundAppOpen");
+	Load.Placement.Format = EOpenMobileAdFormat::AppOpen;
+	Load.Placement.AdUnitId = TEXT("production-app-open");
+	Load.PrivacyContext.UsPrivacy.DataProcessingMode =
+		EOpenMobileAdsDataProcessingMode::Restricted;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> LoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob starts an app-open load"),
+		Provider->Load(Load, LoadSink, Error)
+	);
+	TestEqual(
+		TEXT("App-open loading uses its own native path"),
+		Backend.AppOpenLoadRequestIds.Num(),
+		1
+	);
+	if (Backend.AppOpenLoadRequestIds.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestEqual(
+		TEXT("Development mode uses Google's Android app-open test ID"),
+		Backend.AppOpenLoadedAdUnitIds[0],
+		FString(TEXT("ca-app-pub-3940256099942544/9257395921"))
+	);
+	TestEqual(
+		TEXT("App-open loading preserves the current privacy mode"),
+		Backend.AppOpenLoadDataProcessingModes[0],
+		EOpenMobileAdsDataProcessingMode::Restricted
+	);
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(
+		Backend.AppOpenLoadRequestIds[0]
+	);
+	TestEqual(TEXT("App-open loading completes once"), LoadSink->Events.Num(), 1);
+	if (LoadSink->Events.Num() != 1)
+	{
+		Provider->Shutdown();
+		return false;
+	}
+	TestEqual(
+		TEXT("App-open loading emits Loaded"),
+		LoadSink->Events[0].Type,
+		EOpenMobileAdsEventType::Loaded
+	);
+
+	FOpenMobileAdsShowRequest Show;
+	Show.RequestId = FGuid::NewGuid();
+	Show.CachedAdId = LoadSink->Events[0].CachedAdId;
+	Show.Placement = Load.Placement.Placement;
+	Show.Format = EOpenMobileAdFormat::AppOpen;
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("AdMob shows the exact cached app-open ad"),
+		Provider->Show(Show, ShowSink, Error)
+	);
+	TestEqual(
+		TEXT("App-open showing uses its own native path"),
+		Backend.AppOpenShowCalls,
+		1
+	);
+	TestEqual(
+		TEXT("App-open showing consumes its matching native cache"),
+		Backend.ShownAppOpenLoadedRequestId,
+		Backend.AppOpenLoadRequestIds[0]
+	);
+
+	const int64 ShowRequestId = Backend.AppOpenShowRequestId;
+	FOpenMobileAdsAdMobPlatform::NativeShown(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeImpression(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeClicked(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		ShowRequestId,
+		12345,
+		TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 1, TEXT("invalid"));
+	FOpenMobileAdsAdMobPlatform::NativeClosed(ShowRequestId);
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	TestEqual(
+		TEXT("App-open callbacks emit one non-rewarded lifecycle"),
+		ShowSink->Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes))
+	);
+	if (ShowSink->Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)))
+	{
+		for (int32 Index = 0; Index < ShowSink->Events.Num(); ++Index)
+		{
+			TestEqual(
+				TEXT("App-open callback order is preserved"),
+				ShowSink->Events[Index].Type,
+				ExpectedTypes[Index]
+			);
+		}
+	}
+
+	FOpenMobileAdsLoadRequest ReleasedLoad = Load;
+	ReleasedLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ReleasedSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another app-open ad loads for release"),
+		Provider->Load(ReleasedLoad, ReleasedSink, Error)
+	);
+	const int64 ReleasedRequestId = Backend.AppOpenLoadRequestIds.Last();
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(ReleasedRequestId);
+	if (!ReleasedSink->Events.IsEmpty())
+	{
+		Provider->ReleaseCachedAd(ReleasedSink->Events[0].CachedAdId);
+	}
+	TestTrue(
+		TEXT("App-open release reaches its native cache"),
+		Backend.CancelledAppOpenRequestIds.Contains(ReleasedRequestId)
+	);
+
+	FOpenMobileAdsLoadRequest FailedLoad = Load;
+	FailedLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedLoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another app-open ad starts for load failure"),
+		Provider->Load(FailedLoad, FailedLoadSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
+		Backend.AppOpenLoadRequestIds.Last(),
+		TEXT("test app-open load failure")
+	);
+	TestEqual(
+		TEXT("App-open load failure emits one terminal event"),
+		FailedLoadSink->Events.Num(),
+		1
+	);
+	if (!FailedLoadSink->Events.IsEmpty())
+	{
+		TestEqual(
+			TEXT("App-open load failure is normalized"),
+			FailedLoadSink->Events[0].Type,
+			EOpenMobileAdsEventType::LoadFailed
+		);
+	}
+
+	FOpenMobileAdsLoadRequest FailedShowLoad = Load;
+	FailedShowLoad.RequestId = FGuid::NewGuid();
+	const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedShowLoadSink =
+		MakeShared<FEventSink, ESPMode::ThreadSafe>();
+	TestTrue(
+		TEXT("Another app-open ad loads for show failure"),
+		Provider->Load(FailedShowLoad, FailedShowLoadSink, Error)
+	);
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(
+		Backend.AppOpenLoadRequestIds.Last()
+	);
+	if (!FailedShowLoadSink->Events.IsEmpty())
+	{
+		FOpenMobileAdsShowRequest FailedShow = Show;
+		FailedShow.RequestId = FGuid::NewGuid();
+		FailedShow.CachedAdId = FailedShowLoadSink->Events[0].CachedAdId;
+		const TSharedRef<FEventSink, ESPMode::ThreadSafe> FailedShowSink =
+			MakeShared<FEventSink, ESPMode::ThreadSafe>();
+		TestTrue(
+			TEXT("The failure-path app-open ad starts showing"),
+			Provider->Show(FailedShow, FailedShowSink, Error)
+		);
+		FOpenMobileAdsAdMobPlatform::NativeFailed(
+			Backend.AppOpenShowRequestId,
+			TEXT("test app-open show failure")
+		);
+		TestEqual(
+			TEXT("App-open show failure emits one terminal event"),
+			FailedShowSink->Events.Num(),
+			1
+		);
+		if (!FailedShowSink->Events.IsEmpty())
+		{
+			TestEqual(
+				TEXT("App-open show failure is normalized"),
+				FailedShowSink->Events[0].Type,
+				EOpenMobileAdsEventType::Failed
+			);
+		}
+	}
+
+	Provider->Shutdown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobFixedBannerCapabilitiesTest,
 	"OpenMobile.Ads.AdMob.FixedBanner.Capabilities",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -2756,7 +3059,11 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
-		6
+		7
+	);
+	TestTrue(
+		TEXT("The supported app-open format has a test-ad contract"),
+		Capabilities.FindFormat(EOpenMobileAdFormat::AppOpen) != nullptr
 	);
 	TestTrue(
 		TEXT("The supported fixed-banner format has a test-ad contract"),

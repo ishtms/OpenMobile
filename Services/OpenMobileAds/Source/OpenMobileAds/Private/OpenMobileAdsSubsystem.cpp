@@ -2292,6 +2292,8 @@ void UOpenMobileAdsSubsystem::EnsureRuntime()
 	HandleNetworkConnectionChanged(FPlatformMisc::GetNetworkConnectionType());
 	bApplicationActive = true;
 	bApplicationInForeground = true;
+	AppOpenOpportunity = EOpenMobileAdsAppOpenOpportunity::ColdStart;
+	AppOpenOpportunityStartedMonotonicSeconds = GetCacheMonotonicSeconds();
 	bRuntimeInitialized = true;
 	RefreshTrackingAuthorizationStatus();
 }
@@ -2443,6 +2445,7 @@ UOpenMobileAdsSubsystem::RequestTrackingAuthorization()
 			true
 		));
 	}
+	ClearAutomaticAppOpenOpportunity();
 	ActiveTrackingAuthorizationRequestId = RequestId;
 	const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
 	FString NativeError;
@@ -2706,6 +2709,7 @@ bool UOpenMobileAdsSubsystem::StartConsentForm(
 		);
 		return false;
 	}
+	ClearAutomaticAppOpenOpportunity();
 
 	ApplyConsentStatusUpdateOnGameThread(
 		FOpenMobileAdsConsentStatusUpdate::BeginFormPresentation(
@@ -3059,10 +3063,16 @@ void UOpenMobileAdsSubsystem::HandleApplicationHasReactivated()
 	RefreshTrackingAuthorizationStatus();
 	ExpireCachedAds();
 	ReevaluateAutomaticPreloads();
+	TryPresentAutomaticAppOpen();
 }
 
 void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
 {
+	bAppOpenBackgroundStarted = true;
+	AppOpenBackgroundStartedMonotonicSeconds = GetCacheMonotonicSeconds();
+	bAppOpenBackgroundStartedDuringFullscreen =
+		FullscreenLifecycle && FullscreenLifecycle->IsOccupied();
+	ClearAutomaticAppOpenOpportunity();
 	bApplicationInForeground = false;
 	PauseAutomaticPreloads();
 	if (FullscreenLifecycle)
@@ -3074,12 +3084,29 @@ void UOpenMobileAdsSubsystem::HandleApplicationWillEnterBackground()
 void UOpenMobileAdsSubsystem::HandleApplicationHasEnteredForeground()
 {
 	bApplicationInForeground = true;
+	if (bAppOpenBackgroundStarted)
+	{
+		AppOpenBackgroundDurationSeconds = FMath::Max(
+			0.0,
+			GetCacheMonotonicSeconds()
+				- AppOpenBackgroundStartedMonotonicSeconds
+		);
+		if (!bAppOpenBackgroundStartedDuringFullscreen)
+		{
+			AppOpenOpportunity = EOpenMobileAdsAppOpenOpportunity::Foreground;
+			AppOpenOpportunityStartedMonotonicSeconds =
+				GetCacheMonotonicSeconds();
+		}
+		bAppOpenBackgroundStarted = false;
+		bAppOpenBackgroundStartedDuringFullscreen = false;
+	}
 	if (FullscreenLifecycle)
 	{
 		FullscreenLifecycle->SetApplicationInForeground(true);
 	}
 	ExpireCachedAds();
 	ReevaluateAutomaticPreloads();
+	TryPresentAutomaticAppOpen();
 }
 
 FName UOpenMobileAdsSubsystem::GetPreferredProviderName() const
@@ -3603,6 +3630,10 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			TEXT("The ads provider rejected the show request without a typed error.")
 		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
+	}
+	if (bUsesFullscreenLifecycle)
+	{
+		ClearAutomaticAppOpenOpportunity();
 	}
 
 	FOpenMobileAdsEvent Accepted;
@@ -4335,6 +4366,132 @@ FOpenMobileAdsPlacementStatus UOpenMobileAdsSubsystem::GetPlacementStatus(
 		Result.Provider = Provider->GetProviderName();
 	}
 	return Result;
+}
+
+void UOpenMobileAdsSubsystem::SetAppOpenPresentationState(
+	FOpenMobileAdsAppOpenPresentationState PresentationState
+)
+{
+	if (!IsInGameThread())
+	{
+		const TWeakObjectPtr<UOpenMobileAdsSubsystem> WeakThis(this);
+		AsyncTask(
+			ENamedThreads::GameThread,
+			[WeakThis, PresentationState]() mutable
+			{
+				if (UOpenMobileAdsSubsystem* Subsystem = WeakThis.Get())
+				{
+					Subsystem->SetAppOpenPresentationState(
+						MoveTemp(PresentationState)
+					);
+				}
+			}
+		);
+		return;
+	}
+	if (bDeinitialized)
+	{
+		return;
+	}
+	EnsureRuntime();
+	AppOpenPresentationState = MoveTemp(PresentationState);
+	TryPresentAutomaticAppOpen();
+}
+
+bool UOpenMobileAdsSubsystem::IsAutomaticAppOpenEligible(
+	const FOpenMobileAdsResolvedPlacement& Placement
+) const
+{
+	if (
+		Placement.Format != EOpenMobileAdFormat::AppOpen
+		|| !Placement.bEnabled
+		|| !Placement.AppOpenPolicy.IsValid()
+		|| !AppOpenPresentationState.bApplicationReady
+		|| AppOpenPresentationState.bPresentationSuppressed
+		|| !bApplicationActive
+		|| !bApplicationInForeground
+		|| ActiveConsentRequestId.IsValid()
+		|| ActiveTrackingAuthorizationRequestId.IsValid()
+		|| bPrivacyOptionsPresentationActive
+		|| !FullscreenLifecycle
+		|| FullscreenLifecycle->IsOccupied()
+	)
+	{
+		return false;
+	}
+
+	const double ElapsedSeconds = FMath::Max(
+		0.0,
+		GetCacheMonotonicSeconds()
+			- AppOpenOpportunityStartedMonotonicSeconds
+	);
+	if (AppOpenOpportunity == EOpenMobileAdsAppOpenOpportunity::ColdStart)
+	{
+		return Placement.AppOpenPolicy.bShowOnColdStart
+			&& AppOpenPresentationState.bColdStartLoadingScreenVisible
+			&& Placement.AppOpenPolicy.ColdStartPresentationWindowSeconds > 0.0
+			&& ElapsedSeconds
+				< Placement.AppOpenPolicy.ColdStartPresentationWindowSeconds;
+	}
+	if (AppOpenOpportunity == EOpenMobileAdsAppOpenOpportunity::Foreground)
+	{
+		return Placement.AppOpenPolicy.bShowOnForeground
+			&& AppOpenBackgroundDurationSeconds
+				>= Placement.AppOpenPolicy.MinimumBackgroundDurationSeconds
+			&& Placement.AppOpenPolicy.ForegroundPresentationWindowSeconds > 0.0
+			&& ElapsedSeconds
+				< Placement.AppOpenPolicy.ForegroundPresentationWindowSeconds;
+	}
+	return false;
+}
+
+void UOpenMobileAdsSubsystem::TryPresentAutomaticAppOpen()
+{
+	check(IsInGameThread());
+	if (
+		bDeinitialized
+		|| AppOpenOpportunity == EOpenMobileAdsAppOpenOpportunity::None
+	)
+	{
+		return;
+	}
+
+	ExpireCachedAds();
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	for (const FOpenMobileAdsPlacementSettings& Configuration : Settings->Placements)
+	{
+		const FOpenMobileAdsResolvedPlacement Placement = Configuration.Resolve(
+			OpenMobileAdsGetCurrentPlatform()
+		);
+		if (!IsAutomaticAppOpenEligible(Placement))
+		{
+			continue;
+		}
+		const FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(
+			Placement.Placement
+		);
+		if (
+			!Status
+			|| Status->State != EOpenMobileAdPlacementState::Ready
+			|| !Status->CachedAdId.IsValid()
+			|| IsCachedAdExpired(*Status)
+		)
+		{
+			continue;
+		}
+		if (ShowAd(Placement.Placement).bAccepted)
+		{
+			ClearAutomaticAppOpenOpportunity();
+			return;
+		}
+	}
+}
+
+void UOpenMobileAdsSubsystem::ClearAutomaticAppOpenOpportunity()
+{
+	AppOpenOpportunity = EOpenMobileAdsAppOpenOpportunity::None;
+	AppOpenOpportunityStartedMonotonicSeconds = 0.0;
+	AppOpenBackgroundDurationSeconds = 0.0;
 }
 
 FOpenMobileAdsProviderCapabilities UOpenMobileAdsSubsystem::GetProviderCapabilities() const
@@ -5481,6 +5638,31 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 						}
 					}
 				}
+				if (Status->Format == EOpenMobileAdFormat::AppOpen)
+				{
+					if (const FOpenMobileAdsPlacementSettings* Configuration =
+						FindConfiguredPlacement(Status->Placement))
+					{
+						const FOpenMobileAdsResolvedPlacement Placement =
+							Configuration->Resolve(
+								OpenMobileAdsGetCurrentPlatform()
+							);
+						if (Placement.AppOpenPolicy.IsValid())
+						{
+							const FDateTime PolicyExpiration = Status->CachedAt
+								+ FTimespan::FromSeconds(
+									Placement.AppOpenPolicy.MaximumCacheAgeSeconds
+								);
+							if (
+								Status->ExpiresAt == FDateTime()
+								|| PolicyExpiration < Status->ExpiresAt
+							)
+							{
+								Status->ExpiresAt = PolicyExpiration;
+							}
+						}
+					}
+				}
 				Event.CacheExpiresAt = Status->ExpiresAt;
 				if (Status->ExpiresAt != FDateTime())
 				{
@@ -5709,6 +5891,13 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
 		HandleConvenienceRewardedEvent(Event);
+		if (
+			Event.Type == EOpenMobileAdsEventType::Loaded
+			&& Event.Format == EOpenMobileAdFormat::AppOpen
+		)
+		{
+			TryPresentAutomaticAppOpen();
+		}
 
 		const UOpenMobileAdsSettings* Settings =
 			GetDefault<UOpenMobileAdsSettings>();

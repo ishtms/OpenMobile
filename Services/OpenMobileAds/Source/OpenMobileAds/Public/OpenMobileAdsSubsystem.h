@@ -29,6 +29,13 @@ struct FOpenMobileAdsClockTestAccess;
 struct FOpenMobileAdsRetryTestAccess;
 enum class ENetworkConnectionType : uint8;
 
+enum class EOpenMobileAdsAppOpenOpportunity : uint8
+{
+	None,
+	ColdStart,
+	Foreground
+};
+
 UENUM(BlueprintType)
 enum class EOpenMobileRewardedAdState : uint8
 {
@@ -233,6 +240,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ad Placement Status"))
 	FOpenMobileAdsPlacementStatus GetPlacementStatus(FName Placement) const;
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads")
+	void SetAppOpenPresentationState(
+		FOpenMobileAdsAppOpenPresentationState PresentationState
+	);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	FOpenMobileAdsAppOpenPresentationState GetAppOpenPresentationState() const
+	{
+		return AppOpenPresentationState;
+	}
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Provider Capabilities"))
 	FOpenMobileAdsProviderCapabilities GetProviderCapabilities() const;
 
@@ -410,6 +428,11 @@ private:
 	void HandleApplicationHasReactivated();
 	void HandleApplicationWillEnterBackground();
 	void HandleApplicationHasEnteredForeground();
+	void TryPresentAutomaticAppOpen();
+	bool IsAutomaticAppOpenEligible(
+		const FOpenMobileAdsResolvedPlacement& Placement
+	) const;
+	void ClearAutomaticAppOpenOpportunity();
 	FName ResolveConvenienceRewardedPlacement(FOpenMobileError& OutError) const;
 	bool StartConvenienceRewardedShow();
 	void HandleConvenienceRewardedEvent(const FOpenMobileAdsEvent& Event);
@@ -468,11 +491,17 @@ private:
 	FOpenMobileAdsPrivacySnapshot PrivacySnapshot;
 	EOpenMobileAdsTrackingAuthorizationStatus TrackingAuthorizationStatus =
 		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
+	FOpenMobileAdsAppOpenPresentationState AppOpenPresentationState;
 	FOpenMobileAdsConsentSignalDeliverySnapshot ConsentSignalDeliveryStatus;
 	FOpenMobileAdsConsentSignals LastPropagatedConsentSignals;
 	FOpenMobileAdsCanRequestAdsResult LastCanRequestAdsDecision;
 	double InitializationStartedSeconds = 0.0;
+	double AppOpenOpportunityStartedMonotonicSeconds = 0.0;
+	double AppOpenBackgroundStartedMonotonicSeconds = 0.0;
+	double AppOpenBackgroundDurationSeconds = 0.0;
 	EOpenMobileAdsServiceState ServiceState = EOpenMobileAdsServiceState::Uninitialized;
+	EOpenMobileAdsAppOpenOpportunity AppOpenOpportunity =
+		EOpenMobileAdsAppOpenOpportunity::None;
 	bool bProviderInitializationStarted = false;
 	bool bFrequencyCapPersistenceWarningLogged = false;
 	bool bChildDirectedTreatmentLocked = false;
@@ -486,5 +515,7 @@ private:
 	bool bDeinitialized = false;
 	bool bApplicationActive = true;
 	bool bApplicationInForeground = true;
+	bool bAppOpenBackgroundStarted = false;
+	bool bAppOpenBackgroundStartedDuringFullscreen = false;
 	TAtomic<bool> bPlatformDefinitelyOffline {false};
 };

@@ -482,6 +482,50 @@ bool FOpenMobileAdsAdMobAndroidBackend::LoadRewardedInterstitialAd(
 	return bScheduled;
 }
 
+bool FOpenMobileAdsAdMobAndroidBackend::LoadAppOpenAd(
+	const FString& AdUnitId,
+	const int64 RequestId,
+	EOpenMobileAdsDataProcessingMode DataProcessingMode,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID LoadMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_LoadOpenMobileAppOpenAd",
+		"(Ljava/lang/String;JI)Z",
+		false
+	);
+	if (!LoadMethod)
+	{
+		OutError = TEXT("The Android app-open load bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const FScopedJavaObject<jstring> JavaAdUnitId =
+		FJavaHelper::ToJavaString(Env, AdUnitId);
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		LoadMethod,
+		*JavaAdUnitId,
+		static_cast<jlong>(RequestId),
+		static_cast<jint>(DataProcessingMode)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the app-open load.");
+	}
+	return bScheduled;
+}
+
 bool FOpenMobileAdsAdMobAndroidBackend::LoadBannerAd(
 	const FString& AdUnitId,
 	const int64 RequestId,
@@ -622,6 +666,34 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelRewardedInterstitialAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_CancelOpenMobileRewardedInterstitialAdLoad",
+		"(J)V",
+		false
+	);
+	if (CancelMethod)
+	{
+		FJavaWrapper::CallVoidMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			CancelMethod,
+			static_cast<jlong>(RequestId)
+		);
+	}
+}
+
+void FOpenMobileAdsAdMobAndroidBackend::CancelAppOpenAd(
+	const int64 RequestId
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return;
+	}
+
+	static jmethodID CancelMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_CancelOpenMobileAppOpenAdLoad",
 		"(J)V",
 		false
 	);
@@ -790,6 +862,46 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
 	if (!bScheduled)
 	{
 		OutError = TEXT("Android could not schedule the cached rewarded-interstitial presentation.");
+	}
+	return bScheduled;
+}
+
+bool FOpenMobileAdsAdMobAndroidBackend::ShowAppOpenAd(
+	const int64 LoadedRequestId,
+	const int64 ShowRequestId,
+	FString& OutError
+)
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		OutError = TEXT("Android's Java environment is unavailable.");
+		return false;
+	}
+
+	static jmethodID ShowMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_ShowOpenMobileAppOpenAd",
+		"(JJ)Z",
+		false
+	);
+	if (!ShowMethod)
+	{
+		OutError = TEXT("The Android app-open show bridge was not packaged into GameActivity.");
+		return false;
+	}
+
+	const bool bScheduled = FJavaWrapper::CallBooleanMethod(
+		Env,
+		FJavaWrapper::GameActivityThis,
+		ShowMethod,
+		static_cast<jlong>(LoadedRequestId),
+		static_cast<jlong>(ShowRequestId)
+	);
+	if (!bScheduled)
+	{
+		OutError = TEXT("Android could not schedule the cached app-open presentation.");
 	}
 	return bScheduled;
 }
@@ -1007,6 +1119,30 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstit
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
+		static_cast<int64>(RequestId),
+		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAdLoadCompleted(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(
+		static_cast<int64>(RequestId)
+	);
+}
+
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAdLoadFailed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId,
+	jstring ErrorMessage
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
 		static_cast<int64>(RequestId),
 		FJavaHelper::FStringFromParam(Env, ErrorMessage)
 	);

@@ -143,6 +143,21 @@ struct OPENMOBILEADS_API FOpenMobileAdsLoadOptions
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsAppOpenPresentationState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bApplicationReady = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bColdStartLoadingScreenVisible = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bPresentationSuppressed = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsShowOptions
 {
 	GENERATED_BODY()
