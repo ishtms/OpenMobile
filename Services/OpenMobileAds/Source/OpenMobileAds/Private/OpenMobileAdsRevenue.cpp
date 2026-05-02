@@ -109,3 +109,40 @@ void FOpenMobileAdsRevenue::NormalizeSource()
 		Source.SourceName = Network;
 	}
 }
+
+void FOpenMobileAdsRevenue::NormalizeEcpm()
+{
+	if (
+		!Ecpm.bHasProviderReported
+		|| Ecpm.ProviderReported.ValueMicros < 0
+	)
+	{
+		Ecpm.bHasProviderReported = false;
+		Ecpm.ProviderReported = FOpenMobileAdsEcpmValue();
+	}
+	else
+	{
+		FString ProviderCurrencyCode;
+		TryNormalizeCurrencyCode(
+			Ecpm.ProviderReported.CurrencyCode,
+			ProviderCurrencyCode
+		);
+		Ecpm.ProviderReported.CurrencyCode = MoveTemp(ProviderCurrencyCode);
+		Ecpm.ProviderReported.Precision = NormalizePrecision(
+			Ecpm.ProviderReported.Precision
+		);
+	}
+
+	int64 DerivedValueMicros = 0;
+	if (!TryScaleToMicros(ValueMicros, 1000, DerivedValueMicros))
+	{
+		Ecpm.bHasDerived = false;
+		Ecpm.Derived = FOpenMobileAdsEcpmValue();
+		return;
+	}
+
+	Ecpm.bHasDerived = true;
+	Ecpm.Derived.ValueMicros = DerivedValueMicros;
+	TryNormalizeCurrencyCode(CurrencyCode, Ecpm.Derived.CurrencyCode);
+	Ecpm.Derived.Precision = NormalizePrecision(Precision);
+}

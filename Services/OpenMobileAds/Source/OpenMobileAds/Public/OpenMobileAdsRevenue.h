@@ -63,6 +63,67 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenueSource
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsEcpmValue
+{
+	GENERATED_BODY()
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "eCPM in micro-units per one thousand impressions. Presence is reported by the containing structure.")
+	)
+	int64 ValueMicros = 0;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Uppercase three-letter ISO 4217 currency code, or empty when unavailable or invalid.")
+	)
+	FString CurrencyCode;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported certainty for this eCPM value.")
+	)
+	EOpenMobileAdsRevenuePrecision Precision = EOpenMobileAdsRevenuePrecision::Unknown;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsEcpm
+{
+	GENERATED_BODY()
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "True only when the provider supplied a valid non-negative eCPM value.")
+	)
+	bool bHasProviderReported = false;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Provider-reported eCPM. Read only when Has Provider Reported is true.")
+	)
+	FOpenMobileAdsEcpmValue ProviderReported;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "True when the service safely derived eCPM from impression-level revenue.")
+	)
+	bool bHasDerived = false;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Service-derived eCPM calculated as impression revenue multiplied by one thousand. Read only when Has Derived is true.")
+	)
+	FOpenMobileAdsEcpmValue Derived;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 {
 	GENERATED_BODY()
@@ -90,6 +151,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 	);
 
 	void NormalizeSource();
+	void NormalizeEcpm();
 
 	UPROPERTY(
 		BlueprintReadOnly,
@@ -125,6 +187,16 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 		meta = (ToolTip = "True when this changed report supersedes the previous revision for the impression. The amount is not a delta.")
 	)
 	bool bIsUpdate = false;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (
+			DisplayName = "eCPM",
+			ToolTip = "Provider-reported and service-derived eCPM values with independent presence flags."
+		)
+	)
+	FOpenMobileAdsEcpm Ecpm;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsRevenueSource Source;

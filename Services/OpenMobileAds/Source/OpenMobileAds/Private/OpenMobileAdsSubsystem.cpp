@@ -568,7 +568,20 @@ namespace OpenMobileAdsPrivate
 				&& Left.Source.SourceId == Right.Source.SourceId
 				&& Left.Source.AdapterClassName == Right.Source.AdapterClassName
 				&& Left.Source.InstanceName == Right.Source.InstanceName
-				&& Left.Source.InstanceId == Right.Source.InstanceId;
+				&& Left.Source.InstanceId == Right.Source.InstanceId
+				&& Left.Ecpm.bHasProviderReported
+					== Right.Ecpm.bHasProviderReported
+				&& (
+					!Left.Ecpm.bHasProviderReported
+					|| (
+						Left.Ecpm.ProviderReported.ValueMicros
+							== Right.Ecpm.ProviderReported.ValueMicros
+						&& Left.Ecpm.ProviderReported.CurrencyCode
+							== Right.Ecpm.ProviderReported.CurrencyCode
+						&& Left.Ecpm.ProviderReported.Precision
+							== Right.Ecpm.ProviderReported.Precision
+					)
+				);
 		}
 
 		bool TryAcceptEvent(FOpenMobileAdsEvent& Event)
@@ -697,6 +710,7 @@ namespace OpenMobileAdsPrivate
 				{
 					Event.Network = Event.Revenue.Source.SourceName;
 				}
+				Event.Revenue.NormalizeEcpm();
 			}
 			if (CachedAdId.IsValid())
 			{

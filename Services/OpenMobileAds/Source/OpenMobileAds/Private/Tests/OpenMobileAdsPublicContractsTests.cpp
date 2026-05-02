@@ -734,4 +734,152 @@ bool FOpenMobileAdsImpressionRevenueContractTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsEcpmContractTest,
+	"OpenMobile.Ads.Contracts.Revenue.Ecpm",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsEcpmContractTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileAdsRevenue Revenue;
+	TestFalse(
+		TEXT("Provider eCPM is unavailable by default"),
+		Revenue.Ecpm.bHasProviderReported
+	);
+	TestFalse(
+		TEXT("Derived eCPM is unavailable by default"),
+		Revenue.Ecpm.bHasDerived
+	);
+
+	Revenue.ValueMicros = 1234;
+	Revenue.CurrencyCode = TEXT("USD");
+	Revenue.Precision = EOpenMobileAdsRevenuePrecision::Estimated;
+	int64 ProviderEcpmMicros = 0;
+	TestTrue(
+		TEXT("Provider eCPM converts through an explicit unit scale"),
+		FOpenMobileAdsRevenue::TryScaleToMicros(
+			2345,
+			1000,
+			ProviderEcpmMicros
+		)
+	);
+	Revenue.Ecpm.bHasProviderReported = true;
+	Revenue.Ecpm.ProviderReported.ValueMicros = ProviderEcpmMicros;
+	Revenue.Ecpm.ProviderReported.CurrencyCode = TEXT("eUr");
+	Revenue.Ecpm.ProviderReported.Precision =
+		EOpenMobileAdsRevenuePrecision::Precise;
+	Revenue.NormalizeEcpm();
+	TestTrue(
+		TEXT("A valid provider eCPM remains available"),
+		Revenue.Ecpm.bHasProviderReported
+	);
+	TestEqual(
+		TEXT("Provider eCPM remains in public micros"),
+		Revenue.Ecpm.ProviderReported.ValueMicros,
+		static_cast<int64>(2345000)
+	);
+	TestEqual(
+		TEXT("Provider eCPM currency is normalized independently"),
+		Revenue.Ecpm.ProviderReported.CurrencyCode,
+		FString(TEXT("EUR"))
+	);
+	TestEqual(
+		TEXT("Provider eCPM precision is preserved"),
+		Revenue.Ecpm.ProviderReported.Precision,
+		EOpenMobileAdsRevenuePrecision::Precise
+	);
+	TestTrue(
+		TEXT("ILRD derives a separate eCPM value"),
+		Revenue.Ecpm.bHasDerived
+	);
+	TestEqual(
+		TEXT("Derived eCPM multiplies per-impression micros by one thousand"),
+		Revenue.Ecpm.Derived.ValueMicros,
+		static_cast<int64>(1234000)
+	);
+	TestEqual(
+		TEXT("Derived eCPM inherits ILRD currency"),
+		Revenue.Ecpm.Derived.CurrencyCode,
+		FString(TEXT("USD"))
+	);
+	TestEqual(
+		TEXT("Derived eCPM inherits ILRD precision"),
+		Revenue.Ecpm.Derived.Precision,
+		EOpenMobileAdsRevenuePrecision::Estimated
+	);
+
+	Revenue.ValueMicros = MAX_int64;
+	Revenue.Ecpm.bHasProviderReported = false;
+	Revenue.Ecpm.ProviderReported.ValueMicros = 77;
+	Revenue.NormalizeEcpm();
+	TestFalse(
+		TEXT("Overflowing derived eCPM remains unavailable"),
+		Revenue.Ecpm.bHasDerived
+	);
+	TestEqual(
+		TEXT("Unavailable derived eCPM clears stale values"),
+		Revenue.Ecpm.Derived.ValueMicros,
+		static_cast<int64>(0)
+	);
+	TestEqual(
+		TEXT("Unavailable provider eCPM clears stale values"),
+		Revenue.Ecpm.ProviderReported.ValueMicros,
+		static_cast<int64>(0)
+	);
+
+	const FProperty* EcpmProperty =
+		FOpenMobileAdsRevenue::StaticStruct()->FindPropertyByName(TEXT("Ecpm"));
+	TestNotNull(TEXT("eCPM is reflected"), EcpmProperty);
+	if (EcpmProperty)
+	{
+		TestTrue(
+			TEXT("eCPM is visible to Blueprint"),
+			EcpmProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+	for (const FName PropertyName : {
+		FName(TEXT("bHasProviderReported")),
+		FName(TEXT("ProviderReported")),
+		FName(TEXT("bHasDerived")),
+		FName(TEXT("Derived"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsEcpm::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(TEXT("eCPM field %s is reflected"), *PropertyName.ToString()),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("eCPM fields are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+	for (const FName PropertyName : {
+		FName(TEXT("ValueMicros")),
+		FName(TEXT("CurrencyCode")),
+		FName(TEXT("Precision"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsEcpmValue::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(TEXT("eCPM value field %s is reflected"), *PropertyName.ToString()),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("eCPM value fields are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+	return true;
+}
+
 #endif

@@ -3908,6 +3908,15 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	DuplicateRevenue.Revenue.Network = TEXT("Example Network");
 	DuplicateRevenue.Revenue.Revision = 500;
 	ShowSink->Submit(MoveTemp(DuplicateRevenue));
+	FOpenMobileAdsEvent EcpmUpdateRevenue = RevenuePaid;
+	EcpmUpdateRevenue.Revenue.Ecpm.bHasProviderReported = true;
+	EcpmUpdateRevenue.Revenue.Ecpm.ProviderReported.ValueMicros = 2500000;
+	EcpmUpdateRevenue.Revenue.Ecpm.ProviderReported.CurrencyCode = TEXT("eUr");
+	EcpmUpdateRevenue.Revenue.Ecpm.ProviderReported.Precision =
+		EOpenMobileAdsRevenuePrecision::Precise;
+	EcpmUpdateRevenue.Revenue.Ecpm.bHasDerived = true;
+	EcpmUpdateRevenue.Revenue.Ecpm.Derived.ValueMicros = 99;
+	ShowSink->Submit(MoveTemp(EcpmUpdateRevenue));
 	FOpenMobileAdsEvent MissingCurrencyRevenue;
 	MissingCurrencyRevenue.Type = EOpenMobileAdsEventType::RevenuePaid;
 	MissingCurrencyRevenue.bHasRevenue = true;
@@ -3923,6 +3932,9 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 	MalformedCurrencyRevenue.Revenue.CurrencyCode = TEXT("U1D");
 	MalformedCurrencyRevenue.Revenue.Source.SourceName = TEXT("Winning Source");
 	MalformedCurrencyRevenue.Revenue.Network = TEXT("Stale Network");
+	MalformedCurrencyRevenue.Revenue.Ecpm.bHasProviderReported = true;
+	MalformedCurrencyRevenue.Revenue.Ecpm.ProviderReported.ValueMicros = -1;
+	MalformedCurrencyRevenue.Revenue.Ecpm.ProviderReported.CurrencyCode = TEXT("USD");
 	ShowSink->Submit(MoveTemp(MalformedCurrencyRevenue));
 	FOpenMobileAdsEvent RewardEarned;
 	RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
@@ -3944,6 +3956,7 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		EOpenMobileAdsEventType::Clicked,
 		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::RevenuePaid,
 		EOpenMobileAdsEventType::RewardEarned,
 		EOpenMobileAdsEventType::Dismissed
 	};
@@ -3962,6 +3975,9 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 
 		const FOpenMobileAdsEvent& RevenueEvent = Events[2];
 		const FOpenMobileAdsEvent& ImpressionEvent = Events[3];
+		const FOpenMobileAdsEvent& EcpmUpdateEvent = Events[5];
+		const FOpenMobileAdsEvent& MissingCurrencyEvent = Events[6];
+		const FOpenMobileAdsEvent& MalformedCurrencyEvent = Events[7];
 		TestTrue(
 			TEXT("The service assigns one impression identity"),
 			RevenueEvent.ImpressionId.IsValid()
@@ -4029,11 +4045,11 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		);
 		TestTrue(
 			TEXT("Missing provider currency remains unavailable"),
-			Events[5].Revenue.CurrencyCode.IsEmpty()
+			MissingCurrencyEvent.Revenue.CurrencyCode.IsEmpty()
 		);
 		TestTrue(
 			TEXT("Malformed provider currency remains unavailable"),
-			Events[6].Revenue.CurrencyCode.IsEmpty()
+			MalformedCurrencyEvent.Revenue.CurrencyCode.IsEmpty()
 		);
 		TestEqual(
 			TEXT("Known provider precision is preserved"),
@@ -4050,22 +4066,107 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 			RevenueEvent.Revenue.bIsUpdate
 		);
 		TestEqual(
-			TEXT("A changed provider report advances the revision"),
-			Events[5].Revenue.Revision,
+			TEXT("A provider eCPM change advances the revision"),
+			EcpmUpdateEvent.Revenue.Revision,
 			2
 		);
 		TestTrue(
-			TEXT("A changed provider report is marked as an update"),
-			Events[5].Revenue.bIsUpdate
+			TEXT("A provider eCPM change is marked as an update"),
+			EcpmUpdateEvent.Revenue.bIsUpdate
+		);
+		TestEqual(
+			TEXT("A changed provider report advances the revision"),
+			MissingCurrencyEvent.Revenue.Revision,
+			3
 		);
 		TestEqual(
 			TEXT("A second changed provider report advances the revision"),
-			Events[6].Revenue.Revision,
-			3
+			MalformedCurrencyEvent.Revenue.Revision,
+			4
+		);
+		TestFalse(
+			TEXT("AdMob does not invent provider-reported eCPM"),
+			RevenueEvent.Revenue.Ecpm.bHasProviderReported
+		);
+		TestTrue(
+			TEXT("ILRD exposes a separate derived eCPM"),
+			RevenueEvent.Revenue.Ecpm.bHasDerived
+		);
+		TestEqual(
+			TEXT("Zero ILRD derives a reported zero eCPM"),
+			RevenueEvent.Revenue.Ecpm.Derived.ValueMicros,
+			static_cast<int64>(0)
+		);
+		TestEqual(
+			TEXT("Derived eCPM inherits normalized currency"),
+			RevenueEvent.Revenue.Ecpm.Derived.CurrencyCode,
+			FString(TEXT("USD"))
+		);
+		TestEqual(
+			TEXT("Derived eCPM inherits normalized precision"),
+			RevenueEvent.Revenue.Ecpm.Derived.Precision,
+			EOpenMobileAdsRevenuePrecision::Estimated
+		);
+		TestTrue(
+			TEXT("Provider-reported eCPM remains distinct from derived eCPM"),
+			EcpmUpdateEvent.Revenue.Ecpm.bHasProviderReported
+		);
+		TestEqual(
+			TEXT("Provider-reported eCPM preserves public micros"),
+			EcpmUpdateEvent.Revenue.Ecpm.ProviderReported.ValueMicros,
+			static_cast<int64>(2500000)
+		);
+		TestEqual(
+			TEXT("Provider-reported eCPM normalizes its own currency"),
+			EcpmUpdateEvent.Revenue.Ecpm.ProviderReported.CurrencyCode,
+			FString(TEXT("EUR"))
+		);
+		TestEqual(
+			TEXT("Provider-reported eCPM preserves its own precision"),
+			EcpmUpdateEvent.Revenue.Ecpm.ProviderReported.Precision,
+			EOpenMobileAdsRevenuePrecision::Precise
+		);
+		TestEqual(
+			TEXT("Provider-derived eCPM input cannot replace service derivation"),
+			EcpmUpdateEvent.Revenue.Ecpm.Derived.ValueMicros,
+			static_cast<int64>(0)
+		);
+		TestEqual(
+			TEXT("eCPM preserves placement context"),
+			EcpmUpdateEvent.Placement,
+			RevenueEvent.Placement
+		);
+		TestEqual(
+			TEXT("eCPM preserves format context"),
+			EcpmUpdateEvent.Format,
+			RevenueEvent.Format
+		);
+		TestEqual(
+			TEXT("eCPM preserves provider context"),
+			EcpmUpdateEvent.Provider,
+			RevenueEvent.Provider
+		);
+		TestEqual(
+			TEXT("eCPM preserves mediated-source context"),
+			EcpmUpdateEvent.Revenue.Source.SourceId,
+			RevenueEvent.Revenue.Source.SourceId
+		);
+		TestEqual(
+			TEXT("Derived eCPM uses checked public micro-units"),
+			MissingCurrencyEvent.Revenue.Ecpm.Derived.ValueMicros,
+			static_cast<int64>(1000)
+		);
+		TestTrue(
+			TEXT("Derived eCPM keeps unavailable currency empty"),
+			MissingCurrencyEvent.Revenue.Ecpm.Derived.CurrencyCode.IsEmpty()
+		);
+		TestFalse(
+			TEXT("Invalid provider-reported eCPM remains unavailable"),
+			MalformedCurrencyEvent.Revenue.Ecpm.bHasProviderReported
 		);
 		TestTrue(
 			TEXT("An updated report may omit optional source IDs"),
-			Events[5].Revenue.Source.SourceId.IsEmpty()
+			MissingCurrencyEvent.Revenue.Source.SourceId.IsEmpty()
 		);
 		TestEqual(
 			TEXT("Winning source name is preserved"),
@@ -4104,21 +4205,21 @@ bool FOpenMobileAdsImpressionCallbackContractTest::RunTest(const FString& Parame
 		);
 		TestEqual(
 			TEXT("A legacy network remains available as a source name"),
-			Events[5].Revenue.Source.SourceName,
+			MissingCurrencyEvent.Revenue.Source.SourceName,
 			FString(TEXT("Legacy Waterfall Network"))
 		);
 		TestTrue(
 			TEXT("A legacy network does not invent a source ID"),
-			Events[5].Revenue.Source.SourceId.IsEmpty()
+			MissingCurrencyEvent.Revenue.Source.SourceId.IsEmpty()
 		);
 		TestEqual(
 			TEXT("The structured winning source overrides a stale legacy alias"),
-			Events[6].Revenue.Network,
+			MalformedCurrencyEvent.Revenue.Network,
 			FString(TEXT("Winning Source"))
 		);
 		TestEqual(
 			TEXT("Unknown provider precision does not overstate certainty"),
-			Events[5].Revenue.Precision,
+			MissingCurrencyEvent.Revenue.Precision,
 			EOpenMobileAdsRevenuePrecision::Unknown
 		);
 	}
