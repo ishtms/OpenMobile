@@ -185,6 +185,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual bool ShowRewardedAd(
 			int64 LoadedRequestId,
 			int64 InShowRequestId,
+			const FString& ServerVerificationUserId,
 			const FString& ServerVerificationCustomData,
 			FString& OutError
 		) override
@@ -192,6 +193,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 			++ShowCalls;
 			ShownLoadedRequestId = LoadedRequestId;
 			ShowRequestId = InShowRequestId;
+			ShownServerVerificationUserId = ServerVerificationUserId;
 			ShownServerVerificationCustomData = ServerVerificationCustomData;
 			return true;
 		}
@@ -211,6 +213,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		virtual bool ShowRewardedInterstitialAd(
 			int64 LoadedRequestId,
 			int64 InShowRequestId,
+			const FString& ServerVerificationUserId,
 			const FString& ServerVerificationCustomData,
 			FString& OutError
 		) override
@@ -218,6 +221,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 			++RewardedInterstitialShowCalls;
 			ShownRewardedInterstitialLoadedRequestId = LoadedRequestId;
 			RewardedInterstitialShowRequestId = InShowRequestId;
+			ShownRewardedInterstitialVerificationUserId =
+				ServerVerificationUserId;
 			ShownRewardedInterstitialVerificationData =
 				ServerVerificationCustomData;
 			return true;
@@ -310,7 +315,9 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FOpenMobileAdsConsentSignals LastConsentSignals;
 		FString LaunchedAdUnitId;
 		FString ConsentResetError;
+		FString ShownServerVerificationUserId;
 		FString ShownServerVerificationCustomData;
+		FString ShownRewardedInterstitialVerificationUserId;
 		FString ShownRewardedInterstitialVerificationData;
 		FOpenMobileAdsBannerLayout ShownBannerLayout;
 		TArray<FString> LoadedAdUnitIds;
@@ -1583,7 +1590,9 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 	Show.CachedAdId = LoadSink->Events[0].CachedAdId;
 	Show.Placement = TEXT("ReusableReward");
 	Show.Format = EOpenMobileAdFormat::Rewarded;
-	Show.Options.ServerVerificationCustomData = TEXT("player-42");
+	Show.ServerVerification.bEnabled = true;
+	Show.Options.ServerVerificationUserId = TEXT("player-42");
+	Show.Options.ServerVerificationCustomData = TEXT("grant-42");
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError ShowError;
@@ -1601,9 +1610,14 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 		);
 	}
 	TestEqual(
+		TEXT("Reusable show forwards the server verification user ID"),
+		Backend.ShownServerVerificationUserId,
+		FString(TEXT("player-42"))
+	);
+	TestEqual(
 		TEXT("Reusable show forwards server verification custom data"),
 		Backend.ShownServerVerificationCustomData,
-		FString(TEXT("player-42"))
+		FString(TEXT("grant-42"))
 	);
 
 	FOpenMobileAdsAdMobPlatform::NativeShown(Backend.ShowRequestId);
@@ -2048,8 +2062,10 @@ bool FOpenMobileAdsAdMobRewardedInterstitialContractTest::RunTest(
 	Show.CachedAdId = LoadSink->Events[0].CachedAdId;
 	Show.Placement = Load.Placement.Placement;
 	Show.Format = EOpenMobileAdFormat::RewardedInterstitial;
+	Show.ServerVerification.bEnabled = true;
 	Show.Options.bRewardedInterstitialIntroductionPresented = true;
-	Show.Options.ServerVerificationCustomData = TEXT("player-42");
+	Show.Options.ServerVerificationUserId = TEXT("player-42");
+	Show.Options.ServerVerificationCustomData = TEXT("grant-42");
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	TestTrue(
@@ -2062,9 +2078,14 @@ bool FOpenMobileAdsAdMobRewardedInterstitialContractTest::RunTest(
 		1
 	);
 	TestEqual(
+		TEXT("Rewarded interstitial forwards the server verification user ID"),
+		Backend.ShownRewardedInterstitialVerificationUserId,
+		FString(TEXT("player-42"))
+	);
+	TestEqual(
 		TEXT("Rewarded interstitial forwards server verification data"),
 		Backend.ShownRewardedInterstitialVerificationData,
-		FString(TEXT("player-42"))
+		FString(TEXT("grant-42"))
 	);
 
 	const int64 ShowRequestId = Backend.RewardedInterstitialShowRequestId;

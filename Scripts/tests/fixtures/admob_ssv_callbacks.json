@@ -1,0 +1,44 @@
+[
+  {
+    "name": "valid",
+    "raw_query": "ad_network=5450213213286189855&ad_unit=ca-app-pub-3940256099942544%2F5224354917&custom_data=match-1842&reward_amount=10&reward_item=coin&timestamp=1787418000000&transaction_id=txn-valid-001&user_id=player-42&signature=synthetic-valid-signature&key_id=3335741209",
+    "signature_valid": true,
+    "expected_ad_unit": "ca-app-pub-3940256099942544/5224354917",
+    "seen_transaction_ids": [],
+    "issued_timestamp_ms": 1787418000000,
+    "received_timestamp_ms": 1787418001250,
+    "expected_result": "grant"
+  },
+  {
+    "name": "invalid",
+    "raw_query": "ad_network=5450213213286189855&ad_unit=ca-app-pub-3940256099942544%2F5224354917&custom_data=tampered&reward_amount=1000&reward_item=coin&timestamp=1787418000000&transaction_id=txn-invalid-001&user_id=player-42&signature=synthetic-invalid-signature&key_id=3335741209",
+    "signature_valid": false,
+    "expected_ad_unit": "ca-app-pub-3940256099942544/5224354917",
+    "seen_transaction_ids": [],
+    "issued_timestamp_ms": 1787418000000,
+    "received_timestamp_ms": 1787418001250,
+    "expected_result": "reject"
+  },
+  {
+    "name": "duplicate",
+    "raw_query": "ad_network=5450213213286189855&ad_unit=ca-app-pub-3940256099942544%2F5224354917&custom_data=match-1843&reward_amount=10&reward_item=coin&timestamp=1787418000000&transaction_id=txn-duplicate-001&user_id=player-43&signature=synthetic-valid-signature&key_id=3335741209",
+    "signature_valid": true,
+    "expected_ad_unit": "ca-app-pub-3940256099942544/5224354917",
+    "seen_transaction_ids": [
+      "txn-duplicate-001"
+    ],
+    "issued_timestamp_ms": 1787418000000,
+    "received_timestamp_ms": 1787418010000,
+    "expected_result": "already_processed"
+  },
+  {
+    "name": "delayed",
+    "raw_query": "ad_network=5450213213286189855&ad_unit=ca-app-pub-3940256099942544%2F5224354917&custom_data=match-1844&reward_amount=10&reward_item=coin&timestamp=1787418000000&transaction_id=txn-delayed-001&user_id=player-44&signature=synthetic-valid-signature&key_id=3335741209",
+    "signature_valid": true,
+    "expected_ad_unit": "ca-app-pub-3940256099942544/5224354917",
+    "seen_transaction_ids": [],
+    "issued_timestamp_ms": 1787418000000,
+    "received_timestamp_ms": 1787594400000,
+    "expected_result": "grant"
+  }
+]

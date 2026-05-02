@@ -1803,10 +1803,12 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowAppOpenAd(
 bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
 	const int64 LoadedRequestId,
 	const int64 ShowRequestId,
+	const FString& ServerVerificationUserId,
 	const FString& ServerVerificationCustomData,
 	FString& OutError
 )
 {
+	const FString VerificationUserId = ServerVerificationUserId;
 	const FString VerificationData = ServerVerificationCustomData;
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
@@ -1843,12 +1845,20 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
 		Handler.rewardedInterstitialAd = RewardedInterstitialAd;
 		GOpenMobileRewardedInterstitialAdDelegate = Handler;
 		RewardedInterstitialAd.fullScreenContentDelegate = Handler;
-		if (!VerificationData.IsEmpty())
+		if (!VerificationUserId.IsEmpty() || !VerificationData.IsEmpty())
 		{
 			GADServerSideVerificationOptions* Options =
 				[[GADServerSideVerificationOptions alloc] init];
-			Options.customRewardString =
-				FAppleStringUtils::ConvertToNSString(VerificationData);
+			if (!VerificationUserId.IsEmpty())
+			{
+				Options.userIdentifier =
+					FAppleStringUtils::ConvertToNSString(VerificationUserId);
+			}
+			if (!VerificationData.IsEmpty())
+			{
+				Options.customRewardString =
+					FAppleStringUtils::ConvertToNSString(VerificationData);
+			}
 			RewardedInterstitialAd.serverSideVerificationOptions = Options;
 		}
 		const FOpenMobileAdsRevenueSource RevenueSource =
@@ -1914,10 +1924,12 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
 bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 	const int64 LoadedRequestId,
 	const int64 ShowRequestId,
+	const FString& ServerVerificationUserId,
 	const FString& ServerVerificationCustomData,
 	FString& OutError
 )
 {
+	const FString VerificationUserId = ServerVerificationUserId;
 	const FString VerificationData = ServerVerificationCustomData;
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
@@ -1953,12 +1965,20 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 		Handler.rewardedAd = RewardedAd;
 		GOpenMobileRewardedAdDelegate = Handler;
 		RewardedAd.fullScreenContentDelegate = Handler;
-		if (!VerificationData.IsEmpty())
+		if (!VerificationUserId.IsEmpty() || !VerificationData.IsEmpty())
 		{
 			GADServerSideVerificationOptions* Options =
 				[[GADServerSideVerificationOptions alloc] init];
-			Options.customRewardString =
-				FAppleStringUtils::ConvertToNSString(VerificationData);
+			if (!VerificationUserId.IsEmpty())
+			{
+				Options.userIdentifier =
+					FAppleStringUtils::ConvertToNSString(VerificationUserId);
+			}
+			if (!VerificationData.IsEmpty())
+			{
+				Options.customRewardString =
+					FAppleStringUtils::ConvertToNSString(VerificationData);
+			}
 			RewardedAd.serverSideVerificationOptions = Options;
 		}
 		const FOpenMobileAdsRevenueSource RevenueSource =

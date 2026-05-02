@@ -55,6 +55,12 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 	bool bSupportsServerVerification = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bSupportsServerVerificationUserId = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bSupportsServerVerificationCustomData = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bRequiresIntroduction = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")

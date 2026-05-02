@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=14</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=15</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -2134,6 +2134,7 @@ import java.util.Set;
     public boolean AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd(
         final long loadedRequestId,
         final long showRequestId,
+        final String serverVerificationUserId,
         final String serverVerificationCustomData
     )
     {
@@ -2172,14 +2173,30 @@ import java.util.Set;
                     try
                     {
                         if (
-                            serverVerificationCustomData != null
-                            &amp;&amp; serverVerificationCustomData.length() > 0
+                            (serverVerificationUserId != null
+                                &amp;&amp; serverVerificationUserId.length() > 0)
+                            || (serverVerificationCustomData != null
+                                &amp;&amp; serverVerificationCustomData.length() > 0)
                         )
                         {
+                            ServerSideVerificationOptions.Builder options =
+                                new ServerSideVerificationOptions.Builder();
+                            if (
+                                serverVerificationUserId != null
+                                &amp;&amp; serverVerificationUserId.length() > 0
+                            )
+                            {
+                                options.setUserId(serverVerificationUserId);
+                            }
+                            if (
+                                serverVerificationCustomData != null
+                                &amp;&amp; serverVerificationCustomData.length() > 0
+                            )
+                            {
+                                options.setCustomData(serverVerificationCustomData);
+                            }
                             rewardedInterstitialAd.setServerSideVerificationOptions(
-                                new ServerSideVerificationOptions.Builder()
-                                    .setCustomData(serverVerificationCustomData)
-                                    .build()
+                                options.build()
                             );
                         }
                         rewardedInterstitialAd.setFullScreenContentCallback(
@@ -2281,6 +2298,7 @@ import java.util.Set;
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         final long loadedRequestId,
         final long showRequestId,
+        final String serverVerificationUserId,
         final String serverVerificationCustomData
     )
     {
@@ -2320,14 +2338,30 @@ import java.util.Set;
                     try
                     {
                         if (
-                            serverVerificationCustomData != null
-                            &amp;&amp; serverVerificationCustomData.length() > 0
+                            (serverVerificationUserId != null
+                                &amp;&amp; serverVerificationUserId.length() > 0)
+                            || (serverVerificationCustomData != null
+                                &amp;&amp; serverVerificationCustomData.length() > 0)
                         )
                         {
+                            ServerSideVerificationOptions.Builder options =
+                                new ServerSideVerificationOptions.Builder();
+                            if (
+                                serverVerificationUserId != null
+                                &amp;&amp; serverVerificationUserId.length() > 0
+                            )
+                            {
+                                options.setUserId(serverVerificationUserId);
+                            }
+                            if (
+                                serverVerificationCustomData != null
+                                &amp;&amp; serverVerificationCustomData.length() > 0
+                            )
+                            {
+                                options.setCustomData(serverVerificationCustomData);
+                            }
                             rewardedAd.setServerSideVerificationOptions(
-                                new ServerSideVerificationOptions.Builder()
-                                    .setCustomData(serverVerificationCustomData)
-                                    .build()
+                                options.build()
                             );
                         }
                         rewardedAd.setFullScreenContentCallback(
@@ -2662,11 +2696,13 @@ import java.util.Set;
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         long,
         long,
+        java.lang.String,
         java.lang.String
     );
     public boolean AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd(
         long,
         long,
+        java.lang.String,
         java.lang.String
     );
     public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(

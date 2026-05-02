@@ -172,7 +172,20 @@ struct OPENMOBILEADS_API FOpenMobileAdsShowOptions
 	)
 	bool bRewardedInterstitialIntroductionPresented = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Optional per-show user identifier sent only to the rewarded provider's server-verification callback. Do not put private credentials here.")
+	)
+	FString ServerVerificationUserId;
+
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Optional per-show correlation data sent only to the rewarded provider's server-verification callback. Do not put private credentials here.")
+	)
 	FString ServerVerificationCustomData;
 };
 
@@ -198,6 +211,8 @@ struct OPENMOBILEADS_API FOpenMobileAdsShowRequest
 	EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
 
 	FOpenMobileAdsBannerLayout BannerLayout;
+
+	FOpenMobileAdsServerVerificationSettings ServerVerification;
 
 	FOpenMobileAdsShowOptions Options;
 };

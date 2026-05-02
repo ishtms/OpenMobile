@@ -64,6 +64,8 @@ namespace OpenMobileAdsAdMobPrivate
 			Rewarded.bReportsReward = true;
 			Rewarded.bReportsRevenue = true;
 			Rewarded.bSupportsServerVerification = true;
+			Rewarded.bSupportsServerVerificationUserId = true;
+			Rewarded.bSupportsServerVerificationCustomData = true;
 			Rewarded.MaxCachedAdsPerPlacement = 1;
 			Rewarded.CacheLifetimeSeconds = 60.0 * 60.0;
 

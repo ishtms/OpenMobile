@@ -166,6 +166,20 @@ namespace OpenMobileAdsConfigurationPrivate
 				TEXT("App-open presentation windows and minimum background duration must be finite and non-negative, and maximum cache age must be finite and positive.")
 			);
 		}
+
+		if (
+			Placement.ServerVerification.bEnabled
+			&& Placement.Format != EOpenMobileAdFormat::Rewarded
+			&& Placement.Format != EOpenMobileAdFormat::RewardedInterstitial
+		)
+		{
+			AddIssue(
+				Issues,
+				EOpenMobileAdsConfigurationIssueCode::InvalidServerVerification,
+				Placement.Placement,
+				TEXT("Server-side verification is only valid for rewarded and rewarded-interstitial placements.")
+			);
+		}
 	}
 }
 
@@ -272,6 +286,7 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.FrequencyCap = FrequencyCap;
 	Result.CooldownSeconds = CooldownSeconds;
 	Result.AppOpenPolicy = AppOpenPolicy;
+	Result.ServerVerification = ServerVerification;
 	Result.HideCachePolicy = HideCachePolicy;
 	Result.BannerLayout = BannerLayout;
 	Result.FallbackRewardType = FallbackRewardType;
@@ -308,6 +323,9 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	Result.AppOpenPolicy = Override->bOverrideAppOpenPolicy
 		? Override->AppOpenPolicy
 		: Result.AppOpenPolicy;
+	Result.ServerVerification = Override->bOverrideServerVerification
+		? Override->ServerVerification
+		: Result.ServerVerification;
 	Result.BannerLayout = Override->bOverrideBannerLayout
 		? Override->BannerLayout
 		: Result.BannerLayout;
@@ -508,6 +526,45 @@ FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 				FormatCapabilities->bSupportsPreload,
 				TEXT("automatic preload")
 			);
+		}
+
+		const bool bUsesServerVerification =
+			(Android.bEnabled && Android.ServerVerification.bEnabled)
+			|| (IOS.bEnabled && IOS.ServerVerification.bEnabled);
+		if (bUsesServerVerification)
+		{
+			ValidateOperation(
+				FormatCapabilities->bSupportsServerVerification,
+				TEXT("server-side verification")
+			);
+			if (
+				(Android.bEnabled
+					&& Android.ServerVerification.bEnabled
+					&& Android.ServerVerification.bRequireUserId)
+				|| (IOS.bEnabled
+					&& IOS.ServerVerification.bEnabled
+					&& IOS.ServerVerification.bRequireUserId)
+			)
+			{
+				ValidateOperation(
+					FormatCapabilities->bSupportsServerVerificationUserId,
+					TEXT("a server-side verification user ID")
+				);
+			}
+			if (
+				(Android.bEnabled
+					&& Android.ServerVerification.bEnabled
+					&& Android.ServerVerification.bRequireCustomData)
+				|| (IOS.bEnabled
+					&& IOS.ServerVerification.bEnabled
+					&& IOS.ServerVerification.bRequireCustomData)
+			)
+			{
+				ValidateOperation(
+					FormatCapabilities->bSupportsServerVerificationCustomData,
+					TEXT("server-side verification custom data")
+				);
+			}
 		}
 	}
 	return Issues;

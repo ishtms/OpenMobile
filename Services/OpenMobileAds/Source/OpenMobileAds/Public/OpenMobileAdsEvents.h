@@ -44,10 +44,31 @@ struct OPENMOBILEADS_API FOpenMobileAdsReward
 	)
 	int64 Amount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "True when the placement requested a separate backend server-verification callback. This local event is not proof that the backend received or verified it.")
+	)
+	bool bServerVerificationRequested = false;
+
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (
+			DeprecatedProperty,
+			DeprecationMessage = "Local provider callbacks cannot assert backend verification. Use Server Verification Requested and grant on the backend."
+		)
+	)
 	bool bServerVerified = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	UPROPERTY(
+		BlueprintReadOnly,
+		Category = "Open Mobile|Ads",
+		meta = (
+			DeprecatedProperty,
+			DeprecationMessage = "Backend transaction identifiers never enter the Unreal reward event."
+		)
+	)
 	FString VerificationId;
 };
 

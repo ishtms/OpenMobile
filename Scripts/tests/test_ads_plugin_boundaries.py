@@ -207,7 +207,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=14", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=15", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -220,6 +220,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"AndroidThunkJava_ShowOpenMobileRewardedAd",
 			"openMobileLoadedRewardedAds.remove",
 			"setServerSideVerificationOptions",
+			"setUserId(serverVerificationUserId)",
 			"nativeOpenMobileRewardedAdImpression",
 			"nativeOpenMobileRewardedAdClicked",
 			"nativeOpenMobileRewardedAdRevenuePaid",

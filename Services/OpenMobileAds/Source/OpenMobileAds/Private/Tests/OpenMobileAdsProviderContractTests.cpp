@@ -5858,8 +5858,9 @@ bool FOpenMobileAdsRewardCallbackContractTest::RunTest(const FString& Parameters
 		TestTrue(TEXT("Reward remains grantable"), BeforeResult.bHasReward);
 		TestEqual(TEXT("Reward keeps its type"), BeforeResult.Reward.Type, FString(TEXT("coin")));
 		TestEqual(TEXT("Reward keeps its amount"), BeforeResult.Reward.Amount, static_cast<int64>(10));
-		TestTrue(TEXT("Reward keeps server verification state"), BeforeResult.Reward.bServerVerified);
-		TestEqual(TEXT("Reward keeps verification ID"), BeforeResult.Reward.VerificationId, FString(TEXT("verify-before")));
+		TestFalse(TEXT("A local reward cannot claim server verification"), BeforeResult.Reward.bServerVerified);
+		TestTrue(TEXT("A provider verification ID is discarded"), BeforeResult.Reward.VerificationId.IsEmpty());
+		TestFalse(TEXT("The default placement did not request server verification"), BeforeResult.Reward.bServerVerificationRequested);
 
 		const FOpenMobileAdsEvent& AfterResult = Events[3];
 		TestEqual(TEXT("Late reward keeps its placement"), AfterResult.Placement, FName(TEXT("RewardAfterDismiss")));
@@ -5869,8 +5870,9 @@ bool FOpenMobileAdsRewardCallbackContractTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Late reward keeps its network"), AfterResult.Network, FString(TEXT("network-after")));
 		TestEqual(TEXT("Reward after dismissal reports idle state"), AfterResult.PlacementState, EOpenMobileAdPlacementState::Idle);
 		TestTrue(TEXT("Late reward remains grantable"), AfterResult.bHasReward);
-		TestTrue(TEXT("Late reward keeps server verification state"), AfterResult.Reward.bServerVerified);
-		TestEqual(TEXT("Late reward keeps Unicode verification ID"), AfterResult.Reward.VerificationId, FString(TEXT("確認-after")));
+		TestFalse(TEXT("A late local reward cannot claim server verification"), AfterResult.Reward.bServerVerified);
+		TestTrue(TEXT("A late provider verification ID is discarded"), AfterResult.Reward.VerificationId.IsEmpty());
+		TestFalse(TEXT("The late default placement did not request server verification"), AfterResult.Reward.bServerVerificationRequested);
 		TestEqual(TEXT("No-reward dismissal keeps its request"), Events[4].RequestId, NoReward.Key);
 	}
 
@@ -9649,6 +9651,175 @@ bool FOpenMobileAdsCanRequestAdsSubsystemTest::RunTest(
 	);
 	TestEqual(TEXT("Each changed decision broadcasts once"), Events.Num(), 5);
 	Subsystem->OnNativeCanRequestAdsChanged().Remove(EventHandle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsServerVerificationShowContractTest,
+	"OpenMobile.Ads.ProviderContract.Reward.ServerVerification",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsServerVerificationShowContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+
+	auto AddPlacement = [&ScopedSettings](FName Name, bool bVerified)
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = Name;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*Name.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*Name.ToString()
+		);
+		Placement.ServerVerification.bEnabled = bVerified;
+		Placement.ServerVerification.bRequireUserId = bVerified;
+		Placement.ServerVerification.bRequireCustomData = bVerified;
+	};
+	AddPlacement(TEXT("VerifiedReward"), true);
+	AddPlacement(TEXT("LocalReward"), false);
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities& RewardedCapabilities =
+		Provider.Capabilities.Formats[0];
+	RewardedCapabilities.bSupportsServerVerification = true;
+	RewardedCapabilities.bSupportsServerVerificationUserId = true;
+	RewardedCapabilities.bSupportsServerVerificationCustomData = true;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before SSV show checks"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto LoadReady = [this, Subsystem, &Provider](FName Placement)
+	{
+		const FOpenMobileAdsOperationResult Load = Subsystem->LoadAd(Placement);
+		TestTrue(TEXT("The SSV contract placement starts loading"), Load.bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	};
+	LoadReady(TEXT("VerifiedReward"));
+	LoadReady(TEXT("LocalReward"));
+
+	FOpenMobileAdsShowOptions UnexpectedOptions;
+	UnexpectedOptions.ServerVerificationUserId = TEXT("player-local");
+	UnexpectedOptions.ServerVerificationCustomData = TEXT("grant-local");
+	const FOpenMobileAdsOperationResult Unexpected = Subsystem->ShowAd(
+		TEXT("LocalReward"),
+		UnexpectedOptions
+	);
+	TestFalse(
+		TEXT("SSV values are rejected for a placement that did not enable SSV"),
+		Unexpected.bAccepted
+	);
+	TestEqual(
+		TEXT("Unexpected SSV values do not reach the provider"),
+		Provider.ShowCalls,
+		0
+	);
+	TestTrue(
+		TEXT("Rejected SSV values preserve the local reward cache"),
+		Subsystem->IsReady(TEXT("LocalReward"))
+	);
+
+	const FOpenMobileAdsOperationResult Missing = Subsystem->ShowAd(
+		TEXT("VerifiedReward")
+	);
+	TestFalse(TEXT("Required per-show SSV values are enforced"), Missing.bAccepted);
+	TestEqual(TEXT("Missing SSV values do not reach the provider"), Provider.ShowCalls, 0);
+	TestTrue(
+		TEXT("Missing SSV values preserve the verified reward cache"),
+		Subsystem->IsReady(TEXT("VerifiedReward"))
+	);
+
+	FOpenMobileAdsShowOptions MissingCustomData;
+	MissingCustomData.ServerVerificationUserId = TEXT("player-42");
+	const FOpenMobileAdsOperationResult MissingCustom = Subsystem->ShowAd(
+		TEXT("VerifiedReward"),
+		MissingCustomData
+	);
+	TestFalse(TEXT("Required SSV custom data is enforced independently"), MissingCustom.bAccepted);
+	TestEqual(TEXT("Partial SSV values do not reach the provider"), Provider.ShowCalls, 0);
+
+	TArray<FOpenMobileAdsEvent> RewardEvents;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&RewardEvents](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
+			{
+				RewardEvents.Add(Event);
+			}
+		}
+	);
+	FOpenMobileAdsShowOptions Options;
+	Options.ServerVerificationUserId = TEXT("player-42");
+	Options.ServerVerificationCustomData = TEXT("grant-9f3c");
+	const FOpenMobileAdsOperationResult Accepted = Subsystem->ShowAd(
+		TEXT("VerifiedReward"),
+		Options
+	);
+	TestTrue(TEXT("Complete per-show SSV values are accepted"), Accepted.bAccepted);
+	TestEqual(TEXT("The accepted SSV show reaches the provider once"), Provider.ShowCalls, 1);
+	TestTrue(
+		TEXT("The provider receives the placement SSV policy"),
+		Provider.LastShowRequest.ServerVerification.bEnabled
+	);
+	TestEqual(
+		TEXT("The provider receives the per-show SSV user ID"),
+		Provider.LastShowRequest.Options.ServerVerificationUserId,
+		FString(TEXT("player-42"))
+	);
+	TestEqual(
+		TEXT("The provider receives per-show SSV custom data"),
+		Provider.LastShowRequest.Options.ServerVerificationCustomData,
+		FString(TEXT("grant-9f3c"))
+	);
+
+	FOpenMobileAdsEvent Reward;
+	Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+	Reward.bHasReward = true;
+	Reward.Reward.Type = TEXT("coin");
+	Reward.Reward.Amount = 10;
+	Reward.Reward.bServerVerified = true;
+	Reward.Reward.VerificationId = TEXT("provider-spoofed-verification");
+	Provider.ShowSink->Submit(MoveTemp(Reward));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The verified placement emits one local reward callback"), RewardEvents.Num(), 1);
+	if (RewardEvents.Num() == 1)
+	{
+		TestTrue(
+			TEXT("The local reward records that SSV was requested"),
+			RewardEvents[0].Reward.bServerVerificationRequested
+		);
+		TestFalse(
+			TEXT("A provider cannot assert backend verification"),
+			RewardEvents[0].Reward.bServerVerified
+		);
+		TestTrue(
+			TEXT("A provider cannot inject a backend verification ID"),
+			RewardEvents[0].Reward.VerificationId.IsEmpty()
+		);
+	}
+
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
 	return true;
 }
 

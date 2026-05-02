@@ -771,6 +771,7 @@ void FOpenMobileAdsAdMobAndroidBackend::CancelBannerAd(const int64 RequestId)
 bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
 	const int64 LoadedRequestId,
 	const int64 ShowRequestId,
+	const FString& ServerVerificationUserId,
 	const FString& ServerVerificationCustomData,
 	FString& OutError
 )
@@ -786,7 +787,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_ShowOpenMobileRewardedAd",
-		"(JJLjava/lang/String;)Z",
+		"(JJLjava/lang/String;Ljava/lang/String;)Z",
 		false
 	);
 	if (!ShowMethod)
@@ -795,6 +796,10 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
 		return false;
 	}
 
+	const FScopedJavaObject<jstring> JavaUserId = FJavaHelper::ToJavaString(
+		Env,
+		ServerVerificationUserId
+	);
 	const FScopedJavaObject<jstring> JavaCustomData = FJavaHelper::ToJavaString(
 		Env,
 		ServerVerificationCustomData
@@ -805,6 +810,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedAd(
 		ShowMethod,
 		static_cast<jlong>(LoadedRequestId),
 		static_cast<jlong>(ShowRequestId),
+		*JavaUserId,
 		*JavaCustomData
 	);
 	if (!bScheduled)
@@ -857,6 +863,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowInterstitialAd(
 bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
 	const int64 LoadedRequestId,
 	const int64 ShowRequestId,
+	const FString& ServerVerificationUserId,
 	const FString& ServerVerificationCustomData,
 	FString& OutError
 )
@@ -872,7 +879,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd",
-		"(JJLjava/lang/String;)Z",
+		"(JJLjava/lang/String;Ljava/lang/String;)Z",
 		false
 	);
 	if (!ShowMethod)
@@ -881,6 +888,10 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
 		return false;
 	}
 
+	const FScopedJavaObject<jstring> JavaUserId = FJavaHelper::ToJavaString(
+		Env,
+		ServerVerificationUserId
+	);
 	const FScopedJavaObject<jstring> JavaCustomData = FJavaHelper::ToJavaString(
 		Env,
 		ServerVerificationCustomData
@@ -891,6 +902,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::ShowRewardedInterstitialAd(
 		ShowMethod,
 		static_cast<jlong>(LoadedRequestId),
 		static_cast<jlong>(ShowRequestId),
+		*JavaUserId,
 		*JavaCustomData
 	);
 	if (!bScheduled)

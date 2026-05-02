@@ -491,7 +491,8 @@ namespace OpenMobileAdsPrivate
 			FGuid InCachedAdId = FGuid(),
 			FString InFallbackRewardType = FString(),
 			int64 InFallbackRewardAmount = 0,
-			FGuid InImpressionId = FGuid()
+			FGuid InImpressionId = FGuid(),
+			bool bInServerVerificationRequested = false
 		)
 			: Dispatcher(MoveTemp(InDispatcher))
 			, Provider(InProvider)
@@ -503,6 +504,7 @@ namespace OpenMobileAdsPrivate
 			, FallbackRewardType(MoveTemp(InFallbackRewardType))
 			, FallbackRewardAmount(InFallbackRewardAmount)
 			, ImpressionId(InImpressionId)
+			, bServerVerificationRequested(bInServerVerificationRequested)
 		{
 		}
 
@@ -741,6 +743,13 @@ namespace OpenMobileAdsPrivate
 				{
 					Event.bHasReward = true;
 				}
+				if (Event.Type == EOpenMobileAdsEventType::RewardEarned)
+				{
+					Event.Reward.bServerVerificationRequested =
+						bServerVerificationRequested;
+					Event.Reward.bServerVerified = false;
+					Event.Reward.VerificationId.Reset();
+				}
 			}
 			if (
 				Event.Type == EOpenMobileAdsEventType::LoadFailed
@@ -791,6 +800,7 @@ namespace OpenMobileAdsPrivate
 		FString FallbackRewardType;
 		int64 FallbackRewardAmount = 0;
 		FGuid ImpressionId;
+		bool bServerVerificationRequested = false;
 		TArray<FOpenMobileAdsRevenue> RevenueReports;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
@@ -3607,6 +3617,107 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 		Provider->GetCapabilities();
 	const FOpenMobileAdFormatCapabilities* FormatCapabilities =
 		ProviderCapabilities.FindFormat(ResolvedPlacement.Format);
+	const bool bHasServerVerificationUserId =
+		!Options.ServerVerificationUserId.IsEmpty();
+	const bool bHasServerVerificationCustomData =
+		!Options.ServerVerificationCustomData.IsEmpty();
+	if (!ResolvedPlacement.ServerVerification.bEnabled)
+	{
+		if (
+			bHasServerVerificationUserId
+			|| bHasServerVerificationCustomData
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::InvalidState,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("Server-verification values were supplied for a placement that does not enable server-side verification."),
+					Provider->GetProviderName(),
+					TEXT("Enable server-side verification for this placement or clear both per-show values.")
+				)
+			);
+		}
+	}
+	else
+	{
+		if (!FormatCapabilities || !FormatCapabilities->bSupportsServerVerification)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("The selected provider does not support server-side verification for this rewarded format."),
+					Provider->GetProviderName(),
+					TEXT("Disable server-side verification or select a provider that supports it for this format.")
+				)
+			);
+		}
+		if (
+			ResolvedPlacement.ServerVerification.bRequireUserId
+			&& !bHasServerVerificationUserId
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::InvalidState,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("This placement requires a per-show server-verification user ID."),
+					Provider->GetProviderName(),
+					TEXT("Set Server Verification User ID in the show options for the current user.")
+				)
+			);
+		}
+		if (
+			ResolvedPlacement.ServerVerification.bRequireCustomData
+			&& !bHasServerVerificationCustomData
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::InvalidState,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("This placement requires per-show server-verification custom data."),
+					Provider->GetProviderName(),
+					TEXT("Set Server Verification Custom Data in the show options for this reward transaction.")
+				)
+			);
+		}
+		if (
+			bHasServerVerificationUserId
+			&& !FormatCapabilities->bSupportsServerVerificationUserId
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("The selected provider does not support a server-verification user ID for this format."),
+					Provider->GetProviderName()
+				)
+			);
+		}
+		if (
+			bHasServerVerificationCustomData
+			&& !FormatCapabilities->bSupportsServerVerificationCustomData
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("The selected provider does not support server-verification custom data for this format."),
+					Provider->GetProviderName()
+				)
+			);
+		}
+	}
 	if (
 		FormatCapabilities
 		&& FormatCapabilities->bRequiresIntroduction
@@ -3635,6 +3746,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 	Request.Placement = Placement;
 	Request.Format = Status->Format;
 	Request.BannerLayout = ResolvedPlacement.BannerLayout;
+	Request.ServerVerification = ResolvedPlacement.ServerVerification;
 	Request.Options = MoveTemp(Options);
 	const FGuid ImpressionId = FGuid::NewGuid();
 	const bool bUsesFullscreenLifecycle =
@@ -3683,7 +3795,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			Status->CachedAdId,
 			ResolvedPlacement.FallbackRewardType,
 			ResolvedPlacement.FallbackRewardAmount,
-			ImpressionId
+			ImpressionId,
+			ResolvedPlacement.ServerVerification.bEnabled
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();

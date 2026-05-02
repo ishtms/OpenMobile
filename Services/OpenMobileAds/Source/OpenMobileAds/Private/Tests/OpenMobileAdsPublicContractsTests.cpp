@@ -882,4 +882,104 @@ bool FOpenMobileAdsEcpmContractTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsServerVerificationPublicContractTest,
+	"OpenMobile.Ads.Contracts.Reward.ServerVerification",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsServerVerificationPublicContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	for (const FName PropertyName : {
+		FName(TEXT("bEnabled")),
+		FName(TEXT("bRequireUserId")),
+		FName(TEXT("bRequireCustomData"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsServerVerificationSettings::StaticStruct()
+				->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(
+				TEXT("Server verification setting %s is reflected"),
+				*PropertyName.ToString()
+			),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("Server verification settings are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+
+	for (const FName PropertyName : {
+		FName(TEXT("ServerVerificationUserId")),
+		FName(TEXT("ServerVerificationCustomData"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsShowOptions::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(
+				TEXT("Show option %s is reflected"),
+				*PropertyName.ToString()
+			),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("Server verification show options are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+
+	const FProperty* RewardRequestedProperty =
+		FOpenMobileAdsReward::StaticStruct()
+			->FindPropertyByName(TEXT("bServerVerificationRequested"));
+	TestNotNull(
+		TEXT("Server verification requested state is reflected"),
+		RewardRequestedProperty
+	);
+	if (RewardRequestedProperty)
+	{
+		TestTrue(
+			TEXT("Server verification requested state is visible to Blueprint"),
+			RewardRequestedProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+
+	for (const FName PropertyName : {
+		FName(TEXT("bServerVerified")),
+		FName(TEXT("VerificationId"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsReward::StaticStruct()->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(
+				TEXT("Legacy reward field %s remains reflected"),
+				*PropertyName.ToString()
+			),
+			Property
+		);
+		if (Property)
+		{
+		#if WITH_EDITORONLY_DATA
+			TestTrue(
+				TEXT("Legacy local verification fields are deprecated"),
+				Property->HasMetaData(TEXT("DeprecatedProperty"))
+			);
+		#endif
+		}
+	}
+	return true;
+}
+
 #endif

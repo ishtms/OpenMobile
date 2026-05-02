@@ -72,6 +72,7 @@ public:
 	virtual bool ShowRewardedAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
+		const FString& ServerVerificationUserId,
 		const FString& ServerVerificationCustomData,
 		FString& OutError
 	) override;
@@ -83,6 +84,7 @@ public:
 	virtual bool ShowRewardedInterstitialAd(
 		int64 LoadedRequestId,
 		int64 ShowRequestId,
+		const FString& ServerVerificationUserId,
 		const FString& ServerVerificationCustomData,
 		FString& OutError
 	) override;

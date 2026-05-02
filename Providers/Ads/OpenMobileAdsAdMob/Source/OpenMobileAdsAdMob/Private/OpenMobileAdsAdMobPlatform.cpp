@@ -328,19 +328,33 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 		if (Request.Format == EOpenMobileAdFormat::Rewarded)
 		{
+			const FString UserId = Request.ServerVerification.bEnabled
+				? Request.Options.ServerVerificationUserId
+				: FString();
+			const FString CustomData = Request.ServerVerification.bEnabled
+				? Request.Options.ServerVerificationCustomData
+				: FString();
 			return Backend.ShowRewardedAd(
 				LoadedRequestId,
 				NativeShowRequestId,
-				Request.Options.ServerVerificationCustomData,
+				UserId,
+				CustomData,
 				OutError
 			);
 		}
 		if (Request.Format == EOpenMobileAdFormat::RewardedInterstitial)
 		{
+			const FString UserId = Request.ServerVerification.bEnabled
+				? Request.Options.ServerVerificationUserId
+				: FString();
+			const FString CustomData = Request.ServerVerification.bEnabled
+				? Request.Options.ServerVerificationCustomData
+				: FString();
 			return Backend.ShowRewardedInterstitialAd(
 				LoadedRequestId,
 				NativeShowRequestId,
-				Request.Options.ServerVerificationCustomData,
+				UserId,
+				CustomData,
 				OutError
 			);
 		}

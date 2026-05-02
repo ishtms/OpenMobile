@@ -320,6 +320,39 @@ struct OPENMOBILEADS_API FOpenMobileAdsAppOpenPolicy
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsServerVerificationSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (ToolTip = "Expect this rewarded placement to use the provider's backend server-side verification callback. Configure callback URLs and all private credentials outside the Unreal project.")
+	)
+	bool bEnabled = false;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (EditCondition = "bEnabled", ToolTip = "Reject a show unless its options contain a per-show server-verification user ID.")
+	)
+	bool bRequireUserId = false;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "Open Mobile|Ads",
+		meta = (EditCondition = "bEnabled", ToolTip = "Reject a show unless its options contain per-show server-verification custom data.")
+	)
+	bool bRequireCustomData = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 {
 	GENERATED_BODY()
@@ -364,6 +397,12 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	bool bOverrideServerVerification = false;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideServerVerification"))
+	FOpenMobileAdsServerVerificationSettings ServerVerification;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	bool bOverrideBannerLayout = false;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideBannerLayout"))
@@ -404,6 +443,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsResolvedPlacement
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsServerVerificationSettings ServerVerification;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
@@ -450,6 +492,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FOpenMobileAdsAppOpenPolicy AppOpenPolicy;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	FOpenMobileAdsServerVerificationSettings ServerVerification;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	EOpenMobileAdsHideCachePolicy HideCachePolicy =
@@ -533,7 +578,8 @@ enum class EOpenMobileAdsConfigurationIssueCode : uint8
 	InvalidPlacementRetryLimit,
 	InvalidPreloadPolicy,
 	InvalidBannerLayout,
-	InvalidAppOpenPolicy
+	InvalidAppOpenPolicy,
+	InvalidServerVerification
 };
 
 USTRUCT(BlueprintType)

@@ -332,6 +332,108 @@ bool FOpenMobileAdsPlacementCapabilityValidationTest::RunTest(const FString& Par
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsServerVerificationConfigurationTest,
+	"OpenMobile.Ads.Configuration.ServerVerification",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsServerVerificationConfigurationTest::RunTest(
+	const FString& Parameters
+)
+{
+	FOpenMobileAdsServerVerificationSettings Defaults;
+	TestFalse(TEXT("Server verification is opt-in"), Defaults.bEnabled);
+	TestFalse(TEXT("A user ID is optional by default"), Defaults.bRequireUserId);
+	TestFalse(TEXT("Custom data is optional by default"), Defaults.bRequireCustomData);
+
+	FOpenMobileAdsPlacementSettings Placement =
+		OpenMobileAdsConfigurationTests::MakeRewardedPlacement(
+			TEXT("VerifiedReward"),
+			TEXT("android-verified-reward"),
+			TEXT("ios-verified-reward")
+		);
+	Placement.ServerVerification.bEnabled = true;
+	Placement.ServerVerification.bRequireUserId = true;
+	Placement.ServerVerification.bRequireCustomData = true;
+	Placement.Android.bOverrideServerVerification = true;
+	Placement.Android.ServerVerification.bEnabled = false;
+
+	const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+		EOpenMobileAdsPlatform::Android
+	);
+	const FOpenMobileAdsResolvedPlacement IOS = Placement.Resolve(
+		EOpenMobileAdsPlatform::IOS
+	);
+	TestFalse(
+		TEXT("Android can disable SSV for its ad unit"),
+		Android.ServerVerification.bEnabled
+	);
+	TestTrue(
+		TEXT("iOS inherits placement SSV"),
+		IOS.ServerVerification.bEnabled
+	);
+	TestTrue(
+		TEXT("iOS keeps the required per-show user ID policy"),
+		IOS.ServerVerification.bRequireUserId
+	);
+	TestTrue(
+		TEXT("iOS keeps the required per-show custom data policy"),
+		IOS.ServerVerification.bRequireCustomData
+	);
+
+	FOpenMobileAdsPlacementSettings InvalidFormat = Placement;
+	InvalidFormat.Placement = TEXT("InvalidVerifiedInterstitial");
+	InvalidFormat.Format = EOpenMobileAdFormat::Interstitial;
+	InvalidFormat.Android.bOverrideServerVerification = false;
+	const TArray<FOpenMobileAdsConfigurationIssue> FormatIssues =
+		FOpenMobileAdsConfigurationValidator::Validate({InvalidFormat});
+	TestTrue(
+		TEXT("Only rewarding formats can enable SSV"),
+		OpenMobileAdsConfigurationTests::HasIssue(
+			FormatIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidServerVerification
+		)
+	);
+
+	FOpenMobileAdFormatCapabilities RewardedCapabilities;
+	RewardedCapabilities.Format = EOpenMobileAdFormat::Rewarded;
+	RewardedCapabilities.bCanLoad = true;
+	RewardedCapabilities.bCanShow = true;
+	FOpenMobileAdsProviderCapabilities ProviderCapabilities;
+	ProviderCapabilities.Provider = TEXT("UnverifiedAds");
+	ProviderCapabilities.Formats.Add(RewardedCapabilities);
+	const TArray<FOpenMobileAdsConfigurationIssue> UnsupportedIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+			{Placement},
+			ProviderCapabilities
+		);
+	TestTrue(
+		TEXT("The selected provider must support configured SSV"),
+		UnsupportedIssues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+						== EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation
+					&& Issue.Message.Contains(TEXT("server-side verification"));
+			}
+		)
+	);
+
+	RewardedCapabilities.bSupportsServerVerification = true;
+	RewardedCapabilities.bSupportsServerVerificationUserId = true;
+	RewardedCapabilities.bSupportsServerVerificationCustomData = true;
+	ProviderCapabilities.Formats[0] = RewardedCapabilities;
+	TestTrue(
+		TEXT("A provider with every required SSV option validates"),
+		FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+			{Placement},
+			ProviderCapabilities
+		).IsEmpty()
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsFixedBannerConfigurationTest,
 	"OpenMobile.Ads.Configuration.FixedBanner",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -647,6 +749,9 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.AppOpenPolicy.MaximumCacheAgeSeconds = 7200.0;
 	Placement.FallbackRewardType = TEXT("gold-token");
 	Placement.FallbackRewardAmount = 25;
+	Placement.ServerVerification.bEnabled = true;
+	Placement.ServerVerification.bRequireUserId = true;
+	Placement.ServerVerification.bRequireCustomData = true;
 	Placement.FrequencyCap.MaxImpressions = 2;
 	Placement.FrequencyCap.WindowSeconds = 60.0;
 	Placement.FrequencyCap.MaxSessionImpressions = 3;
@@ -655,6 +760,8 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.Android.bOverrideAppOpenPolicy = true;
 	Placement.Android.AppOpenPolicy = Placement.AppOpenPolicy;
 	Placement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds = 75.0;
+	Placement.Android.bOverrideServerVerification = true;
+	Placement.Android.ServerVerification.bEnabled = false;
 	SavedSettings->Placements.Add(Placement);
 	SavedSettings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 
@@ -757,11 +864,16 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("App-open cache age survives restart"), LoadedPlacement.AppOpenPolicy.MaximumCacheAgeSeconds, 7200.0);
 		TestEqual(TEXT("Reward type fallback survives restart"), LoadedPlacement.FallbackRewardType, FString(TEXT("gold-token")));
 		TestEqual(TEXT("Reward amount fallback survives restart"), LoadedPlacement.FallbackRewardAmount, static_cast<int64>(25));
+		TestTrue(TEXT("Server verification survives restart"), LoadedPlacement.ServerVerification.bEnabled);
+		TestTrue(TEXT("Required server verification user ID survives restart"), LoadedPlacement.ServerVerification.bRequireUserId);
+		TestTrue(TEXT("Required server verification custom data survives restart"), LoadedPlacement.ServerVerification.bRequireCustomData);
 		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
 		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
 		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);
 		TestTrue(TEXT("Android app-open override flag survives restart"), LoadedPlacement.Android.bOverrideAppOpenPolicy);
 		TestEqual(TEXT("Android app-open exclusion survives restart"), LoadedPlacement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds, 75.0);
+		TestTrue(TEXT("Android server verification override survives restart"), LoadedPlacement.Android.bOverrideServerVerification);
+		TestFalse(TEXT("Android server verification override value survives restart"), LoadedPlacement.Android.ServerVerification.bEnabled);
 		TestEqual(TEXT("iOS ID survives restart"), LoadedPlacement.IOS.AdUnitId, FString(TEXT("ios-config")));
 	}
 	return true;
