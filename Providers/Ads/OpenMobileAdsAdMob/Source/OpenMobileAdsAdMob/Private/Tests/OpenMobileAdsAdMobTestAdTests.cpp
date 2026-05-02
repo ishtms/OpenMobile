@@ -1543,6 +1543,34 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 			TEXT("AdMob supports rewarded server verification"),
 			Rewarded->bSupportsServerVerification
 		);
+		TestTrue(
+			TEXT("AdMob supports per-show server verification user IDs"),
+			Rewarded->bSupportsServerVerificationUserId
+		);
+		TestTrue(
+			TEXT("AdMob supports per-show server verification custom data"),
+			Rewarded->bSupportsServerVerificationCustomData
+		);
+		TestEqual(
+			TEXT("AdMob documents no custom-data byte limit"),
+			Rewarded->ServerVerificationConstraints.MaxCustomDataUtf8Bytes,
+			0
+		);
+		TestEqual(
+			TEXT("AdMob accepts Unicode custom data"),
+			Rewarded->ServerVerificationConstraints.CustomDataCharacterSet,
+			EOpenMobileAdsServerVerificationCharacterSet::Unicode
+		);
+		TestEqual(
+			TEXT("AdMob applies SSV options before presentation"),
+			Rewarded->ServerVerificationConstraints.OptionTiming,
+			EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation
+		);
+		TestEqual(
+			TEXT("AdMob percent-encodes callback values as UTF-8"),
+			Rewarded->ServerVerificationConstraints.CallbackEncoding,
+			EOpenMobileAdsServerVerificationCallbackEncoding::PercentEncodedUtf8
+		);
 	}
 
 	FOpenMobileAdsInitializationRequest Initialization;
@@ -1592,7 +1620,7 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 	Show.Format = EOpenMobileAdFormat::Rewarded;
 	Show.ServerVerification.bEnabled = true;
 	Show.Options.ServerVerificationUserId = TEXT("player-42");
-	Show.Options.ServerVerificationCustomData = TEXT("grant-42");
+	Show.Options.ServerVerificationCustomData = TEXT("grant-星");
 	const TSharedRef<FEventSink, ESPMode::ThreadSafe> ShowSink =
 		MakeShared<FEventSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError ShowError;
@@ -1617,7 +1645,7 @@ bool FOpenMobileAdsAdMobShowContractTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Reusable show forwards server verification custom data"),
 		Backend.ShownServerVerificationCustomData,
-		FString(TEXT("grant-42"))
+		FString(TEXT("grant-星"))
 	);
 
 	FOpenMobileAdsAdMobPlatform::NativeShown(Backend.ShowRequestId);

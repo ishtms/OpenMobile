@@ -66,6 +66,14 @@ namespace OpenMobileAdsAdMobPrivate
 			Rewarded.bSupportsServerVerification = true;
 			Rewarded.bSupportsServerVerificationUserId = true;
 			Rewarded.bSupportsServerVerificationCustomData = true;
+			Rewarded.ServerVerificationConstraints.UserIdCharacterSet =
+				EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+			Rewarded.ServerVerificationConstraints.CustomDataCharacterSet =
+				EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+			Rewarded.ServerVerificationConstraints.OptionTiming =
+				EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation;
+			Rewarded.ServerVerificationConstraints.CallbackEncoding =
+				EOpenMobileAdsServerVerificationCallbackEncoding::PercentEncodedUtf8;
 			Rewarded.MaxCachedAdsPerPlacement = 1;
 			Rewarded.CacheLifetimeSeconds = 60.0 * 60.0;
 

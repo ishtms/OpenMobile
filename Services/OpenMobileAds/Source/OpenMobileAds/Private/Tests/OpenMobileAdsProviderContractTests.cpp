@@ -364,6 +364,7 @@ namespace OpenMobileAdsProviderContractTests
 		{
 			++ShowCalls;
 			LastShowRequest = Request;
+			ShowRequests.Add(Request);
 			ShowSink = EventSink;
 			if (!bAcceptShow)
 			{
@@ -545,6 +546,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError DestroyRejection;
 		FOpenMobileAdsLoadRequest LastLoadRequest;
 		FOpenMobileAdsShowRequest LastShowRequest;
+		TArray<FOpenMobileAdsShowRequest> ShowRequests;
 		FOpenMobileAdsHideRequest LastHideRequest;
 		FOpenMobileAdsDestroyRequest LastDestroyRequest;
 		FOpenMobileAdsConsentRequest LastConsentRequest;
@@ -9656,7 +9658,7 @@ bool FOpenMobileAdsCanRequestAdsSubsystemTest::RunTest(
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsServerVerificationShowContractTest,
-	"OpenMobile.Ads.ProviderContract.Reward.ServerVerification",
+	"OpenMobile.Ads.ProviderContract.Reward.ServerVerification.Policy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
 )
 
@@ -9819,6 +9821,313 @@ bool FOpenMobileAdsServerVerificationShowContractTest::RunTest(
 	}
 
 	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsServerVerificationCustomDataContractTest,
+	"OpenMobile.Ads.ProviderContract.Reward.ServerVerification.CustomData",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsServerVerificationCustomDataContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+
+	auto AddPlacement = [&ScopedSettings](FName Name)
+	{
+		FOpenMobileAdsPlacementSettings& Placement =
+			ScopedSettings.Settings->Placements.Emplace_GetRef();
+		Placement.Placement = Name;
+		Placement.Format = EOpenMobileAdFormat::Rewarded;
+		Placement.Android.AdUnitId = FString::Printf(
+			TEXT("android-%s"),
+			*Name.ToString()
+		);
+		Placement.IOS.AdUnitId = FString::Printf(
+			TEXT("ios-%s"),
+			*Name.ToString()
+		);
+		Placement.ServerVerification.bEnabled = true;
+	};
+	for (const FName Placement : {
+		FName(TEXT("EmptyData")),
+		FName(TEXT("MaximumData")),
+		FName(TEXT("OversizedData")),
+		FName(TEXT("InvalidData")),
+		FName(TEXT("AsciiData")),
+		FName(TEXT("WrongTiming")),
+		FName(TEXT("ProviderReject")),
+		FName(TEXT("AsyncReject")),
+		FName(TEXT("ConcurrentA")),
+		FName(TEXT("ConcurrentB"))
+	})
+	{
+		AddPlacement(Placement);
+	}
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities& RewardedCapabilities =
+		Provider.Capabilities.Formats[0];
+	RewardedCapabilities.bSupportsServerVerification = true;
+	RewardedCapabilities.bSupportsServerVerificationCustomData = true;
+	RewardedCapabilities.ServerVerificationConstraints.MaxCustomDataUtf8Bytes = 8;
+	RewardedCapabilities.ServerVerificationConstraints.CustomDataCharacterSet =
+		EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+	RewardedCapabilities.ServerVerificationConstraints.OptionTiming =
+		EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation;
+	RewardedCapabilities.ServerVerificationConstraints.CallbackEncoding =
+		EOpenMobileAdsServerVerificationCallbackEncoding::PercentEncodedUtf8;
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TestTrue(
+		TEXT("The provider initializes before custom-data validation"),
+		InitializeSuccessfully(*Subsystem, Provider)
+	);
+
+	auto LoadReady = [this, Subsystem, &Provider](FName Placement)
+	{
+		const FOpenMobileAdsOperationResult Load = Subsystem->LoadAd(Placement);
+		TestTrue(TEXT("The custom-data placement starts loading"), Load.bAccepted);
+		FOpenMobileAdsEvent Loaded;
+		Loaded.Type = EOpenMobileAdsEventType::Loaded;
+		Loaded.CachedAdId = FGuid::NewGuid();
+		Provider.LoadSink->Submit(MoveTemp(Loaded));
+		DrainGameThreadTasks();
+	};
+	for (const FName Placement : {
+		FName(TEXT("EmptyData")),
+		FName(TEXT("MaximumData")),
+		FName(TEXT("OversizedData")),
+		FName(TEXT("InvalidData")),
+		FName(TEXT("AsciiData")),
+		FName(TEXT("WrongTiming")),
+		FName(TEXT("ProviderReject")),
+		FName(TEXT("AsyncReject")),
+		FName(TEXT("ConcurrentA")),
+		FName(TEXT("ConcurrentB"))
+	})
+	{
+		LoadReady(Placement);
+	}
+
+	const FOpenMobileAdsOperationResult Empty = Subsystem->ShowAd(TEXT("EmptyData"));
+	TestTrue(TEXT("Optional empty custom data is accepted"), Empty.bAccepted);
+	TestTrue(
+		TEXT("Empty custom data remains omitted"),
+		Provider.LastShowRequest.Options.ServerVerificationCustomData.IsEmpty()
+	);
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Provider.ShowSink->Submit(Dismissed);
+	DrainGameThreadTasks();
+
+	FOpenMobileAdsShowOptions MaximumOptions;
+	MaximumOptions.ServerVerificationCustomData = TEXT("éééé");
+	const FOpenMobileAdsOperationResult Maximum = Subsystem->ShowAd(
+		TEXT("MaximumData"),
+		MaximumOptions
+	);
+	TestTrue(
+		TEXT("Unicode custom data at the UTF-8 byte limit is accepted"),
+		Maximum.bAccepted
+	);
+	TestEqual(
+		TEXT("Unicode custom data reaches the provider without pre-encoding"),
+		Provider.LastShowRequest.Options.ServerVerificationCustomData,
+		FString(TEXT("éééé"))
+	);
+	Provider.ShowSink->Submit(Dismissed);
+	DrainGameThreadTasks();
+
+	FOpenMobileAdsShowOptions OversizedOptions;
+	OversizedOptions.ServerVerificationCustomData = TEXT("ééééa");
+	const FOpenMobileAdsOperationResult Oversized = Subsystem->ShowAd(
+		TEXT("OversizedData"),
+		OversizedOptions
+	);
+	TestFalse(TEXT("Custom data over the provider byte limit is rejected"), Oversized.bAccepted);
+	TestTrue(
+		TEXT("An oversized value does not consume the ready cache"),
+		Subsystem->IsReady(TEXT("OversizedData"))
+	);
+
+	FOpenMobileAdsShowOptions InvalidOptions;
+	InvalidOptions.ServerVerificationCustomData.AppendChar(
+		static_cast<TCHAR>(0xD800)
+	);
+	const FOpenMobileAdsOperationResult Invalid = Subsystem->ShowAd(
+		TEXT("InvalidData"),
+		InvalidOptions
+	);
+	TestFalse(TEXT("Ill-formed Unicode custom data is rejected"), Invalid.bAccepted);
+	TestTrue(
+		TEXT("An invalid value does not consume the ready cache"),
+		Subsystem->IsReady(TEXT("InvalidData"))
+	);
+
+	RewardedCapabilities.ServerVerificationConstraints.CustomDataCharacterSet =
+		EOpenMobileAdsServerVerificationCharacterSet::Ascii;
+	FOpenMobileAdsShowOptions AsciiOptions;
+	AsciiOptions.ServerVerificationCustomData = TEXT("星");
+	const FOpenMobileAdsOperationResult Ascii = Subsystem->ShowAd(
+		TEXT("AsciiData"),
+		AsciiOptions
+	);
+	TestFalse(TEXT("Unicode is rejected for an ASCII-only provider"), Ascii.bAccepted);
+	RewardedCapabilities.ServerVerificationConstraints.CustomDataCharacterSet =
+		EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+
+	RewardedCapabilities.ServerVerificationConstraints.OptionTiming =
+		EOpenMobileAdsServerVerificationOptionTiming::BeforeLoad;
+	FOpenMobileAdsShowOptions WrongTimingOptions;
+	WrongTimingOptions.ServerVerificationCustomData = TEXT("timing");
+	const FOpenMobileAdsOperationResult WrongTiming = Subsystem->ShowAd(
+		TEXT("WrongTiming"),
+		WrongTimingOptions
+	);
+	TestFalse(
+		TEXT("Per-show data is rejected when the provider requires load-time options"),
+		WrongTiming.bAccepted
+	);
+	RewardedCapabilities.ServerVerificationConstraints.OptionTiming =
+		EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation;
+
+	Provider.bAcceptShow = false;
+	Provider.ShowRejection = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("ProviderReject"),
+		TEXT("Provider rejected secret"),
+		Provider.Name
+	);
+	Provider.ShowRejection.NativeDiagnostics.NativeMessage =
+		TEXT("Native failure included secret");
+	FOpenMobileAdsShowOptions SecretOptions;
+	SecretOptions.ServerVerificationCustomData = TEXT("secret");
+	const FOpenMobileAdsOperationResult ProviderRejected = Subsystem->ShowAd(
+		TEXT("ProviderReject"),
+		SecretOptions
+	);
+	TestFalse(TEXT("Provider rejection remains a rejected operation"), ProviderRejected.bAccepted);
+	const FString RejectionText = ProviderRejected.Error.Explanation
+		+ ProviderRejected.Error.LikelyCause
+		+ ProviderRejected.Error.SuggestedCorrection
+		+ ProviderRejected.Error.NativeDiagnostics.NativeMessage;
+	TestFalse(
+		TEXT("Per-show custom data is redacted from returned diagnostics"),
+		RejectionText.Contains(TEXT("secret"), ESearchCase::IgnoreCase)
+	);
+	Provider.bAcceptShow = true;
+
+	TArray<FOpenMobileAdsEvent> AsyncFailures;
+	const FDelegateHandle FailureHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&AsyncFailures](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::Failed)
+			{
+				AsyncFailures.Add(Event);
+			}
+		}
+	);
+	FOpenMobileAdsShowOptions AsyncOptions;
+	AsyncOptions.ServerVerificationCustomData = TEXT("async");
+	const FOpenMobileAdsOperationResult AsyncAccepted = Subsystem->ShowAd(
+		TEXT("AsyncReject"),
+		AsyncOptions
+	);
+	TestTrue(TEXT("The asynchronous redaction show is accepted"), AsyncAccepted.bAccepted);
+	FOpenMobileAdsEvent AsyncFailure;
+	AsyncFailure.Type = EOpenMobileAdsEventType::Failed;
+	AsyncFailure.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Show,
+		TEXT("AsyncReject"),
+		TEXT("Provider repeated async"),
+		Provider.Name
+	);
+	AsyncFailure.Error.NativeDiagnostics.NativeMessage =
+		TEXT("Native diagnostics repeated async");
+	AsyncFailure.Error.NativeDiagnostics.NativeCode = TEXT("native-async");
+	AsyncFailure.Error.NativeDiagnostics.Network = TEXT("network-async");
+	AsyncFailure.Error.NativeDiagnostics.Adapter = TEXT("adapter-async");
+	AsyncFailure.Network = TEXT("event-async");
+	AddExpectedError(
+		TEXT("Provider repeated"),
+		EAutomationExpectedErrorFlags::Contains,
+		1
+	);
+	Provider.ShowSink->Submit(MoveTemp(AsyncFailure));
+	DrainGameThreadTasks();
+	TestEqual(TEXT("The asynchronous failure is emitted once"), AsyncFailures.Num(), 1);
+	if (AsyncFailures.Num() == 1)
+	{
+		const FString AsyncText = AsyncFailures[0].Error.Explanation
+			+ AsyncFailures[0].Error.LikelyCause
+			+ AsyncFailures[0].Error.SuggestedCorrection
+			+ AsyncFailures[0].Error.NativeDiagnostics.NativeCode
+			+ AsyncFailures[0].Error.NativeDiagnostics.NativeMessage
+			+ AsyncFailures[0].Error.NativeDiagnostics.Network
+			+ AsyncFailures[0].Error.NativeDiagnostics.Adapter
+			+ AsyncFailures[0].Network;
+		TestFalse(
+			TEXT("Custom data is redacted from asynchronous diagnostics"),
+			AsyncText.Contains(TEXT("async"), ESearchCase::IgnoreCase)
+		);
+	}
+	Subsystem->OnNativeAdsEvent().Remove(FailureHandle);
+
+	FOpenMobileAdsShowOptions FirstOptions;
+	FirstOptions.ServerVerificationCustomData = TEXT("first");
+	const FOpenMobileAdsOperationResult First = Subsystem->ShowAd(
+		TEXT("ConcurrentA"),
+		FirstOptions
+	);
+	TestTrue(TEXT("The first overlapping candidate is accepted"), First.bAccepted);
+	const int32 FirstRequestIndex = Provider.ShowRequests.Num() - 1;
+
+	FOpenMobileAdsShowOptions BlockedOptions;
+	BlockedOptions.ServerVerificationCustomData = TEXT("blocked");
+	const FOpenMobileAdsOperationResult Blocked = Subsystem->ShowAd(
+		TEXT("ConcurrentB"),
+		BlockedOptions
+	);
+	TestFalse(TEXT("A concurrent full-screen show remains blocked"), Blocked.bAccepted);
+	TestEqual(
+		TEXT("A blocked request does not reach the provider"),
+		Provider.ShowRequests.Num(),
+		FirstRequestIndex + 1
+	);
+	Provider.ShowSink->Submit(Dismissed);
+	DrainGameThreadTasks();
+
+	FOpenMobileAdsShowOptions SecondOptions;
+	SecondOptions.ServerVerificationCustomData = TEXT("second");
+	const FOpenMobileAdsOperationResult Second = Subsystem->ShowAd(
+		TEXT("ConcurrentB"),
+		SecondOptions
+	);
+	TestTrue(TEXT("The second request is accepted after dismissal"), Second.bAccepted);
+	TestEqual(
+		TEXT("The first request keeps its own custom data"),
+		Provider.ShowRequests[FirstRequestIndex]
+			.Options.ServerVerificationCustomData,
+		FString(TEXT("first"))
+	);
+	TestEqual(
+		TEXT("The later request receives only its own custom data"),
+		Provider.LastShowRequest.Options.ServerVerificationCustomData,
+		FString(TEXT("second"))
+	);
+
 	Subsystem->Deinitialize();
 	return true;
 }

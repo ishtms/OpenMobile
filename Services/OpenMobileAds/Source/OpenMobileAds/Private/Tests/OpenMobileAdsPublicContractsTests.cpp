@@ -940,6 +940,45 @@ bool FOpenMobileAdsServerVerificationPublicContractTest::RunTest(
 		}
 	}
 
+	const FProperty* ConstraintsProperty =
+		FOpenMobileAdFormatCapabilities::StaticStruct()
+			->FindPropertyByName(TEXT("ServerVerificationConstraints"));
+	TestNotNull(TEXT("Server verification constraints are reflected"), ConstraintsProperty);
+	if (ConstraintsProperty)
+	{
+		TestTrue(
+			TEXT("Server verification constraints are visible to Blueprint"),
+			ConstraintsProperty->HasAnyPropertyFlags(CPF_BlueprintVisible)
+		);
+	}
+	for (const FName PropertyName : {
+		FName(TEXT("MaxUserIdUtf8Bytes")),
+		FName(TEXT("MaxCustomDataUtf8Bytes")),
+		FName(TEXT("UserIdCharacterSet")),
+		FName(TEXT("CustomDataCharacterSet")),
+		FName(TEXT("OptionTiming")),
+		FName(TEXT("CallbackEncoding"))
+	})
+	{
+		const FProperty* Property =
+			FOpenMobileAdsServerVerificationConstraints::StaticStruct()
+				->FindPropertyByName(PropertyName);
+		TestNotNull(
+			FString::Printf(
+				TEXT("Server verification constraint %s is reflected"),
+				*PropertyName.ToString()
+			),
+			Property
+		);
+		if (Property)
+		{
+			TestTrue(
+				TEXT("Server verification constraint fields are visible to Blueprint"),
+				Property->HasAnyPropertyFlags(CPF_BlueprintVisible)
+			);
+		}
+	}
+
 	const FProperty* RewardRequestedProperty =
 		FOpenMobileAdsReward::StaticStruct()
 			->FindPropertyByName(TEXT("bServerVerificationRequested"));

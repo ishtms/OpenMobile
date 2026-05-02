@@ -4,6 +4,55 @@
 #include "OpenMobileAdsTypes.h"
 #include "OpenMobileAdsCapabilities.generated.h"
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsServerVerificationCharacterSet : uint8
+{
+	Unicode,
+	Ascii UMETA(DisplayName = "ASCII")
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsServerVerificationOptionTiming : uint8
+{
+	BeforePresentation UMETA(DisplayName = "Before Presentation"),
+	BeforeLoad UMETA(DisplayName = "Before Load")
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileAdsServerVerificationCallbackEncoding : uint8
+{
+	ProviderDefined UMETA(DisplayName = "Provider Defined"),
+	PercentEncodedUtf8 UMETA(DisplayName = "Percent-Encoded UTF-8")
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsServerVerificationConstraints
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Maximum user-ID length after UTF-8 encoding. Zero means the provider documents no limit."))
+	int32 MaxUserIdUtf8Bytes = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Maximum custom-data length after UTF-8 encoding. Zero means the provider documents no limit."))
+	int32 MaxCustomDataUtf8Bytes = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Character set accepted for the per-show user ID."))
+	EOpenMobileAdsServerVerificationCharacterSet UserIdCharacterSet =
+		EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Character set accepted for per-show custom data."))
+	EOpenMobileAdsServerVerificationCharacterSet CustomDataCharacterSet =
+		EOpenMobileAdsServerVerificationCharacterSet::Unicode;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Latest point at which the provider accepts server-verification options."))
+	EOpenMobileAdsServerVerificationOptionTiming OptionTiming =
+		EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads", meta = (ToolTip = "Encoding applied by the provider when it adds values to the backend callback URL."))
+	EOpenMobileAdsServerVerificationCallbackEncoding CallbackEncoding =
+		EOpenMobileAdsServerVerificationCallbackEncoding::ProviderDefined;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 {
@@ -59,6 +108,9 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bSupportsServerVerificationCustomData = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsServerVerificationConstraints ServerVerificationConstraints;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bRequiresIntroduction = false;

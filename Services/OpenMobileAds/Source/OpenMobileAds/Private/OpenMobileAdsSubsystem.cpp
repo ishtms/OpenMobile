@@ -1,6 +1,7 @@
 #include "OpenMobileAdsSubsystem.h"
 
 #include "Async/Async.h"
+#include "Containers/StringConv.h"
 #include "Features/IModularFeatures.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
@@ -102,6 +103,67 @@ private:
 namespace OpenMobileAdsPrivate
 {
 	constexpr int32 MaxDismissedShowRewardContexts = 64;
+
+	bool TryMeasureServerVerificationValue(
+		const FString& Value,
+		EOpenMobileAdsServerVerificationCharacterSet CharacterSet,
+		int32& OutUtf8Bytes
+	)
+	{
+		int64 Utf8Bytes = 0;
+		for (int32 Index = 0; Index < Value.Len(); ++Index)
+		{
+			uint32 Codepoint = static_cast<uint32>(Value[Index]);
+			if (StringConv::IsHighSurrogate(Codepoint))
+			{
+				if (
+					Index + 1 >= Value.Len()
+					|| !StringConv::IsLowSurrogate(
+						static_cast<uint32>(Value[Index + 1])
+					)
+				)
+				{
+					return false;
+				}
+				const uint16 HighSurrogate = static_cast<uint16>(Value[Index]);
+				const uint16 LowSurrogate = static_cast<uint16>(Value[Index + 1]);
+				++Index;
+				Codepoint = StringConv::EncodeSurrogate(
+					HighSurrogate,
+					LowSurrogate
+				);
+			}
+			else if (
+				StringConv::IsLowSurrogate(Codepoint)
+				|| !StringConv::IsValidCodepoint(Codepoint)
+				|| Codepoint == 0
+			)
+			{
+				return false;
+			}
+			if (
+				CharacterSet == EOpenMobileAdsServerVerificationCharacterSet::Ascii
+				&& Codepoint > 0x7F
+			)
+			{
+				return false;
+			}
+
+			Utf8Bytes += Codepoint <= 0x7F
+				? 1
+				: Codepoint <= 0x7FF
+				? 2
+				: Codepoint <= 0xFFFF
+				? 3
+				: 4;
+			if (Utf8Bytes > MAX_int32)
+			{
+				return false;
+			}
+		}
+		OutUtf8Bytes = static_cast<int32>(Utf8Bytes);
+		return true;
+	}
 
 	FOpenMobileAdsConsentSignals MakeConsentSignals(
 		const FOpenMobileAdsPrivacySnapshot& Snapshot
@@ -365,7 +427,8 @@ namespace OpenMobileAdsPrivate
 		EOpenMobileAdsFailureStage Stage,
 		FName Placement,
 		FName Provider,
-		const TCHAR* FallbackExplanation
+		const TCHAR* FallbackExplanation,
+		const TArray<FString>& SensitiveValues = {}
 	)
 	{
 		const bool bReportedRetryable = Error.bRetryable;
@@ -390,7 +453,10 @@ namespace OpenMobileAdsPrivate
 			Context.Adapter = Error.NativeDiagnostics.Adapter;
 			Context.NativeCode = Error.NativeDiagnostics.NativeCode;
 			Context.NativeMessage = Error.NativeDiagnostics.NativeMessage;
-			Error = FOpenMobileAdsErrorMapper::FromNative(Context);
+			Error = FOpenMobileAdsErrorMapper::FromNative(
+				Context,
+				SensitiveValues
+			);
 		}
 		else if (!Error.IsSet())
 		{
@@ -426,7 +492,23 @@ namespace OpenMobileAdsPrivate
 		if (Error.NativeDiagnostics.IsSet())
 		{
 			Error.NativeDiagnostics.Provider = Provider;
+			Error.NativeDiagnostics = FOpenMobileAdsLog::Redact(
+				Error.NativeDiagnostics,
+				SensitiveValues
+			);
 		}
+		Error.Explanation = FOpenMobileAdsLog::Redact(
+			Error.Explanation,
+			SensitiveValues
+		);
+		Error.LikelyCause = FOpenMobileAdsLog::Redact(
+			Error.LikelyCause,
+			SensitiveValues
+		);
+		Error.SuggestedCorrection = FOpenMobileAdsLog::Redact(
+			Error.SuggestedCorrection,
+			SensitiveValues
+		);
 		return Error;
 	}
 
@@ -492,7 +574,8 @@ namespace OpenMobileAdsPrivate
 			FString InFallbackRewardType = FString(),
 			int64 InFallbackRewardAmount = 0,
 			FGuid InImpressionId = FGuid(),
-			bool bInServerVerificationRequested = false
+			bool bInServerVerificationRequested = false,
+			TArray<FString> InSensitiveValues = {}
 		)
 			: Dispatcher(MoveTemp(InDispatcher))
 			, Provider(InProvider)
@@ -505,6 +588,7 @@ namespace OpenMobileAdsPrivate
 			, FallbackRewardAmount(InFallbackRewardAmount)
 			, ImpressionId(InImpressionId)
 			, bServerVerificationRequested(bInServerVerificationRequested)
+			, SensitiveValues(MoveTemp(InSensitiveValues))
 		{
 		}
 
@@ -688,6 +772,10 @@ namespace OpenMobileAdsPrivate
 			Event.Format = Format;
 			Event.RequestId = RequestId;
 			Event.ImpressionId = ImpressionId;
+			Event.Network = FOpenMobileAdsLog::Redact(
+				Event.Network,
+				SensitiveValues
+			);
 			if (Event.Type == EOpenMobileAdsEventType::RevenuePaid)
 			{
 				FString NormalizedCurrencyCode;
@@ -771,7 +859,8 @@ namespace OpenMobileAdsPrivate
 					OperationStage,
 					Placement,
 					Provider,
-					FallbackExplanation
+					FallbackExplanation,
+					SensitiveValues
 				);
 				if (
 					Event.Error.NativeDiagnostics.Network.IsEmpty()
@@ -801,6 +890,7 @@ namespace OpenMobileAdsPrivate
 		int64 FallbackRewardAmount = 0;
 		FGuid ImpressionId;
 		bool bServerVerificationRequested = false;
+		TArray<FString> SensitiveValues;
 		TArray<FOpenMobileAdsRevenue> RevenueReports;
 		bool bCommitted = false;
 		bool bShownSubmitted = false;
@@ -3717,6 +3807,113 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 				)
 			);
 		}
+
+		const FOpenMobileAdsServerVerificationConstraints& Constraints =
+			FormatCapabilities->ServerVerificationConstraints;
+		if (
+			(bHasServerVerificationUserId || bHasServerVerificationCustomData)
+			&& Constraints.OptionTiming
+				!= EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation
+		)
+		{
+			return FOpenMobileAdsOperationResult::Rejected(
+				FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::UnsupportedFormat,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					TEXT("The selected provider requires server-verification options before loading and cannot accept per-show values."),
+					Provider->GetProviderName(),
+					TEXT("Use a provider that accepts server-verification options before presentation or omit the per-show values.")
+				)
+			);
+		}
+
+		auto ValidateServerVerificationValue = [Placement, Provider](
+			const FString& Value,
+			int32 MaxUtf8Bytes,
+			EOpenMobileAdsServerVerificationCharacterSet CharacterSet,
+			const TCHAR* FieldName,
+			FOpenMobileAdsError& OutError
+		)
+		{
+			if (Value.IsEmpty())
+			{
+				return true;
+			}
+			if (MaxUtf8Bytes < 0)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::ProviderFailure,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					FString::Printf(
+						TEXT("The selected provider reports an invalid %s length constraint."),
+						FieldName
+					),
+					Provider->GetProviderName()
+				);
+				return false;
+			}
+
+			int32 Utf8Bytes = 0;
+			if (!OpenMobileAdsPrivate::TryMeasureServerVerificationValue(
+				Value,
+				CharacterSet,
+				Utf8Bytes
+			))
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::InvalidState,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					FString::Printf(
+						TEXT("The per-show %s does not satisfy the provider's character or Unicode requirements."),
+						FieldName
+					),
+					Provider->GetProviderName(),
+					TEXT("Use a well-formed value within the character set reported by the provider.")
+				);
+				return false;
+			}
+			if (MaxUtf8Bytes > 0 && Utf8Bytes > MaxUtf8Bytes)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::InvalidState,
+					EOpenMobileAdsFailureStage::Show,
+					Placement,
+					FString::Printf(
+						TEXT("The per-show %s exceeds the provider's UTF-8 byte limit."),
+						FieldName
+					),
+					Provider->GetProviderName(),
+					TEXT("Use a shorter value measured after UTF-8 encoding.")
+				);
+				return false;
+			}
+			return true;
+		};
+
+		FOpenMobileAdsError ValueError;
+		if (!ValidateServerVerificationValue(
+			Options.ServerVerificationUserId,
+			Constraints.MaxUserIdUtf8Bytes,
+			Constraints.UserIdCharacterSet,
+			TEXT("server-verification user ID"),
+			ValueError
+		))
+		{
+			return FOpenMobileAdsOperationResult::Rejected(MoveTemp(ValueError));
+		}
+		if (!ValidateServerVerificationValue(
+			Options.ServerVerificationCustomData,
+			Constraints.MaxCustomDataUtf8Bytes,
+			Constraints.CustomDataCharacterSet,
+			TEXT("server-verification custom data"),
+			ValueError
+		))
+		{
+			return FOpenMobileAdsOperationResult::Rejected(MoveTemp(ValueError));
+		}
 	}
 	if (
 		FormatCapabilities
@@ -3732,6 +3929,18 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			Provider->GetProviderName(),
 			TEXT("Present the introduction, let the user skip, then acknowledge it in the show options only when continuing.")
 		));
+	}
+	TArray<FString> ServerVerificationSensitiveValues;
+	ServerVerificationSensitiveValues.Reserve(2);
+	if (bHasServerVerificationUserId)
+	{
+		ServerVerificationSensitiveValues.Add(Options.ServerVerificationUserId);
+	}
+	if (bHasServerVerificationCustomData)
+	{
+		ServerVerificationSensitiveValues.Add(
+			Options.ServerVerificationCustomData
+		);
 	}
 
 	FOpenMobileAdsPlacementStatus* Status = PlacementStatuses.Find(Placement);
@@ -3796,7 +4005,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			ResolvedPlacement.FallbackRewardType,
 			ResolvedPlacement.FallbackRewardAmount,
 			ImpressionId,
-			ResolvedPlacement.ServerVerification.bEnabled
+			ResolvedPlacement.ServerVerification.bEnabled,
+			ServerVerificationSensitiveValues
 		);
 	TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		MakeShared<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe>();
@@ -3825,7 +4035,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ShowAd(
 			EOpenMobileAdsFailureStage::Show,
 			Placement,
 			Provider->GetProviderName(),
-			TEXT("The ads provider rejected the show request without a typed error.")
+			TEXT("The ads provider rejected the show request without a typed error."),
+			ServerVerificationSensitiveValues
 		);
 		return FOpenMobileAdsOperationResult::Rejected(MoveTemp(Error));
 	}

@@ -221,6 +221,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"openMobileLoadedRewardedAds.remove",
 			"setServerSideVerificationOptions",
 			"setUserId(serverVerificationUserId)",
+			"setCustomData(serverVerificationCustomData)",
 			"nativeOpenMobileRewardedAdImpression",
 			"nativeOpenMobileRewardedAdClicked",
 			"nativeOpenMobileRewardedAdRevenuePaid",
@@ -248,6 +249,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"detachOpenMobileBanner(entry, false)",
 		):
 			self.assertIn(token, game_activity_additions)
+		self.assertNotIn("URLEncoder", game_activity_additions)
 		for token in (
 			"AndroidThunkJava_LoadOpenMobileInterstitialAd",
 			"AndroidThunkJava_ShowOpenMobileInterstitialAd",

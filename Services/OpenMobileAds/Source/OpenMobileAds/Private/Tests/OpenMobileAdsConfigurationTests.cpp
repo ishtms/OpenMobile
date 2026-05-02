@@ -430,6 +430,26 @@ bool FOpenMobileAdsServerVerificationConfigurationTest::RunTest(
 			ProviderCapabilities
 		).IsEmpty()
 	);
+
+	RewardedCapabilities.ServerVerificationConstraints.OptionTiming =
+		EOpenMobileAdsServerVerificationOptionTiming::BeforeLoad;
+	ProviderCapabilities.Formats[0] = RewardedCapabilities;
+	const TArray<FOpenMobileAdsConfigurationIssue> TimingIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
+			{Placement},
+			ProviderCapabilities
+		);
+	TestTrue(
+		TEXT("Required per-show SSV values reject a load-time-only provider"),
+		TimingIssues.ContainsByPredicate(
+			[](const FOpenMobileAdsConfigurationIssue& Issue)
+			{
+				return Issue.Code
+						== EOpenMobileAdsConfigurationIssueCode::UnsupportedProviderOperation
+					&& Issue.Message.Contains(TEXT("per-show server-side verification"));
+			}
+		)
+	);
 	return true;
 }
 

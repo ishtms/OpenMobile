@@ -139,7 +139,10 @@ FOpenMobileAdsNativeDiagnostics FOpenMobileAdsLog::Redact(
 )
 {
 	FOpenMobileAdsNativeDiagnostics Result = Diagnostics;
+	Result.NativeCode = Redact(Result.NativeCode, SensitiveValues);
 	Result.NativeMessage = Redact(Result.NativeMessage, SensitiveValues);
+	Result.Network = Redact(Result.Network, SensitiveValues);
+	Result.Adapter = Redact(Result.Adapter, SensitiveValues);
 	return Result;
 }
 

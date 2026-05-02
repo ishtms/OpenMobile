@@ -537,32 +537,43 @@ FOpenMobileAdsConfigurationValidator::ValidateProviderCapabilities(
 				FormatCapabilities->bSupportsServerVerification,
 				TEXT("server-side verification")
 			);
-			if (
+			const bool bRequiresServerVerificationUserId =
 				(Android.bEnabled
 					&& Android.ServerVerification.bEnabled
 					&& Android.ServerVerification.bRequireUserId)
 				|| (IOS.bEnabled
 					&& IOS.ServerVerification.bEnabled
-					&& IOS.ServerVerification.bRequireUserId)
-			)
+					&& IOS.ServerVerification.bRequireUserId);
+			if (bRequiresServerVerificationUserId)
 			{
 				ValidateOperation(
 					FormatCapabilities->bSupportsServerVerificationUserId,
 					TEXT("a server-side verification user ID")
 				);
 			}
-			if (
+			const bool bRequiresServerVerificationCustomData =
 				(Android.bEnabled
 					&& Android.ServerVerification.bEnabled
 					&& Android.ServerVerification.bRequireCustomData)
 				|| (IOS.bEnabled
 					&& IOS.ServerVerification.bEnabled
-					&& IOS.ServerVerification.bRequireCustomData)
-			)
+					&& IOS.ServerVerification.bRequireCustomData);
+			if (bRequiresServerVerificationCustomData)
 			{
 				ValidateOperation(
 					FormatCapabilities->bSupportsServerVerificationCustomData,
 					TEXT("server-side verification custom data")
+				);
+			}
+			if (
+				bRequiresServerVerificationUserId
+				|| bRequiresServerVerificationCustomData
+			)
+			{
+				ValidateOperation(
+					FormatCapabilities->ServerVerificationConstraints.OptionTiming
+						== EOpenMobileAdsServerVerificationOptionTiming::BeforePresentation,
+					TEXT("per-show server-side verification options before presentation")
 				);
 			}
 		}
