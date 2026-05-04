@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CORE_PLUGIN = REPOSITORY_ROOT / "Foundation" / "OpenMobileCore"
 DEVICE_PLUGIN = REPOSITORY_ROOT / "Native" / "OpenMobileDevice"
 
 
@@ -50,6 +51,31 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 				"UMG",
 			):
 				self.assertNotIn(forbidden_dependency, contents, str(build_rules))
+
+	def test_core_dependency_is_declared_and_remains_one_way(self) -> None:
+		build_rules = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "OpenMobileDevice.Build.cs"
+		).read_text(encoding="utf-8")
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+
+		self.assertIn('"OpenMobileCore"', build_rules)
+		self.assertIn("OpenMobileCore", readme)
+		for path in CORE_PLUGIN.rglob("*"):
+			if not path.is_file() or path.suffix not in {
+				".cs",
+				".cpp",
+				".h",
+				".uplugin",
+			}:
+				continue
+			self.assertNotIn(
+				"OpenMobileDevice",
+				path.read_text(encoding="utf-8"),
+				str(path),
+			)
 
 	def test_shared_module_has_no_native_sdk_or_provider_payload(self) -> None:
 		shared_module = DEVICE_PLUGIN / "Source" / "OpenMobileDevice"
