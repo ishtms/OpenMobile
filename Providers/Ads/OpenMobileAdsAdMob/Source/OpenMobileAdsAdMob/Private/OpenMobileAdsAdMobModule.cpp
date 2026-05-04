@@ -86,6 +86,15 @@ namespace OpenMobileAdsAdMobPrivate
 
 			FOpenMobileAdsProviderCapabilities Capabilities;
 			Capabilities.Provider = GetProviderName();
+			Capabilities.Mediation.bSupported = true;
+			Capabilities.Mediation.DecisionOwner =
+				EOpenMobileAdsMediationDecisionOwner::Provider;
+			Capabilities.Mediation.bSupportsWaterfall = true;
+			Capabilities.Mediation.bSupportsBidding = true;
+			Capabilities.Mediation.bReportsAdapterInitialization = true;
+			Capabilities.Mediation.bReportsWinningSource = true;
+			Capabilities.Mediation.bReportsImpressionRevenue = true;
+			Capabilities.Mediation.bReportsEcpm = true;
 #if PLATFORM_ANDROID
 			Capabilities.ProviderVersion = TEXT("25.4.0");
 #elif PLATFORM_IOS

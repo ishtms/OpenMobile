@@ -34,12 +34,42 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 
 	FOpenMobileAdsProviderCapabilities Capabilities;
 	Capabilities.Provider = TEXT("MockAds");
+	Capabilities.Mediation.bSupported = true;
+	Capabilities.Mediation.DecisionOwner =
+		EOpenMobileAdsMediationDecisionOwner::Provider;
+	Capabilities.Mediation.bSupportsWaterfall = true;
+	Capabilities.Mediation.bSupportsBidding = true;
+	Capabilities.Mediation.bReportsAdapterInitialization = true;
+	Capabilities.Mediation.bReportsWinningSource = true;
+	Capabilities.Mediation.bReportsImpressionRevenue = true;
+	Capabilities.Mediation.bReportsEcpm = true;
 	Capabilities.Formats.Add(Rewarded);
 
 	TestTrue(TEXT("Rewarded is supported"), Capabilities.SupportsFormat(EOpenMobileAdFormat::Rewarded));
 	TestFalse(TEXT("Interstitial is unsupported"), Capabilities.SupportsFormat(EOpenMobileAdFormat::Interstitial));
 	TestTrue(TEXT("Reward support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bReportsReward);
 	TestFalse(TEXT("Hide support is explicit"), Capabilities.FindFormat(EOpenMobileAdFormat::Rewarded)->bCanHide);
+	TestTrue(TEXT("Mediation support is explicit"), Capabilities.Mediation.bSupported);
+	TestEqual(
+		TEXT("Mediation decisions stay with the provider"),
+		Capabilities.Mediation.DecisionOwner,
+		EOpenMobileAdsMediationDecisionOwner::Provider
+	);
+	TestTrue(TEXT("Waterfall support is explicit"), Capabilities.Mediation.bSupportsWaterfall);
+	TestTrue(TEXT("Bidding support is explicit"), Capabilities.Mediation.bSupportsBidding);
+	TestTrue(
+		TEXT("Adapter initialization reporting is explicit"),
+		Capabilities.Mediation.bReportsAdapterInitialization
+	);
+	TestTrue(
+		TEXT("Winning-source reporting is explicit"),
+		Capabilities.Mediation.bReportsWinningSource
+	);
+	TestTrue(
+		TEXT("Mediated revenue reporting is explicit"),
+		Capabilities.Mediation.bReportsImpressionRevenue
+	);
+	TestTrue(TEXT("Mediated eCPM reporting is explicit"), Capabilities.Mediation.bReportsEcpm);
 
 	FOpenMobileAdFormatCapabilities RewardedInterstitial = Rewarded;
 	RewardedInterstitial.Format = EOpenMobileAdFormat::RewardedInterstitial;

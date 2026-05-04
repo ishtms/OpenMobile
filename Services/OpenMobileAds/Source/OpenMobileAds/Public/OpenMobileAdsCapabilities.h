@@ -122,6 +122,44 @@ struct OPENMOBILEADS_API FOpenMobileAdFormatCapabilities
 	double CacheLifetimeSeconds = 0.0;
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsMediationDecisionOwner : uint8
+{
+	None,
+	Provider
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEADS_API FOpenMobileAdsMediationCapabilities
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bSupported = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsMediationDecisionOwner DecisionOwner =
+		EOpenMobileAdsMediationDecisionOwner::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bSupportsWaterfall = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bSupportsBidding = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bReportsAdapterInitialization = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bReportsWinningSource = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bReportsImpressionRevenue = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	bool bReportsEcpm = false;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsProviderCapabilities
 {
@@ -132,6 +170,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsProviderCapabilities
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString ProviderVersion;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FOpenMobileAdsMediationCapabilities Mediation;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TArray<FOpenMobileAdFormatCapabilities> Formats;

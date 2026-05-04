@@ -3149,6 +3149,27 @@ bool FOpenMobileAdsAdMobTestAdFlowTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	const FOpenMobileAdsProviderCapabilities Capabilities = Provider->GetCapabilities();
+	TestTrue(TEXT("AdMob reports mediation support"), Capabilities.Mediation.bSupported);
+	TestEqual(
+		TEXT("AdMob owns its waterfall and bidding decisions"),
+		Capabilities.Mediation.DecisionOwner,
+		EOpenMobileAdsMediationDecisionOwner::Provider
+	);
+	TestTrue(TEXT("AdMob reports waterfall support"), Capabilities.Mediation.bSupportsWaterfall);
+	TestTrue(TEXT("AdMob reports bidding support"), Capabilities.Mediation.bSupportsBidding);
+	TestTrue(
+		TEXT("AdMob reports adapter initialization status"),
+		Capabilities.Mediation.bReportsAdapterInitialization
+	);
+	TestTrue(
+		TEXT("AdMob reports the winning mediated source"),
+		Capabilities.Mediation.bReportsWinningSource
+	);
+	TestTrue(
+		TEXT("AdMob reports mediated impression revenue"),
+		Capabilities.Mediation.bReportsImpressionRevenue
+	);
+	TestTrue(TEXT("AdMob reports mediated eCPM"), Capabilities.Mediation.bReportsEcpm);
 	TestEqual(
 		TEXT("Every currently supported format has a test-ad contract"),
 		Capabilities.Formats.Num(),
