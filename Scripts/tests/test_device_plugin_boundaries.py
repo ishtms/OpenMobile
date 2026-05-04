@@ -1,0 +1,75 @@
+import json
+import unittest
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+DEVICE_PLUGIN = REPOSITORY_ROOT / "Native" / "OpenMobileDevice"
+
+
+def load_descriptor() -> dict:
+	with (DEVICE_PLUGIN / "OpenMobileDevice.uplugin").open(encoding="utf-8") as file:
+		return json.load(file)
+
+
+class DevicePluginBoundaryTests(unittest.TestCase):
+	def test_modules_match_runtime_platform_and_editor_boundaries(self) -> None:
+		modules = {module["Name"]: module for module in load_descriptor()["Modules"]}
+
+		self.assertEqual("Runtime", modules["OpenMobileDevice"]["Type"])
+		self.assertNotIn("PlatformAllowList", modules["OpenMobileDevice"])
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileDeviceAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(["IOS"], modules["OpenMobileDeviceIOS"]["PlatformAllowList"])
+		self.assertEqual("Editor", modules["OpenMobileDeviceEditor"]["Type"])
+
+		for module_name in (
+			"OpenMobileDeviceAndroid",
+			"OpenMobileDeviceIOS",
+			"OpenMobileDeviceEditor",
+		):
+			module_root = DEVICE_PLUGIN / "Source" / module_name
+			self.assertTrue((module_root / f"{module_name}.Build.cs").is_file())
+			self.assertTrue((module_root / "Private" / f"{module_name}Module.cpp").is_file())
+
+	def test_device_only_dependency_graph_is_isolated(self) -> None:
+		descriptor_dependencies = {
+			plugin["Name"] for plugin in load_descriptor().get("Plugins", [])
+		}
+		self.assertEqual({"OpenMobileCore"}, descriptor_dependencies)
+
+		for build_rules in (DEVICE_PLUGIN / "Source").glob("*/*.Build.cs"):
+			contents = build_rules.read_text(encoding="utf-8")
+			for forbidden_dependency in (
+				"OpenMobileAds",
+				"OpenMobileHaptics",
+				"OpenMobileMedia",
+				"OpenMobileSensors",
+				"UMG",
+			):
+				self.assertNotIn(forbidden_dependency, contents, str(build_rules))
+
+	def test_shared_module_has_no_native_sdk_or_provider_payload(self) -> None:
+		shared_module = DEVICE_PLUGIN / "Source" / "OpenMobileDevice"
+		for path in shared_module.rglob("*"):
+			if not path.is_file() or path.suffix not in {".cs", ".cpp", ".h"}:
+				continue
+			contents = path.read_text(encoding="utf-8")
+			for forbidden_token in (
+				"jni.h",
+				"JNIEnv",
+				"Android/AndroidJNI",
+				"UIKit/",
+				"Foundation/",
+				"GoogleMobileAds",
+				"play-services-ads",
+			):
+				self.assertNotIn(forbidden_token, contents, str(path))
+
+		self.assertFalse((DEVICE_PLUGIN / "ThirdParty").exists())
+
+
+if __name__ == "__main__":
+	unittest.main()
