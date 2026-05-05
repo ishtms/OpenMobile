@@ -54,10 +54,8 @@ ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {
 	"OpenMobileAdsAdMobMeta": {
 		"com.google.ads.mediation:facebook": "6.22.0.0",
 		"com.facebook.android:audience-network-sdk": "6.22.0",
-		"androidx.annotation:annotation": "1.5.0",
 		"com.google.ads.mediation:common": "1.1.0",
 		"com.google.android.gms:play-services-ads": "25.4.0",
-		"org.jetbrains.kotlin:kotlin-stdlib": "2.3.0",
 	},
 }
 IOS_PLIST_CONTRACTS = {

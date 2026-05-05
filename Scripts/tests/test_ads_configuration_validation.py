@@ -554,6 +554,61 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 
 		self.assertTrue(any("3.2.0" in error for error in errors))
 
+	def test_meta_adapter_android_dependencies_match_the_versioned_manifest(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
++--- com.google.android.gms:play-services-ads:{strictly 25.4.0} -> 25.4.0
++--- com.google.android.ump:user-messaging-platform:{strictly 4.0.0} -> 4.0.0
++--- com.google.ads.mediation:facebook:{strictly 6.22.0.0} -> 6.22.0.0
+|    +--- com.facebook.android:audience-network-sdk:6.22.0
+|    +--- androidx.annotation:annotation:1.5.0
+|    +--- com.google.ads.mediation:common:1.1.0
+|    +--- com.google.android.gms:play-services-ads:25.4.0
+|    \\--- org.jetbrains.kotlin:kotlin-stdlib:2.3.0
+"""
+		)
+
+		self.assertEqual(
+			[],
+			validate_android_dependencies(
+				inventory,
+				AndroidDependencyExpectation(
+					required_providers={"OpenMobileAdsAdMob"},
+					required_adapters={"OpenMobileAdsAdMobMeta"},
+				),
+			),
+		)
+
+	def test_meta_adapter_android_dependencies_reject_conflicts_and_disabled_payload(self) -> None:
+		inventory = inspect_android_dependency_graph(
+			"""debugRuntimeClasspath - Runtime classpath of 'debug'.
++--- com.google.ads.mediation:facebook:{strictly 6.22.0.0} -> 6.22.0.0
++--- com.facebook.android:audience-network-sdk:6.21.0 -> 6.22.0
++--- androidx.annotation:annotation:1.5.0
++--- com.google.ads.mediation:common:1.1.0
++--- com.google.android.gms:play-services-ads:25.4.0
+\\--- org.jetbrains.kotlin:kotlin-stdlib:2.3.0
+"""
+		)
+		errors = validate_android_dependencies(
+			inventory,
+			AndroidDependencyExpectation(
+				required_adapters={"OpenMobileAdsAdMobMeta"},
+			),
+		)
+		self.assertTrue(any("6.21.0" in error for error in errors))
+
+		disabled_errors = validate_android_dependencies(
+			inventory,
+			AndroidDependencyExpectation(
+				forbidden_adapters={"OpenMobileAdsAdMobMeta"},
+			),
+		)
+		self.assertEqual(
+			["found disabled Android dependency for adapter OpenMobileAdsAdMobMeta"],
+			disabled_errors,
+		)
+
 	def test_disabled_admob_has_no_android_dependency(self) -> None:
 		inventory = inspect_android_dependency_graph(
 			"""debugRuntimeClasspath - Runtime classpath of 'debug'.

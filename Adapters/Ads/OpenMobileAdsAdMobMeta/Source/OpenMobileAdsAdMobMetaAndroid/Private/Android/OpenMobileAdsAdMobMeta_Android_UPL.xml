@@ -19,10 +19,21 @@ dependencies {
     }
 }
         </insert>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMobMeta_Dependencies.gradle')</insert>
+        <insertNewline/>
     </buildGradleAdditions>
 
     <registerBuildSettings>
         <insert>OpenMobileAdsAdMobMetaAndroidDependencyContract=1</insert>
         <insertNewline/>
     </registerBuildSettings>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobMeta_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMobMeta_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobMeta_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobMeta_Dependencies.gradle"/>
+    </gradleCopies>
 </root>

@@ -194,8 +194,36 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
 		self.assertIn("OpenMobileAdsAdMobMeta_Android_UPL.xml", build_rules)
+		self.assertIn("OpenMobileAdsAdMobMeta_Dependencies.gradle", build_rules)
 		self.assertIn("com.google.ads.mediation:facebook", gradle)
 		self.assertIn("strictly '6.22.0.0'", gradle)
+		self.assertIn("OpenMobileAdsAdMobMeta_Dependencies.gradle", gradle)
+		copy_destinations = {
+			element.get("dst") for element in upl_root.findall("./gradleCopies/copyFile")
+		}
+		self.assertEqual(
+			{
+				"$S(BuildDir)/gradle/OpenMobileAdsAdMobMeta_Dependencies.gradle",
+				"$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobMeta_Dependencies.gradle",
+			},
+			copy_destinations,
+		)
+		dependency_validation = (
+			module_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMobMeta_Dependencies.gradle"
+		).read_text(encoding="utf-8")
+		for token in (
+			"resolutionResult",
+			"com.google.ads.mediation:facebook",
+			"com.facebook.android:audience-network-sdk",
+			"25.4.0",
+			"6.22.0.0",
+			"6.22.0",
+			'it.name == "pre${variantName}Build"',
+		):
+			self.assertIn(token, dependency_validation)
 		self.assertNotIn("com.google.ads.mediation:facebook", (
 			ADMOB_PLUGIN
 			/ "Source"
