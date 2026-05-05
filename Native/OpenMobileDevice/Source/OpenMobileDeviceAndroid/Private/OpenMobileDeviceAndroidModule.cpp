@@ -1,3 +1,31 @@
-#include "Modules/ModuleManager.h"
+#include "OpenMobileDeviceAndroidBackend.h"
 
-IMPLEMENT_MODULE(FDefaultModuleImpl, OpenMobileDeviceAndroid)
+#include "Modules/ModuleManager.h"
+#include "OpenMobileDeviceBackendRegistry.h"
+
+class FOpenMobileDeviceAndroidModule final : public IModuleInterface
+{
+public:
+	virtual void StartupModule() override
+	{
+		Backend = MakeUnique<FOpenMobileDeviceAndroidBackend>();
+		if (!FOpenMobileDeviceBackendRegistry::RegisterBackend(*Backend))
+		{
+			Backend.Reset();
+		}
+	}
+
+	virtual void ShutdownModule() override
+	{
+		if (Backend)
+		{
+			FOpenMobileDeviceBackendRegistry::UnregisterBackend(*Backend);
+			Backend.Reset();
+		}
+	}
+
+private:
+	TUniquePtr<FOpenMobileDeviceAndroidBackend> Backend;
+};
+
+IMPLEMENT_MODULE(FOpenMobileDeviceAndroidModule, OpenMobileDeviceAndroid)
