@@ -22,7 +22,13 @@ PROVIDER_SIGNATURES = {
 		b"usermessagingplatform",
 	),
 }
-ADAPTER_SIGNATURES = {}
+ADAPTER_SIGNATURES = {
+	"OpenMobileAdsAdMobMeta": (
+		b"com.google.ads.mediation:facebook",
+		b"com/google/ads/mediation/facebook",
+		b"com/facebook/ads",
+	),
+}
 ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
 ANDROID_MANIFEST_CONTRACTS = {
 	"OpenMobileAdsAdMob": {
@@ -44,7 +50,16 @@ ANDROID_DEPENDENCY_CONTRACTS = {
 		"com.google.android.ump:user-messaging-platform": "4.0.0",
 	},
 }
-ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {}
+ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {
+	"OpenMobileAdsAdMobMeta": {
+		"com.google.ads.mediation:facebook": "6.22.0.0",
+		"com.facebook.android:audience-network-sdk": "6.22.0",
+		"androidx.annotation:annotation": "1.5.0",
+		"com.google.ads.mediation:common": "1.1.0",
+		"com.google.android.gms:play-services-ads": "25.4.0",
+		"org.jetbrains.kotlin:kotlin-stdlib": "2.3.0",
+	},
+}
 IOS_PLIST_CONTRACTS = {
 	"OpenMobileAdsAdMob": {
 		"scalar_keys": {"GADApplicationIdentifier"},
@@ -186,6 +201,118 @@ class PluginDescriptor:
 	@property
 	def is_ads_adapter(self) -> bool:
 		return self.data.get("OpenMobileAdsType") == "MediationAdapter"
+
+
+def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
+	manifest_path = descriptor.path.parent / "adapter.json"
+	if not manifest_path.is_file():
+		return [f"mediation adapter '{descriptor.name}' is missing adapter.json"]
+
+	try:
+		with manifest_path.open(encoding="utf-8") as manifest_file:
+			metadata = json.load(manifest_file)
+	except (json.JSONDecodeError, OSError) as error:
+		return [f"mediation adapter '{descriptor.name}' has unreadable metadata: {error}"]
+
+	errors: list[str] = []
+	if metadata.get("schema_version") != 1:
+		errors.append("adapter metadata schema_version must be 1")
+	if metadata.get("plugin") != descriptor.name:
+		errors.append(
+			f"adapter metadata plugin '{metadata.get('plugin', '')}' does not match plugin '{descriptor.name}'"
+		)
+
+	for field_name in ("provider", "network", "display_name"):
+		if not isinstance(metadata.get(field_name), str) or not metadata[field_name].strip():
+			errors.append(f"adapter metadata {field_name} must not be empty")
+
+	integration_types = metadata.get("integration_types")
+	if not isinstance(integration_types, list) or not integration_types:
+		errors.append("adapter metadata integration_types must not be empty")
+	else:
+		for integration_type in integration_types:
+			if integration_type not in {"Bidding", "Waterfall"}:
+				errors.append(
+					f"adapter metadata has unsupported integration type '{integration_type}'"
+				)
+
+	platforms = metadata.get("platforms")
+	if not isinstance(platforms, dict) or not platforms:
+		errors.append("adapter metadata platforms must not be empty")
+		platforms = {}
+	for platform_name, platform in platforms.items():
+		if platform_name not in {"Android", "IOS"}:
+			errors.append(f"adapter metadata has unsupported platform '{platform_name}'")
+		if not isinstance(platform, dict):
+			errors.append(f"adapter metadata platform '{platform_name}' must be an object")
+			continue
+		for field_name in (
+			"adapter_version",
+			"network_sdk_version",
+			"minimum_os_version",
+		):
+			if not isinstance(platform.get(field_name), str) or not platform[field_name].strip():
+				errors.append(
+					f"adapter metadata {platform_name}.{field_name} must not be empty"
+				)
+		tested_versions = platform.get("tested_provider_sdk_versions")
+		if not isinstance(tested_versions, list) or not tested_versions:
+			errors.append(
+				f"adapter metadata {platform_name}.tested_provider_sdk_versions must not be empty"
+			)
+
+		dependencies = platform.get("dependencies")
+		if not isinstance(dependencies, list) or not dependencies:
+			errors.append(f"adapter metadata {platform_name}.dependencies must not be empty")
+		else:
+			seen_dependencies: set[str] = set()
+			for dependency in dependencies:
+				if not isinstance(dependency, dict):
+					errors.append(
+						f"adapter metadata {platform_name} dependency must be an object"
+					)
+					continue
+				name = dependency.get("name")
+				version = dependency.get("version")
+				if not isinstance(name, str) or not name.strip():
+					errors.append(
+						f"adapter metadata {platform_name} dependency name must not be empty"
+					)
+					continue
+				if name in seen_dependencies:
+					errors.append(
+						f"adapter metadata {platform_name} has duplicate dependency '{name}'"
+					)
+				seen_dependencies.add(name)
+				if not isinstance(version, str) or not version.strip():
+					errors.append(
+						f"adapter metadata {platform_name} dependency '{name}' version must not be empty"
+					)
+
+		attribution_identifiers = platform.get("attribution_identifiers")
+		if not isinstance(attribution_identifiers, list):
+			errors.append(
+				f"adapter metadata {platform_name}.attribution_identifiers must be an array"
+			)
+		elif len(attribution_identifiers) != len(set(attribution_identifiers)):
+			errors.append(
+				f"adapter metadata {platform_name}.attribution_identifiers contains duplicates"
+			)
+
+	sources = metadata.get("sources")
+	if not isinstance(sources, dict):
+		errors.append("adapter metadata sources must be an object")
+		sources = {}
+	for field_name in (
+		"integration_guide",
+		"adapter_repository",
+		"adapter_license",
+		"network_terms",
+	):
+		if not isinstance(sources.get(field_name), str) or not sources[field_name].strip():
+			errors.append(f"adapter metadata source {field_name} must not be empty")
+
+	return errors
 
 
 @dataclass(frozen=True)
@@ -1332,7 +1459,14 @@ def validate_ios_plist(
 
 def discover_descriptors(repository_root: Path) -> dict[str, PluginDescriptor]:
 	descriptors: dict[str, PluginDescriptor] = {}
-	for search_root in ("Foundation", "Native", "Services", "Providers", "Tests/Plugins"):
+	for search_root in (
+		"Adapters",
+		"Foundation",
+		"Native",
+		"Services",
+		"Providers",
+		"Tests/Plugins",
+	):
 		root = repository_root / search_root
 		if not root.exists():
 			continue
@@ -1352,6 +1486,15 @@ def run_graph_command(arguments: argparse.Namespace) -> int:
 		platform=arguments.platform,
 		target_type=arguments.target_type,
 	)
+	metadata_errors = [
+		error
+		for adapter_name in sorted(configuration.ads_adapters)
+		for error in validate_adapter_metadata(descriptors[adapter_name])
+	]
+	if metadata_errors:
+		for error in metadata_errors:
+			print(f"ads adapter metadata validation failed: {error}", file=sys.stderr)
+		return 1
 	print(json.dumps({
 		"plugins": sorted(configuration.plugins),
 		"modules": sorted(configuration.modules),

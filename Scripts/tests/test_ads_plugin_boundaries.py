@@ -18,6 +18,9 @@ from validate_ads_plugins import (
 
 ADS_PLUGIN = REPOSITORY_ROOT / "Services" / "OpenMobileAds"
 ADMOB_PLUGIN = REPOSITORY_ROOT / "Providers" / "Ads" / "OpenMobileAdsAdMob"
+ADMOB_META_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobMeta"
+)
 
 
 def load_descriptor(plugin_root: Path) -> dict:
@@ -126,6 +129,81 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("OpenMobileAdsAdMob", service_dependencies)
 		self.assertIn("OpenMobileAds", provider_dependencies)
 		self.assertIn("OpenMobileCore", provider_dependencies)
+
+	def test_admob_meta_adapter_owns_one_versioned_manifest(self) -> None:
+		descriptor = load_descriptor(ADMOB_META_ADAPTER)
+		self.assertEqual("MediationAdapter", descriptor["OpenMobileAdsType"])
+		self.assertFalse(descriptor["EnabledByDefault"])
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobileAds", "OpenMobileAdsAdMob"},
+			{plugin["Name"] for plugin in descriptor["Plugins"]},
+		)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileAdsAdMobMetaAndroid"]["PlatformAllowList"],
+		)
+
+		metadata = json.loads(
+			(ADMOB_META_ADAPTER / "adapter.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual(1, metadata["schema_version"])
+		self.assertEqual("OpenMobileAdsAdMobMeta", metadata["plugin"])
+		self.assertEqual("OpenMobileAdsAdMob", metadata["provider"])
+		self.assertEqual("MetaAudienceNetwork", metadata["network"])
+		self.assertEqual(["Bidding"], metadata["integration_types"])
+		self.assertEqual({"Android"}, set(metadata["platforms"]))
+		android = metadata["platforms"]["Android"]
+		self.assertEqual("6.22.0.0", android["adapter_version"])
+		self.assertEqual("6.22.0", android["network_sdk_version"])
+		self.assertEqual(["25.4.0"], android["tested_provider_sdk_versions"])
+		self.assertEqual("23", android["minimum_os_version"])
+		self.assertEqual([], android["attribution_identifiers"])
+		self.assertEqual(
+			{
+				("com.google.ads.mediation:facebook", "6.22.0.0"),
+				("com.facebook.android:audience-network-sdk", "6.22.0"),
+				("androidx.annotation:annotation", "1.5.0"),
+				("com.google.ads.mediation:common", "1.1.0"),
+				("com.google.android.gms:play-services-ads", "25.4.0"),
+				("org.jetbrains.kotlin:kotlin-stdlib", "2.3.0"),
+			},
+			{
+				(dependency["name"], dependency["version"])
+				for dependency in android["dependencies"]
+			},
+		)
+
+	def test_admob_meta_android_packaging_is_adapter_owned(self) -> None:
+		module_root = (
+			ADMOB_META_ADAPTER / "Source" / "OpenMobileAdsAdMobMetaAndroid"
+		)
+		build_rules = (
+			module_root / "OpenMobileAdsAdMobMetaAndroid.Build.cs"
+		).read_text(encoding="utf-8")
+		upl_path = (
+			module_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMobMeta_Android_UPL.xml"
+		)
+		upl_root = ElementTree.parse(upl_path).getroot()
+		gradle = ElementTree.tostring(
+			upl_root.find("buildGradleAdditions"),
+			encoding="unicode",
+		)
+		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
+		self.assertIn("OpenMobileAdsAdMobMeta_Android_UPL.xml", build_rules)
+		self.assertIn("com.google.ads.mediation:facebook", gradle)
+		self.assertIn("strictly '6.22.0.0'", gradle)
+		self.assertNotIn("com.google.ads.mediation:facebook", (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8"))
 
 	def test_native_payload_is_owned_by_a_provider_plugin(self) -> None:
 		providers_root = REPOSITORY_ROOT / "Providers" / "Ads"

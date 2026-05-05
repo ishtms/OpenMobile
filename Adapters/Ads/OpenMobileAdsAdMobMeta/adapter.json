@@ -1,0 +1,49 @@
+{
+	"schema_version": 1,
+	"plugin": "OpenMobileAdsAdMobMeta",
+	"provider": "OpenMobileAdsAdMob",
+	"network": "MetaAudienceNetwork",
+	"display_name": "Meta Audience Network",
+	"integration_types": ["Bidding"],
+	"platforms": {
+		"Android": {
+			"adapter_version": "6.22.0.0",
+			"network_sdk_version": "6.22.0",
+			"tested_provider_sdk_versions": ["25.4.0"],
+			"minimum_os_version": "23",
+			"dependencies": [
+				{
+					"name": "com.google.ads.mediation:facebook",
+					"version": "6.22.0.0"
+				},
+				{
+					"name": "com.facebook.android:audience-network-sdk",
+					"version": "6.22.0"
+				},
+				{
+					"name": "androidx.annotation:annotation",
+					"version": "1.5.0"
+				},
+				{
+					"name": "com.google.ads.mediation:common",
+					"version": "1.1.0"
+				},
+				{
+					"name": "com.google.android.gms:play-services-ads",
+					"version": "25.4.0"
+				},
+				{
+					"name": "org.jetbrains.kotlin:kotlin-stdlib",
+					"version": "2.3.0"
+				}
+			],
+			"attribution_identifiers": []
+		}
+	},
+	"sources": {
+		"integration_guide": "https://developers.google.com/admob/android/mediation/meta",
+		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:facebook",
+		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
+		"network_terms": "https://developers.facebook.com/terms/"
+	}
+}

@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Ads - AdMob Meta Adapter",
+	"Description": "Optional Meta Audience Network bidding adapter for the OpenMobile Ads AdMob provider.",
+	"Category": "OpenMobile|Adapters",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"OpenMobileAdsType": "MediationAdapter",
+	"Modules": [
+		{
+			"Name": "OpenMobileAdsAdMobMetaAndroid",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["Android"]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileAds",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileAdsAdMob",
+			"Enabled": true
+		}
+	]
+}

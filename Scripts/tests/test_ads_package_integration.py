@@ -13,8 +13,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
 from validate_ads_plugins import (
+	ADAPTER_SIGNATURES,
+	ArtifactExpectation,
 	PackageExpectation,
 	inspect_artifact,
+	validate_artifact,
 	validate_package,
 	validate_third_party_packages,
 )
@@ -131,6 +134,33 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 			errors = validate_package(inspect_artifact(package), expectation)
 			self.assertTrue(any("unexpected Android ABI x86_64" in error for error in errors))
 			self.assertTrue(any("unmerged Android dependency" in error for error in errors))
+
+	def test_android_meta_adapter_payload_is_opt_in(self) -> None:
+		self.assertIn("OpenMobileAdsAdMobMeta", ADAPTER_SIGNATURES)
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			package = Path(temporary_directory) / "Game.apk"
+			with zipfile.ZipFile(package, "w") as archive:
+				archive.writestr(
+					"classes.dex",
+					b"com/google/android/gms/ads com/google/ads/mediation/facebook/FacebookMediationAdapter",
+				)
+
+			inventory = inspect_artifact(package)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inventory,
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobMeta"},
+					),
+				),
+			)
+			errors = validate_artifact(
+				inventory,
+				ArtifactExpectation(forbidden_adapters={"OpenMobileAdsAdMobMeta"}),
+			)
+			self.assertTrue(any("disabled native payload" in error for error in errors))
 
 	def test_third_party_manifest_checks_every_binary_and_license(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:

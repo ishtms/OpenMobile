@@ -19,6 +19,7 @@ from validate_ads_plugins import (
 	IOSPlistExpectation,
 	PluginDescriptor,
 	PROVIDER_SIGNATURES,
+	discover_descriptors,
 	inspect_artifact,
 	inspect_android_dependency_graph,
 	inspect_android_manifest,
@@ -27,6 +28,7 @@ from validate_ads_plugins import (
 	validate_artifact,
 	validate_android_dependencies,
 	validate_android_manifest,
+	validate_adapter_metadata,
 	validate_ios_plist,
 )
 
@@ -52,6 +54,9 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.service = repository_descriptor("Services/OpenMobileAds/OpenMobileAds.uplugin")
 		self.admob = repository_descriptor(
 			"Providers/Ads/OpenMobileAdsAdMob/OpenMobileAdsAdMob.uplugin"
+		)
+		self.admob_meta = repository_descriptor(
+			"Adapters/Ads/OpenMobileAdsAdMobMeta/OpenMobileAdsAdMobMeta.uplugin"
 		)
 		mock_data = {
 			"Modules": [
@@ -93,6 +98,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				self.core,
 				self.service,
 				self.admob,
+				self.admob_meta,
 				self.mock,
 				self.mock_adapter,
 			)
@@ -110,6 +116,11 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual({"OpenMobileAds", "OpenMobileCore"}, configuration.modules)
 		self.assertEqual(set(), configuration.ads_providers)
 		self.assertEqual(set(), configuration.ads_adapters)
+
+	def test_repository_discovery_includes_adapter_plugins(self) -> None:
+		descriptors = discover_descriptors(REPOSITORY_ROOT)
+		self.assertIn("OpenMobileAdsAdMobMeta", descriptors)
+		self.assertTrue(descriptors["OpenMobileAdsAdMobMeta"].is_ads_adapter)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -158,6 +169,85 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual({"OpenMobileAdsMock"}, with_adapter.ads_providers)
 		self.assertEqual({"OpenMobileAdsMockAdapter"}, with_adapter.ads_adapters)
 		self.assertIn("OpenMobileAdsMockAdapter", with_adapter.modules)
+
+	def test_real_admob_meta_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMob"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertNotIn("OpenMobileAdsAdMobMeta", provider_only.ads_adapters)
+		self.assertNotIn("OpenMobileAdsAdMobMetaAndroid", provider_only.modules)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobMeta"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsAdMob"}, with_adapter.ads_providers)
+		self.assertEqual({"OpenMobileAdsAdMobMeta"}, with_adapter.ads_adapters)
+		self.assertIn("OpenMobileAdsAdMobMetaAndroid", with_adapter.modules)
+		self.assertEqual([], validate_adapter_metadata(self.admob_meta))
+
+	def test_adapter_metadata_rejects_incomplete_or_mismatched_manifests(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			descriptor_path = root / "BrokenAdapter.uplugin"
+			descriptor_path.write_text("{}", encoding="utf-8")
+			metadata_path = root / "adapter.json"
+			metadata_path.write_text(
+				json.dumps({
+					"schema_version": 2,
+					"plugin": "OtherAdapter",
+					"provider": "",
+					"network": "",
+					"display_name": "",
+					"integration_types": ["Auction"],
+					"platforms": {
+						"Android": {
+							"adapter_version": "",
+							"network_sdk_version": "",
+							"tested_provider_sdk_versions": [],
+							"minimum_os_version": "",
+							"dependencies": [
+								{"name": "duplicate", "version": "1"},
+								{"name": "duplicate", "version": "2"},
+							],
+						},
+					},
+					"sources": {},
+				}),
+				encoding="utf-8",
+			)
+			descriptor = PluginDescriptor(
+				"BrokenAdapter",
+				descriptor_path,
+				{"OpenMobileAdsType": "MediationAdapter"},
+			)
+
+			errors = validate_adapter_metadata(descriptor)
+
+			for expected in (
+				"schema_version",
+				"does not match plugin",
+				"provider must not be empty",
+				"network must not be empty",
+				"display_name must not be empty",
+				"unsupported integration type",
+				"adapter_version must not be empty",
+				"network_sdk_version must not be empty",
+				"tested_provider_sdk_versions must not be empty",
+				"minimum_os_version must not be empty",
+				"duplicate dependency",
+				"attribution_identifiers must be an array",
+				"integration_guide must not be empty",
+			):
+				self.assertTrue(
+					any(expected in error for error in errors),
+					f"missing validation for {expected}: {errors}",
+				)
 
 	def test_mediation_adapter_dependency_contract_is_enforced(self) -> None:
 		malformed_adapter = PluginDescriptor(

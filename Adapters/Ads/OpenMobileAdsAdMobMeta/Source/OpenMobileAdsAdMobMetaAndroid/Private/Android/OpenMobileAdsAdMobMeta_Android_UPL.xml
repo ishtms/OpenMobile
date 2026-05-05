@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <minimumSDKAPI>
+        <insertValue value="23"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
+    <buildGradleAdditions>
+        <insert>
+repositories {
+    google()
+    mavenCentral()
+}
+dependencies {
+    implementation('com.google.ads.mediation:facebook') {
+        version {
+            strictly '6.22.0.0'
+        }
+    }
+}
+        </insert>
+    </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>OpenMobileAdsAdMobMetaAndroidDependencyContract=1</insert>
+        <insertNewline/>
+    </registerBuildSettings>
+</root>
