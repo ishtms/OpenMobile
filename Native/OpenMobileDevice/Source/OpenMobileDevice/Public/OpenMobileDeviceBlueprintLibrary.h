@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceTypes.h"
 #include "OpenMobileDeviceBlueprintLibrary.generated.h"
 
@@ -21,4 +22,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
 	static FOpenMobileDeviceStatus GetDeviceStatus();
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	static FOpenMobileDeviceCapability GetDeviceCapability(FName CapabilityName);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	static FOpenMobileDeviceCapabilityReport GetDeviceCapabilityReport();
 };

@@ -63,7 +63,11 @@ enum class EOpenMobileCapabilityState : uint8
 	Available,
 	Unavailable,
 	NotSupported,
-	NotConfigured
+	NotConfigured,
+	PermissionRequired,
+	Denied,
+	Restricted,
+	TemporarilyUnavailable
 };
 
 USTRUCT(BlueprintType)

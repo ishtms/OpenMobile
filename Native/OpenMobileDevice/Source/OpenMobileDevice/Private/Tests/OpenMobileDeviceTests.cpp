@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
+#include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
@@ -50,6 +51,32 @@ namespace OpenMobileDeviceTests
 			return Capability;
 		}
 
+		virtual FOpenMobileDeviceCapability GetCapability(
+			FName CapabilityName
+		) const override
+		{
+			if (const FOpenMobileDeviceCapability* Capability =
+				Capabilities.Find(CapabilityName))
+			{
+				return *Capability;
+			}
+			return IOpenMobileDeviceBackend::GetCapability(CapabilityName);
+		}
+
+		void SetCapability(
+			FName CapabilityName,
+			EOpenMobileCapabilityState State,
+			EOpenMobileDeviceCapabilityLimit Limit =
+				EOpenMobileDeviceCapabilityLimit::None
+		)
+		{
+			FOpenMobileDeviceCapability Capability;
+			Capability.Name = CapabilityName;
+			Capability.State = State;
+			Capability.Limit = Limit;
+			Capabilities.Add(CapabilityName, MoveTemp(Capability));
+		}
+
 		virtual void BeginShutdown() override
 		{
 			++ShutdownCount;
@@ -62,6 +89,7 @@ namespace OpenMobileDeviceTests
 		int32 Priority;
 		bool bAvailable;
 		EOpenMobileDeviceBackendDomain SupportedDomain;
+		TMap<FName, FOpenMobileDeviceCapability> Capabilities;
 	};
 }
 
@@ -213,6 +241,181 @@ bool FOpenMobileDevicePublicTypeModelTest::RunTest(const FString& Parameters)
 		FOpenMobileDeviceControlResult::StaticStruct()->HasMetaData(TEXT("BlueprintType"))
 	);
 #endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceCapabilityReportTest,
+	"OpenMobile.Device.Capabilities.Report",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceCapabilityReportTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	const TArray<FName>& Names = FOpenMobileDeviceCapabilityNames::GetAll();
+	TSet<FName> UniqueNames;
+	for (const FName Name : Names)
+	{
+		UniqueNames.Add(Name);
+	}
+	TestTrue(TEXT("Capability catalog covers the Device surface"), Names.Num() >= 50);
+	TestEqual(TEXT("Capability names are unique"), UniqueNames.Num(), Names.Num());
+	TestTrue(
+		TEXT("Catalog includes endpoint reachability"),
+		UniqueNames.Contains(FOpenMobileDeviceCapabilityNames::EndpointReachability)
+	);
+	TestTrue(
+		TEXT("Catalog includes Android foldable posture"),
+		UniqueNames.Contains(FOpenMobileDeviceCapabilityNames::FoldablePosture)
+	);
+	TestTrue(
+		TEXT("Catalog includes user-initiated clipboard read"),
+		UniqueNames.Contains(FOpenMobileDeviceCapabilityNames::ClipboardRead)
+	);
+
+	const FOpenMobileDeviceCapability Unsupported =
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::BatteryLevel
+		);
+	TestEqual(
+		TEXT("Editor without backend reports unsupported"),
+		Unsupported.State,
+		EOpenMobileCapabilityState::NotSupported
+	);
+	TestEqual(
+		TEXT("Unsupported editor limit is explicit"),
+		Unsupported.Limit,
+		EOpenMobileDeviceCapabilityLimit::UnsupportedPlatform
+	);
+	TestEqual(
+		TEXT("Unknown capability names remain distinguishable"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			TEXT("OpenMobile.Device.Future.Query")
+		).State,
+		EOpenMobileCapabilityState::NotConfigured
+	);
+
+	FOpenMobileDeviceCapability Available;
+	Available.Name = FOpenMobileDeviceCapabilityNames::FlashlightControl;
+	Available.State = EOpenMobileCapabilityState::Available;
+	FOpenMobileDeviceCapability PermissionRequired = Available;
+	PermissionRequired.State = EOpenMobileCapabilityState::PermissionRequired;
+	FOpenMobileDeviceCapability Denied = Available;
+	Denied.State = EOpenMobileCapabilityState::Denied;
+	const TArray<FOpenMobileDeviceCapability> Candidates = {
+		Available,
+		PermissionRequired,
+		Denied
+	};
+	TestEqual(
+		TEXT("Denied wins capability-state precedence"),
+		FOpenMobileDeviceCapability::Resolve(
+			FOpenMobileDeviceCapabilityNames::FlashlightControl,
+			Candidates
+		).State,
+		EOpenMobileCapabilityState::Denied
+	);
+	FOpenMobileDeviceCapability Restricted = Available;
+	Restricted.State = EOpenMobileCapabilityState::Restricted;
+	FOpenMobileDeviceCapability NotSupported = Available;
+	NotSupported.State = EOpenMobileCapabilityState::NotSupported;
+	const TArray<FOpenMobileDeviceCapability> PermanentLimits = {
+		Available,
+		Denied,
+		Restricted,
+		NotSupported
+	};
+	TestEqual(
+		TEXT("Permanent platform limit wins capability-state precedence"),
+		FOpenMobileDeviceCapability::Resolve(
+			FOpenMobileDeviceCapabilityNames::FlashlightControl,
+			PermanentLimits
+		).State,
+		EOpenMobileCapabilityState::NotSupported
+	);
+
+	FMockBackend Platform(TEXT("Platform"), 0);
+	Platform.SetCapability(
+		FOpenMobileDeviceCapabilityNames::BatteryLevel,
+		EOpenMobileCapabilityState::NotSupported,
+		EOpenMobileDeviceCapabilityLimit::MissingHardware
+	);
+	FMockBackend Mock(TEXT("Mock"), 100);
+	Mock.SetCapability(
+		FOpenMobileDeviceCapabilityNames::BatteryLevel,
+		EOpenMobileCapabilityState::Available
+	);
+	Mock.SetCapability(
+		FOpenMobileDeviceCapabilityNames::FlashlightControl,
+		EOpenMobileCapabilityState::PermissionRequired
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Platform);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Mock);
+	TestEqual(
+		TEXT("Higher-priority mock overrides platform capability"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::BatteryLevel
+		).State,
+		EOpenMobileCapabilityState::Available
+	);
+	TestEqual(
+		TEXT("Permission-required state is returned without prompting"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::FlashlightControl
+		).State,
+		EOpenMobileCapabilityState::PermissionRequired
+	);
+	Mock.SetCapability(
+		FOpenMobileDeviceCapabilityNames::FlashlightControl,
+		EOpenMobileCapabilityState::Denied
+	);
+	TestEqual(
+		TEXT("Permission changes are visible on the next query"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::FlashlightControl
+		).State,
+		EOpenMobileCapabilityState::Denied
+	);
+	Mock.SetCapability(
+		FOpenMobileDeviceCapabilityNames::ThermalState,
+		static_cast<EOpenMobileCapabilityState>(255)
+	);
+	TestEqual(
+		TEXT("Unknown future states normalize to unavailable"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::ThermalState
+		).State,
+		EOpenMobileCapabilityState::Unavailable
+	);
+
+	const FOpenMobileDeviceCapabilityReport Report =
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapabilityReport();
+	TestEqual(TEXT("Complete report contains every name"), Report.Capabilities.Num(), Names.Num());
+	TestNotNull(
+		TEXT("Complete report contains battery capability"),
+		Report.Find(FOpenMobileDeviceCapabilityNames::BatteryLevel)
+	);
+	const FOpenMobileDeviceCapability* PartialCapability =
+		Report.Find(FOpenMobileDeviceCapabilityNames::ClipboardClear);
+	TestNotNull(TEXT("Complete report contains partial support"), PartialCapability);
+	if (PartialCapability)
+	{
+		TestEqual(
+			TEXT("Unimplemented mock capability reports unsupported"),
+			PartialCapability->State,
+			EOpenMobileCapabilityState::NotSupported
+		);
+	}
+	TestTrue(TEXT("Capability report is timestamped"), Report.Metadata.CapturedAtUtc > FDateTime());
+	TestTrue(TEXT("Capability report has a generation"), Report.Metadata.Generation > 0);
+
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Mock);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Platform);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileDeviceCapabilities.h"
 
 enum class EOpenMobileDeviceBackendDomain : uint8
 {
@@ -59,6 +60,15 @@ public:
 		FOpenMobileCapability Capability;
 		Capability.Name = GetDomainCapabilityName(Domain);
 		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		return Capability;
+	}
+
+	virtual FOpenMobileDeviceCapability GetCapability(FName CapabilityName) const
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.BackendName = GetBackendName();
 		return Capability;
 	}
 
