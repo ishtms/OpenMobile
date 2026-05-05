@@ -2,8 +2,18 @@
 
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
+#include "OpenMobileDeviceClipboardTypes.h"
+#include "OpenMobileDeviceCommonTypes.h"
+#include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceResourceTypes.h"
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
 
 namespace OpenMobileDeviceTests
 {
@@ -73,6 +83,136 @@ bool FOpenMobileDeviceStatusRangeTest::RunTest(const FString& Parameters)
 		TEXT("Volume is unavailable or normalized"),
 		Status.VolumePercent == -1 || FMath::IsWithinInclusive(Status.VolumePercent, 0, 100)
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePublicTypeModelTest,
+	"OpenMobile.Device.Types.PublicModel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePublicTypeModelTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+
+	const TArray<UScriptStruct*> SnapshotTypes = {
+		FOpenMobileDeviceInformationSnapshot::StaticStruct(),
+		FOpenMobileApplicationMetadataSnapshot::StaticStruct(),
+		FOpenMobileLocaleSnapshot::StaticStruct(),
+		FOpenMobilePowerSnapshot::StaticStruct(),
+		FOpenMobileMemorySnapshot::StaticStruct(),
+		FOpenMobileStorageSnapshot::StaticStruct(),
+		FOpenMobileNetworkPathSnapshot::StaticStruct(),
+		FOpenMobileWindowDisplaySnapshot::StaticStruct(),
+		FOpenMobileAppearanceSnapshot::StaticStruct(),
+		FOpenMobileAccessibilitySnapshot::StaticStruct(),
+		FOpenMobileClipboardContent::StaticStruct()
+	};
+	for (const UScriptStruct* Struct : SnapshotTypes)
+	{
+#if WITH_METADATA
+		TestTrue(
+			*FString::Printf(TEXT("%s is available to Blueprint"), *Struct->GetName()),
+			Struct->HasMetaData(TEXT("BlueprintType"))
+		);
+#endif
+		TestNotNull(
+			*FString::Printf(TEXT("%s has snapshot metadata"), *Struct->GetName()),
+			Struct->FindPropertyByName(TEXT("Metadata"))
+		);
+		for (const FName ForbiddenName : {
+			FName(TEXT("IMEI")),
+			FName(TEXT("SerialNumber")),
+			FName(TEXT("AndroidId")),
+			FName(TEXT("IDFV")),
+			FName(TEXT("MacAddress")),
+			FName(TEXT("AdvertisingId")),
+			FName(TEXT("InstalledApps"))
+		})
+		{
+			TestNull(
+				*FString::Printf(
+					TEXT("%s excludes personal field %s"),
+					*Struct->GetName(),
+					*ForbiddenName.ToString()
+				),
+				Struct->FindPropertyByName(ForbiddenName)
+			);
+		}
+	}
+
+	const FOpenMobileDeviceInformationSnapshot DeviceDefaults;
+	TestEqual(
+		TEXT("Device platform defaults to unknown"),
+		DeviceDefaults.Platform,
+		EOpenMobileDevicePlatform::Unknown
+	);
+	TestFalse(
+		TEXT("Android API level defaults to unavailable"),
+		DeviceDefaults.AndroidApiLevel.bIsAvailable
+	);
+	TestEqual(
+		TEXT("Snapshot generation defaults to zero"),
+		DeviceDefaults.Metadata.Generation,
+		int64(0)
+	);
+	TestEqual(
+		TEXT("Snapshot capture time defaults to unset"),
+		DeviceDefaults.Metadata.CapturedAtUtc,
+		FDateTime()
+	);
+
+	FOpenMobilePowerSnapshot Source;
+	Source.Metadata.CapturedAtUtc = FDateTime(2026, 8, 22, 1, 2, 3);
+	Source.Metadata.Generation = 42;
+	Source.BatteryPercent = FOpenMobileDeviceOptionalFloat::MakeAvailable(57.5f);
+	Source.ChargingState = EOpenMobileBatteryChargingState::Charging;
+	Source.ThermalState = EOpenMobileThermalState::Serious;
+	FOpenMobilePowerSnapshot EqualCopy = Source;
+	TestTrue(TEXT("Equal snapshots compare equal"), EqualCopy == Source);
+	EqualCopy.Metadata.Generation++;
+	TestTrue(TEXT("Changed snapshots compare unequal"), EqualCopy != Source);
+
+	TArray<uint8> Bytes;
+	FMemoryWriter Writer(Bytes, true);
+	FOpenMobilePowerSnapshot::StaticStruct()->SerializeItem(Writer, &Source, nullptr);
+	Writer.Close();
+	FOpenMobilePowerSnapshot RoundTrip;
+	FMemoryReader Reader(Bytes, true);
+	FOpenMobilePowerSnapshot::StaticStruct()->SerializeItem(Reader, &RoundTrip, nullptr);
+	Reader.Close();
+	TestTrue(TEXT("Snapshot serialization preserves values"), RoundTrip == Source);
+	TestFalse(
+		TEXT("Future enum values are not mistaken for known values"),
+		StaticEnum<EOpenMobileThermalState>()->IsValidEnumValue(255)
+	);
+	TestEqual(
+		TEXT("Thermal enum has a stable unknown fallback"),
+		static_cast<uint8>(EOpenMobileThermalState::Unknown),
+		uint8(0)
+	);
+
+	const FOpenMobileNetworkPathSnapshot NetworkDefaults;
+	TestEqual(
+		TEXT("Network path defaults to unknown"),
+		NetworkDefaults.PathState,
+		EOpenMobileNetworkPathState::Unknown
+	);
+	TestFalse(
+		TEXT("Metered state defaults to unavailable"),
+		NetworkDefaults.bIsMetered.bIsAvailable
+	);
+	TestTrue(
+		TEXT("Default network transports are empty"),
+		NetworkDefaults.Transports.IsEmpty()
+	);
+#if WITH_METADATA
+	TestTrue(
+		TEXT("Control result is reflected"),
+		FOpenMobileDeviceControlResult::StaticStruct()->HasMetaData(TEXT("BlueprintType"))
+	);
+#endif
 	return true;
 }
 

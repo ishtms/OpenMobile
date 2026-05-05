@@ -96,6 +96,21 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 
 		self.assertFalse((DEVICE_PLUGIN / "ThirdParty").exists())
 
+	def test_public_contract_excludes_personal_identifiers(self) -> None:
+		public_headers = DEVICE_PLUGIN / "Source" / "OpenMobileDevice" / "Public"
+		for path in public_headers.glob("*.h"):
+			contents = path.read_text(encoding="utf-8").casefold()
+			for forbidden_token in (
+				"imei",
+				"serialnumber",
+				"androidid",
+				"idfv",
+				"macaddress",
+				"advertisingid",
+				"installedapps",
+			):
+				self.assertNotIn(forbidden_token, contents, str(path))
+
 
 if __name__ == "__main__":
 	unittest.main()
