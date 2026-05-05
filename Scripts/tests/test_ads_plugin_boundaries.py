@@ -143,6 +143,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			["Android"],
 			modules["OpenMobileAdsAdMobMetaAndroid"]["PlatformAllowList"],
 		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileAdsAdMobMetaIOS"]["PlatformAllowList"],
+		)
 
 		metadata = json.loads(
 			(ADMOB_META_ADAPTER / "adapter.json").read_text(encoding="utf-8")
@@ -152,7 +156,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertEqual("OpenMobileAdsAdMob", metadata["provider"])
 		self.assertEqual("MetaAudienceNetwork", metadata["network"])
 		self.assertEqual(["Bidding"], metadata["integration_types"])
-		self.assertEqual({"Android"}, set(metadata["platforms"]))
+		self.assertEqual({"Android", "IOS"}, set(metadata["platforms"]))
 		android = metadata["platforms"]["Android"]
 		self.assertEqual("6.22.0.0", android["adapter_version"])
 		self.assertEqual("6.22.0", android["network_sdk_version"])
@@ -173,6 +177,48 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 				for dependency in android["dependencies"]
 			},
 		)
+		ios = metadata["platforms"]["IOS"]
+		self.assertEqual("6.22.0.0", ios["adapter_version"])
+		self.assertEqual("6.22.0", ios["network_sdk_version"])
+		self.assertEqual(["13.8.0"], ios["tested_provider_sdk_versions"])
+		self.assertEqual("15.0", ios["minimum_os_version"])
+		self.assertEqual(
+			{
+				("MetaAdapter", "6.22.0.0"),
+				("FBAudienceNetwork", "6.22.0"),
+				("GoogleMobileAds", "13.8.0"),
+			},
+			{
+				(dependency["name"], dependency["version"])
+				for dependency in ios["dependencies"]
+			},
+		)
+
+	def test_admob_meta_ios_frameworks_are_adapter_owned(self) -> None:
+		module_root = ADMOB_META_ADAPTER / "Source" / "OpenMobileAdsAdMobMetaIOS"
+		build_rules = (
+			module_root / "OpenMobileAdsAdMobMetaIOS.Build.cs"
+		).read_text(encoding="utf-8")
+		upl_path = (
+			module_root
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobMeta_IOS_UPL.xml"
+		)
+		ElementTree.parse(upl_path)
+		self.assertEqual(1, build_rules.count("Framework.FrameworkMode.LinkAndCopy"))
+		self.assertIn('"MetaAdapter"', build_rules)
+		self.assertIn('"FBAudienceNetwork"', build_rules)
+		meta_framework = build_rules[
+			build_rules.index('"MetaAdapter"'):
+			build_rules.index('"FBAudienceNetwork"')
+		]
+		self.assertIn("Framework.FrameworkMode.Link", meta_framework)
+		self.assertNotIn("Framework.FrameworkMode.LinkAndCopy", meta_framework)
+		self.assertIn('"Swift"', build_rules)
+		self.assertIn('"AppTrackingTransparency"', build_rules)
+		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
+		self.assertIn("OpenMobileAdsAdMobMeta_IOS_UPL.xml", build_rules)
 
 	def test_admob_meta_android_packaging_is_adapter_owned(self) -> None:
 		module_root = (

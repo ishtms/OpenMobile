@@ -38,12 +38,34 @@
 				}
 			],
 			"attribution_identifiers": []
+		},
+		"IOS": {
+			"adapter_version": "6.22.0.0",
+			"network_sdk_version": "6.22.0",
+			"tested_provider_sdk_versions": ["13.8.0"],
+			"minimum_os_version": "15.0",
+			"dependencies": [
+				{
+					"name": "MetaAdapter",
+					"version": "6.22.0.0"
+				},
+				{
+					"name": "FBAudienceNetwork",
+					"version": "6.22.0"
+				},
+				{
+					"name": "GoogleMobileAds",
+					"version": "13.8.0"
+				}
+			],
+			"attribution_identifiers": []
 		}
 	},
 	"sources": {
 		"integration_guide": "https://developers.google.com/admob/android/mediation/meta",
 		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:facebook",
 		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
-		"network_terms": "https://developers.facebook.com/terms/"
+		"network_terms": "https://developers.facebook.com/terms/",
+		"ios_package_manifest": "https://github.com/googleads/googleads-mobile-ios-mediation-meta/blob/main/Package.swift"
 	}
 }

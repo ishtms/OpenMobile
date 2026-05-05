@@ -191,6 +191,15 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertIn("OpenMobileAdsAdMobMetaAndroid", with_adapter.modules)
 		self.assertEqual([], validate_adapter_metadata(self.admob_meta))
 
+		ios_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobMeta"],
+			platform="IOS",
+			target_type="Game",
+		)
+		self.assertIn("OpenMobileAdsAdMobMetaIOS", ios_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobMetaAndroid", ios_adapter.modules)
+
 	def test_adapter_metadata_rejects_incomplete_or_mismatched_manifests(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			root = Path(temporary_directory)

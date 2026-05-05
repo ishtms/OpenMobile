@@ -1,0 +1,39 @@
+{
+	"schema_version": 1,
+	"packages": [
+		{
+			"name": "Google Mobile Ads Mediation Adapter for Meta",
+			"version": "6.22.0.0",
+			"source_url": "https://dl.google.com/googleadmobadssdk/mediation/ios/meta/MetaAdapter-6.22.0.0.zip",
+			"terms_url": "https://developers.google.com/terms/site-terms",
+			"redistribution": "Distributed under the Apache License 2.0 included with this plugin.",
+			"license_files": [
+				"Licenses/GoogleAdapter-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "MetaAdapter.xcframework.zip",
+					"sha256": "2d7605406f1f0d3836d2fbc89233f8eff48f7f06c5259b935f615e0b3102a681",
+					"role": "Runtime Meta mediation adapter repackaged with the xcframework at the archive root"
+				}
+			]
+		},
+		{
+			"name": "Meta Audience Network SDK for iOS",
+			"version": "6.22.0",
+			"source_url": "https://developers.facebook.com/resources/FBAudienceNetwork-6.22.0-SPM.zip",
+			"terms_url": "https://developers.facebook.com/terms/",
+			"redistribution": "Distribution is subject to the included Meta license and applicable platform terms.",
+			"license_files": [
+				"Licenses/FBAudienceNetwork-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "FBAudienceNetwork.xcframework.zip",
+					"sha256": "4d84bf1e404a83852a93af2ae73e22e45bb2b11e0a9a445c3b461173a5d6aec3",
+					"role": "Runtime Meta Audience Network framework with its privacy manifest"
+				}
+			]
+		}
+	]
+}

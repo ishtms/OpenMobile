@@ -25,6 +25,8 @@ from validate_ads_plugins import (
 
 ADMOB_PLUGIN = REPOSITORY_ROOT / "Providers" / "Ads" / "OpenMobileAdsAdMob"
 IOS_PACKAGE_MANIFEST = ADMOB_PLUGIN / "ThirdParty" / "IOS" / "packages.json"
+ADMOB_META_ADAPTER = REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobMeta"
+META_IOS_PACKAGE_MANIFEST = ADMOB_META_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
 
 
 def mach_o_header(cpu_type: int) -> bytes:
@@ -41,11 +43,13 @@ def add_ios_framework(
 	*,
 	cpu_type: int = 0x0100000C,
 	signed: bool = True,
+	privacy_manifest: bool = True,
 ) -> None:
 	root = f"Payload/Game.app/Frameworks/{name}.framework"
 	archive.writestr(f"{root}/{name}", mach_o_header(cpu_type))
 	archive.writestr(f"{root}/Info.plist", b"plist")
-	archive.writestr(f"{root}/PrivacyInfo.xcprivacy", b"privacy")
+	if privacy_manifest:
+		archive.writestr(f"{root}/PrivacyInfo.xcprivacy", b"privacy")
 	if signed:
 		archive.writestr(f"{root}/_CodeSignature/CodeResources", b"signature")
 
@@ -109,6 +113,25 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 			self.assertTrue(any("unsigned framework" in error for error in errors))
 			self.assertTrue(any("x86_64" in error for error in errors))
 			self.assertTrue(any("build-time iOS payload" in error for error in errors))
+
+	def test_ios_meta_adapter_package_contains_only_its_enabled_frameworks(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			package = Path(temporary_directory) / "Game.ipa"
+			with zipfile.ZipFile(package, "w") as archive:
+				add_ios_framework(archive, "GoogleMobileAds")
+				add_ios_framework(archive, "UserMessagingPlatform")
+				add_ios_framework(archive, "FBAudienceNetwork")
+
+			errors = validate_package(
+				inspect_artifact(package),
+				PackageExpectation(
+					platform="IOS",
+					architectures={"arm64"},
+					required_providers={"OpenMobileAdsAdMob"},
+					required_adapters={"OpenMobileAdsAdMobMeta"},
+				),
+			)
+			self.assertEqual([], errors)
 
 	def test_android_package_enforces_requested_abis(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
@@ -201,6 +224,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 
 	def test_checked_in_ios_packages_have_current_provenance(self) -> None:
 		self.assertEqual([], validate_third_party_packages(IOS_PACKAGE_MANIFEST))
+		self.assertEqual([], validate_third_party_packages(META_IOS_PACKAGE_MANIFEST))
 
 	def test_ios_build_rules_embed_both_google_frameworks(self) -> None:
 		build_rules = (
@@ -213,6 +237,19 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		self.assertEqual(2, build_rules.count("Framework.FrameworkMode.LinkAndCopy"))
 		self.assertIn('"GoogleMobileAds"', build_rules)
 		self.assertIn('"UserMessagingPlatform"', build_rules)
+
+	def test_ios_meta_build_rules_embed_only_adapter_frameworks(self) -> None:
+		build_rules = (
+			ADMOB_META_ADAPTER
+			/ "Source"
+			/ "OpenMobileAdsAdMobMetaIOS"
+			/ "OpenMobileAdsAdMobMetaIOS.Build.cs"
+		).read_text(encoding="utf-8")
+
+		self.assertEqual(1, build_rules.count("Framework.FrameworkMode.LinkAndCopy"))
+		self.assertIn('"MetaAdapter"', build_rules)
+		self.assertIn('"FBAudienceNetwork"', build_rules)
+		self.assertNotIn('"GoogleMobileAds"', build_rules)
 
 
 if __name__ == "__main__":

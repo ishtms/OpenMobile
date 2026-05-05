@@ -27,6 +27,8 @@ ADAPTER_SIGNATURES = {
 		b"com.google.ads.mediation:facebook",
 		b"com/google/ads/mediation/facebook",
 		b"com/facebook/ads",
+		b"metaadapter",
+		b"fbaudiencenetwork",
 	),
 }
 ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
@@ -148,7 +150,13 @@ IOS_PACKAGE_CONTRACTS = {
 		},
 	},
 }
-IOS_ADAPTER_PACKAGE_CONTRACTS = {}
+IOS_ADAPTER_PACKAGE_CONTRACTS = {
+	"OpenMobileAdsAdMobMeta": {
+		"frameworks": {"FBAudienceNetwork"},
+		"static_frameworks": {"MetaAdapter"},
+		"privacy_manifest_frameworks": {"FBAudienceNetwork"},
+	},
+}
 ANDROID_ABI_ARCHITECTURES = {
 	"arm64-v8a": "arm64",
 	"armeabi-v7a": "arm",
@@ -775,6 +783,21 @@ def validate_ios_package(
 		required_frameworks.update(
 			IOS_ADAPTER_PACKAGE_CONTRACTS.get(adapter, {}).get("frameworks", set())
 		)
+	required_privacy_manifests: set[str] = set()
+	for provider in expectation.required_providers:
+		required_privacy_manifests.update(
+			IOS_PACKAGE_CONTRACTS.get(provider, {}).get(
+				"privacy_manifest_frameworks",
+				IOS_PACKAGE_CONTRACTS.get(provider, {}).get("frameworks", set()),
+			)
+		)
+	for adapter in expectation.required_adapters:
+		required_privacy_manifests.update(
+			IOS_ADAPTER_PACKAGE_CONTRACTS.get(adapter, {}).get(
+				"privacy_manifest_frameworks",
+				set(),
+			)
+		)
 
 	for framework in sorted(required_frameworks):
 		binary_entry = find_framework_entry(
@@ -791,7 +814,7 @@ def validate_ios_package(
 			"_CodeSignature/CodeResources",
 		) is None:
 			errors.append(f"unsigned framework {framework}")
-		if find_framework_entry(
+		if framework in required_privacy_manifests and find_framework_entry(
 			inventory.entries,
 			framework,
 			"PrivacyInfo.xcprivacy",

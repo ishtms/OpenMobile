@@ -17,6 +17,12 @@
 			"Type": "Runtime",
 			"LoadingPhase": "PreDefault",
 			"PlatformAllowList": ["Android"]
+		},
+		{
+			"Name": "OpenMobileAdsAdMobMetaIOS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["IOS"]
 		}
 	],
 	"Plugins": [
