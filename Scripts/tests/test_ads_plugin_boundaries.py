@@ -219,6 +219,18 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn('"AppTrackingTransparency"', build_rules)
 		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
 		self.assertIn("OpenMobileAdsAdMobMeta_IOS_UPL.xml", build_rules)
+		for token in (
+			"ValidateCompatibility",
+			'GetObjectField("compatibility")',
+			'GetStringField("minimum")',
+			'GetStringField("maximum_exclusive")',
+			'GetStringArrayField("tested")',
+			'GetObjectField("provider_sdk")',
+			'GetObjectField("network_sdk")',
+			"packages.json",
+			"adapter.json",
+		):
+			self.assertIn(token, build_rules)
 
 	def test_admob_meta_android_packaging_is_adapter_owned(self) -> None:
 		module_root = (

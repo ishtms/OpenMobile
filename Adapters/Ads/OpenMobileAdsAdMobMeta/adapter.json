@@ -10,6 +10,23 @@
 			"adapter_version": "6.22.0.0",
 			"network_sdk_version": "6.22.0",
 			"tested_provider_sdk_versions": ["25.4.0"],
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "25.4.0",
+					"maximum_exclusive": "25.4.1",
+					"tested": ["25.4.0"]
+				},
+				"adapter": {
+					"minimum": "6.22.0.0",
+					"maximum_exclusive": "6.22.0.1",
+					"tested": ["6.22.0.0"]
+				},
+				"network_sdk": {
+					"minimum": "6.22.0",
+					"maximum_exclusive": "6.22.1",
+					"tested": ["6.22.0"]
+				}
+			},
 			"minimum_os_version": "23",
 			"dependencies": [
 				{
@@ -43,6 +60,23 @@
 			"adapter_version": "6.22.0.0",
 			"network_sdk_version": "6.22.0",
 			"tested_provider_sdk_versions": ["13.8.0"],
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "13.4.0",
+					"maximum_exclusive": "14.0.0",
+					"tested": ["13.8.0"]
+				},
+				"adapter": {
+					"minimum": "6.22.0.0",
+					"maximum_exclusive": "6.22.0.1",
+					"tested": ["6.22.0.0"]
+				},
+				"network_sdk": {
+					"minimum": "6.22.0",
+					"maximum_exclusive": "6.22.1",
+					"tested": ["6.22.0"]
+				}
+			},
 			"minimum_os_version": "15.0",
 			"dependencies": [
 				{

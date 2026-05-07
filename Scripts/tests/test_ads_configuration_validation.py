@@ -1,5 +1,6 @@
 import json
 import plistlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,7 @@ from validate_ads_plugins import (
 	validate_android_dependencies,
 	validate_android_manifest,
 	validate_adapter_metadata,
+	validate_adapter_compatibility,
 	validate_ios_plist,
 )
 
@@ -248,6 +250,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				"adapter_version must not be empty",
 				"network_sdk_version must not be empty",
 				"tested_provider_sdk_versions must not be empty",
+				"compatibility must define provider_sdk, adapter, and network_sdk",
 				"minimum_os_version must not be empty",
 				"duplicate dependency",
 				"attribution_identifiers must be an array",
@@ -257,6 +260,137 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 					any(expected in error for error in errors),
 					f"missing validation for {expected}: {errors}",
 				)
+
+	def test_meta_adapter_compatibility_accepts_exact_compiled_versions(self) -> None:
+		android = validate_adapter_compatibility(
+			self.admob_meta,
+			"Android",
+			provider_versions={"compiled": "25.4.0"},
+			adapter_versions={"compiled": "6.22.0.0"},
+			network_versions={"compiled": "6.22.0"},
+		)
+		self.assertEqual([], android.errors)
+		self.assertEqual([], android.warnings)
+
+		ios = validate_adapter_compatibility(
+			self.admob_meta,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "6.22.0.0"},
+			network_versions={"compiled": "6.22.0"},
+		)
+		self.assertEqual([], ios.errors)
+		self.assertEqual([], ios.warnings)
+
+	def test_adapter_metadata_rejects_versions_that_conflict_with_compatibility(self) -> None:
+		metadata_path = self.admob_meta.path.parent / "adapter.json"
+		metadata = json.loads(
+			metadata_path.read_text(encoding="utf-8")
+		)
+		metadata["platforms"]["IOS"]["compatibility"]["adapter"]["tested"] = [
+			"6.21.0.0"
+		]
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			descriptor_path = root / self.admob_meta.path.name
+			descriptor_path.write_text(
+				json.dumps(self.admob_meta.data),
+				encoding="utf-8",
+			)
+			(root / "adapter.json").write_text(
+				json.dumps(metadata),
+				encoding="utf-8",
+			)
+			descriptor = PluginDescriptor.load(descriptor_path)
+
+			errors = validate_adapter_metadata(descriptor)
+
+		self.assertTrue(
+			any("IOS.adapter_version conflicts" in error for error in errors),
+			errors,
+		)
+
+	def test_adapter_compatibility_warns_for_untested_or_missing_versions(self) -> None:
+		untested = validate_adapter_compatibility(
+			self.admob_meta,
+			"IOS",
+			provider_versions={"runtime": "13.9.0"},
+			adapter_versions={"runtime": "6.22.0.0"},
+			network_versions={"runtime": "6.22.0"},
+		)
+		self.assertEqual([], untested.errors)
+		self.assertTrue(any("13.9.0" in warning and "not tested" in warning for warning in untested.warnings))
+
+		missing = validate_adapter_compatibility(
+			self.admob_meta,
+			"Android",
+			provider_versions={},
+			adapter_versions={},
+			network_versions={},
+		)
+		self.assertEqual([], missing.errors)
+		self.assertEqual(3, len(missing.warnings))
+		self.assertTrue(all("unavailable" in warning for warning in missing.warnings))
+
+	def test_adapter_compatibility_rejects_known_conflicts_and_warns_for_unknown_values(self) -> None:
+		conflicting = validate_adapter_compatibility(
+			self.admob_meta,
+			"IOS",
+			provider_versions={"compiled": "14.0.0"},
+			adapter_versions={"compiled": "6.21.1.1"},
+			network_versions={"compiled": "6.21.1"},
+		)
+		self.assertEqual(3, len(conflicting.errors))
+		self.assertTrue(all("outside supported range" in error for error in conflicting.errors))
+
+		unknown = validate_adapter_compatibility(
+			self.admob_meta,
+			"IOS",
+			provider_versions={"runtime": "future"},
+			adapter_versions={"runtime": "6.22.0.0"},
+			network_versions={"runtime": "6.22.0"},
+		)
+		self.assertEqual([], unknown.errors)
+		self.assertTrue(any("could not be parsed" in warning for warning in unknown.warnings))
+
+		version_skew = validate_adapter_compatibility(
+			self.admob_meta,
+			"IOS",
+			provider_versions={"compiled": "13.8.0", "runtime": "13.9.0"},
+			adapter_versions={"compiled": "6.22.0.0"},
+			network_versions={"compiled": "6.22.0"},
+		)
+		self.assertTrue(any("conflicting provider SDK versions" in error for error in version_skew.errors))
+
+	def test_compatibility_command_checks_compiled_and_runtime_versions(self) -> None:
+		command = [
+			sys.executable,
+			str(REPOSITORY_ROOT / "Scripts" / "validate_ads_plugins.py"),
+			"compatibility",
+			"--repository",
+			str(REPOSITORY_ROOT),
+			"--adapter",
+			"OpenMobileAdsAdMobMeta",
+			"--platform",
+			"IOS",
+			"--provider-version",
+			"compiled=13.8.0",
+			"--adapter-version",
+			"compiled=6.22.0.0",
+			"--network-version",
+			"compiled=6.22.0",
+		]
+		compatible = subprocess.run(command, capture_output=True, text=True)
+		self.assertEqual(0, compatible.returncode, compatible.stderr)
+		self.assertIn("compatibility validation passed", compatible.stdout)
+
+		conflicting = subprocess.run(
+			command + ["--provider-version", "runtime=13.9.0"],
+			capture_output=True,
+			text=True,
+		)
+		self.assertEqual(1, conflicting.returncode)
+		self.assertIn("conflicting provider SDK versions", conflicting.stderr)
 
 	def test_mediation_adapter_dependency_contract_is_enforced(self) -> None:
 		malformed_adapter = PluginDescriptor(

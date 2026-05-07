@@ -209,6 +209,106 @@ class PluginDescriptor:
 		return self.data.get("OpenMobileAdsType") == "MediationAdapter"
 
 
+@dataclass
+class AdapterCompatibilityResult:
+	errors: list[str]
+	warnings: list[str]
+
+
+def _parse_version(value: str) -> tuple[int, int, int, int] | None:
+	parts = value.split(".")
+	if not 1 <= len(parts) <= 4 or any(not part.isdigit() for part in parts):
+		return None
+	return tuple(int(part) for part in parts) + (0,) * (4 - len(parts))
+
+
+def validate_adapter_compatibility(
+	descriptor: PluginDescriptor,
+	platform_name: str,
+	*,
+	provider_versions: dict[str, str],
+	adapter_versions: dict[str, str],
+	network_versions: dict[str, str],
+) -> AdapterCompatibilityResult:
+	manifest_path = descriptor.path.parent / "adapter.json"
+	try:
+		with manifest_path.open(encoding="utf-8") as manifest_file:
+			metadata = json.load(manifest_file)
+	except (json.JSONDecodeError, OSError) as error:
+		return AdapterCompatibilityResult(
+			[f"adapter metadata could not be read: {error}"],
+			[],
+		)
+
+	platform = metadata.get("platforms", {}).get(platform_name)
+	if not isinstance(platform, dict):
+		return AdapterCompatibilityResult(
+			[f"adapter metadata does not support platform '{platform_name}'"],
+			[],
+		)
+	compatibility = platform.get("compatibility")
+	if not isinstance(compatibility, dict):
+		return AdapterCompatibilityResult(
+			[f"adapter metadata has no compatibility contract for '{platform_name}'"],
+			[],
+		)
+
+	errors: list[str] = []
+	warnings: list[str] = []
+	components = (
+		("provider SDK", "provider_sdk", provider_versions),
+		("adapter", "adapter", adapter_versions),
+		("network SDK", "network_sdk", network_versions),
+	)
+	for display_name, contract_name, observed_versions in components:
+		contract = compatibility.get(contract_name)
+		if not isinstance(contract, dict):
+			errors.append(f"adapter metadata is missing the {display_name} compatibility range")
+			continue
+		minimum_text = contract.get("minimum", "")
+		maximum_text = contract.get("maximum_exclusive", "")
+		minimum = _parse_version(minimum_text) if isinstance(minimum_text, str) else None
+		maximum = _parse_version(maximum_text) if isinstance(maximum_text, str) else None
+		tested = contract.get("tested", [])
+		if minimum is None or maximum is None or minimum >= maximum:
+			errors.append(f"adapter metadata has an invalid {display_name} compatibility range")
+			continue
+		if not isinstance(tested, list):
+			tested = []
+
+		if not observed_versions:
+			warnings.append(f"{display_name} version is unavailable")
+			continue
+		parsed_observations: dict[str, tuple[int, int, int, int]] = {}
+		for source, version_text in sorted(observed_versions.items()):
+			parsed = _parse_version(version_text)
+			if parsed is None:
+				warnings.append(
+					f"{source} {display_name} version '{version_text}' could not be parsed"
+				)
+				continue
+			parsed_observations[source] = parsed
+			if parsed < minimum or parsed >= maximum:
+				errors.append(
+					f"{source} {display_name} version '{version_text}' is outside supported range "
+					f"[{minimum_text}, {maximum_text})"
+				)
+			elif version_text not in tested:
+				warnings.append(
+					f"{source} {display_name} version '{version_text}' is supported but not tested"
+				)
+		if len(set(parsed_observations.values())) > 1:
+			errors.append(
+				f"conflicting {display_name} versions: "
+				+ ", ".join(
+					f"{source}={observed_versions[source]}"
+					for source in sorted(parsed_observations)
+				)
+			)
+
+	return AdapterCompatibilityResult(errors, warnings)
+
+
 def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 	manifest_path = descriptor.path.parent / "adapter.json"
 	if not manifest_path.is_file():
@@ -266,6 +366,82 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 			errors.append(
 				f"adapter metadata {platform_name}.tested_provider_sdk_versions must not be empty"
 			)
+
+		compatibility = platform.get("compatibility")
+		required_compatibility = {"provider_sdk", "adapter", "network_sdk"}
+		if (
+			not isinstance(compatibility, dict)
+			or set(compatibility) != required_compatibility
+		):
+			errors.append(
+				f"adapter metadata {platform_name}.compatibility must define provider_sdk, adapter, and network_sdk"
+			)
+		else:
+			for component_name, contract in compatibility.items():
+				if not isinstance(contract, dict):
+					errors.append(
+						f"adapter metadata {platform_name}.{component_name} compatibility must be an object"
+					)
+					continue
+				minimum = contract.get("minimum")
+				maximum = contract.get("maximum_exclusive")
+				tested_component_versions = contract.get("tested")
+				parsed_minimum = _parse_version(minimum) if isinstance(minimum, str) else None
+				parsed_maximum = _parse_version(maximum) if isinstance(maximum, str) else None
+				if (
+					parsed_minimum is None
+					or parsed_maximum is None
+					or parsed_minimum >= parsed_maximum
+				):
+					errors.append(
+						f"adapter metadata {platform_name}.{component_name} compatibility range is invalid"
+					)
+				if not isinstance(tested_component_versions, list) or not tested_component_versions:
+					errors.append(
+						f"adapter metadata {platform_name}.{component_name} tested versions must not be empty"
+					)
+				elif len(tested_component_versions) != len(set(tested_component_versions)):
+					errors.append(
+						f"adapter metadata {platform_name}.{component_name} tested versions contain duplicates"
+					)
+				if isinstance(tested_component_versions, list):
+					for tested_version in tested_component_versions:
+						parsed_tested = (
+							_parse_version(tested_version)
+							if isinstance(tested_version, str)
+							else None
+						)
+						if (
+							parsed_tested is None
+							or parsed_minimum is None
+							or parsed_maximum is None
+							or parsed_tested < parsed_minimum
+							or parsed_tested >= parsed_maximum
+						):
+							errors.append(
+								f"adapter metadata {platform_name}.{component_name} tested version "
+								f"'{tested_version}' is outside its compatibility range"
+							)
+				if component_name == "provider_sdk" and isinstance(tested_component_versions, list):
+					if set(tested_component_versions) != set(tested_versions or []):
+						errors.append(
+							f"adapter metadata {platform_name}.tested_provider_sdk_versions conflicts "
+							"with compatibility tested versions"
+						)
+				if component_name in {"adapter", "network_sdk"} and isinstance(
+					tested_component_versions,
+					list,
+				):
+					version_field = (
+						"adapter_version"
+						if component_name == "adapter"
+						else "network_sdk_version"
+					)
+					if platform.get(version_field) not in tested_component_versions:
+						errors.append(
+							f"adapter metadata {platform_name}.{version_field} conflicts "
+							"with compatibility tested versions"
+						)
 
 		dependencies = platform.get("dependencies")
 		if not isinstance(dependencies, list) or not dependencies:
@@ -1525,6 +1701,62 @@ def run_graph_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def _parse_version_observations(assignments: list[str], option_name: str) -> dict[str, str]:
+	observations: dict[str, str] = {}
+	for assignment in assignments:
+		source, separator, version = assignment.partition("=")
+		if not separator or not source or not version:
+			raise ValueError(f"{option_name} must use SOURCE=VERSION")
+		if source in observations:
+			raise ValueError(f"{option_name} has duplicate source '{source}'")
+		observations[source] = version
+	return observations
+
+
+def run_compatibility_command(arguments: argparse.Namespace) -> int:
+	descriptors = discover_descriptors(arguments.repository)
+	descriptor = descriptors.get(arguments.adapter)
+	if descriptor is None or not descriptor.is_ads_adapter:
+		print(
+			f"ads adapter compatibility validation failed: unknown adapter '{arguments.adapter}'",
+			file=sys.stderr,
+		)
+		return 1
+	metadata_errors = validate_adapter_metadata(descriptor)
+	if metadata_errors:
+		for error in metadata_errors:
+			print(f"ads adapter metadata validation failed: {error}", file=sys.stderr)
+		return 1
+	try:
+		result = validate_adapter_compatibility(
+			descriptor,
+			arguments.platform,
+			provider_versions=_parse_version_observations(
+				arguments.provider_version,
+				"--provider-version",
+			),
+			adapter_versions=_parse_version_observations(
+				arguments.adapter_version,
+				"--adapter-version",
+			),
+			network_versions=_parse_version_observations(
+				arguments.network_version,
+				"--network-version",
+			),
+		)
+	except ValueError as error:
+		print(f"ads adapter compatibility validation failed: {error}", file=sys.stderr)
+		return 1
+	for warning in result.warnings:
+		print(f"ads adapter compatibility warning: {warning}", file=sys.stderr)
+	if result.errors:
+		for error in result.errors:
+			print(f"ads adapter compatibility validation failed: {error}", file=sys.stderr)
+		return 1
+	print("OpenMobile Ads adapter compatibility validation passed.")
+	return 0
+
+
 def run_artifact_command(arguments: argparse.Namespace) -> int:
 	inventory = inspect_artifact(arguments.artifact)
 	errors = validate_artifact(
@@ -1668,6 +1900,19 @@ def parse_arguments() -> argparse.Namespace:
 	graph_parser.add_argument("--platform", required=True)
 	graph_parser.add_argument("--target-type", choices=("Game", "Editor"), required=True)
 	graph_parser.set_defaults(handler=run_graph_command)
+
+	compatibility_parser = subparsers.add_parser("compatibility")
+	compatibility_parser.add_argument("--repository", type=Path, default=Path.cwd())
+	compatibility_parser.add_argument("--adapter", required=True)
+	compatibility_parser.add_argument(
+		"--platform",
+		choices=("Android", "IOS"),
+		required=True,
+	)
+	compatibility_parser.add_argument("--provider-version", action="append", default=[])
+	compatibility_parser.add_argument("--adapter-version", action="append", default=[])
+	compatibility_parser.add_argument("--network-version", action="append", default=[])
+	compatibility_parser.set_defaults(handler=run_compatibility_command)
 
 	artifact_parser = subparsers.add_parser("artifact")
 	artifact_parser.add_argument("artifact", type=Path)
