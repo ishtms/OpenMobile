@@ -811,6 +811,19 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 		TEXT("Stopping maximum interval request restores zero idle cost"),
 		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
 	);
+	{
+		FOpenMobileDeviceMonitoringHandle NativeHandle =
+			Subsystem->StartMonitoringNative({Group::Power}, 1.0f);
+		TestTrue(TEXT("Native monitoring handle starts active"), NativeHandle.IsActive());
+		FOpenMobileDeviceMonitoringHandle MovedHandle = MoveTemp(NativeHandle);
+		TestFalse(TEXT("Moved-from native handle becomes inactive"), NativeHandle.IsActive());
+		TestTrue(TEXT("Moved native handle preserves subscription"), MovedHandle.IsActive());
+	}
+	TestEqual(
+		TEXT("Native monitoring handle releases on scope exit"),
+		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
+		0
+	);
 
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);

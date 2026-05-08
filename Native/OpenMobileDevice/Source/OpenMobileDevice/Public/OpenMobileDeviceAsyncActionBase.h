@@ -42,13 +42,13 @@ class OPENMOBILEDEVICE_API UOpenMobileDeviceAsyncActionBase :
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "Success", ToolTip = "Broadcasts once when the Device operation succeeds."))
 	FOpenMobileDeviceAsyncSuccess Success;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "Cancelled", ToolTip = "Broadcasts once when the Device operation is cancelled."))
 	FOpenMobileDeviceAsyncCancelled Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "Failed", ToolTip = "Broadcasts once with a typed error when the Device operation fails."))
 	FOpenMobileDeviceAsyncFailed Failed;
 
 	virtual void Cancel() override;

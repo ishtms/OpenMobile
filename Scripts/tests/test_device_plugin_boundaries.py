@@ -123,6 +123,38 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("TickerHandle", subsystem)
 		self.assertNotIn("AddTicker", subsystem)
 
+	def test_public_consumer_uses_only_documented_device_header(self) -> None:
+		consumer = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceEditor"
+			/ "Private"
+			/ "Tests"
+			/ "OpenMobileDevicePublicConsumerTests.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('#include "OpenMobileDevice.h"', consumer)
+		self.assertNotIn("/Internal/", consumer)
+		self.assertNotIn("/Private/", consumer)
+		self.assertNotIn("OpenMobileDeviceBackendRegistry", consumer)
+		self.assertNotIn("OpenMobileDeviceMonitoringService", consumer)
+		self.assertNotIn("IOpenMobileDeviceBackend", consumer)
+
+		umbrella = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDevice.h"
+		).read_text(encoding="utf-8")
+		for public_contract in (
+			"OpenMobileDeviceAsyncActionBase.h",
+			"OpenMobileDeviceBlueprintLibrary.h",
+			"OpenMobileDeviceCapabilities.h",
+			"OpenMobileDeviceMonitoring.h",
+			"OpenMobileDeviceSubsystem.h",
+		):
+			self.assertIn(public_contract, umbrella)
+
 
 if __name__ == "__main__":
 	unittest.main()

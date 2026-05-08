@@ -190,6 +190,7 @@ FOpenMobileDeviceStatus UOpenMobileDeviceSubsystem::RefreshNow()
 	{
 		LatestStatus = NewStatus;
 		OnDeviceStatusChanged.Broadcast(LatestStatus);
+		NativeDeviceStatusChanged.Broadcast(LatestStatus);
 	}
 
 	return LatestStatus;
@@ -266,6 +267,19 @@ UOpenMobileDeviceSubsystem::StartMonitoring(
 		}
 	}
 	return Subscription;
+}
+
+FOpenMobileDeviceMonitoringHandle
+UOpenMobileDeviceSubsystem::StartMonitoringNative(
+	const TArray<EOpenMobileDeviceMonitoringGroup>& Groups,
+	float FallbackPollingIntervalSeconds
+)
+{
+	return FOpenMobileDeviceMonitoringHandle(StartMonitoring(
+		this,
+		Groups,
+		FallbackPollingIntervalSeconds
+	));
 }
 
 void UOpenMobileDeviceSubsystem::StopMonitoringSubscription(
@@ -403,6 +417,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastLocaleSnapshot = Snapshot;
 			OnLocaleSnapshotChanged.Broadcast(Snapshot);
+			NativeLocaleSnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -427,6 +442,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastMemorySnapshot = Snapshot;
 			OnMemorySnapshotChanged.Broadcast(Snapshot);
+			NativeMemorySnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -438,6 +454,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastStorageSnapshot = Snapshot;
 			OnStorageSnapshotChanged.Broadcast(Snapshot);
+			NativeStorageSnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -449,6 +466,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastNetworkSnapshot = Snapshot;
 			OnNetworkPathSnapshotChanged.Broadcast(Snapshot);
+			NativeNetworkPathSnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -460,6 +478,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastWindowSnapshot = Snapshot;
 			OnWindowDisplaySnapshotChanged.Broadcast(Snapshot);
+			NativeWindowDisplaySnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -471,6 +490,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastAppearanceSnapshot = Snapshot;
 			OnAppearanceSnapshotChanged.Broadcast(Snapshot);
+			NativeAppearanceSnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -485,6 +505,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		{
 			LastAccessibilitySnapshot = Snapshot;
 			OnAccessibilitySnapshotChanged.Broadcast(Snapshot);
+			NativeAccessibilitySnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}
@@ -541,4 +562,55 @@ void UOpenMobileDeviceMonitoringSubscription::BeginDestroy()
 {
 	Stop();
 	Super::BeginDestroy();
+}
+
+FOpenMobileDeviceMonitoringHandle::FOpenMobileDeviceMonitoringHandle(
+	UOpenMobileDeviceMonitoringSubscription* InSubscription
+)
+	: Subscription(InSubscription)
+{
+}
+
+FOpenMobileDeviceMonitoringHandle::~FOpenMobileDeviceMonitoringHandle()
+{
+	Stop();
+}
+
+FOpenMobileDeviceMonitoringHandle::FOpenMobileDeviceMonitoringHandle(
+	FOpenMobileDeviceMonitoringHandle&& Other
+)
+	: Subscription(Other.Subscription)
+{
+	Other.Subscription.Reset();
+}
+
+FOpenMobileDeviceMonitoringHandle&
+FOpenMobileDeviceMonitoringHandle::operator=(
+	FOpenMobileDeviceMonitoringHandle&& Other
+)
+{
+	if (this != &Other)
+	{
+		Stop();
+		Subscription = Other.Subscription;
+		Other.Subscription.Reset();
+	}
+	return *this;
+}
+
+void FOpenMobileDeviceMonitoringHandle::Stop()
+{
+	if (UOpenMobileDeviceMonitoringSubscription* ActiveSubscription =
+		Subscription.Get())
+	{
+		ActiveSubscription->Stop();
+	}
+	Subscription.Reset();
+}
+
+bool FOpenMobileDeviceMonitoringHandle::IsActive() const
+{
+	const UOpenMobileDeviceMonitoringSubscription* ActiveSubscription =
+		Subscription.Get();
+	return ActiveSubscription && ActiveSubscription->IsActive();
 }

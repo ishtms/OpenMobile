@@ -60,8 +60,40 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 );
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileDeviceStatusChangedNativeEvent,
+	const FOpenMobileDeviceStatus&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileLocaleSnapshotChangedNativeEvent,
+	const FOpenMobileLocaleSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobilePowerSnapshotChangedNativeEvent,
 	const FOpenMobilePowerSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileMemorySnapshotChangedNativeEvent,
+	const FOpenMobileMemorySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileStorageSnapshotChangedNativeEvent,
+	const FOpenMobileStorageSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileNetworkPathSnapshotChangedNativeEvent,
+	const FOpenMobileNetworkPathSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileWindowDisplaySnapshotChangedNativeEvent,
+	const FOpenMobileWindowDisplaySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAppearanceSnapshotChangedNativeEvent,
+	const FOpenMobileAppearanceSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAccessibilitySnapshotChangedNativeEvent,
+	const FOpenMobileAccessibilitySnapshot&
 );
 
 class UOpenMobileDeviceAsyncActionBase;
@@ -75,46 +107,59 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(
+		BlueprintPure,
+		Category = "Open Mobile|Device",
+		meta = (DisplayName = "Get Latest Device Status", ToolTip = "Returns the latest legacy battery and media-volume status cached by this Game Instance.")
+	)
 	const FOpenMobileDeviceStatus& GetLatestStatus() const { return LatestStatus; }
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device")
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "Open Mobile|Device",
+		meta = (DisplayName = "Refresh Device Status", ToolTip = "Refreshes the legacy battery and media-volume status immediately and broadcasts only if it changed.")
+	)
 	FOpenMobileDeviceStatus RefreshNow();
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Device Information Snapshot", ToolTip = "Captures current normalized device and operating-system information without prompting."))
 	FOpenMobileDeviceInformationSnapshot GetDeviceInformationSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Application Metadata Snapshot", ToolTip = "Captures current application identity and version metadata without prompting."))
 	FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Locale Snapshot", ToolTip = "Captures current language, locale, region, time-zone, and formatting preferences."))
 	FOpenMobileLocaleSnapshot GetLocaleSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Power Snapshot", ToolTip = "Captures current battery, charging, power-saving, and thermal state without prompting."))
 	FOpenMobilePowerSnapshot GetPowerSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Memory Snapshot", ToolTip = "Captures current physical-memory and memory-pressure state."))
 	FOpenMobileMemorySnapshot GetMemorySnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Storage Snapshot", ToolTip = "Captures current application storage capacity and low-storage state."))
 	FOpenMobileStorageSnapshot GetStorageSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Network Path Snapshot", ToolTip = "Captures the current network path and transport state without contacting an endpoint."))
 	FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Window and Display Snapshot", ToolTip = "Captures the current game window, display, safe-area, orientation, and posture state."))
 	FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Appearance Snapshot", ToolTip = "Captures the current system appearance preference."))
 	FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device")
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Accessibility Snapshot", ToolTip = "Captures current accessibility preferences exposed by the platform."))
 	FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot() const;
 
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "Open Mobile|Device",
-		meta = (DefaultToSelf = "Owner", AdvancedDisplay = "FallbackPollingIntervalSeconds")
+		meta = (
+			DefaultToSelf = "Owner",
+			AdvancedDisplay = "FallbackPollingIntervalSeconds",
+			DisplayName = "Start Device Monitoring",
+			ToolTip = "Starts monitoring selected event-source groups. Stop the returned subscription when monitoring is no longer needed."
+		)
 	)
 	UOpenMobileDeviceMonitoringSubscription* StartMonitoring(
 		UObject* Owner,
@@ -122,36 +167,85 @@ public:
 		float FallbackPollingIntervalSeconds = 1.0f
 	);
 
+	FOpenMobileDeviceMonitoringHandle StartMonitoringNative(
+		const TArray<EOpenMobileDeviceMonitoringGroup>& Groups,
+		float FallbackPollingIntervalSeconds = 1.0f
+	);
+
+	FOpenMobileDeviceStatusChangedNativeEvent& OnNativeDeviceStatusChanged()
+	{
+		return NativeDeviceStatusChanged;
+	}
+
+	FOpenMobileLocaleSnapshotChangedNativeEvent& OnNativeLocaleSnapshotChanged()
+	{
+		return NativeLocaleSnapshotChanged;
+	}
+
 	FOpenMobilePowerSnapshotChangedNativeEvent& OnNativePowerSnapshotChanged()
 	{
 		return NativePowerSnapshotChanged;
 	}
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	FOpenMobileMemorySnapshotChangedNativeEvent& OnNativeMemorySnapshotChanged()
+	{
+		return NativeMemorySnapshotChanged;
+	}
+
+	FOpenMobileStorageSnapshotChangedNativeEvent& OnNativeStorageSnapshotChanged()
+	{
+		return NativeStorageSnapshotChanged;
+	}
+
+	FOpenMobileNetworkPathSnapshotChangedNativeEvent&
+	OnNativeNetworkPathSnapshotChanged()
+	{
+		return NativeNetworkPathSnapshotChanged;
+	}
+
+	FOpenMobileWindowDisplaySnapshotChangedNativeEvent&
+	OnNativeWindowDisplaySnapshotChanged()
+	{
+		return NativeWindowDisplaySnapshotChanged;
+	}
+
+	FOpenMobileAppearanceSnapshotChangedNativeEvent&
+	OnNativeAppearanceSnapshotChanged()
+	{
+		return NativeAppearanceSnapshotChanged;
+	}
+
+	FOpenMobileAccessibilitySnapshotChangedNativeEvent&
+	OnNativeAccessibilitySnapshotChanged()
+	{
+		return NativeAccessibilitySnapshotChanged;
+	}
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Device Status Changed", ToolTip = "Broadcasts when monitored legacy battery or media-volume status changes."))
 	FOpenMobileDeviceStatusChangedEvent OnDeviceStatusChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Locale Snapshot Changed", ToolTip = "Broadcasts when a monitored locale snapshot changes."))
 	FOpenMobileLocaleSnapshotChangedEvent OnLocaleSnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Power Snapshot Changed", ToolTip = "Broadcasts when a monitored power snapshot changes beyond its numeric tolerances."))
 	FOpenMobilePowerSnapshotChangedEvent OnPowerSnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Memory Snapshot Changed", ToolTip = "Broadcasts when a monitored memory or memory-pressure snapshot changes."))
 	FOpenMobileMemorySnapshotChangedEvent OnMemorySnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Storage Snapshot Changed", ToolTip = "Broadcasts when a monitored storage snapshot changes."))
 	FOpenMobileStorageSnapshotChangedEvent OnStorageSnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Network Path Snapshot Changed", ToolTip = "Broadcasts when a monitored network-path snapshot changes."))
 	FOpenMobileNetworkPathSnapshotChangedEvent OnNetworkPathSnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Window and Display Snapshot Changed", ToolTip = "Broadcasts when a monitored window or display snapshot changes."))
 	FOpenMobileWindowDisplaySnapshotChangedEvent OnWindowDisplaySnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Appearance Snapshot Changed", ToolTip = "Broadcasts when the monitored system appearance changes."))
 	FOpenMobileAppearanceSnapshotChangedEvent OnAppearanceSnapshotChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device")
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Accessibility Snapshot Changed", ToolTip = "Broadcasts when a monitored accessibility snapshot changes beyond its numeric tolerances."))
 	FOpenMobileAccessibilitySnapshotChangedEvent OnAccessibilitySnapshotChanged;
 
 private:
@@ -187,7 +281,16 @@ private:
 	TOptional<FOpenMobileWindowDisplaySnapshot> LastWindowSnapshot;
 	TOptional<FOpenMobileAppearanceSnapshot> LastAppearanceSnapshot;
 	TOptional<FOpenMobileAccessibilitySnapshot> LastAccessibilitySnapshot;
+	FOpenMobileDeviceStatusChangedNativeEvent NativeDeviceStatusChanged;
+	FOpenMobileLocaleSnapshotChangedNativeEvent NativeLocaleSnapshotChanged;
 	FOpenMobilePowerSnapshotChangedNativeEvent NativePowerSnapshotChanged;
+	FOpenMobileMemorySnapshotChangedNativeEvent NativeMemorySnapshotChanged;
+	FOpenMobileStorageSnapshotChangedNativeEvent NativeStorageSnapshotChanged;
+	FOpenMobileNetworkPathSnapshotChangedNativeEvent NativeNetworkPathSnapshotChanged;
+	FOpenMobileWindowDisplaySnapshotChangedNativeEvent NativeWindowDisplaySnapshotChanged;
+	FOpenMobileAppearanceSnapshotChangedNativeEvent NativeAppearanceSnapshotChanged;
+	FOpenMobileAccessibilitySnapshotChangedNativeEvent
+		NativeAccessibilitySnapshotChanged;
 	TSet<TWeakObjectPtr<UOpenMobileDeviceAsyncActionBase>> ActiveAsyncActions;
 	bool bDeinitialized = false;
 };

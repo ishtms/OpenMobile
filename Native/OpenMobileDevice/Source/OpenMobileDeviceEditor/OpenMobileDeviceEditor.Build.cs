@@ -9,6 +9,7 @@ public class OpenMobileDeviceEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"CoreUObject",
 			"OpenMobileDevice"
 		});
 	}
