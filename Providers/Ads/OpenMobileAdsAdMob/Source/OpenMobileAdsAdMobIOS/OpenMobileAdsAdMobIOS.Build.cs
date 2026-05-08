@@ -46,6 +46,15 @@ public class OpenMobileAdsAdMobIOS : ModuleRules
 			Framework.FrameworkMode.LinkAndCopy
 		));
 
+		string PrivacyBundlePath = Path.Combine(
+			ModuleDirectory,
+			"../../Resources/IOS/OpenMobileAdsAdMobPrivacy.bundle"
+		);
+		AdditionalBundleResources.Add(new BundleResource(PrivacyBundlePath, ""));
+		ExternalDependencies.Add(Path.Combine(PrivacyBundlePath, "Info.plist"));
+		ExternalDependencies.Add(Path.Combine(PrivacyBundlePath, "PrivacyInfo.xcprivacy"));
+		ExternalDependencies.Add(Path.Combine(ModuleDirectory, "../../apple-metadata.json"));
+
 		string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
 		ExternalDependencies.Add(
 			Path.Combine(ModuleDirectory, "Private/IOS/OpenMobileAdsAdMob_IOS_UPL.xml")

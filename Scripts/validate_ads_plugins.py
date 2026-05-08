@@ -157,6 +157,12 @@ IOS_ADAPTER_PACKAGE_CONTRACTS = {
 		"privacy_manifest_frameworks": {"FBAudienceNetwork"},
 	},
 }
+IOS_REQUIRED_REASON_API_CONTRACTS = {
+	"NSPrivacyAccessedAPICategoryDiskSpace": {"E174.1"},
+	"NSPrivacyAccessedAPICategoryFileTimestamp": {"C617.1"},
+	"NSPrivacyAccessedAPICategorySystemBootTime": {"35F9.1"},
+	"NSPrivacyAccessedAPICategoryUserDefaults": {"CA92.1"},
+}
 ANDROID_ABI_ARCHITECTURES = {
 	"arm64-v8a": "arm64",
 	"armeabi-v7a": "arm",
@@ -833,6 +839,25 @@ class IOSPlistExpectation:
 	expected_values: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class IOSPrivacyManifestInventory:
+	manifests: dict[str, dict]
+	digests: dict[str, str]
+	malformed_paths: tuple[str, ...]
+	duplicate_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IOSPrivacyManifestExpectation:
+	plugin: str
+	bundle_path: str
+	sha256: str
+	tracking: bool
+	tracking_domains: tuple[str, ...]
+	required_reason_apis: dict[str, tuple[str, ...]]
+	collected_data_types: tuple[str, ...]
+
+
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
 	allow_list = module.get("PlatformAllowList")
 	if allow_list is not None and platform not in allow_list:
@@ -1094,6 +1119,324 @@ def inspect_artifact(
 		detected_providers=detected_providers,
 		detected_adapters=detected_adapters,
 	)
+
+
+def inspect_ios_privacy_manifests(path: Path) -> IOSPrivacyManifestInventory:
+	manifests: dict[str, dict] = {}
+	digests: dict[str, str] = {}
+	malformed_paths: list[str] = []
+	duplicate_paths: list[str] = []
+	seen_paths: set[str] = set()
+
+	def inspect_manifest(name: str, contents: bytes) -> None:
+		normalized_name = name.replace("\\", "/")
+		key = normalized_name.casefold()
+		if key in seen_paths:
+			duplicate_paths.append(normalized_name)
+			return
+		seen_paths.add(key)
+		digests[normalized_name] = hashlib.sha256(contents).hexdigest()
+		try:
+			manifest = plistlib.loads(contents)
+		except (plistlib.InvalidFileException, ValueError, TypeError):
+			malformed_paths.append(normalized_name)
+			return
+		if not isinstance(manifest, dict):
+			malformed_paths.append(normalized_name)
+			return
+		manifests[normalized_name] = manifest
+
+	if path.is_dir():
+		for manifest_path in path.rglob("PrivacyInfo.xcprivacy"):
+			if manifest_path.is_file():
+				inspect_manifest(
+					str(manifest_path.relative_to(path)),
+					manifest_path.read_bytes(),
+				)
+	elif zipfile.is_zipfile(path):
+		with zipfile.ZipFile(path) as archive:
+			for entry in archive.infolist():
+				if entry.is_dir() or Path(entry.filename).name != "PrivacyInfo.xcprivacy":
+					continue
+				inspect_manifest(entry.filename, archive.read(entry))
+	elif path.name == "PrivacyInfo.xcprivacy":
+		inspect_manifest(path.name, path.read_bytes())
+	return IOSPrivacyManifestInventory(
+		manifests,
+		digests,
+		tuple(sorted(malformed_paths)),
+		tuple(sorted(duplicate_paths)),
+	)
+
+
+def _privacy_manifest_metadata(
+	descriptor: PluginDescriptor,
+	*,
+	required: bool,
+) -> tuple[list[dict], list[str]]:
+	if descriptor.is_ads_adapter:
+		metadata_path = descriptor.path.parent / "adapter.json"
+		container_path = "platforms.IOS.privacy_manifests"
+	else:
+		metadata_path = descriptor.path.parent / "apple-metadata.json"
+		container_path = "privacy_manifests"
+	if not metadata_path.is_file():
+		return (
+			[],
+			[f"plugin {descriptor.name} is missing {metadata_path.name}"] if required else [],
+		)
+	try:
+		metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+		return [], [f"plugin {descriptor.name} has invalid Apple metadata: {error}"]
+	if metadata.get("schema_version") != 1 or metadata.get("plugin") != descriptor.name:
+		return [], [f"plugin {descriptor.name} has invalid ownership in {metadata_path.name}"]
+	if descriptor.is_ads_adapter:
+		manifests = metadata.get("platforms", {}).get("IOS", {}).get("privacy_manifests")
+	else:
+		manifests = metadata.get("privacy_manifests")
+	if not isinstance(manifests, list) or not manifests:
+		return [], [f"plugin {descriptor.name} has no {container_path} metadata"]
+	return manifests, []
+
+
+def _privacy_manifest_expectations(
+	descriptor: PluginDescriptor,
+	*,
+	required: bool,
+	validate_sources: bool,
+) -> tuple[list[IOSPrivacyManifestExpectation], list[str]]:
+	metadata_entries, errors = _privacy_manifest_metadata(
+		descriptor,
+		required=required,
+	)
+	expectations: list[IOSPrivacyManifestExpectation] = []
+	for index, entry in enumerate(metadata_entries):
+		prefix = f"plugin {descriptor.name} privacy manifest {index}"
+		if not isinstance(entry, dict):
+			errors.append(f"{prefix} must be an object")
+			continue
+		bundle_path = entry.get("bundle_path")
+		checksum = entry.get("sha256")
+		tracking = entry.get("tracking")
+		tracking_domains = entry.get("tracking_domains")
+		required_reason_apis = entry.get("required_reason_apis")
+		collected_data_types = entry.get("collected_data_types")
+		if (
+			not isinstance(bundle_path, str)
+			or not bundle_path.endswith("PrivacyInfo.xcprivacy")
+			or Path(bundle_path).is_absolute()
+			or ".." in Path(bundle_path).parts
+		):
+			errors.append(f"{prefix} has invalid bundle_path")
+			continue
+		if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+			errors.append(f"{prefix} has invalid sha256")
+			continue
+		if not isinstance(tracking, bool):
+			errors.append(f"{prefix} tracking must be boolean")
+			continue
+		if (
+			not isinstance(tracking_domains, list)
+			or any(not isinstance(domain, str) or not domain for domain in tracking_domains)
+			or len(tracking_domains) != len(set(tracking_domains))
+		):
+			errors.append(f"{prefix} has invalid tracking_domains")
+			continue
+		if not isinstance(required_reason_apis, dict) or any(
+			not isinstance(api_type, str)
+			or not api_type
+			or not isinstance(reasons, list)
+			or not reasons
+			or any(not isinstance(reason, str) or not reason for reason in reasons)
+			or len(reasons) != len(set(reasons))
+			for api_type, reasons in required_reason_apis.items()
+		):
+			errors.append(f"{prefix} has invalid required_reason_apis")
+			continue
+		for api_type, reasons in required_reason_apis.items():
+			unreviewed_reasons = set(reasons) - IOS_REQUIRED_REASON_API_CONTRACTS.get(
+				api_type,
+				set(),
+			)
+			if unreviewed_reasons:
+				errors.append(
+					f"{prefix} has unreviewed required-reason API declaration "
+					f"{api_type}: {', '.join(sorted(unreviewed_reasons))}"
+				)
+		if (
+			not isinstance(collected_data_types, list)
+			or any(not isinstance(data_type, str) or not data_type for data_type in collected_data_types)
+			or len(collected_data_types) != len(set(collected_data_types))
+		):
+			errors.append(f"{prefix} has invalid collected_data_types")
+			continue
+
+		if validate_sources:
+			source = entry.get("source")
+			source_path = (
+				safe_manifest_path(descriptor.path.parent, source)
+				if isinstance(source, str)
+				else None
+			)
+			source_contents: bytes | None = None
+			if source_path is None or not source_path.is_file():
+				errors.append(f"{prefix} source is missing")
+			else:
+				archive_manifest = entry.get("archive_manifest")
+				if archive_manifest is None:
+					source_contents = source_path.read_bytes()
+				elif not isinstance(archive_manifest, str) or not zipfile.is_zipfile(source_path):
+					errors.append(f"{prefix} archive_manifest is invalid")
+				else:
+					try:
+						with zipfile.ZipFile(source_path) as archive:
+							source_contents = archive.read(archive_manifest)
+					except (KeyError, OSError, zipfile.BadZipFile):
+						errors.append(f"{prefix} source archive is missing its manifest")
+			if (
+				source_contents is not None
+				and hashlib.sha256(source_contents).hexdigest() != checksum
+			):
+				errors.append(f"{prefix} metadata is stale because its source checksum changed")
+
+		expectations.append(IOSPrivacyManifestExpectation(
+			descriptor.name,
+			bundle_path,
+			checksum,
+			tracking,
+			tuple(tracking_domains),
+			{
+				api_type: tuple(reasons)
+				for api_type, reasons in required_reason_apis.items()
+			},
+			tuple(collected_data_types),
+		))
+	return expectations, errors
+
+
+def _privacy_manifest_declarations(
+	manifest: dict,
+) -> tuple[dict[str, set[str]], set[str], set[str]]:
+	api_reasons: dict[str, set[str]] = {}
+	for entry in manifest.get("NSPrivacyAccessedAPITypes", []):
+		if not isinstance(entry, dict):
+			continue
+		api_type = entry.get("NSPrivacyAccessedAPIType")
+		reasons = entry.get("NSPrivacyAccessedAPITypeReasons")
+		if isinstance(api_type, str) and isinstance(reasons, list):
+			api_reasons.setdefault(api_type, set()).update(
+				reason for reason in reasons if isinstance(reason, str)
+			)
+	tracking_domains = {
+		domain
+		for domain in manifest.get("NSPrivacyTrackingDomains", [])
+		if isinstance(domain, str)
+	}
+	collected_data_types = {
+		entry["NSPrivacyCollectedDataType"]
+		for entry in manifest.get("NSPrivacyCollectedDataTypes", [])
+		if isinstance(entry, dict)
+		and isinstance(entry.get("NSPrivacyCollectedDataType"), str)
+	}
+	return api_reasons, tracking_domains, collected_data_types
+
+
+def validate_ios_privacy_manifests(
+	inventory: IOSPrivacyManifestInventory,
+	descriptors: dict[str, PluginDescriptor],
+	enabled_plugins: set[str],
+) -> list[str]:
+	errors = [
+		f"malformed privacy manifest {path}"
+		for path in inventory.malformed_paths
+	]
+	errors.extend(
+		f"duplicate privacy manifest archive entry {path}"
+		for path in inventory.duplicate_paths
+	)
+	expectations: list[IOSPrivacyManifestExpectation] = []
+	known_expectations: list[IOSPrivacyManifestExpectation] = []
+	for plugin_name, descriptor in sorted(descriptors.items()):
+		if not (descriptor.is_ads_provider or descriptor.is_ads_adapter):
+			continue
+		plugin_expectations, metadata_errors = _privacy_manifest_expectations(
+			descriptor,
+			required=plugin_name in enabled_plugins,
+			validate_sources=plugin_name in enabled_plugins,
+		)
+		known_expectations.extend(plugin_expectations)
+		if plugin_name in enabled_plugins:
+			expectations.extend(plugin_expectations)
+			errors.extend(metadata_errors)
+
+	bundle_owners: dict[str, set[str]] = {}
+	for expectation in expectations:
+		bundle_owners.setdefault(expectation.bundle_path.casefold(), set()).add(
+			expectation.plugin
+		)
+	for bundle_path, owners in sorted(bundle_owners.items()):
+		if len(owners) > 1:
+			errors.append(
+				f"conflicting privacy manifest metadata for {bundle_path}: "
+				+ ", ".join(sorted(owners))
+			)
+
+	for expectation in expectations:
+		matches = [
+			path
+			for path in inventory.manifests
+			if path.casefold().endswith(expectation.bundle_path.casefold())
+		]
+		if not matches:
+			errors.append(
+				f"missing privacy manifest {expectation.bundle_path} for {expectation.plugin}"
+			)
+			continue
+		if len(matches) > 1:
+			errors.append(
+				f"duplicate packaged privacy manifest {expectation.bundle_path} for {expectation.plugin}"
+			)
+			continue
+		path = matches[0]
+		manifest = inventory.manifests[path]
+		if inventory.digests.get(path) != expectation.sha256:
+			errors.append(f"privacy manifest contents changed for {expectation.plugin}: {path}")
+		if manifest.get("NSPrivacyTracking", False) is not expectation.tracking:
+			errors.append(f"privacy tracking declaration changed for {expectation.plugin}: {path}")
+		api_reasons, tracking_domains, collected_data_types = (
+			_privacy_manifest_declarations(manifest)
+		)
+		for domain in expectation.tracking_domains:
+			if domain not in tracking_domains:
+				errors.append(
+					f"missing privacy tracking domain {domain} for {expectation.plugin}: {path}"
+				)
+		for api_type, reasons in expectation.required_reason_apis.items():
+			missing_reasons = set(reasons) - api_reasons.get(api_type, set())
+			if missing_reasons:
+				errors.append(
+					f"missing required-reason API declaration {api_type} "
+					f"for {expectation.plugin}: {path}"
+				)
+		for data_type in expectation.collected_data_types:
+			if data_type not in collected_data_types:
+				errors.append(
+					f"missing collected data type {data_type} for {expectation.plugin}: {path}"
+				)
+
+	for expectation in known_expectations:
+		if expectation.plugin in enabled_plugins:
+			continue
+		if any(
+			path.casefold().endswith(expectation.bundle_path.casefold())
+			for path in inventory.manifests
+		):
+			owner_type = "adapter" if descriptors[expectation.plugin].is_ads_adapter else "provider"
+			errors.append(
+				f"found privacy manifest for disabled {owner_type} {expectation.plugin}"
+			)
+	return errors
 
 
 def validate_artifact(
@@ -2048,17 +2391,25 @@ def run_artifact_command(arguments: argparse.Namespace) -> int:
 
 def run_package_command(arguments: argparse.Namespace) -> int:
 	inventory = inspect_artifact(arguments.artifact)
+	required_providers = set(arguments.require_provider)
+	required_adapters = set(arguments.require_adapter)
 	errors = validate_package(
 		inventory,
 		PackageExpectation(
 			platform=arguments.platform,
 			architectures=set(arguments.architecture),
-			required_providers=set(arguments.require_provider),
+			required_providers=required_providers,
 			forbidden_providers=set(arguments.forbid_provider),
-			required_adapters=set(arguments.require_adapter),
+			required_adapters=required_adapters,
 			forbidden_adapters=set(arguments.forbid_adapter),
 		),
 	)
+	if arguments.platform == "IOS":
+		errors.extend(validate_ios_privacy_manifests(
+			inspect_ios_privacy_manifests(arguments.artifact),
+			discover_descriptors(arguments.repository),
+			required_providers | required_adapters,
+		))
 	if errors:
 		for error in errors:
 			print(f"ads package validation failed: {error}", file=sys.stderr)
@@ -2202,6 +2553,7 @@ def parse_arguments() -> argparse.Namespace:
 
 	package_parser = subparsers.add_parser("package")
 	package_parser.add_argument("artifact", type=Path)
+	package_parser.add_argument("--repository", type=Path, default=Path.cwd())
 	package_parser.add_argument("--platform", choices=("Android", "IOS"), required=True)
 	package_parser.add_argument(
 		"--architecture",

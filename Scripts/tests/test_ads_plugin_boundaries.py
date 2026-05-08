@@ -999,6 +999,16 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("ExternalDependencies.Add", ios_build_rules)
 		self.assertIn("OpenMobileAdsAdMob_IOS_UPL.xml", ios_build_rules)
+		self.assertIn("AdditionalBundleResources.Add", ios_build_rules)
+		self.assertIn("OpenMobileAdsAdMobPrivacy.bundle", ios_build_rules)
+		privacy_bundle = (
+			ADMOB_PLUGIN
+			/ "Resources"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobPrivacy.bundle"
+		)
+		self.assertTrue((privacy_bundle / "Info.plist").is_file())
+		self.assertTrue((privacy_bundle / "PrivacyInfo.xcprivacy").is_file())
 
 	def test_public_api_and_build_rules_have_no_vendor_dependencies(self) -> None:
 		public_root = ADS_PLUGIN / "Source" / "OpenMobileAds" / "Public"

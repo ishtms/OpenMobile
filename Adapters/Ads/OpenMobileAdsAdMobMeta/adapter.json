@@ -80,6 +80,7 @@
 			"attribution_identifiers": []
 		},
 		"IOS": {
+			"apple_metadata_last_reviewed": "2026-08-22",
 			"adapter_version": "6.22.0.0",
 			"network_sdk_version": "6.22.0",
 			"tested_provider_sdk_versions": ["13.8.0"],
@@ -128,6 +129,30 @@
 					"binary_name": "GoogleMobileAds"
 				}
 			],
+			"privacy_manifests": [
+				{
+					"bundle_path": "FBAudienceNetwork.framework/PrivacyInfo.xcprivacy",
+					"source": "ThirdParty/IOS/FBAudienceNetwork.xcframework.zip",
+					"archive_manifest": "FBAudienceNetwork.xcframework/ios-arm64/FBAudienceNetwork.framework/PrivacyInfo.xcprivacy",
+					"sha256": "b8da103e14b68cb859f263c23b35535718089639ac06493412d5c302e3d7e197",
+					"tracking": true,
+					"tracking_domains": [
+						"ep1.facebook.com",
+						"ep6.facebook.com"
+					],
+					"required_reason_apis": {
+						"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"],
+						"NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"],
+						"NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"]
+					},
+					"collected_data_types": [
+						"NSPrivacyCollectedDataTypeCrashData",
+						"NSPrivacyCollectedDataTypeOtherDiagnosticData",
+						"NSPrivacyCollectedDataTypeAdvertisingData",
+						"NSPrivacyCollectedDataTypeDeviceID"
+					]
+				}
+			],
 			"attribution_identifiers": []
 		}
 	},
@@ -136,6 +161,7 @@
 		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:facebook",
 		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
 		"network_terms": "https://developers.facebook.com/terms/",
-		"ios_package_manifest": "https://github.com/googleads/googleads-mobile-ios-mediation-meta/blob/main/Package.swift"
+		"ios_package_manifest": "https://github.com/googleads/googleads-mobile-ios-mediation-meta/blob/main/Package.swift",
+		"ios_privacy_manifest": "https://developers.google.com/admob/ios/mediation/meta"
 	}
 }

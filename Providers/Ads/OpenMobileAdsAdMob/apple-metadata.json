@@ -1,0 +1,61 @@
+{
+	"schema_version": 1,
+	"plugin": "OpenMobileAdsAdMob",
+	"last_reviewed": "2026-08-22",
+	"privacy_manifests": [
+		{
+			"bundle_path": "OpenMobileAdsAdMobPrivacy.bundle/PrivacyInfo.xcprivacy",
+			"source": "Resources/IOS/OpenMobileAdsAdMobPrivacy.bundle/PrivacyInfo.xcprivacy",
+			"sha256": "b20184a87e6392f293d241c8888b0bab1774d7cce2586165e87f8e070948a32a",
+			"tracking": false,
+			"tracking_domains": [],
+			"required_reason_apis": {
+				"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"]
+			},
+			"collected_data_types": []
+		},
+		{
+			"bundle_path": "GoogleMobileAds.framework/PrivacyInfo.xcprivacy",
+			"source": "ThirdParty/IOS/GoogleMobileAds.xcframework.zip",
+			"archive_manifest": "GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/PrivacyInfo.xcprivacy",
+			"sha256": "69fb112582fc23fc06c635c961d262a3f7b4b5654d284787491de3000dadf9d2",
+			"tracking": false,
+			"tracking_domains": [],
+			"required_reason_apis": {
+				"NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"],
+				"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"],
+				"NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"]
+			},
+			"collected_data_types": [
+				"NSPrivacyCollectedDataTypeOtherDiagnosticData",
+				"NSPrivacyCollectedDataTypeCoarseLocation",
+				"NSPrivacyCollectedDataTypePerformanceData",
+				"NSPrivacyCollectedDataTypeCrashData",
+				"NSPrivacyCollectedDataTypeAdvertisingData",
+				"NSPrivacyCollectedDataTypeProductInteraction",
+				"NSPrivacyCollectedDataTypeDeviceID"
+			]
+		},
+		{
+			"bundle_path": "UserMessagingPlatform.framework/PrivacyInfo.xcprivacy",
+			"source": "ThirdParty/IOS/UserMessagingPlatform.xcframework.zip",
+			"archive_manifest": "UserMessagingPlatform.xcframework/ios-arm64/UserMessagingPlatform.framework/PrivacyInfo.xcprivacy",
+			"sha256": "45b7adb99fcd2d962a1c800fbfcc1325b57a7fa4165f416182323bb5ffe9c900",
+			"tracking": false,
+			"tracking_domains": [],
+			"required_reason_apis": {
+				"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"]
+			},
+			"collected_data_types": [
+				"NSPrivacyCollectedDataTypeCoarseLocation",
+				"NSPrivacyCollectedDataTypePerformanceData",
+				"NSPrivacyCollectedDataTypeProductInteraction"
+			]
+		}
+	],
+	"sources": {
+		"apple_privacy_manifest": "https://developer.apple.com/documentation/bundleresources/privacy_manifest_files",
+		"required_reason_apis": "https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api",
+		"google_mobile_ads_privacy": "https://developers.google.com/admob/ios/privacy/data-disclosure"
+	}
+}
