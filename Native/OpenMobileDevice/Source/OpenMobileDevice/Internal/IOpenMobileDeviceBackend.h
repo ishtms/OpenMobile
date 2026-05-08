@@ -8,7 +8,7 @@
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
-#include "OpenMobileDeviceMonitoring.h"
+#include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
 
@@ -129,9 +129,13 @@ public:
 		return {};
 	}
 
-	virtual bool StartMonitoring(EOpenMobileDeviceMonitoringGroup Group)
+	virtual bool StartMonitoring(
+		EOpenMobileDeviceMonitoringGroup Group,
+		const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
+	)
 	{
 		static_cast<void>(Group);
+		static_cast<void>(CallbackToken);
 		return false;
 	}
 

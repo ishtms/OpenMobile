@@ -15,6 +15,7 @@ public:
 	static void Start();
 	static bool RegisterBackend(IOpenMobileDeviceBackend& Backend);
 	static bool UnregisterBackend(IOpenMobileDeviceBackend& Backend);
+	static bool IsBackendRegistered(const IOpenMobileDeviceBackend* Backend);
 	static IOpenMobileDeviceBackend* FindBackend();
 	static FOpenMobileDeviceCallbackToken CaptureCallbackToken();
 	static bool IsCallbackCurrent(const FOpenMobileDeviceCallbackToken& Token);

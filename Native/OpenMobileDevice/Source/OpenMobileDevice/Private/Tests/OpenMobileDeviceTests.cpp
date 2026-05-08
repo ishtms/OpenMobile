@@ -1,5 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Async/Async.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "IOpenMobileDeviceBackend.h"
@@ -90,10 +92,12 @@ namespace OpenMobileDeviceTests
 		}
 
 		virtual bool StartMonitoring(
-			EOpenMobileDeviceMonitoringGroup Group
+			EOpenMobileDeviceMonitoringGroup Group,
+			const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
 		) override
 		{
 			++MonitoringStarts.FindOrAdd(Group);
+			MonitoringTokens.Add(Group, CallbackToken);
 			return NativeMonitoringGroups.Contains(Group);
 		}
 
@@ -132,6 +136,10 @@ namespace OpenMobileDeviceTests
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStops;
+		TMap<
+			EOpenMobileDeviceMonitoringGroup,
+			FOpenMobileDeviceMonitoringCallbackToken
+		> MonitoringTokens;
 
 	private:
 		FName Name;
@@ -695,7 +703,7 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 	);
 	Backend.Power.BatteryPercent =
 		FOpenMobileDeviceOptionalFloat::MakeAvailable(70.0f);
-	FOpenMobileDeviceMonitoringService::NotifyNativeChange(Group::Power);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
 	TestEqual(TEXT("Native change emits one coalesced event"), PowerEvents, 1);
 
 	First->Stop();
@@ -827,6 +835,129 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceCallbackDispatchTest,
+	"OpenMobile.Device.Callbacks.GameThreadOrdering",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceCallbackDispatchTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("Callbacks"));
+	Backend.NativeMonitoringGroups = {Group::Power};
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(10.0f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<int64> Generations;
+	bool bEveryCallbackWasOnGameThread = true;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&Generations, &bEveryCallbackWasOnGameThread](
+			const FOpenMobilePowerSnapshot& Snapshot
+		)
+		{
+			bEveryCallbackWasOnGameThread &= IsInGameThread();
+			Generations.Add(Snapshot.Metadata.Generation);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	const FOpenMobileDeviceMonitoringCallbackToken FirstToken =
+		Backend.MonitoringTokens.FindRef(Group::Power);
+
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(20.0f);
+	TFuture<void> SequenceTwo = Async(EAsyncExecution::ThreadPool, [FirstToken]()
+	{
+		FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 2);
+	});
+	TFuture<void> SequenceOne = Async(EAsyncExecution::ThreadPool, [FirstToken]()
+	{
+		FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 1);
+	});
+	SequenceTwo.Wait();
+	SequenceOne.Wait();
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestTrue(
+		TEXT("Worker callbacks reach public delegates on the game thread"),
+		bEveryCallbackWasOnGameThread
+	);
+	TestEqual(
+		TEXT("Concurrent callbacks retain the latest source sequence"),
+		FOpenMobileDeviceMonitoringService::GetLastNativeSequenceForTests(
+			Group::Power
+		),
+		static_cast<uint64>(2)
+	);
+	TestEqual(TEXT("Equivalent concurrent samples coalesce"), Generations.Num(), 1);
+
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(30.0f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 1);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 2);
+	TestEqual(TEXT("Out-of-order and duplicate callbacks are dropped"), Generations.Num(), 1);
+
+	Subscription->Stop();
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 3);
+	TestEqual(TEXT("Callbacks after cancellation are dropped"), Generations.Num(), 1);
+
+	UOpenMobileDeviceMonitoringSubscription* Restarted =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	const FOpenMobileDeviceMonitoringCallbackToken RestartedToken =
+		Backend.MonitoringTokens.FindRef(Group::Power);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(FirstToken, 4);
+	TestEqual(TEXT("Callbacks from a stopped observer stay stale"), Generations.Num(), 1);
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(35.0f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(RestartedToken, 1);
+	TestEqual(TEXT("A restarted observer accepts its first callback"), Generations.Num(), 2);
+
+	FMockBackend Replacement(TEXT("Replacement"), 1);
+	Replacement.NativeMonitoringGroups = {Group::Power};
+	Replacement.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(40.0f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Replacement);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.0f);
+	TestEqual(
+		TEXT("Backend replacement stops the previous native observer"),
+		Backend.MonitoringStops.FindRef(Group::Power),
+		2
+	);
+	const FOpenMobileDeviceMonitoringCallbackToken ReplacementToken =
+		Replacement.MonitoringTokens.FindRef(Group::Power);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(RestartedToken, 2);
+	TestEqual(TEXT("Callbacks from a replaced backend are dropped"), Generations.Num(), 2);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(ReplacementToken, 1);
+	TestEqual(TEXT("Replacement backend callbacks are accepted"), Generations.Num(), 3);
+	TestTrue(
+		TEXT("Accepted snapshot generations increase"),
+		Generations.Num() == 3
+			&& Generations[0] < Generations[1]
+			&& Generations[1] < Generations[2]
+	);
+
+	FOpenMobileDeviceMonitoringService::Shutdown();
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(ReplacementToken, 2);
+	TestEqual(TEXT("Callbacks after shutdown are dropped"), Generations.Num(), 3);
+	Restarted->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Replacement);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::Start();
 	FOpenMobileDeviceMonitoringService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

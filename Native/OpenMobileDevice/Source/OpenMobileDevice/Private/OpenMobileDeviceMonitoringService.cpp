@@ -27,6 +27,8 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		bool bNativeObserverStarted = false;
 		IOpenMobileDeviceBackend* Backend = nullptr;
 		FOpenMobileDeviceCallbackToken BackendToken;
+		FOpenMobileDeviceMonitoringCallbackToken CallbackToken;
+		uint64 LastNativeSequence = 0;
 	};
 
 	TMap<FGuid, FRequest> Requests;
@@ -39,6 +41,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 	bool bStarted = false;
 	bool bApplicationActive = true;
 	bool bInsideTicker = false;
+	uint64 ObserverGeneration = 0;
 
 	float ClampInterval(float IntervalSeconds)
 	{
@@ -67,6 +70,19 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		return false;
 	}
 
+	uint64 NextObserverGeneration()
+	{
+		if (ObserverGeneration == MAX_uint64)
+		{
+			ObserverGeneration = 1;
+		}
+		else
+		{
+			++ObserverGeneration;
+		}
+		return ObserverGeneration;
+	}
+
 	void StopNativeObserver(
 		EOpenMobileDeviceMonitoringGroup Group,
 		FGroupState& State
@@ -77,16 +93,15 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			return;
 		}
 
-		if (IOpenMobileDeviceBackend* CurrentBackend =
-			FOpenMobileDeviceBackendRegistry::FindBackend())
-		{
-			if (CurrentBackend == State.Backend)
-			{
-				CurrentBackend->StopMonitoring(Group);
-			}
-		}
+		IOpenMobileDeviceBackend* BackendToStop = State.Backend;
 		State.bNativeObserverStarted = false;
 		State.Backend = nullptr;
+		State.CallbackToken = {};
+		State.LastNativeSequence = 0;
+		if (FOpenMobileDeviceBackendRegistry::IsBackendRegistered(BackendToStop))
+		{
+			BackendToStop->StopMonitoring(Group);
+		}
 	}
 
 	void ConfigureSource(
@@ -100,8 +115,23 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		State.BackendToken = Backend
 			? FOpenMobileDeviceBackendRegistry::CaptureCallbackToken()
 			: FOpenMobileDeviceCallbackToken();
-		State.bNativeObserverStarted = Backend && Backend->StartMonitoring(Group);
+		State.CallbackToken = {};
+		State.CallbackToken.Group = Group;
+		if (Backend)
+		{
+			State.CallbackToken.BackendToken = State.BackendToken;
+			State.CallbackToken.ObserverGeneration = NextObserverGeneration();
+		}
+		State.LastNativeSequence = 0;
+		State.bNativeObserverStarted = Backend && Backend->StartMonitoring(
+			Group,
+			State.CallbackToken
+		);
 		State.bUsesFallback = !State.bNativeObserverStarted;
+		if (!State.bNativeObserverStarted)
+		{
+			State.CallbackToken = {};
+		}
 		State.ElapsedSeconds = 0.0f;
 	}
 
@@ -370,22 +400,39 @@ void FOpenMobileDeviceMonitoringService::RemoveSubscription(const FGuid& Request
 }
 
 void FOpenMobileDeviceMonitoringService::NotifyNativeChange(
-	EOpenMobileDeviceMonitoringGroup Group
+	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken,
+	uint64 SourceSequence
 )
 {
 	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	if (!CallbackToken.IsValid() || SourceSequence == 0)
+	{
+		return;
+	}
 	if (!IsInGameThread())
 	{
-		OpenMobile::DispatchToGameThread([Group]()
+		OpenMobile::DispatchToGameThread([CallbackToken, SourceSequence]()
 		{
-			FOpenMobileDeviceMonitoringService::NotifyNativeChange(Group);
+			FOpenMobileDeviceMonitoringService::NotifyNativeChange(
+				CallbackToken,
+				SourceSequence
+			);
 		});
 		return;
 	}
-	if (bApplicationActive && GroupStates.Contains(Group))
+	FGroupState* State = GroupStates.Find(CallbackToken.Group);
+	if (!bApplicationActive
+		|| !State
+		|| State->CallbackToken != CallbackToken
+		|| !FOpenMobileDeviceBackendRegistry::IsCallbackCurrent(
+			CallbackToken.BackendToken
+		)
+		|| SourceSequence <= State->LastNativeSequence)
 	{
-		GroupChanged.Broadcast(Group);
+		return;
 	}
+	State->LastNativeSequence = SourceSequence;
+	GroupChanged.Broadcast(CallbackToken.Group);
 }
 
 FOpenMobileDeviceMonitoringGroupChanged&
@@ -440,6 +487,28 @@ float FOpenMobileDeviceMonitoringService::GetEffectiveIntervalForTests(
 	using namespace OpenMobileDeviceMonitoringServicePrivate;
 	const FGroupState* State = GroupStates.Find(Group);
 	return State ? State->EffectiveIntervalSeconds : 0.0f;
+}
+
+uint64 FOpenMobileDeviceMonitoringService::GetLastNativeSequenceForTests(
+	EOpenMobileDeviceMonitoringGroup Group
+)
+{
+	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	const FGroupState* State = GroupStates.Find(Group);
+	return State ? State->LastNativeSequence : 0;
+}
+
+void FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+	EOpenMobileDeviceMonitoringGroup Group
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	if (const FGroupState* State = GroupStates.Find(Group);
+		State && State->CallbackToken.IsValid())
+	{
+		NotifyNativeChange(State->CallbackToken, State->LastNativeSequence + 1);
+	}
 }
 
 void FOpenMobileDeviceMonitoringService::TickForTests(float DeltaTime)

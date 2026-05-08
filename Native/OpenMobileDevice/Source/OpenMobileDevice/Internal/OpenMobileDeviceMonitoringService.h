@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceMonitoring.h"
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
@@ -19,7 +20,10 @@ public:
 		float FallbackPollingIntervalSeconds
 	);
 	static void RemoveSubscription(const FGuid& RequestId);
-	static void NotifyNativeChange(EOpenMobileDeviceMonitoringGroup Group);
+	static void NotifyNativeChange(
+		const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken,
+		uint64 SourceSequence
+	);
 	static FOpenMobileDeviceMonitoringGroupChanged& OnGroupChanged();
 	static FOpenMobileDeviceMonitoringMaintenance& OnMaintenance();
 
@@ -29,6 +33,12 @@ public:
 	static bool IsTickerActiveForTests();
 	static bool UsesFallbackForTests(EOpenMobileDeviceMonitoringGroup Group);
 	static float GetEffectiveIntervalForTests(EOpenMobileDeviceMonitoringGroup Group);
+	static uint64 GetLastNativeSequenceForTests(
+		EOpenMobileDeviceMonitoringGroup Group
+	);
+	static void NotifyNativeChangeForTests(
+		EOpenMobileDeviceMonitoringGroup Group
+	);
 	static void TickForTests(float DeltaTime);
 	static void SetApplicationActiveForTests(bool bActive);
 #endif

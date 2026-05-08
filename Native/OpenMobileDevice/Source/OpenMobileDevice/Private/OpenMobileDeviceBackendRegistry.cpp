@@ -93,6 +93,15 @@ bool FOpenMobileDeviceBackendRegistry::UnregisterBackend(IOpenMobileDeviceBacken
 	return true;
 }
 
+bool FOpenMobileDeviceBackendRegistry::IsBackendRegistered(
+	const IOpenMobileDeviceBackend* Backend
+)
+{
+	check(IsInGameThread());
+	return Backend
+		&& OpenMobileDeviceBackendRegistryPrivate::GetBackends().Contains(Backend);
+}
+
 IOpenMobileDeviceBackend* FOpenMobileDeviceBackendRegistry::FindBackend()
 {
 	check(IsInGameThread());

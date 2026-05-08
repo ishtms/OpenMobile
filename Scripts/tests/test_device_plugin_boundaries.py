@@ -155,6 +155,19 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(public_contract, umbrella)
 
+	def test_native_callbacks_use_shared_game_thread_dispatch(self) -> None:
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('#include "OpenMobileAsync.h"', service)
+		self.assertIn("OpenMobile::DispatchToGameThread", service)
+		self.assertIn("SourceSequence <= State->LastNativeSequence", service)
+		self.assertIn("State->CallbackToken != CallbackToken", service)
+
 
 if __name__ == "__main__":
 	unittest.main()
