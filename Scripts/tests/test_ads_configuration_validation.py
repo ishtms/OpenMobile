@@ -32,6 +32,7 @@ from validate_ads_plugins import (
 	validate_adapter_metadata,
 	validate_adapter_compatibility,
 	validate_ios_plist,
+	validate_native_dependency_compatibility,
 )
 
 
@@ -48,6 +49,38 @@ TEST_ADAPTER_SIGNATURES = {
 def repository_descriptor(relative_path: str) -> PluginDescriptor:
 	path = REPOSITORY_ROOT / relative_path
 	return PluginDescriptor.load(path)
+
+
+def native_dependency_fixture(
+	root: Path,
+	name: str,
+	platform: str,
+	dependencies: list[dict] | None,
+) -> PluginDescriptor:
+	plugin_root = root / name
+	plugin_root.mkdir()
+	descriptor_path = plugin_root / f"{name}.uplugin"
+	descriptor_path.write_text(
+		json.dumps({
+			"Plugins": [
+				{"Name": "OpenMobileCore", "Enabled": True},
+				{"Name": "OpenMobileAds", "Enabled": True},
+			],
+		}),
+		encoding="utf-8",
+	)
+	if dependencies is not None:
+		(plugin_root / "native-dependencies.json").write_text(
+			json.dumps({
+				"schema_version": 1,
+				"plugin": name,
+				"platforms": {
+					platform: {"dependencies": dependencies},
+				},
+			}),
+			encoding="utf-8",
+		)
+	return PluginDescriptor.load(descriptor_path)
 
 
 class AdsConfigurationValidationTests(unittest.TestCase):
@@ -391,6 +424,168 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertEqual(1, conflicting.returncode)
 		self.assertIn("conflicting provider SDK versions", conflicting.stderr)
+
+	def test_native_dependency_requirements_accept_the_supported_adapter_graph(self) -> None:
+		for platform in ("Android", "IOS"):
+			self.assertEqual(
+				[],
+				validate_native_dependency_compatibility(
+					self.descriptors,
+					{"OpenMobileAdsAdMob", "OpenMobileAdsAdMobMeta"},
+					platform,
+				),
+			)
+
+	def test_native_conflicts_command_resolves_enabled_provider_and_adapter_metadata(self) -> None:
+		result = subprocess.run(
+			[
+				sys.executable,
+				str(REPOSITORY_ROOT / "Scripts" / "validate_ads_plugins.py"),
+				"native-conflicts",
+				"--repository",
+				str(REPOSITORY_ROOT),
+				"--plugin",
+				"OpenMobileAdsAdMobMeta",
+				"--platform",
+				"Android",
+			],
+			capture_output=True,
+			text=True,
+		)
+
+		self.assertEqual(0, result.returncode, result.stderr)
+		self.assertIn("native dependency validation passed", result.stdout)
+
+	def test_native_dependency_requirements_reject_exact_range_conflicts(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			provider = native_dependency_fixture(
+				root,
+				"ProviderA",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:shared",
+					"minimum": "1.0.0",
+					"maximum_exclusive": "2.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+				}],
+			)
+			adapter = native_dependency_fixture(
+				root,
+				"ProviderB",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:shared",
+					"version": "2.1.0",
+					"relationship": "Transitive",
+					"via": "com.example:adapter",
+					"ownership": "External",
+				}],
+			)
+
+			errors = validate_native_dependency_compatibility(
+				{provider.name: provider, adapter.name: adapter},
+				{provider.name, adapter.name},
+				"Android",
+			)
+
+		self.assertEqual(1, len(errors), errors)
+		self.assertIn("com.example:shared", errors[0])
+		self.assertIn("ProviderB -> com.example:adapter", errors[0])
+		self.assertIn("align", errors[0].lower())
+
+	def test_native_dependency_requirements_report_missing_metadata(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			provider = native_dependency_fixture(
+				root,
+				"MissingMetadataProvider",
+				"IOS",
+				None,
+			)
+
+			errors = validate_native_dependency_compatibility(
+				{provider.name: provider},
+				{provider.name},
+				"IOS",
+			)
+
+		self.assertEqual(1, len(errors), errors)
+		self.assertIn("MissingMetadataProvider", errors[0])
+		self.assertIn("native-dependencies.json", errors[0])
+
+	def test_native_dependency_requirements_detect_multiple_provider_payload_collisions(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			android_a = native_dependency_fixture(
+				root,
+				"AndroidProviderA",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:first",
+					"version": "1.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"provided_classes": ["com.example.Duplicate"],
+				}],
+			)
+			android_b = native_dependency_fixture(
+				root,
+				"AndroidProviderB",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:second",
+					"version": "1.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"provided_classes": ["com.example.Duplicate"],
+				}],
+			)
+			ios_a = native_dependency_fixture(
+				root,
+				"IOSProviderA",
+				"IOS",
+				[{
+					"kind": "Framework",
+					"name": "FirstPackage",
+					"version": "1.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "DuplicateKit",
+				}],
+			)
+			ios_b = native_dependency_fixture(
+				root,
+				"IOSProviderB",
+				"IOS",
+				[{
+					"kind": "Framework",
+					"name": "SecondPackage",
+					"version": "1.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "DuplicateKit",
+				}],
+			)
+
+			android_errors = validate_native_dependency_compatibility(
+				{android_a.name: android_a, android_b.name: android_b},
+				{android_a.name, android_b.name},
+				"Android",
+			)
+			ios_errors = validate_native_dependency_compatibility(
+				{ios_a.name: ios_a, ios_b.name: ios_b},
+				{ios_a.name, ios_b.name},
+				"IOS",
+			)
+
+		self.assertTrue(any("duplicate class com.example.Duplicate" in error for error in android_errors))
+		self.assertTrue(any("duplicate framework DuplicateKit" in error for error in ios_errors))
 
 	def test_mediation_adapter_dependency_contract_is_enforced(self) -> None:
 		malformed_adapter = PluginDescriptor(

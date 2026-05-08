@@ -30,28 +30,51 @@
 			"minimum_os_version": "23",
 			"dependencies": [
 				{
+					"kind": "Gradle",
 					"name": "com.google.ads.mediation:facebook",
-					"version": "6.22.0.0"
+					"version": "6.22.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
 				},
 				{
+					"kind": "Gradle",
 					"name": "com.facebook.android:audience-network-sdk",
-					"version": "6.22.0"
+					"version": "6.22.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:facebook",
+					"ownership": "Owned"
 				},
 				{
+					"kind": "Gradle",
 					"name": "androidx.annotation:annotation",
-					"version": "1.5.0"
+					"version": "1.5.0",
+					"relationship": "Transitive",
+					"via": "com.facebook.android:audience-network-sdk",
+					"ownership": "External"
 				},
 				{
+					"kind": "Gradle",
 					"name": "com.google.ads.mediation:common",
-					"version": "1.1.0"
+					"version": "1.1.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:facebook",
+					"ownership": "Owned"
 				},
 				{
+					"kind": "Gradle",
 					"name": "com.google.android.gms:play-services-ads",
-					"version": "25.4.0"
+					"version": "25.4.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:facebook",
+					"ownership": "External"
 				},
 				{
+					"kind": "Gradle",
 					"name": "org.jetbrains.kotlin:kotlin-stdlib",
-					"version": "2.3.0"
+					"version": "2.3.0",
+					"relationship": "Transitive",
+					"via": "com.facebook.android:audience-network-sdk",
+					"ownership": "External"
 				}
 			],
 			"attribution_identifiers": []
@@ -80,16 +103,29 @@
 			"minimum_os_version": "15.0",
 			"dependencies": [
 				{
+					"kind": "Framework",
 					"name": "MetaAdapter",
-					"version": "6.22.0.0"
+					"version": "6.22.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "MetaAdapter"
 				},
 				{
+					"kind": "Framework",
 					"name": "FBAudienceNetwork",
-					"version": "6.22.0"
+					"version": "6.22.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "FBAudienceNetwork"
 				},
 				{
+					"kind": "Framework",
 					"name": "GoogleMobileAds",
-					"version": "13.8.0"
+					"version": "13.8.0",
+					"relationship": "Transitive",
+					"via": "MetaAdapter",
+					"ownership": "External",
+					"binary_name": "GoogleMobileAds"
 				}
 			],
 			"attribution_identifiers": []

@@ -1,0 +1,44 @@
+{
+	"schema_version": 1,
+	"plugin": "OpenMobileAdsAdMob",
+	"platforms": {
+		"Android": {
+			"dependencies": [
+				{
+					"kind": "Gradle",
+					"name": "com.google.android.gms:play-services-ads",
+					"version": "25.4.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.android.ump:user-messaging-platform",
+					"version": "4.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				}
+			]
+		},
+		"IOS": {
+			"dependencies": [
+				{
+					"kind": "Framework",
+					"name": "GoogleMobileAds",
+					"version": "13.8.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "GoogleMobileAds"
+				},
+				{
+					"kind": "Framework",
+					"name": "UserMessagingPlatform",
+					"version": "3.1.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "UserMessagingPlatform"
+				}
+			]
+		}
+	}
+}

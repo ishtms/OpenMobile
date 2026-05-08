@@ -177,6 +177,10 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 				for dependency in android["dependencies"]
 			},
 		)
+		for dependency in android["dependencies"]:
+			self.assertEqual("Gradle", dependency["kind"])
+			self.assertIn(dependency["relationship"], {"Direct", "Transitive"})
+			self.assertIn(dependency["ownership"], {"Owned", "External"})
 		ios = metadata["platforms"]["IOS"]
 		self.assertEqual("6.22.0.0", ios["adapter_version"])
 		self.assertEqual("6.22.0", ios["network_sdk_version"])
@@ -191,6 +195,37 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			{
 				(dependency["name"], dependency["version"])
 				for dependency in ios["dependencies"]
+			},
+		)
+		for dependency in ios["dependencies"]:
+			self.assertEqual("Framework", dependency["kind"])
+			self.assertIn(dependency["relationship"], {"Direct", "Transitive"})
+			self.assertIn(dependency["ownership"], {"Owned", "External"})
+
+	def test_admob_provider_owns_native_dependency_metadata(self) -> None:
+		metadata = json.loads(
+			(ADMOB_PLUGIN / "native-dependencies.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual(1, metadata["schema_version"])
+		self.assertEqual("OpenMobileAdsAdMob", metadata["plugin"])
+		self.assertEqual(
+			{
+				("com.google.android.gms:play-services-ads", "25.4.0"),
+				("com.google.android.ump:user-messaging-platform", "4.0.0"),
+			},
+			{
+				(dependency["name"], dependency["version"])
+				for dependency in metadata["platforms"]["Android"]["dependencies"]
+			},
+		)
+		self.assertEqual(
+			{
+				("GoogleMobileAds", "13.8.0"),
+				("UserMessagingPlatform", "3.1.0"),
+			},
+			{
+				(dependency["binary_name"], dependency["version"])
+				for dependency in metadata["platforms"]["IOS"]["dependencies"]
 			},
 		)
 

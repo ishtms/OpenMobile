@@ -69,7 +69,7 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 		}
 	}
 
-	private static void ValidateCompatibility(string ModulePath, ILogger Logger)
+	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
 		string ProviderRoot = Path.GetFullPath(Path.Combine(
@@ -108,12 +108,13 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 		ValidateVersion("provider SDK", ProviderVersion, Compatibility.GetObjectField("provider_sdk"), Logger);
 		ValidateVersion("adapter", AdapterVersion, Compatibility.GetObjectField("adapter"), Logger);
 		ValidateVersion("network SDK", NetworkVersion, Compatibility.GetObjectField("network_sdk"), Logger);
+		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
 	public OpenMobileAdsAdMobMetaIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;
-		ValidateCompatibility(ModuleDirectory, Target.Logger);
+		ExternalDependencies.AddRange(ValidateCompatibility(ModuleDirectory, Target.Logger));
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{

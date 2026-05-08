@@ -215,6 +215,29 @@ class AdapterCompatibilityResult:
 	warnings: list[str]
 
 
+@dataclass(frozen=True)
+class NativeDependencyRequirement:
+	plugin: str
+	platform: str
+	kind: str
+	name: str
+	version: tuple[int, int, int, int] | None
+	minimum: tuple[int, int, int, int] | None
+	maximum_exclusive: tuple[int, int, int, int] | None
+	version_text: str
+	relationship: str
+	via: str
+	ownership: str
+	provided_classes: tuple[str, ...]
+	binary_name: str
+
+	@property
+	def chain(self) -> str:
+		if self.via:
+			return f"{self.plugin} -> {self.via} -> {self.name}"
+		return f"{self.plugin} -> {self.name}"
+
+
 def _parse_version(value: str) -> tuple[int, int, int, int] | None:
 	parts = value.split(".")
 	if not 1 <= len(parts) <= 4 or any(not part.isdigit() for part in parts):
@@ -307,6 +330,223 @@ def validate_adapter_compatibility(
 			)
 
 	return AdapterCompatibilityResult(errors, warnings)
+
+
+def _read_native_dependency_data(
+	descriptor: PluginDescriptor,
+	platform_name: str,
+) -> tuple[list[dict], list[str]]:
+	metadata_name = "adapter.json" if descriptor.is_ads_adapter else "native-dependencies.json"
+	metadata_path = descriptor.path.parent / metadata_name
+	if not metadata_path.is_file():
+		return [], [
+			f"plugin {descriptor.name} is missing {metadata_name}; add native dependency metadata"
+		]
+	try:
+		with metadata_path.open(encoding="utf-8") as metadata_file:
+			metadata = json.load(metadata_file)
+	except (json.JSONDecodeError, OSError) as error:
+		return [], [f"plugin {descriptor.name} has unreadable {metadata_name}: {error}"]
+	if metadata.get("schema_version") != 1 or metadata.get("plugin") != descriptor.name:
+		return [], [
+			f"plugin {descriptor.name} has invalid ownership data in {metadata_name}"
+		]
+	platform = metadata.get("platforms", {}).get(platform_name)
+	if not isinstance(platform, dict):
+		return [], [
+			f"plugin {descriptor.name} has no {platform_name} dependency metadata in {metadata_name}"
+		]
+	dependencies = platform.get("dependencies")
+	if not isinstance(dependencies, list) or not dependencies:
+		return [], [
+			f"plugin {descriptor.name} has invalid {platform_name} dependencies in {metadata_name}"
+		]
+	return dependencies, []
+
+
+def _parse_native_dependency_requirement(
+	plugin_name: str,
+	platform_name: str,
+	dependency: object,
+	index: int,
+) -> tuple[NativeDependencyRequirement | None, list[str]]:
+	prefix = f"plugin {plugin_name} {platform_name} dependency {index}"
+	if not isinstance(dependency, dict):
+		return None, [f"{prefix} must be an object"]
+	kind = dependency.get("kind")
+	name = dependency.get("name")
+	relationship = dependency.get("relationship")
+	ownership = dependency.get("ownership")
+	via = dependency.get("via", "")
+	provided_classes = dependency.get("provided_classes", [])
+	binary_name = dependency.get("binary_name", "")
+	errors: list[str] = []
+	if kind not in {"Gradle", "Framework"}:
+		errors.append(f"{prefix} has unsupported kind '{kind}'")
+	expected_kind = "Gradle" if platform_name == "Android" else "Framework"
+	if kind in {"Gradle", "Framework"} and kind != expected_kind:
+		errors.append(f"{prefix} kind must be {expected_kind}")
+	if not isinstance(name, str) or not name:
+		errors.append(f"{prefix} name must not be empty")
+	if relationship not in {"Direct", "Transitive"}:
+		errors.append(f"{prefix} relationship must be Direct or Transitive")
+	if not isinstance(via, str):
+		errors.append(f"{prefix} via must be a string")
+	elif relationship == "Transitive" and not via:
+		errors.append(f"{prefix} must name its transitive dependency chain")
+	if ownership not in {"Owned", "External"}:
+		errors.append(f"{prefix} ownership must be Owned or External")
+	if (
+		not isinstance(provided_classes, list)
+		or any(not isinstance(class_name, str) or not class_name for class_name in provided_classes)
+		or len(provided_classes) != len(set(provided_classes))
+	):
+		errors.append(f"{prefix} provided_classes must contain unique class names")
+		provided_classes = []
+	if binary_name and not isinstance(binary_name, str):
+		errors.append(f"{prefix} binary_name must be a string")
+		binary_name = ""
+	if kind == "Framework" and ownership == "Owned" and not binary_name:
+		errors.append(f"{prefix} must name its owned framework binary")
+
+	version_text = dependency.get("version")
+	minimum_text = dependency.get("minimum")
+	maximum_text = dependency.get("maximum_exclusive")
+	version = _parse_version(version_text) if isinstance(version_text, str) else None
+	minimum = _parse_version(minimum_text) if isinstance(minimum_text, str) else None
+	maximum = _parse_version(maximum_text) if isinstance(maximum_text, str) else None
+	if version_text is not None:
+		if version is None or minimum_text is not None or maximum_text is not None:
+			errors.append(f"{prefix} must define one valid exact version or one valid range")
+		constraint_text = str(version_text)
+	else:
+		if minimum is None or maximum is None or minimum >= maximum:
+			errors.append(f"{prefix} must define one valid exact version or one valid range")
+		constraint_text = f"[{minimum_text}, {maximum_text})"
+	if errors:
+		return None, errors
+	return NativeDependencyRequirement(
+		plugin=plugin_name,
+		platform=platform_name,
+		kind=kind,
+		name=name,
+		version=version,
+		minimum=minimum,
+		maximum_exclusive=maximum,
+		version_text=constraint_text,
+		relationship=relationship,
+		via=via,
+		ownership=ownership,
+		provided_classes=tuple(provided_classes),
+		binary_name=binary_name,
+	), []
+
+
+def _native_versions_overlap(
+	left: NativeDependencyRequirement,
+	right: NativeDependencyRequirement,
+) -> bool:
+	if left.version is not None and right.version is not None:
+		return left.version == right.version
+	if left.version is not None:
+		return (
+			right.minimum is not None
+			and right.maximum_exclusive is not None
+			and right.minimum <= left.version < right.maximum_exclusive
+		)
+	if right.version is not None:
+		return (
+			left.minimum is not None
+			and left.maximum_exclusive is not None
+			and left.minimum <= right.version < left.maximum_exclusive
+		)
+	return (
+		left.minimum is not None
+		and left.maximum_exclusive is not None
+		and right.minimum is not None
+		and right.maximum_exclusive is not None
+		and max(left.minimum, right.minimum)
+		< min(left.maximum_exclusive, right.maximum_exclusive)
+	)
+
+
+def validate_native_dependency_compatibility(
+	descriptors: dict[str, PluginDescriptor],
+	enabled_plugins: set[str],
+	platform_name: str,
+) -> list[str]:
+	requirements: list[NativeDependencyRequirement] = []
+	errors: list[str] = []
+	for plugin_name in sorted(enabled_plugins):
+		descriptor = descriptors.get(plugin_name)
+		if descriptor is None:
+			errors.append(f"enabled plugin {plugin_name} has no descriptor")
+			continue
+		dependencies, metadata_errors = _read_native_dependency_data(
+			descriptor,
+			platform_name,
+		)
+		errors.extend(metadata_errors)
+		for index, dependency in enumerate(dependencies):
+			requirement, requirement_errors = _parse_native_dependency_requirement(
+				plugin_name,
+				platform_name,
+				dependency,
+				index,
+			)
+			errors.extend(requirement_errors)
+			if requirement is not None:
+				requirements.append(requirement)
+	if errors:
+		return errors
+
+	by_dependency: dict[tuple[str, str], list[NativeDependencyRequirement]] = {}
+	seen_requirements: set[tuple[str, str, str]] = set()
+	for requirement in requirements:
+		key = (requirement.kind.casefold(), requirement.name.casefold())
+		by_dependency.setdefault(key, []).append(requirement)
+		owner_key = (requirement.plugin, *key)
+		if owner_key in seen_requirements:
+			errors.append(
+				f"plugin {requirement.plugin} declares duplicate native dependency {requirement.name}"
+			)
+		seen_requirements.add(owner_key)
+	for group in by_dependency.values():
+		for index, left in enumerate(group):
+			for right in group[index + 1:]:
+				if _native_versions_overlap(left, right):
+					continue
+				errors.append(
+					f"{platform_name} native dependency conflict for {left.name}: "
+					f"{left.chain} requires {left.version_text}; "
+					f"{right.chain} requires {right.version_text}. "
+					"Align the versions or disable one plugin."
+				)
+
+	class_owners: dict[str, list[NativeDependencyRequirement]] = {}
+	framework_owners: dict[str, list[NativeDependencyRequirement]] = {}
+	for requirement in requirements:
+		if requirement.ownership != "Owned":
+			continue
+		for class_name in requirement.provided_classes:
+			class_owners.setdefault(class_name, []).append(requirement)
+		if requirement.kind == "Framework":
+			framework_owners.setdefault(requirement.binary_name, []).append(requirement)
+	for class_name, owners in sorted(class_owners.items()):
+		if len({owner.name.casefold() for owner in owners}) > 1:
+			errors.append(
+				f"{platform_name} duplicate class {class_name} is owned by "
+				+ ", ".join(owner.chain for owner in owners)
+				+ ". Remove one dependency or exclude the duplicate classes."
+			)
+	for framework_name, owners in sorted(framework_owners.items()):
+		if len(owners) > 1:
+			errors.append(
+				f"{platform_name} duplicate framework {framework_name} is owned by "
+				+ ", ".join(owner.chain for owner in owners)
+				+ ". Keep one framework owner and mark other references External."
+			)
+	return errors
 
 
 def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
@@ -448,12 +688,19 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 			errors.append(f"adapter metadata {platform_name}.dependencies must not be empty")
 		else:
 			seen_dependencies: set[str] = set()
-			for dependency in dependencies:
+			for dependency_index, dependency in enumerate(dependencies):
 				if not isinstance(dependency, dict):
 					errors.append(
 						f"adapter metadata {platform_name} dependency must be an object"
 					)
 					continue
+				_, native_dependency_errors = _parse_native_dependency_requirement(
+					descriptor.name,
+					platform_name,
+					dependency,
+					dependency_index,
+				)
+				errors.extend(native_dependency_errors)
 				name = dependency.get("name")
 				version = dependency.get("version")
 				if not isinstance(name, str) or not name.strip():
@@ -1757,6 +2004,27 @@ def run_compatibility_command(arguments: argparse.Namespace) -> int:
 	return 0
 
 
+def run_native_conflicts_command(arguments: argparse.Namespace) -> int:
+	descriptors = discover_descriptors(arguments.repository)
+	configuration = resolve_configuration(
+		descriptors,
+		arguments.plugin,
+		platform=arguments.platform,
+		target_type="Game",
+	)
+	errors = validate_native_dependency_compatibility(
+		descriptors,
+		configuration.ads_providers | configuration.ads_adapters,
+		arguments.platform,
+	)
+	if errors:
+		for error in errors:
+			print(f"ads native dependency validation failed: {error}", file=sys.stderr)
+		return 1
+	print("OpenMobile Ads native dependency validation passed.")
+	return 0
+
+
 def run_artifact_command(arguments: argparse.Namespace) -> int:
 	inventory = inspect_artifact(arguments.artifact)
 	errors = validate_artifact(
@@ -1913,6 +2181,16 @@ def parse_arguments() -> argparse.Namespace:
 	compatibility_parser.add_argument("--adapter-version", action="append", default=[])
 	compatibility_parser.add_argument("--network-version", action="append", default=[])
 	compatibility_parser.set_defaults(handler=run_compatibility_command)
+
+	native_conflicts_parser = subparsers.add_parser("native-conflicts")
+	native_conflicts_parser.add_argument("--repository", type=Path, default=Path.cwd())
+	native_conflicts_parser.add_argument("--plugin", action="append", required=True)
+	native_conflicts_parser.add_argument(
+		"--platform",
+		choices=("Android", "IOS"),
+		required=True,
+	)
+	native_conflicts_parser.set_defaults(handler=run_native_conflicts_command)
 
 	artifact_parser = subparsers.add_parser("artifact")
 	artifact_parser.add_argument("artifact", type=Path)
