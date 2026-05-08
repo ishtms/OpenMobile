@@ -1,4 +1,5 @@
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceMonitoringService.h"
 
 #include "Modules/ModuleManager.h"
 
@@ -8,10 +9,12 @@ public:
 	virtual void StartupModule() override
 	{
 		FOpenMobileDeviceBackendRegistry::Start();
+		FOpenMobileDeviceMonitoringService::Start();
 	}
 
 	virtual void ShutdownModule() override
 	{
+		FOpenMobileDeviceMonitoringService::Shutdown();
 		FOpenMobileDeviceBackendRegistry::BeginShutdown();
 	}
 };

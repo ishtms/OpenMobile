@@ -14,6 +14,8 @@
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceMonitoring.h"
+#include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSnapshotService.h"
@@ -87,6 +89,21 @@ namespace OpenMobileDeviceTests
 			return Snapshot;
 		}
 
+		virtual bool StartMonitoring(
+			EOpenMobileDeviceMonitoringGroup Group
+		) override
+		{
+			++MonitoringStarts.FindOrAdd(Group);
+			return NativeMonitoringGroups.Contains(Group);
+		}
+
+		virtual void StopMonitoring(
+			EOpenMobileDeviceMonitoringGroup Group
+		) override
+		{
+			++MonitoringStops.FindOrAdd(Group);
+		}
+
 		void SetCapability(
 			FName CapabilityName,
 			EOpenMobileCapabilityState State,
@@ -112,6 +129,9 @@ namespace OpenMobileDeviceTests
 		bool bInBackground = false;
 		FOpenMobileDeviceInformationSnapshot DeviceInformation;
 		FOpenMobilePowerSnapshot Power;
+		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
+		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
+		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStops;
 
 	private:
 		FName Name;
@@ -594,6 +614,208 @@ bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
 	AsyncSubsystem->Deinitialize();
 	AsyncSubsystem->Deinitialize();
 	TestEqual(TEXT("Game Instance teardown cancels exactly once"), GameInstanceCancellationCount, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceDemandDrivenMonitoringTest,
+	"OpenMobile.Device.Monitoring.DemandDriven",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("Monitoring"));
+	Backend.NativeMonitoringGroups = {Group::Power, Group::Network};
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(80.0f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	TestFalse(
+		TEXT("Zero listeners use no ticker"),
+		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
+	);
+	TestEqual(
+		TEXT("Zero listeners start no native observer"),
+		Backend.MonitoringStarts.Num(),
+		0
+	);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	int32 PowerEvents = 0;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&PowerEvents](const FOpenMobilePowerSnapshot&)
+		{
+			++PowerEvents;
+		}
+	);
+	UGameInstance* OwnerA = NewObject<UGameInstance>();
+	UGameInstance* OwnerB = NewObject<UGameInstance>();
+	UOpenMobileDeviceMonitoringSubscription* First = Subsystem->StartMonitoring(
+		OwnerA,
+		{Group::Power},
+		1.0f
+	);
+	UOpenMobileDeviceMonitoringSubscription* Duplicate = Subsystem->StartMonitoring(
+		OwnerA,
+		{Group::Power},
+		1.0f
+	);
+	TestNotNull(TEXT("First subscription starts"), First);
+	TestNotNull(TEXT("Duplicate subscription starts independently"), Duplicate);
+	TestEqual(
+		TEXT("Duplicate starts increase reference count"),
+		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
+		2
+	);
+	TestEqual(
+		TEXT("Multiple consumers share one native observer"),
+		Backend.MonitoringStarts.FindRef(Group::Power),
+		1
+	);
+	TestTrue(
+		TEXT("Active subscriptions keep maintenance ticker"),
+		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
+	);
+	const int32 NativeQueriesBeforeTick = Backend.PowerQueries;
+	FOpenMobileDeviceMonitoringService::TickForTests(5.0f);
+	TestEqual(
+		TEXT("Native notification source is not fallback-polled"),
+		Backend.PowerQueries,
+		NativeQueriesBeforeTick
+	);
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(70.0f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(Group::Power);
+	TestEqual(TEXT("Native change emits one coalesced event"), PowerEvents, 1);
+
+	First->Stop();
+	TestEqual(
+		TEXT("Partial stop keeps shared observer active"),
+		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
+		1
+	);
+	TestEqual(
+		TEXT("Partial stop does not stop native observer"),
+		Backend.MonitoringStops.FindRef(Group::Power),
+		0
+	);
+	Duplicate->Stop();
+	TestEqual(
+		TEXT("Final stop releases shared observer"),
+		Backend.MonitoringStops.FindRef(Group::Power),
+		1
+	);
+	TestFalse(
+		TEXT("Final stop removes ticker"),
+		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
+	);
+
+	UOpenMobileDeviceMonitoringSubscription* MultiGroup = Subsystem->StartMonitoring(
+		OwnerA,
+		{Group::Power, Group::Network},
+		1.0f
+	);
+	UOpenMobileDeviceMonitoringSubscription* PowerOnly = Subsystem->StartMonitoring(
+		OwnerB,
+		{Group::Power},
+		1.0f
+	);
+	MultiGroup->Stop();
+	TestEqual(
+		TEXT("Stopping multi-group subscription releases its sole network observer"),
+		Backend.MonitoringStops.FindRef(Group::Network),
+		1
+	);
+	TestEqual(
+		TEXT("Stopping multi-group subscription preserves other power consumer"),
+		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
+		1
+	);
+	PowerOnly->Stop();
+
+	Backend.NativeMonitoringGroups.Remove(Group::Power);
+	Backend.PowerQueries = 0;
+	PowerEvents = 0;
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(50.0f);
+	UOpenMobileDeviceMonitoringSubscription* Fallback = Subsystem->StartMonitoring(
+		OwnerB,
+		{Group::Power},
+		0.001f
+	);
+	TestTrue(
+		TEXT("Unsupported native source uses fallback"),
+		FOpenMobileDeviceMonitoringService::UsesFallbackForTests(Group::Power)
+	);
+	TestEqual(
+		TEXT("Fallback interval clamps to minimum"),
+		FOpenMobileDeviceMonitoringService::GetEffectiveIntervalForTests(Group::Power),
+		0.1f
+	);
+	TestEqual(TEXT("Subscription primes one baseline snapshot"), Backend.PowerQueries, 1);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestEqual(TEXT("Equal fallback sample is coalesced"), PowerEvents, 0);
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(50.2f);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestEqual(TEXT("Battery noise inside tolerance is coalesced"), PowerEvents, 0);
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(50.8f);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestEqual(TEXT("Meaningful battery change broadcasts"), PowerEvents, 1);
+
+	const int32 QueriesBeforeBackground = Backend.PowerQueries;
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(60.0f);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	FOpenMobileDeviceMonitoringService::TickForTests(10.0f);
+	TestEqual(
+		TEXT("Background suspension performs no fallback query"),
+		Backend.PowerQueries,
+		QueriesBeforeBackground
+	);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh broadcasts latest value"), PowerEvents, 2);
+
+	Fallback->Owner.Reset();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestFalse(TEXT("Invalid owner releases subscription"), Fallback->IsActive());
+	TestEqual(
+		TEXT("Invalid owner releases final reference"),
+		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
+		0
+	);
+	TestFalse(
+		TEXT("No listeners restore zero idle ticker cost"),
+		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
+	);
+	UOpenMobileDeviceMonitoringSubscription* MaximumInterval =
+		Subsystem->StartMonitoring(OwnerA, {Group::Power}, 120.0f);
+	TestEqual(
+		TEXT("Fallback interval clamps to maximum"),
+		FOpenMobileDeviceMonitoringService::GetEffectiveIntervalForTests(Group::Power),
+		60.0f
+	);
+	MaximumInterval->Stop();
+	TestFalse(
+		TEXT("Stopping maximum interval request restores zero idle cost"),
+		FOpenMobileDeviceMonitoringService::IsTickerActiveForTests()
+	);
+
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

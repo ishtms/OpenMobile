@@ -8,6 +8,7 @@
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
 
@@ -126,6 +127,17 @@ public:
 	virtual FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot() const
 	{
 		return {};
+	}
+
+	virtual bool StartMonitoring(EOpenMobileDeviceMonitoringGroup Group)
+	{
+		static_cast<void>(Group);
+		return false;
+	}
+
+	virtual void StopMonitoring(EOpenMobileDeviceMonitoringGroup Group)
+	{
+		static_cast<void>(Group);
 	}
 
 	virtual void BeginShutdown() {}

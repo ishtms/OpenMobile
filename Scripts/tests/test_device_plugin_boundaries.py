@@ -111,6 +111,18 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			):
 				self.assertNotIn(forbidden_token, contents, str(path))
 
+	def test_device_subsystem_has_no_unconditional_polling(self) -> None:
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertNotIn("TickStatus", subsystem)
+		self.assertNotIn("TickerHandle", subsystem)
+		self.assertNotIn("AddTicker", subsystem)
+
 
 if __name__ == "__main__":
 	unittest.main()
