@@ -3,7 +3,13 @@
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceCapabilities.h"
+#include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceResourceTypes.h"
 
 enum class EOpenMobileDeviceBackendDomain : uint8
 {
@@ -70,6 +76,56 @@ public:
 		Capability.State = EOpenMobileCapabilityState::NotSupported;
 		Capability.BackendName = GetBackendName();
 		return Capability;
+	}
+
+	virtual FOpenMobileDeviceInformationSnapshot GetDeviceInformationSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileStorageSnapshot GetStorageSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot() const
+	{
+		return {};
 	}
 
 	virtual void BeginShutdown() {}

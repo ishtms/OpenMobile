@@ -1,0 +1,23 @@
+#pragma once
+
+#include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceResourceTypes.h"
+
+class FOpenMobileDeviceSnapshotService final
+{
+public:
+	static FOpenMobileDeviceInformationSnapshot GetDeviceInformationSnapshot();
+	static FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot();
+	static FOpenMobileLocaleSnapshot GetLocaleSnapshot();
+	static FOpenMobilePowerSnapshot GetPowerSnapshot();
+	static FOpenMobileMemorySnapshot GetMemorySnapshot();
+	static FOpenMobileStorageSnapshot GetStorageSnapshot();
+	static FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot();
+	static FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot();
+	static FOpenMobileAppearanceSnapshot GetAppearanceSnapshot();
+	static FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot();
+};

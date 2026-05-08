@@ -1,8 +1,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceCapabilities.h"
@@ -13,6 +16,8 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceSnapshotService.h"
+#include "OpenMobileDeviceSubsystem.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 
@@ -63,6 +68,25 @@ namespace OpenMobileDeviceTests
 			return IOpenMobileDeviceBackend::GetCapability(CapabilityName);
 		}
 
+		virtual FOpenMobileDeviceInformationSnapshot
+		GetDeviceInformationSnapshot() const override
+		{
+			++DeviceInformationQueries;
+			return DeviceInformation;
+		}
+
+		virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override
+		{
+			++PowerQueries;
+			FOpenMobilePowerSnapshot Snapshot = Power;
+			if (bInBackground)
+			{
+				Snapshot.BatteryPercent =
+					FOpenMobileDeviceOptionalFloat::MakeAvailable(20.0f);
+			}
+			return Snapshot;
+		}
+
 		void SetCapability(
 			FName CapabilityName,
 			EOpenMobileCapabilityState State,
@@ -83,6 +107,11 @@ namespace OpenMobileDeviceTests
 		}
 
 		int32 ShutdownCount = 0;
+		mutable int32 DeviceInformationQueries = 0;
+		mutable int32 PowerQueries = 0;
+		bool bInBackground = false;
+		FOpenMobileDeviceInformationSnapshot DeviceInformation;
+		FOpenMobilePowerSnapshot Power;
 
 	private:
 		FName Name;
@@ -416,6 +445,155 @@ bool FOpenMobileDeviceCapabilityReportTest::RunTest(const FString& Parameters)
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Mock);
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Platform);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSynchronousSnapshotTest,
+	"OpenMobile.Device.Snapshots.SynchronousLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSynchronousSnapshotTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	const FOpenMobileDeviceInformationSnapshot Startup =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestTrue(TEXT("Startup fallback has capture time"), Startup.Metadata.CapturedAtUtc > FDateTime());
+	TestTrue(TEXT("Startup fallback has generation"), Startup.Metadata.Generation > 0);
+	TestFalse(TEXT("Startup fallback keeps model unavailable"), Startup.Model.bIsAvailable);
+
+	FMockBackend First(TEXT("First"));
+	First.DeviceInformation.Model =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("First Model"));
+	First.Power.BatteryPercent = FOpenMobileDeviceOptionalFloat::MakeAvailable(80.0f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(First);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	const FOpenMobileDeviceInformationSnapshot FirstSnapshot =
+		Subsystem->GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Subsystem returns selected backend model"), FirstSnapshot.Model.Value, FString(TEXT("First Model")));
+	TestEqual(TEXT("Focused identity query runs once"), First.DeviceInformationQueries, 1);
+	TestEqual(TEXT("Focused identity query does not read power"), First.PowerQueries, 0);
+
+	First.bInBackground = true;
+	const FOpenMobilePowerSnapshot Background = Subsystem->GetPowerSnapshot();
+	TestEqual(TEXT("Background snapshot remains queryable"), Background.BatteryPercent.Value, 20.0f);
+	TestEqual(TEXT("Background power query runs once"), First.PowerQueries, 1);
+
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(First);
+	FMockBackend Second(TEXT("Second"));
+	Second.DeviceInformation.Model =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("Second Model"));
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Second);
+	const FOpenMobileDeviceInformationSnapshot Replacement =
+		Subsystem->GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Replacement backend is visible immediately"), Replacement.Model.Value, FString(TEXT("Second Model")));
+	TestTrue(
+		TEXT("Replacement snapshot supersedes earlier generation"),
+		Replacement.Metadata.Generation > FirstSnapshot.Metadata.Generation
+	);
+
+	Subsystem->Deinitialize();
+	const int32 QueriesBeforeTeardownRead = Second.DeviceInformationQueries;
+	const FOpenMobileDeviceInformationSnapshot AfterTeardown =
+		Subsystem->GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Teardown rejects snapshot work"), AfterTeardown.Metadata.Generation, int64(0));
+	TestEqual(
+		TEXT("Teardown does not touch backend"),
+		Second.DeviceInformationQueries,
+		QueriesBeforeTeardownRead
+	);
+
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Second);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAsyncContractTest,
+	"OpenMobile.Device.Async.ExactlyOnceAndTeardown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	const UClass* ActionClass = UOpenMobileDeviceAsyncActionBase::StaticClass();
+	TestNotNull(TEXT("Async action exposes Success branch"), ActionClass->FindPropertyByName(TEXT("Success")));
+	TestNotNull(TEXT("Async action exposes Cancelled branch"), ActionClass->FindPropertyByName(TEXT("Cancelled")));
+	TestNotNull(TEXT("Async action exposes Failed branch"), ActionClass->FindPropertyByName(TEXT("Failed")));
+	int32 TerminalCount = 0;
+	EOpenMobileDeviceAsyncTerminalState LastState =
+		EOpenMobileDeviceAsyncTerminalState::Pending;
+	UOpenMobileDeviceAsyncActionBase* Action =
+		NewObject<UOpenMobileDeviceAsyncActionBase>();
+	Action->OnNativeTerminal().AddLambda(
+		[&TerminalCount, &LastState](
+			EOpenMobileDeviceAsyncTerminalState State,
+			const FOpenMobileError&)
+		{
+			++TerminalCount;
+			LastState = State;
+		}
+	);
+	Action->FinishSucceeded();
+	Action->FinishFailed(FOpenMobileError::Make(
+		EOpenMobileErrorCode::NativeFailure,
+		TEXT("late failure")
+	));
+	Action->Cancel();
+	TestEqual(TEXT("Only first terminal path broadcasts"), TerminalCount, 1);
+	TestEqual(TEXT("First terminal state wins"), LastState, EOpenMobileDeviceAsyncTerminalState::Succeeded);
+
+	int32 WorldCancellationCount = 0;
+	UWorld* TargetWorld = NewObject<UWorld>();
+	UOpenMobileDeviceAsyncActionBase* WorldAction =
+		NewObject<UOpenMobileDeviceAsyncActionBase>();
+	WorldAction->TargetWorld = TargetWorld;
+	WorldAction->OnNativeTerminal().AddLambda(
+		[&WorldCancellationCount](
+			EOpenMobileDeviceAsyncTerminalState State,
+			const FOpenMobileError& Error)
+		{
+			if (State == EOpenMobileDeviceAsyncTerminalState::Cancelled
+				&& Error.Code == EOpenMobileErrorCode::Cancelled)
+			{
+				++WorldCancellationCount;
+			}
+		}
+	);
+	WorldAction->HandleWorldCleanup(NewObject<UWorld>(), true, true);
+	WorldAction->HandleWorldCleanup(TargetWorld, true, true);
+	WorldAction->HandleWorldCleanup(TargetWorld, true, true);
+	TestEqual(TEXT("Matching world cleanup cancels exactly once"), WorldCancellationCount, 1);
+
+	int32 GameInstanceCancellationCount = 0;
+	UGameInstance* AsyncGameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* AsyncSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(AsyncGameInstance);
+	UOpenMobileDeviceAsyncActionBase* GameInstanceAction =
+		NewObject<UOpenMobileDeviceAsyncActionBase>();
+	GameInstanceAction->OnNativeTerminal().AddLambda(
+		[&GameInstanceCancellationCount](
+			EOpenMobileDeviceAsyncTerminalState State,
+			const FOpenMobileError&)
+		{
+			if (State == EOpenMobileDeviceAsyncTerminalState::Cancelled)
+			{
+				++GameInstanceCancellationCount;
+			}
+		}
+	);
+	AsyncSubsystem->RegisterAsyncAction(GameInstanceAction);
+	GameInstanceAction->Subsystem = AsyncSubsystem;
+	AsyncSubsystem->Deinitialize();
+	AsyncSubsystem->Deinitialize();
+	TestEqual(TEXT("Game Instance teardown cancels exactly once"), GameInstanceCancellationCount, 1);
 	return true;
 }
 
