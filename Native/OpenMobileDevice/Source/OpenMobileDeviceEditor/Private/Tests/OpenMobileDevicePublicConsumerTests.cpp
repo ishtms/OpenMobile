@@ -125,11 +125,11 @@ bool FOpenMobileDevicePublicConsumerTest::RunTest(const FString& Parameters)
 				.Contains(TEXT("FallbackPollingIntervalSeconds"))
 	);
 	TestEqual(
-		TEXT("Fallback polling defaults to one second"),
+		TEXT("Fallback polling defaults to Project Settings"),
 		FCString::Atof(*StartMonitoring->GetMetaData(
 			TEXT("CPP_Default_FallbackPollingIntervalSeconds")
 		)),
-		1.0f
+		0.0f
 	);
 
 	for (const FName BranchName : {FName(TEXT("Success")), FName(TEXT("Cancelled")),

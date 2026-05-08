@@ -1,11 +1,15 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include <limits>
+
 #include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "HAL/FileManager.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
@@ -20,10 +24,12 @@
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceSubsystem.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
+#include "UObject/UnrealType.h"
 
 namespace OpenMobileDeviceTests
 {
@@ -148,6 +154,92 @@ namespace OpenMobileDeviceTests
 		EOpenMobileDeviceBackendDomain SupportedDomain;
 		TMap<FName, FOpenMobileDeviceCapability> Capabilities;
 	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSettingsContractTest,
+	"OpenMobile.Device.Settings.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileDeviceSettings* Settings = NewObject<UOpenMobileDeviceSettings>();
+	TestEqual(
+		TEXT("Device settings use the OpenMobile category"),
+		Settings->GetCategoryName(),
+		FName(TEXT("OpenMobile"))
+	);
+	TestEqual(
+		TEXT("Device settings keep their own section"),
+		Settings->GetSectionName(),
+		FName(TEXT("OpenMobile Device"))
+	);
+#if WITH_METADATA
+	TestEqual(
+		TEXT("Device settings display their section name"),
+		Settings->GetClass()->GetMetaData(TEXT("DisplayName")),
+		FString(TEXT("OpenMobile Device"))
+	);
+#endif
+	TestTrue(
+		TEXT("Device settings use default config"),
+		Settings->GetClass()->HasAnyClassFlags(CLASS_DefaultConfig)
+	);
+	const FFloatProperty* PollingProperty = FindFProperty<FFloatProperty>(
+		UOpenMobileDeviceSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileDeviceSettings,
+			FallbackPollingIntervalSeconds
+		)
+	);
+	TestTrue(
+		TEXT("Fallback polling is serialized to config"),
+		PollingProperty && PollingProperty->HasAnyPropertyFlags(CPF_Config)
+	);
+	TestEqual(
+		TEXT("Default fallback polling interval is one second"),
+		Settings->GetValidatedFallbackPollingIntervalSeconds(),
+		1.0f
+	);
+
+	Settings->FallbackPollingIntervalSeconds =
+		std::numeric_limits<float>::quiet_NaN();
+	TestEqual(
+		TEXT("Non-finite fallback interval uses the safe default"),
+		Settings->GetValidatedFallbackPollingIntervalSeconds(),
+		1.0f
+	);
+	Settings->FallbackPollingIntervalSeconds = -5.0f;
+	TestEqual(
+		TEXT("Negative fallback interval clamps to the safe minimum"),
+		Settings->GetValidatedFallbackPollingIntervalSeconds(),
+		0.1f
+	);
+	Settings->FallbackPollingIntervalSeconds = 500.0f;
+	TestEqual(
+		TEXT("Large fallback interval clamps to the safe maximum"),
+		Settings->GetValidatedFallbackPollingIntervalSeconds(),
+		60.0f
+	);
+
+	const FString ConfigPath = FPaths::CreateTempFilename(
+		*FPaths::ProjectIntermediateDir(),
+		TEXT("OpenMobileDeviceSettings"),
+		TEXT(".ini")
+	);
+	Settings->FallbackPollingIntervalSeconds = 2.5f;
+	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
+	UOpenMobileDeviceSettings* Loaded = NewObject<UOpenMobileDeviceSettings>();
+	Loaded->LoadConfig(UOpenMobileDeviceSettings::StaticClass(), *ConfigPath);
+	IFileManager::Get().Delete(*ConfigPath, false, true, true);
+	TestEqual(
+		TEXT("Fallback polling interval survives config serialization"),
+		Loaded->FallbackPollingIntervalSeconds,
+		2.5f
+	);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -832,6 +924,20 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 		FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power),
 		0
 	);
+	UOpenMobileDeviceSettings* DeviceSettings =
+		GetMutableDefault<UOpenMobileDeviceSettings>();
+	const float SavedFallbackInterval =
+		DeviceSettings->FallbackPollingIntervalSeconds;
+	DeviceSettings->FallbackPollingIntervalSeconds = 2.5f;
+	UOpenMobileDeviceMonitoringSubscription* ConfiguredInterval =
+		Subsystem->StartMonitoring(OwnerA, {Group::Power}, 0.0f);
+	TestEqual(
+		TEXT("Zero fallback interval uses Project Settings"),
+		FOpenMobileDeviceMonitoringService::GetEffectiveIntervalForTests(Group::Power),
+		2.5f
+	);
+	ConfiguredInterval->Stop();
+	DeviceSettings->FallbackPollingIntervalSeconds = SavedFallbackInterval;
 
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);

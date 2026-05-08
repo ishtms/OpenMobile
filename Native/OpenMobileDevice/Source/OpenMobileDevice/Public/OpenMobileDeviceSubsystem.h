@@ -164,12 +164,12 @@ public:
 	UOpenMobileDeviceMonitoringSubscription* StartMonitoring(
 		UObject* Owner,
 		const TArray<EOpenMobileDeviceMonitoringGroup>& Groups,
-		float FallbackPollingIntervalSeconds = 1.0f
+		float FallbackPollingIntervalSeconds = 0.0f
 	);
 
 	FOpenMobileDeviceMonitoringHandle StartMonitoringNative(
 		const TArray<EOpenMobileDeviceMonitoringGroup>& Groups,
-		float FallbackPollingIntervalSeconds = 1.0f
+		float FallbackPollingIntervalSeconds = 0.0f
 	);
 
 	FOpenMobileDeviceStatusChangedNativeEvent& OnNativeDeviceStatusChanged()

@@ -10,6 +10,7 @@ public class OpenMobileDevice : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"OpenMobileCore"
 		});

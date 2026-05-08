@@ -151,6 +151,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"OpenMobileDeviceBlueprintLibrary.h",
 			"OpenMobileDeviceCapabilities.h",
 			"OpenMobileDeviceMonitoring.h",
+			"OpenMobileDeviceSettings.h",
 			"OpenMobileDeviceSubsystem.h",
 		):
 			self.assertIn(public_contract, umbrella)
@@ -167,6 +168,17 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("OpenMobile::DispatchToGameThread", service)
 		self.assertIn("SourceSequence <= State->LastNativeSequence", service)
 		self.assertIn("State->CallbackToken != CallbackToken", service)
+
+	def test_device_settings_are_used_for_fallback_polling(self) -> None:
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("GetDefault<UOpenMobileDeviceSettings>()", service)
+		self.assertIn("GetValidatedFallbackPollingIntervalSeconds", service)
 
 
 if __name__ == "__main__":

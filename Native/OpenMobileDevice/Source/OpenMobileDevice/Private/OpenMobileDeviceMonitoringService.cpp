@@ -5,11 +5,10 @@
 #include "Misc/CoreDelegates.h"
 #include "OpenMobileAsync.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceSettings.h"
 
 namespace OpenMobileDeviceMonitoringServicePrivate
 {
-	constexpr float MinimumPollingIntervalSeconds = 0.1f;
-	constexpr float MaximumPollingIntervalSeconds = 60.0f;
 	constexpr float MaintenanceIntervalSeconds = 0.1f;
 
 	struct FRequest
@@ -45,10 +44,16 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 
 	float ClampInterval(float IntervalSeconds)
 	{
+		const UOpenMobileDeviceSettings* Settings =
+			GetDefault<UOpenMobileDeviceSettings>();
+		const float ResolvedInterval = !FMath::IsFinite(IntervalSeconds)
+			|| IntervalSeconds == 0.0f
+			? Settings->GetValidatedFallbackPollingIntervalSeconds()
+			: IntervalSeconds;
 		return FMath::Clamp(
-			FMath::IsFinite(IntervalSeconds) ? IntervalSeconds : 1.0f,
-			MinimumPollingIntervalSeconds,
-			MaximumPollingIntervalSeconds
+			ResolvedInterval,
+			UOpenMobileDeviceSettings::GetMinimumFallbackPollingIntervalSeconds(),
+			UOpenMobileDeviceSettings::GetMaximumFallbackPollingIntervalSeconds()
 		);
 	}
 
@@ -143,7 +148,8 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			return;
 		}
 
-		float Interval = MaximumPollingIntervalSeconds;
+		float Interval =
+			UOpenMobileDeviceSettings::GetMaximumFallbackPollingIntervalSeconds();
 		for (const TPair<FGuid, FRequest>& Pair : Requests)
 		{
 			if (Pair.Value.Groups.Contains(Group))
