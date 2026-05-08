@@ -11,7 +11,7 @@
     </init>
 
     <registerBuildSettings>
-        <insertValue value="OpenMobileAdsAdMobIOSPlistContract=2"/>
+        <insertValue value="OpenMobileAdsAdMobIOSPlistContract=3"/>
         <insertNewline/>
     </registerBuildSettings>
 

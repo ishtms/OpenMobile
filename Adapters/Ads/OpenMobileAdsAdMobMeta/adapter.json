@@ -153,7 +153,22 @@
 					]
 				}
 			],
-			"attribution_identifiers": []
+			"attribution": {
+				"source_sdk_version": "6.22.0",
+				"last_reviewed": "2026-08-22",
+				"source_url": "https://developers.google.com/admob/ios/mediation/meta",
+				"upl_path": "Source/OpenMobileAdsAdMobMetaIOS/Private/IOS/OpenMobileAdsAdMobMeta_IOS_UPL.xml",
+				"skadnetwork_identifiers": [
+					"v9wttpbfk9.skadnetwork",
+					"n38lu8286q.skadnetwork"
+				],
+				"adattributionkit": {
+					"minimum_os_version": "17.4",
+					"identifiers": [],
+					"runtime_hooks": [],
+					"source_url": "https://developer.apple.com/documentation/adattributionkit/configuring-a-publisher-app"
+				}
+			}
 		}
 	},
 	"sources": {

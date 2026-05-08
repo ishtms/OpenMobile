@@ -63,58 +63,6 @@ ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {
 IOS_PLIST_CONTRACTS = {
 	"OpenMobileAdsAdMob": {
 		"scalar_keys": {"GADApplicationIdentifier"},
-		"skad_network_ids": {
-			"cstr6suwn9.skadnetwork",
-			"4fzdc2evr5.skadnetwork",
-			"2fnua5tdw4.skadnetwork",
-			"ydx93a7ass.skadnetwork",
-			"p78axxw29g.skadnetwork",
-			"v72qych5uu.skadnetwork",
-			"ludvb6z3bs.skadnetwork",
-			"cp8zw746q7.skadnetwork",
-			"3sh42y64q3.skadnetwork",
-			"c6k4g5qg8m.skadnetwork",
-			"s39g8k73mm.skadnetwork",
-			"wg4vff78zm.skadnetwork",
-			"3qy4746246.skadnetwork",
-			"f38h382jlk.skadnetwork",
-			"hs6bdukanm.skadnetwork",
-			"mlmmfzh3r3.skadnetwork",
-			"v4nxqhlyqp.skadnetwork",
-			"wzmmz9fp6w.skadnetwork",
-			"su67r6k2v3.skadnetwork",
-			"yclnxrl5pm.skadnetwork",
-			"t38b2kh725.skadnetwork",
-			"7ug5zh24hu.skadnetwork",
-			"gta9lk7p23.skadnetwork",
-			"vutu7akeur.skadnetwork",
-			"y5ghdn5j9k.skadnetwork",
-			"v9wttpbfk9.skadnetwork",
-			"n38lu8286q.skadnetwork",
-			"47vhws6wlr.skadnetwork",
-			"kbd757ywx3.skadnetwork",
-			"9t245vhmpl.skadnetwork",
-			"a2p9lx4jpn.skadnetwork",
-			"22mmun2rn5.skadnetwork",
-			"44jx6755aq.skadnetwork",
-			"k674qkevps.skadnetwork",
-			"4468km3ulz.skadnetwork",
-			"2u9pt9hc89.skadnetwork",
-			"8s468mfl3y.skadnetwork",
-			"klf5c3l5u5.skadnetwork",
-			"ppxm28t8ap.skadnetwork",
-			"kbmxgpxpgc.skadnetwork",
-			"uw77j35x4d.skadnetwork",
-			"578prtvx9j.skadnetwork",
-			"4dzt52r2t5.skadnetwork",
-			"tl55sbb4fm.skadnetwork",
-			"c3frkrj4fj.skadnetwork",
-			"e5fvkxwrpn.skadnetwork",
-			"8c4e2ghe7u.skadnetwork",
-			"3rd42ekr43.skadnetwork",
-			"97r2b46745.skadnetwork",
-			"3qcr597p9d.skadnetwork",
-		},
 	},
 }
 IOS_ADAPTER_PLIST_CONTRACTS = {}
@@ -163,6 +111,7 @@ IOS_REQUIRED_REASON_API_CONTRACTS = {
 	"NSPrivacyAccessedAPICategorySystemBootTime": {"35F9.1"},
 	"NSPrivacyAccessedAPICategoryUserDefaults": {"CA92.1"},
 }
+IOS_AD_ATTRIBUTION_KIT_MINIMUM = (17, 4, 0, 0)
 ANDROID_ABI_ARCHITECTURES = {
 	"arm64-v8a": "arm64",
 	"armeabi-v7a": "arm",
@@ -724,15 +673,19 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 						f"adapter metadata {platform_name} dependency '{name}' version must not be empty"
 					)
 
-		attribution_identifiers = platform.get("attribution_identifiers")
-		if not isinstance(attribution_identifiers, list):
-			errors.append(
-				f"adapter metadata {platform_name}.attribution_identifiers must be an array"
-			)
-		elif len(attribution_identifiers) != len(set(attribution_identifiers)):
-			errors.append(
-				f"adapter metadata {platform_name}.attribution_identifiers contains duplicates"
-			)
+		if platform_name == "IOS":
+			if not isinstance(platform.get("attribution"), dict):
+				errors.append(f"adapter metadata {platform_name}.attribution must be an object")
+		else:
+			attribution_identifiers = platform.get("attribution_identifiers")
+			if not isinstance(attribution_identifiers, list):
+				errors.append(
+					f"adapter metadata {platform_name}.attribution_identifiers must be an array"
+				)
+			elif len(attribution_identifiers) != len(set(attribution_identifiers)):
+				errors.append(
+					f"adapter metadata {platform_name}.attribution_identifiers contains duplicates"
+				)
 
 	sources = metadata.get("sources")
 	if not isinstance(sources, dict):
@@ -825,6 +778,7 @@ class IOSPlistInventory:
 	values: dict[str, tuple[str, ...]]
 	value_types: dict[str, tuple[str, ...]]
 	skad_network_ids: tuple[str, ...]
+	ad_attribution_kit_ids: tuple[str, ...]
 	url_schemes: tuple[str, ...]
 	duplicate_keys: tuple[str, ...]
 	malformed_entries: tuple[str, ...]
@@ -837,6 +791,8 @@ class IOSPlistExpectation:
 	required_adapters: set[str] = field(default_factory=set)
 	forbidden_adapters: set[str] = field(default_factory=set)
 	expected_values: dict[str, str] = field(default_factory=dict)
+	required_skad_network_ids: set[str] = field(default_factory=set)
+	required_ad_attribution_kit_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -856,6 +812,12 @@ class IOSPrivacyManifestExpectation:
 	tracking_domains: tuple[str, ...]
 	required_reason_apis: dict[str, tuple[str, ...]]
 	collected_data_types: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IOSAttributionConfiguration:
+	skad_network_ids: tuple[str, ...]
+	ad_attribution_kit_ids: tuple[str, ...]
 
 
 def module_is_eligible(module: dict, platform: str, target_type: str) -> bool:
@@ -1439,6 +1401,186 @@ def validate_ios_privacy_manifests(
 	return errors
 
 
+def _ios_attribution_metadata(
+	descriptor: PluginDescriptor,
+) -> tuple[dict | None, list[str]]:
+	metadata_path = descriptor.path.parent / (
+		"adapter.json" if descriptor.is_ads_adapter else "apple-metadata.json"
+	)
+	try:
+		metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+		return None, [f"plugin {descriptor.name} has invalid attribution metadata: {error}"]
+	if metadata.get("schema_version") != 1 or metadata.get("plugin") != descriptor.name:
+		return None, [f"plugin {descriptor.name} has invalid attribution metadata ownership"]
+	if descriptor.is_ads_adapter:
+		platform = metadata.get("platforms", {}).get("IOS")
+		attribution = platform.get("attribution") if isinstance(platform, dict) else None
+		expected_sdk_version = platform.get("network_sdk_version") if isinstance(platform, dict) else None
+	else:
+		attribution = metadata.get("attribution")
+		expected_sdk_version = None
+		packages_path = descriptor.path.parent / "ThirdParty/IOS/packages.json"
+		try:
+			packages = json.loads(packages_path.read_text(encoding="utf-8")).get("packages", [])
+		except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+			packages = []
+		for package in packages:
+			if package.get("name") == "Google Mobile Ads SDK for iOS":
+				expected_sdk_version = package.get("version")
+				break
+	if not isinstance(attribution, dict):
+		return None, [f"plugin {descriptor.name} has no iOS attribution metadata"]
+
+	errors: list[str] = []
+	source_sdk_version = attribution.get("source_sdk_version")
+	if (
+		not isinstance(source_sdk_version, str)
+		or not source_sdk_version
+		or source_sdk_version != expected_sdk_version
+	):
+		errors.append(
+			f"plugin {descriptor.name} has stale attribution metadata for SDK "
+			f"{expected_sdk_version or 'unknown'}"
+		)
+	last_reviewed = attribution.get("last_reviewed")
+	if not isinstance(last_reviewed, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", last_reviewed):
+		errors.append(f"plugin {descriptor.name} attribution last_reviewed must use YYYY-MM-DD")
+	source_url = attribution.get("source_url")
+	if not isinstance(source_url, str) or not source_url.startswith("https://"):
+		errors.append(f"plugin {descriptor.name} attribution source_url must use HTTPS")
+	upl_path = attribution.get("upl_path")
+	resolved_upl_path = (
+		safe_manifest_path(descriptor.path.parent, upl_path)
+		if isinstance(upl_path, str)
+		else None
+	)
+	if resolved_upl_path is None or not resolved_upl_path.is_file():
+		errors.append(f"plugin {descriptor.name} attribution upl_path is missing")
+
+	skad_network_ids = attribution.get("skadnetwork_identifiers")
+	if not isinstance(skad_network_ids, list) or any(
+		not isinstance(identifier, str) for identifier in skad_network_ids
+	):
+		errors.append(f"plugin {descriptor.name} skadnetwork_identifiers must be an array of strings")
+		skad_network_ids = []
+	else:
+		if len(skad_network_ids) != len(set(skad_network_ids)):
+			errors.append(f"plugin {descriptor.name} SKAdNetwork identifiers contain duplicates")
+		for identifier in skad_network_ids:
+			if not re.fullmatch(r"[a-z0-9]{10}\.skadnetwork", identifier):
+				errors.append(
+					f"plugin {descriptor.name} has malformed SKAdNetwork identifier '{identifier}'"
+				)
+
+	ad_attribution_kit = attribution.get("adattributionkit")
+	if not isinstance(ad_attribution_kit, dict):
+		errors.append(f"plugin {descriptor.name} has no AdAttributionKit metadata")
+		ad_attribution_kit = {}
+	minimum_os_version = ad_attribution_kit.get("minimum_os_version")
+	parsed_minimum_os_version = (
+		_parse_version(minimum_os_version)
+		if isinstance(minimum_os_version, str)
+		else None
+	)
+	if (
+		not isinstance(minimum_os_version, str)
+		or parsed_minimum_os_version is None
+	):
+		errors.append(f"plugin {descriptor.name} has invalid AdAttributionKit minimum_os_version")
+	elif parsed_minimum_os_version < IOS_AD_ATTRIBUTION_KIT_MINIMUM:
+		errors.append(
+			f"plugin {descriptor.name} AdAttributionKit availability is below iOS 17.4"
+		)
+	ad_attribution_kit_ids = ad_attribution_kit.get("identifiers")
+	if not isinstance(ad_attribution_kit_ids, list) or any(
+		not isinstance(identifier, str) for identifier in ad_attribution_kit_ids
+	):
+		errors.append(f"plugin {descriptor.name} AdAttributionKit identifiers must be an array of strings")
+		ad_attribution_kit_ids = []
+	else:
+		if len(ad_attribution_kit_ids) != len(set(ad_attribution_kit_ids)):
+			errors.append(f"plugin {descriptor.name} AdAttributionKit identifiers contain duplicates")
+		for identifier in ad_attribution_kit_ids:
+			if not re.fullmatch(r"[a-z0-9]+\.adattributionkit", identifier):
+				errors.append(
+					f"plugin {descriptor.name} has malformed AdAttributionKit identifier '{identifier}'"
+				)
+	runtime_hooks = ad_attribution_kit.get("runtime_hooks")
+	if not isinstance(runtime_hooks, list) or any(
+		not isinstance(hook, str) or not hook for hook in runtime_hooks
+	):
+		errors.append(f"plugin {descriptor.name} AdAttributionKit runtime_hooks must be an array")
+	source_url = ad_attribution_kit.get("source_url")
+	if not isinstance(source_url, str) or not source_url.startswith("https://"):
+		errors.append(f"plugin {descriptor.name} AdAttributionKit source_url must use HTTPS")
+
+	return {
+		"upl_path": resolved_upl_path,
+		"skad_network_ids": tuple(skad_network_ids),
+		"ad_attribution_kit_ids": tuple(ad_attribution_kit_ids),
+	}, errors
+
+
+def collect_ios_attribution_configuration(
+	descriptors: dict[str, PluginDescriptor],
+	enabled_plugins: set[str],
+) -> tuple[IOSAttributionConfiguration, list[str]]:
+	errors: list[str] = []
+	skad_network_ids: set[str] = set()
+	ad_attribution_kit_ids: set[str] = set()
+	for plugin_name in sorted(enabled_plugins):
+		descriptor = descriptors.get(plugin_name)
+		if descriptor is None:
+			errors.append(f"unknown enabled plugin '{plugin_name}'")
+			continue
+		if not (descriptor.is_ads_provider or descriptor.is_ads_adapter):
+			continue
+		attribution, metadata_errors = _ios_attribution_metadata(descriptor)
+		errors.extend(metadata_errors)
+		if attribution is None:
+			continue
+		skad_network_ids.update(attribution["skad_network_ids"])
+		ad_attribution_kit_ids.update(attribution["ad_attribution_kit_ids"])
+	return IOSAttributionConfiguration(
+		tuple(sorted(skad_network_ids)),
+		tuple(sorted(ad_attribution_kit_ids)),
+	), errors
+
+
+def validate_ios_attribution_upl(descriptor: PluginDescriptor) -> list[str]:
+	attribution, errors = _ios_attribution_metadata(descriptor)
+	if attribution is None:
+		return errors
+	upl_path = attribution["upl_path"]
+	if upl_path is None:
+		return errors
+	try:
+		root = ElementTree.parse(upl_path).getroot()
+	except (OSError, ElementTree.ParseError) as error:
+		return errors + [f"plugin {descriptor.name} has invalid attribution UPL: {error}"]
+	plist_updates = root.find("iosPListUpdates")
+	if plist_updates is None:
+		return errors + [f"plugin {descriptor.name} attribution UPL has no iosPListUpdates"]
+	strings = [
+		(element.text or "").strip()
+		for element in plist_updates.findall(".//string")
+	]
+	actual_skad_ids = [identifier for identifier in strings if identifier.endswith(".skadnetwork")]
+	actual_ad_attribution_kit_ids = [
+		identifier for identifier in strings if identifier.endswith(".adattributionkit")
+	]
+	for label, actual, expected in (
+		("SKAdNetwork", actual_skad_ids, attribution["skad_network_ids"]),
+		("AdAttributionKit", actual_ad_attribution_kit_ids, attribution["ad_attribution_kit_ids"]),
+	):
+		if len(actual) != len(set(actual)):
+			errors.append(f"plugin {descriptor.name} attribution UPL has duplicate {label} identifiers")
+		if set(actual) != set(expected):
+			errors.append(f"plugin {descriptor.name} attribution UPL has stale {label} identifiers")
+	return errors
+
+
 def validate_artifact(
 	inventory: ArtifactInventory,
 	expectation: ArtifactExpectation,
@@ -2004,8 +2146,7 @@ def _plist_value_text(element: ElementTree.Element) -> str:
 	return element.text or ""
 
 
-def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
-	root = ElementTree.parse(path).getroot()
+def _inspect_xml_ios_plist_root(root: ElementTree.Element) -> IOSPlistInventory:
 	top_dictionary = root if root.tag == "dict" else root.find("dict")
 	if top_dictionary is None:
 		raise ValueError("iOS plist has no root dictionary")
@@ -2013,6 +2154,7 @@ def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
 	values: dict[str, list[str]] = {}
 	value_types: dict[str, list[str]] = {}
 	skad_network_ids: list[str] = []
+	ad_attribution_kit_ids: list[str] = []
 	url_schemes: list[str] = []
 	duplicate_keys: list[str] = []
 	malformed_entries: list[str] = []
@@ -2053,6 +2195,16 @@ def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
 				continue
 			url_schemes.append(_plist_value_text(item).strip())
 
+	def inspect_ad_attribution_kit_ids(value: ElementTree.Element, path_name: str) -> None:
+		if value.tag != "array":
+			malformed_entries.append(f"{path_name} must be an array")
+			return
+		for index, item in enumerate(value):
+			if item.tag != "string" or not _plist_value_text(item).strip():
+				malformed_entries.append(f"{path_name}[{index}] must be a non-empty string")
+				continue
+			ad_attribution_kit_ids.append(_plist_value_text(item).strip())
+
 	def inspect_value(value: ElementTree.Element, path_name: str) -> None:
 		if value.tag == "dict":
 			inspect_dictionary(value, path_name, False)
@@ -2090,6 +2242,8 @@ def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
 				value_types.setdefault(key, []).append(value.tag)
 			if key == "SKAdNetworkItems":
 				inspect_skad_network_items(value, f"{path_name}.{key}")
+			elif key == "AdNetworkIdentifiers":
+				inspect_ad_attribution_kit_ids(value, f"{path_name}.{key}")
 			elif key == "CFBundleURLSchemes":
 				inspect_url_schemes(value, f"{path_name}.{key}")
 			inspect_value(value, f"{path_name}.{key}")
@@ -2100,15 +2254,14 @@ def _inspect_xml_ios_plist(path: Path) -> IOSPlistInventory:
 		{name: tuple(entries) for name, entries in values.items()},
 		{name: tuple(entries) for name, entries in value_types.items()},
 		tuple(skad_network_ids),
+		tuple(ad_attribution_kit_ids),
 		tuple(url_schemes),
 		tuple(duplicate_keys),
 		tuple(malformed_entries),
 	)
 
 
-def _inspect_binary_ios_plist(path: Path) -> IOSPlistInventory:
-	with path.open("rb") as plist_file:
-		root = plistlib.load(plist_file)
+def _inspect_binary_ios_plist_root(root: object) -> IOSPlistInventory:
 	if not isinstance(root, dict):
 		raise ValueError("iOS plist has no root dictionary")
 
@@ -2122,6 +2275,7 @@ def _inspect_binary_ios_plist(path: Path) -> IOSPlistInventory:
 	}
 	malformed_entries: list[str] = []
 	skad_network_ids: list[str] = []
+	ad_attribution_kit_ids: list[str] = []
 	url_schemes: list[str] = []
 
 	def inspect_value(value: object, path_name: str) -> None:
@@ -2151,6 +2305,17 @@ def _inspect_binary_ios_plist(path: Path) -> IOSPlistInventory:
 								)
 							else:
 								url_schemes.append(scheme.strip())
+				elif key == "AdNetworkIdentifiers":
+					if not isinstance(child, list):
+						malformed_entries.append(f"{child_path} must be an array")
+					else:
+						for index, identifier in enumerate(child):
+							if not isinstance(identifier, str) or not identifier.strip():
+								malformed_entries.append(
+									f"{child_path}[{index}] must be a non-empty string"
+								)
+							else:
+								ad_attribution_kit_ids.append(identifier.strip())
 				inspect_value(child, child_path)
 		elif isinstance(value, list):
 			for index, child in enumerate(value):
@@ -2161,16 +2326,44 @@ def _inspect_binary_ios_plist(path: Path) -> IOSPlistInventory:
 		values,
 		value_types,
 		tuple(skad_network_ids),
+		tuple(ad_attribution_kit_ids),
 		tuple(url_schemes),
 		(),
 		tuple(malformed_entries),
 	)
 
 
+def inspect_ios_plist_contents(contents: bytes) -> IOSPlistInventory:
+	if contents.startswith(b"bplist00"):
+		return _inspect_binary_ios_plist_root(plistlib.loads(contents))
+	return _inspect_xml_ios_plist_root(ElementTree.fromstring(contents))
+
+
 def inspect_ios_plist(path: Path) -> IOSPlistInventory:
-	with path.open("rb") as plist_file:
-		is_binary = plist_file.read(8) == b"bplist00"
-	return _inspect_binary_ios_plist(path) if is_binary else _inspect_xml_ios_plist(path)
+	return inspect_ios_plist_contents(path.read_bytes())
+
+
+def inspect_ios_package_plist(path: Path) -> tuple[IOSPlistInventory | None, list[str]]:
+	candidates: list[tuple[str, bytes]] = []
+	if path.is_dir():
+		for plist_path in path.rglob("Info.plist"):
+			if plist_path.parent.suffix == ".app":
+				candidates.append((str(plist_path.relative_to(path)), plist_path.read_bytes()))
+	elif zipfile.is_zipfile(path):
+		with zipfile.ZipFile(path) as archive:
+			for entry in archive.infolist():
+				normalized = entry.filename.replace("\\", "/")
+				if entry.is_dir() or not re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", normalized):
+					continue
+				candidates.append((entry.filename, archive.read(entry)))
+	if not candidates:
+		return None, ["missing final iOS application Info.plist"]
+	if len(candidates) > 1:
+		return None, ["multiple final iOS application Info.plist files found"]
+	try:
+		return inspect_ios_plist_contents(candidates[0][1]), []
+	except (ElementTree.ParseError, plistlib.InvalidFileException, ValueError, TypeError) as error:
+		return None, [f"invalid final iOS application Info.plist: {error}"]
 
 
 def _duplicate_values(values: tuple[str, ...]) -> set[str]:
@@ -2208,9 +2401,13 @@ def validate_ios_plist(
 				errors.append(f"iOS plist key '{key}' for {owner} must be a string")
 			elif not all(value.strip() for value in inventory.values[key]):
 				errors.append(f"iOS plist key '{key}' for {owner} must not be empty")
-		missing_identifiers = contract["skad_network_ids"] - set(inventory.skad_network_ids)
-		for identifier in sorted(missing_identifiers):
-			errors.append(f"missing SKAdNetworkIdentifier '{identifier}' for {owner}")
+
+	for identifier in sorted(expectation.required_skad_network_ids - set(inventory.skad_network_ids)):
+		errors.append(f"missing SKAdNetworkIdentifier '{identifier}'")
+	for identifier in sorted(
+		expectation.required_ad_attribution_kit_ids - set(inventory.ad_attribution_kit_ids)
+	):
+		errors.append(f"missing AdAttributionKit network identifier '{identifier}'")
 
 	for key, expected_value in sorted(expectation.expected_values.items()):
 		actual_values = inventory.values.get(key, ())
@@ -2226,6 +2423,14 @@ def validate_ios_plist(
 
 	for identifier in sorted(_duplicate_values(inventory.skad_network_ids)):
 		errors.append(f"duplicate SKAdNetworkIdentifier '{identifier}'")
+	for identifier in inventory.skad_network_ids:
+		if not re.fullmatch(r"[a-z0-9]{10}\.skadnetwork", identifier):
+			errors.append(f"malformed SKAdNetworkIdentifier '{identifier}'")
+	for identifier in sorted(_duplicate_values(inventory.ad_attribution_kit_ids)):
+		errors.append(f"duplicate AdAttributionKit network identifier '{identifier}'")
+	for identifier in inventory.ad_attribution_kit_ids:
+		if not re.fullmatch(r"[a-z0-9]+\.adattributionkit", identifier):
+			errors.append(f"malformed AdAttributionKit network identifier '{identifier}'")
 	for scheme in sorted(_duplicate_values(inventory.url_schemes)):
 		errors.append(f"duplicate URL scheme '{scheme}'")
 
@@ -2405,11 +2610,36 @@ def run_package_command(arguments: argparse.Namespace) -> int:
 		),
 	)
 	if arguments.platform == "IOS":
+		descriptors = discover_descriptors(arguments.repository)
+		enabled_plugins = required_providers | required_adapters
 		errors.extend(validate_ios_privacy_manifests(
 			inspect_ios_privacy_manifests(arguments.artifact),
-			discover_descriptors(arguments.repository),
-			required_providers | required_adapters,
+			descriptors,
+			enabled_plugins,
 		))
+		attribution, attribution_errors = collect_ios_attribution_configuration(
+			descriptors,
+			enabled_plugins,
+		)
+		errors.extend(attribution_errors)
+		for plugin_name in sorted(enabled_plugins):
+			descriptor = descriptors.get(plugin_name)
+			if descriptor is not None:
+				errors.extend(validate_ios_attribution_upl(descriptor))
+		plist_inventory, plist_errors = inspect_ios_package_plist(arguments.artifact)
+		errors.extend(plist_errors)
+		if plist_inventory is not None:
+			errors.extend(validate_ios_plist(
+				plist_inventory,
+				IOSPlistExpectation(
+					required_providers=required_providers,
+					required_adapters=required_adapters,
+					required_skad_network_ids=set(attribution.skad_network_ids),
+					required_ad_attribution_kit_ids=set(
+						attribution.ad_attribution_kit_ids
+					),
+				),
+			))
 	if errors:
 		for error in errors:
 			print(f"ads package validation failed: {error}", file=sys.stderr)
@@ -2487,6 +2717,16 @@ def run_plist_command(arguments: argparse.Namespace) -> int:
 		if not separator or not name or not value:
 			raise ValueError("--expected-value must use NAME=VALUE")
 		expected_values[name] = value
+	descriptors = discover_descriptors(arguments.repository)
+	enabled_plugins = set(arguments.require_provider) | set(arguments.require_adapter)
+	attribution, errors = collect_ios_attribution_configuration(
+		descriptors,
+		enabled_plugins,
+	)
+	for plugin_name in sorted(enabled_plugins):
+		descriptor = descriptors.get(plugin_name)
+		if descriptor is not None:
+			errors.extend(validate_ios_attribution_upl(descriptor))
 	inventory = inspect_ios_plist(arguments.plist)
 	errors = validate_ios_plist(
 		inventory,
@@ -2496,8 +2736,10 @@ def run_plist_command(arguments: argparse.Namespace) -> int:
 			set(arguments.require_adapter),
 			set(arguments.forbid_adapter),
 			expected_values,
+			set(attribution.skad_network_ids),
+			set(attribution.ad_attribution_kit_ids),
 		),
-	)
+	) + errors
 	if errors:
 		for error in errors:
 			print(f"ads iOS plist validation failed: {error}", file=sys.stderr)
@@ -2506,6 +2748,35 @@ def run_plist_command(arguments: argparse.Namespace) -> int:
 		"OpenMobile Ads iOS plist validation passed "
 		f"({len(inventory.skad_network_ids)} SKAdNetwork identifiers)."
 	)
+	return 0
+
+
+def run_attribution_command(arguments: argparse.Namespace) -> int:
+	descriptors = discover_descriptors(arguments.repository)
+	configuration = resolve_configuration(
+		descriptors,
+		arguments.plugin,
+		platform="IOS",
+		target_type="Game",
+	)
+	enabled_plugins = configuration.ads_providers | configuration.ads_adapters
+	attribution, errors = collect_ios_attribution_configuration(
+		descriptors,
+		enabled_plugins,
+	)
+	for plugin_name in sorted(enabled_plugins):
+		errors.extend(validate_ios_attribution_upl(descriptors[plugin_name]))
+	if errors:
+		for error in errors:
+			print(f"ads Apple attribution validation failed: {error}", file=sys.stderr)
+		return 1
+	print(json.dumps({
+		"SKAdNetworkItems": [
+			{"SKAdNetworkIdentifier": identifier}
+			for identifier in attribution.skad_network_ids
+		],
+		"AdNetworkIdentifiers": list(attribution.ad_attribution_kit_ids),
+	}, indent=2))
 	return 0
 
 
@@ -2590,12 +2861,18 @@ def parse_arguments() -> argparse.Namespace:
 
 	plist_parser = subparsers.add_parser("plist")
 	plist_parser.add_argument("plist", type=Path)
+	plist_parser.add_argument("--repository", type=Path, default=Path.cwd())
 	plist_parser.add_argument("--require-provider", action="append", default=[])
 	plist_parser.add_argument("--forbid-provider", action="append", default=[])
 	plist_parser.add_argument("--require-adapter", action="append", default=[])
 	plist_parser.add_argument("--forbid-adapter", action="append", default=[])
 	plist_parser.add_argument("--expected-value", action="append", default=[])
 	plist_parser.set_defaults(handler=run_plist_command)
+
+	attribution_parser = subparsers.add_parser("attribution")
+	attribution_parser.add_argument("--repository", type=Path, default=Path.cwd())
+	attribution_parser.add_argument("--plugin", action="append", required=True)
+	attribution_parser.set_defaults(handler=run_attribution_command)
 
 	return parser.parse_args()
 

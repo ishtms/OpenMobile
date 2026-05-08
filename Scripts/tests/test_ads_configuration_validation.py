@@ -16,10 +16,10 @@ from validate_ads_plugins import (
 	AndroidDependencyExpectation,
 	AndroidManifestExpectation,
 	ArtifactExpectation,
-	IOS_PLIST_CONTRACTS,
 	IOSPlistExpectation,
 	PluginDescriptor,
 	PROVIDER_SIGNATURES,
+	collect_ios_attribution_configuration,
 	discover_descriptors,
 	inspect_artifact,
 	inspect_android_dependency_graph,
@@ -965,15 +965,19 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 
 	def test_admob_ios_plist_preserves_project_owned_values(self) -> None:
-		contract = IOS_PLIST_CONTRACTS["OpenMobileAdsAdMob"]
+		attribution, metadata_errors = collect_ios_attribution_configuration(
+			self.descriptors,
+			{"OpenMobileAdsAdMob"},
+		)
+		self.assertEqual([], metadata_errors)
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			plist_path = Path(temporary_directory) / "Info.plist"
 			plist_path.write_bytes(plistlib.dumps({
 				"GADApplicationIdentifier": "ca-app-pub-1234567890123456~1234567890",
 				"SKAdNetworkItems": [
 					{"SKAdNetworkIdentifier": identifier}
-					for identifier in sorted(contract["skad_network_ids"])
-				] + [{"SKAdNetworkIdentifier": "examplebuyer.skadnetwork"}],
+					for identifier in attribution.skad_network_ids
+				] + [{"SKAdNetworkIdentifier": "exmplbuyer.skadnetwork"}],
 				"NSUserTrackingUsageDescription": "Ads help keep this game free.",
 				"CFBundleURLTypes": [{
 					"CFBundleURLName": "com.example.game",
@@ -986,18 +990,24 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				inventory,
 				IOSPlistExpectation(
 					required_providers={"OpenMobileAdsAdMob"},
-					expected_values={
+						expected_values={
 						"GADApplicationIdentifier":
 							"ca-app-pub-1234567890123456~1234567890",
-					},
-				),
+						},
+						required_skad_network_ids=set(attribution.skad_network_ids),
+					),
 			)
 
 			self.assertEqual([], errors)
-			self.assertIn("examplebuyer.skadnetwork", inventory.skad_network_ids)
+			self.assertIn("exmplbuyer.skadnetwork", inventory.skad_network_ids)
 			self.assertEqual(("openmobile-example",), inventory.url_schemes)
 
 	def test_admob_ios_plist_reports_conflicts_and_duplicates(self) -> None:
+		attribution, metadata_errors = collect_ios_attribution_configuration(
+			self.descriptors,
+			{"OpenMobileAdsAdMob"},
+		)
+		self.assertEqual([], metadata_errors)
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			plist_path = Path(temporary_directory) / "Info.plist"
 			plist_path.write_text(
@@ -1030,6 +1040,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 					expected_values={
 						"GADApplicationIdentifier": "ca-app-pub-333~333",
 					},
+					required_skad_network_ids=set(attribution.skad_network_ids),
 				),
 			)
 

@@ -1,7 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
     <registerBuildSettings>
-        <insert>OpenMobileAdsAdMobMetaIOSDependencyContract=1</insert>
+        <insert>OpenMobileAdsAdMobMetaIOSDependencyContract=2</insert>
         <insertNewline/>
     </registerBuildSettings>
+
+    <iosPListUpdates>
+        <setBool result="OpenMobileAdsAdMobMetaSKAdItemsFound" value="false"/>
+        <loopElements tag="$">
+            <setBool result="OpenMobileAdsAdMobMetaNextIsSKAdItems" value="false"/>
+            <loopElements tag="$">
+                <setStringFromTag result="OpenMobileAdsAdMobMetaCurrentTag" tag="$"/>
+                <if condition="OpenMobileAdsAdMobMetaNextIsSKAdItems">
+                    <true>
+                        <setBoolIsEqual
+                            result="OpenMobileAdsAdMobMetaCurrentTagIsArray"
+                            arg1="$S(OpenMobileAdsAdMobMetaCurrentTag)"
+                            arg2="array"/>
+                        <if condition="OpenMobileAdsAdMobMetaCurrentTagIsArray">
+                            <true>
+                                <setBool result="OpenMobileAdsAdMobMetaSKAdItemsFound" value="true"/>
+                            </true>
+                        </if>
+                        <setBool result="OpenMobileAdsAdMobMetaNextIsSKAdItems" value="false"/>
+                    </true>
+                </if>
+                <setBoolIsEqual
+                    result="OpenMobileAdsAdMobMetaCurrentTagIsKey"
+                    arg1="$S(OpenMobileAdsAdMobMetaCurrentTag)"
+                    arg2="key"/>
+                <if condition="OpenMobileAdsAdMobMetaCurrentTagIsKey">
+                    <true>
+                        <setStringFromTagText result="OpenMobileAdsAdMobMetaCurrentPlistKey" tag="$"/>
+                        <setBoolIsEqual
+                            result="OpenMobileAdsAdMobMetaNextIsSKAdItems"
+                            arg1="$S(OpenMobileAdsAdMobMetaCurrentPlistKey)"
+                            arg2="SKAdNetworkItems"/>
+                    </true>
+                </if>
+            </loopElements>
+        </loopElements>
+        <setBoolNot
+            result="OpenMobileAdsAdMobMetaNeedsSKAdItems"
+            source="$B(OpenMobileAdsAdMobMetaSKAdItemsFound)"/>
+        <if condition="OpenMobileAdsAdMobMetaNeedsSKAdItems">
+            <true>
+                <addElements tag="dict" once="true">
+                    <key>SKAdNetworkItems</key>
+                    <array/>
+                </addElements>
+            </true>
+        </if>
+
+        <setBool result="OpenMobileAdsAdMobMetaSKAdItemsFound" value="false"/>
+        <loopElements tag="$">
+            <setBool result="OpenMobileAdsAdMobMetaNextIsSKAdItems" value="false"/>
+            <loopElements tag="$">
+                <setStringFromTag result="OpenMobileAdsAdMobMetaCurrentTag" tag="$"/>
+                <if condition="OpenMobileAdsAdMobMetaNextIsSKAdItems">
+                    <true>
+                        <setBoolIsEqual
+                            result="OpenMobileAdsAdMobMetaCurrentTagIsArray"
+                            arg1="$S(OpenMobileAdsAdMobMetaCurrentTag)"
+                            arg2="array"/>
+                        <if condition="OpenMobileAdsAdMobMetaCurrentTagIsArray">
+                            <true>
+                                <setBool result="OpenMobileAdsAdMobMetaSKAdItemsFound" value="true"/>
+                                <addElements tag="$">
+                                    <dict><key>SKAdNetworkIdentifier</key><string>v9wttpbfk9.skadnetwork</string></dict>
+                                    <dict><key>SKAdNetworkIdentifier</key><string>n38lu8286q.skadnetwork</string></dict>
+                                </addElements>
+                                <setString
+                                    result="OpenMobileAdsAdMobMetaSeenSKAdNetworkIdentifiers"
+                                    value="|"/>
+                                <loopElements tag="$">
+                                    <setString
+                                        result="OpenMobileAdsAdMobMetaCurrentSKAdNetworkIdentifier"
+                                        value=""/>
+                                    <setBool
+                                        result="OpenMobileAdsAdMobMetaNextIsSKAdNetworkIdentifier"
+                                        value="false"/>
+                                    <loopElements tag="$">
+                                        <setStringFromTag
+                                            result="OpenMobileAdsAdMobMetaSKAdItemTag"
+                                            tag="$"/>
+                                        <if condition="OpenMobileAdsAdMobMetaNextIsSKAdNetworkIdentifier">
+                                            <true>
+                                                <setBoolIsEqual
+                                                    result="OpenMobileAdsAdMobMetaSKAdItemTagIsString"
+                                                    arg1="$S(OpenMobileAdsAdMobMetaSKAdItemTag)"
+                                                    arg2="string"/>
+                                                <if condition="OpenMobileAdsAdMobMetaSKAdItemTagIsString">
+                                                    <true>
+                                                        <setStringFromTagText
+                                                            result="OpenMobileAdsAdMobMetaCurrentSKAdNetworkIdentifier"
+                                                            tag="$"/>
+                                                    </true>
+                                                </if>
+                                                <setBool
+                                                    result="OpenMobileAdsAdMobMetaNextIsSKAdNetworkIdentifier"
+                                                    value="false"/>
+                                            </true>
+                                        </if>
+                                        <setBoolIsEqual
+                                            result="OpenMobileAdsAdMobMetaSKAdItemTagIsKey"
+                                            arg1="$S(OpenMobileAdsAdMobMetaSKAdItemTag)"
+                                            arg2="key"/>
+                                        <if condition="OpenMobileAdsAdMobMetaSKAdItemTagIsKey">
+                                            <true>
+                                                <setStringFromTagText
+                                                    result="OpenMobileAdsAdMobMetaSKAdItemKey"
+                                                    tag="$"/>
+                                                <setBoolIsEqual
+                                                    result="OpenMobileAdsAdMobMetaNextIsSKAdNetworkIdentifier"
+                                                    arg1="$S(OpenMobileAdsAdMobMetaSKAdItemKey)"
+                                                    arg2="SKAdNetworkIdentifier"/>
+                                            </true>
+                                        </if>
+                                    </loopElements>
+                                    <setStringAdd
+                                        result="OpenMobileAdsAdMobMetaSKAdNetworkIdentifierNeedle"
+                                        arg1="|"
+                                        arg2="$S(OpenMobileAdsAdMobMetaCurrentSKAdNetworkIdentifier)"/>
+                                    <setStringAdd
+                                        result="OpenMobileAdsAdMobMetaSKAdNetworkIdentifierNeedle"
+                                        arg1="$S(OpenMobileAdsAdMobMetaSKAdNetworkIdentifierNeedle)"
+                                        arg2="|"/>
+                                    <setBoolContains
+                                        result="OpenMobileAdsAdMobMetaSKAdNetworkIdentifierIsDuplicate"
+                                        source="$S(OpenMobileAdsAdMobMetaSeenSKAdNetworkIdentifiers)"
+                                        find="$S(OpenMobileAdsAdMobMetaSKAdNetworkIdentifierNeedle)"/>
+                                    <if condition="OpenMobileAdsAdMobMetaSKAdNetworkIdentifierIsDuplicate">
+                                        <true>
+                                            <removeElement tag="$"/>
+                                        </true>
+                                        <false>
+                                            <setStringAdd
+                                                result="OpenMobileAdsAdMobMetaSeenSKAdNetworkIdentifiers"
+                                                arg1="$S(OpenMobileAdsAdMobMetaSeenSKAdNetworkIdentifiers)"
+                                                arg2="$S(OpenMobileAdsAdMobMetaSKAdNetworkIdentifierNeedle)"/>
+                                        </false>
+                                    </if>
+                                </loopElements>
+                            </true>
+                        </if>
+                        <setBool result="OpenMobileAdsAdMobMetaNextIsSKAdItems" value="false"/>
+                    </true>
+                </if>
+                <setBoolIsEqual
+                    result="OpenMobileAdsAdMobMetaCurrentTagIsKey"
+                    arg1="$S(OpenMobileAdsAdMobMetaCurrentTag)"
+                    arg2="key"/>
+                <if condition="OpenMobileAdsAdMobMetaCurrentTagIsKey">
+                    <true>
+                        <setStringFromTagText result="OpenMobileAdsAdMobMetaCurrentPlistKey" tag="$"/>
+                        <setBoolIsEqual
+                            result="OpenMobileAdsAdMobMetaNextIsSKAdItems"
+                            arg1="$S(OpenMobileAdsAdMobMetaCurrentPlistKey)"
+                            arg2="SKAdNetworkItems"/>
+                    </true>
+                </if>
+            </loopElements>
+        </loopElements>
+    </iosPListUpdates>
 </root>

@@ -11,8 +11,9 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "Scripts"))
 
 from validate_ads_plugins import (
 	ADAPTER_SIGNATURES,
-	IOS_PLIST_CONTRACTS,
 	PROVIDER_SIGNATURES,
+	collect_ios_attribution_configuration,
+	discover_descriptors,
 )
 
 
@@ -970,15 +971,20 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			for element in root.findall(".//string")
 			if element.text and element.text.endswith(".skadnetwork")
 		}
+		attribution, attribution_errors = collect_ios_attribution_configuration(
+			discover_descriptors(REPOSITORY_ROOT),
+			{"OpenMobileAdsAdMob"},
+		)
+		self.assertEqual([], attribution_errors)
 		self.assertEqual(
-			IOS_PLIST_CONTRACTS["OpenMobileAdsAdMob"]["skad_network_ids"],
+			set(attribution.skad_network_ids),
 			upl_identifiers,
 		)
 		build_settings = ElementTree.tostring(
 			root.find("registerBuildSettings"),
 			encoding="unicode",
 		)
-		self.assertIn("OpenMobileAdsAdMobIOSPlistContract=2", build_settings)
+		self.assertIn("OpenMobileAdsAdMobIOSPlistContract=3", build_settings)
 
 		common_build_rules = (
 			ADMOB_PLUGIN
