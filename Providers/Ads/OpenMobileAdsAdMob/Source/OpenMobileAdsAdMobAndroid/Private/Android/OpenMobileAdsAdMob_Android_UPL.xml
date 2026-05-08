@@ -49,7 +49,7 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=15</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=16</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -247,13 +247,39 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdClosed(long requestId);
     public native void nativeOpenMobileRewardedAdFailed(long requestId, String errorMessage);
     public native void nativeOpenMobileRewardedAdLoadCompleted(long requestId);
-    public native void nativeOpenMobileRewardedAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileRewardedAdLoadFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
+    );
+    public native void nativeOpenMobileRewardedInterstitialAdLoadCompleted(
+        long requestId,
+        int rewardAmount,
+        String rewardType
+    );
+    public native void nativeOpenMobileRewardedInterstitialAdLoadFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
+    );
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long requestId);
-    public native void nativeOpenMobileInterstitialAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileInterstitialAdLoadFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
+    );
     public native void nativeOpenMobileAppOpenAdLoadCompleted(long requestId);
-    public native void nativeOpenMobileAppOpenAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileAppOpenAdLoadFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
+    );
     public native void nativeOpenMobileBannerAdLoadCompleted(long requestId);
-    public native void nativeOpenMobileBannerAdLoadFailed(long requestId, String errorMessage);
+    public native void nativeOpenMobileBannerAdLoadFailed(
+        long requestId,
+        String errorCode,
+        String errorMessage
+    );
     public native void nativeOpenMobileBannerAdShown(long requestId);
     public native void nativeOpenMobileBannerAdHidden(long requestId);
     public native void nativeOpenMobileBannerAdOperationFailed(
@@ -273,6 +299,28 @@ import java.util.Set;
         String instanceName,
         String instanceId
     );
+
+    private String openMobileAdsLoadErrorCode(LoadAdError error)
+    {
+        if (error == null)
+        {
+            return "internal_error";
+        }
+        switch (error.getCode())
+        {
+        case 1:
+            return "invalid_request";
+        case 2:
+            return "network_error";
+        case 3:
+        case 9:
+            return "no_fill";
+        case 8:
+            return "missing_app_id";
+        default:
+            return "internal_error";
+        }
+    }
 
     private void dispatchOpenMobileRevenuePaid(
         boolean banner,
@@ -516,6 +564,7 @@ import java.util.Set;
                     destroyOpenMobileBanner(entry);
                     nativeOpenMobileBannerAdLoadFailed(
                         entry.loadRequestId,
+                        openMobileAdsLoadErrorCode(loadAdError),
                         "Banner failed to load: " + loadAdError.getMessage()
                     );
                 }
@@ -1241,6 +1290,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileRewardedAdLoadFailed(
                             requestId,
+                            "invalid_request",
                             "The Android rewarded ad unit ID is empty."
                         );
                         return;
@@ -1252,6 +1302,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileRewardedAdLoadFailed(
                             requestId,
+                            "invalid_state",
                             "The Android rewarded load request is already active."
                         );
                         return;
@@ -1287,6 +1338,7 @@ import java.util.Set;
                                     }
                                     nativeOpenMobileRewardedAdLoadFailed(
                                         requestId,
+                                        openMobileAdsLoadErrorCode(loadAdError),
                                         "Rewarded ad failed to load: " + loadAdError.getMessage()
                                     );
                                 }
@@ -1298,6 +1350,7 @@ import java.util.Set;
                         openMobileRewardedAdLoadRequests.remove(requestId);
                         nativeOpenMobileRewardedAdLoadFailed(
                             requestId,
+                            "internal_error",
                             "Rewarded ad load could not start: " + exception.getMessage()
                         );
                     }
@@ -1342,6 +1395,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileRewardedInterstitialAdLoadFailed(
                             requestId,
+                            "invalid_request",
                             "The Android rewarded-interstitial ad unit ID is empty."
                         );
                         return;
@@ -1353,6 +1407,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileRewardedInterstitialAdLoadFailed(
                             requestId,
+                            "invalid_state",
                             "The Android rewarded-interstitial load request is already active."
                         );
                         return;
@@ -1405,6 +1460,7 @@ import java.util.Set;
                                     }
                                     nativeOpenMobileRewardedInterstitialAdLoadFailed(
                                         requestId,
+                                        openMobileAdsLoadErrorCode(loadAdError),
                                         "Rewarded interstitial failed to load: "
                                             + loadAdError.getMessage()
                                     );
@@ -1417,6 +1473,7 @@ import java.util.Set;
                         openMobileRewardedInterstitialAdLoadRequests.remove(requestId);
                         nativeOpenMobileRewardedInterstitialAdLoadFailed(
                             requestId,
+                            "internal_error",
                             "Rewarded-interstitial load could not start: "
                                 + exception.getMessage()
                         );
@@ -1467,6 +1524,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileInterstitialAdLoadFailed(
                             requestId,
+                            "invalid_request",
                             "The Android interstitial ad unit ID is empty."
                         );
                         return;
@@ -1478,6 +1536,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileInterstitialAdLoadFailed(
                             requestId,
+                            "invalid_state",
                             "The Android interstitial load request is already active."
                         );
                         return;
@@ -1516,6 +1575,7 @@ import java.util.Set;
                                     }
                                     nativeOpenMobileInterstitialAdLoadFailed(
                                         requestId,
+                                        openMobileAdsLoadErrorCode(loadAdError),
                                         "Interstitial failed to load: "
                                             + loadAdError.getMessage()
                                     );
@@ -1528,6 +1588,7 @@ import java.util.Set;
                         openMobileInterstitialAdLoadRequests.remove(requestId);
                         nativeOpenMobileInterstitialAdLoadFailed(
                             requestId,
+                            "internal_error",
                             "Interstitial load could not start: " + exception.getMessage()
                         );
                     }
@@ -1574,6 +1635,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileAppOpenAdLoadFailed(
                             requestId,
+                            "invalid_request",
                             "The Android app-open ad unit ID is empty."
                         );
                         return;
@@ -1585,6 +1647,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileAppOpenAdLoadFailed(
                             requestId,
+                            "invalid_state",
                             "The Android app-open load request is already active."
                         );
                         return;
@@ -1620,6 +1683,7 @@ import java.util.Set;
                                     }
                                     nativeOpenMobileAppOpenAdLoadFailed(
                                         requestId,
+                                        openMobileAdsLoadErrorCode(loadAdError),
                                         "App-open ad failed to load: "
                                             + loadAdError.getMessage()
                                     );
@@ -1632,6 +1696,7 @@ import java.util.Set;
                         openMobileAppOpenAdLoadRequests.remove(requestId);
                         nativeOpenMobileAppOpenAdLoadFailed(
                             requestId,
+                            "internal_error",
                             "App-open load could not start: " + exception.getMessage()
                         );
                     }
@@ -1687,6 +1752,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileBannerAdLoadFailed(
                             requestId,
+                            "invalid_request",
                             "The Android banner ad unit ID is empty."
                         );
                         return;
@@ -1695,6 +1761,7 @@ import java.util.Set;
                     {
                         nativeOpenMobileBannerAdLoadFailed(
                             requestId,
+                            "invalid_state",
                             "The Android banner load request is already active."
                         );
                         return;
@@ -1733,6 +1800,7 @@ import java.util.Set;
                         }
                         nativeOpenMobileBannerAdLoadFailed(
                             requestId,
+                            "internal_error",
                             "Banner load could not start: " + exception.getMessage()
                         );
                     }
@@ -2744,7 +2812,11 @@ import java.util.Set;
     public native void nativeOpenMobileRewardedAdClosed(long);
     public native void nativeOpenMobileRewardedAdFailed(long, java.lang.String);
     public native void nativeOpenMobileRewardedAdLoadCompleted(long);
-    public native void nativeOpenMobileRewardedAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileRewardedAdLoadFailed(
+        long,
+        java.lang.String,
+        java.lang.String
+    );
     public native void nativeOpenMobileRewardedInterstitialAdLoadCompleted(
         long,
         int,
@@ -2752,14 +2824,27 @@ import java.util.Set;
     );
     public native void nativeOpenMobileRewardedInterstitialAdLoadFailed(
         long,
+        java.lang.String,
         java.lang.String
     );
     public native void nativeOpenMobileInterstitialAdLoadCompleted(long);
-    public native void nativeOpenMobileInterstitialAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileInterstitialAdLoadFailed(
+        long,
+        java.lang.String,
+        java.lang.String
+    );
     public native void nativeOpenMobileAppOpenAdLoadCompleted(long);
-    public native void nativeOpenMobileAppOpenAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileAppOpenAdLoadFailed(
+        long,
+        java.lang.String,
+        java.lang.String
+    );
     public native void nativeOpenMobileBannerAdLoadCompleted(long);
-    public native void nativeOpenMobileBannerAdLoadFailed(long, java.lang.String);
+    public native void nativeOpenMobileBannerAdLoadFailed(
+        long,
+        java.lang.String,
+        java.lang.String
+    );
     public native void nativeOpenMobileBannerAdShown(long);
     public native void nativeOpenMobileBannerAdHidden(long);
     public native void nativeOpenMobileBannerAdOperationFailed(long, java.lang.String);

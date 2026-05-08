@@ -406,7 +406,7 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
 		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=15", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=16", build_settings)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -490,6 +490,61 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			},
 			copy_destinations,
 		)
+
+	def test_admob_native_load_failures_keep_normalized_sdk_codes(self) -> None:
+		android_root = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+		)
+		android_upl = (
+			android_root / "OpenMobileAdsAdMob_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_backend = (
+			android_root / "OpenMobileAdsAdMobAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertEqual(5, android_upl.count("openMobileAdsLoadErrorCode(loadAdError)"))
+		for token in (
+			'case 3:',
+			'case 9:',
+			'return "no_fill";',
+			'"invalid_request"',
+			'"invalid_state"',
+			'"internal_error"',
+		):
+			self.assertIn(token, android_upl)
+		for callback in (
+			"RewardedAd",
+			"RewardedInterstitialAd",
+			"InterstitialAd",
+			"AppOpenAd",
+			"BannerAd",
+		):
+			start = android_backend.index(
+				f"nativeOpenMobile{callback}LoadFailed("
+			)
+			callback_body = android_backend[start:android_backend.index("\n}", start)]
+			self.assertIn("jstring ErrorCode", callback_body)
+			self.assertIn("jstring ErrorMessage", callback_body)
+
+		ios_backend = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"LoadErrorCode(NSError* Error)",
+			"GADErrorNoFill",
+			"GADErrorNetworkError",
+			"GADErrorMediationAdapterError",
+			'TEXT("no_fill")',
+		):
+			self.assertIn(token, ios_backend)
 		android_build_rules = (
 			ADMOB_PLUGIN
 			/ "Source"

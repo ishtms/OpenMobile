@@ -28,7 +28,7 @@ DECLARE_DELEGATE_ThreeParams(
 	int64,
 	FString
 );
-DECLARE_DELEGATE_OneParam(FOnOpenMobileAdMobAdLoadFailed, FString);
+DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobAdLoadFailed, FString, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedShown);
 DECLARE_DELEGATE_TwoParams(FOnOpenMobileAdMobRewardedEarned, int32, FString);
 DECLARE_DELEGATE(FOnOpenMobileAdMobRewardedClosed);
@@ -129,9 +129,17 @@ public:
 		FString Description
 	);
 	static void NativeRewardedLoadCompleted(int64 RequestId);
-	static void NativeRewardedLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeRewardedLoadFailed(
+		int64 RequestId,
+		FString ErrorMessage,
+		FString ErrorCode = FString()
+	);
 	static void NativeInterstitialLoadCompleted(int64 RequestId);
-	static void NativeInterstitialLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeInterstitialLoadFailed(
+		int64 RequestId,
+		FString ErrorMessage,
+		FString ErrorCode = FString()
+	);
 	static void NativeRewardedInterstitialLoadCompleted(
 		int64 RequestId,
 		int64 RewardAmount,
@@ -139,12 +147,21 @@ public:
 	);
 	static void NativeRewardedInterstitialLoadFailed(
 		int64 RequestId,
-		FString ErrorMessage
+		FString ErrorMessage,
+		FString ErrorCode = FString()
 	);
 	static void NativeAppOpenLoadCompleted(int64 RequestId);
-	static void NativeAppOpenLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeAppOpenLoadFailed(
+		int64 RequestId,
+		FString ErrorMessage,
+		FString ErrorCode = FString()
+	);
 	static void NativeBannerLoadCompleted(int64 RequestId);
-	static void NativeBannerLoadFailed(int64 RequestId, FString ErrorMessage);
+	static void NativeBannerLoadFailed(
+		int64 RequestId,
+		FString ErrorMessage,
+		FString ErrorCode = FString()
+	);
 	static void NativeBannerShown(int64 RequestId);
 	static void NativeBannerHidden(int64 RequestId);
 	static void NativeBannerOperationFailed(int64 RequestId, FString ErrorMessage);

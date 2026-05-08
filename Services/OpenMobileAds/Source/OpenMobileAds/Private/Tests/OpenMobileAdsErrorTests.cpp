@@ -84,6 +84,23 @@ bool FOpenMobileAdsKnownErrorMappingTest::RunTest(const FString& Parameters)
 	PackagingContext.NativeCode = TEXT("missing_app_id");
 	const FOpenMobileAdsError Packaging = FOpenMobileAdsErrorMapper::FromNative(PackagingContext);
 	TestEqual(TEXT("Missing packaged configuration is normalized"), Packaging.Code, EOpenMobileAdsErrorCode::NotConfigured);
+
+	for (const TPair<FString, EOpenMobileAdsErrorCode>& Mapping : {
+		TPair<FString, EOpenMobileAdsErrorCode>(TEXT("invalid_state"), EOpenMobileAdsErrorCode::InvalidState),
+		TPair<FString, EOpenMobileAdsErrorCode>(TEXT("missing_app_id"), EOpenMobileAdsErrorCode::NotConfigured),
+		TPair<FString, EOpenMobileAdsErrorCode>(TEXT("internal_error"), EOpenMobileAdsErrorCode::NativeFailure)
+	})
+	{
+		ProviderContext.NativeCode = Mapping.Key;
+		const FOpenMobileAdsError Mapped = FOpenMobileAdsErrorMapper::FromNative(
+			ProviderContext
+		);
+		TestEqual(
+			*FString::Printf(TEXT("Provider code %s is normalized"), *Mapping.Key),
+			Mapped.Code,
+			Mapping.Value
+		);
+	}
 	return true;
 }
 

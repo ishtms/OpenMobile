@@ -1296,10 +1296,15 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedLoadCompleted(int64 RequestId)
 
 void FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
 	int64 RequestId,
-	FString ErrorMessage
+	FString ErrorMessage,
+	FString ErrorCode
 )
 {
-	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ErrorMessage = MoveTemp(ErrorMessage),
+		ErrorCode = MoveTemp(ErrorCode)
+	]() mutable
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
 		FAdLoadOperation Operation;
@@ -1309,7 +1314,7 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
 			Operation
 		))
 		{
-			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorCode), MoveTemp(ErrorMessage));
 		}
 	});
 }
@@ -1370,11 +1375,16 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadCompleted(
 
 void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 	int64 RequestId,
-	FString ErrorMessage
+	FString ErrorMessage,
+	FString ErrorCode
 )
 {
 	OpenMobile::DispatchToGameThread(
-		[RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+		[
+			RequestId,
+			ErrorMessage = MoveTemp(ErrorMessage),
+			ErrorCode = MoveTemp(ErrorCode)
+		]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
 			FAdLoadOperation Operation;
@@ -1384,7 +1394,7 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 				Operation
 			))
 			{
-				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorCode), MoveTemp(ErrorMessage));
 			}
 		}
 	);
@@ -1392,10 +1402,15 @@ void FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 
 void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 	int64 RequestId,
-	FString ErrorMessage
+	FString ErrorMessage,
+	FString ErrorCode
 )
 {
-	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ErrorMessage = MoveTemp(ErrorMessage),
+		ErrorCode = MoveTemp(ErrorCode)
+	]() mutable
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
 		FAdLoadOperation Operation;
@@ -1405,7 +1420,7 @@ void FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 			Operation
 		))
 		{
-			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorCode), MoveTemp(ErrorMessage));
 		}
 	});
 }
@@ -1434,11 +1449,16 @@ void FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadCompleted(int64 RequestId)
 
 void FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
 	int64 RequestId,
-	FString ErrorMessage
+	FString ErrorMessage,
+	FString ErrorCode
 )
 {
 	OpenMobile::DispatchToGameThread(
-		[RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+		[
+			RequestId,
+			ErrorMessage = MoveTemp(ErrorMessage),
+			ErrorCode = MoveTemp(ErrorCode)
+		]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
 			FAdLoadOperation Operation;
@@ -1448,7 +1468,7 @@ void FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
 				Operation
 			))
 			{
-				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+				Operation.Failed.ExecuteIfBound(MoveTemp(ErrorCode), MoveTemp(ErrorMessage));
 			}
 		}
 	);
@@ -1474,16 +1494,21 @@ void FOpenMobileAdsAdMobPlatform::NativeBannerLoadCompleted(int64 RequestId)
 
 void FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
 	int64 RequestId,
-	FString ErrorMessage
+	FString ErrorMessage,
+	FString ErrorCode
 )
 {
-	OpenMobile::DispatchToGameThread([RequestId, ErrorMessage = MoveTemp(ErrorMessage)]() mutable
+	OpenMobile::DispatchToGameThread([
+		RequestId,
+		ErrorMessage = MoveTemp(ErrorMessage),
+		ErrorCode = MoveTemp(ErrorCode)
+	]() mutable
 	{
 		using namespace OpenMobileAdsAdMobPlatformPrivate;
 		FAdLoadOperation Operation;
 		if (RemoveBannerLoadOperation(RequestId, Operation))
 		{
-			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorMessage));
+			Operation.Failed.ExecuteIfBound(MoveTemp(ErrorCode), MoveTemp(ErrorMessage));
 		}
 	});
 }

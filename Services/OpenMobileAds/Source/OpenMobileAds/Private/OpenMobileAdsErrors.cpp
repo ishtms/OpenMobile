@@ -77,6 +77,31 @@ namespace OpenMobileAdsErrorPrivate
 			Error.bRetryable = true;
 			return true;
 		}
+		if (Code == TEXT("invalid_state"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::InvalidState;
+			Error.Explanation = TEXT("The ads provider rejected the operation in its current state.");
+			Error.LikelyCause = TEXT("An equivalent request is active or the native ad object was already used.");
+			Error.SuggestedCorrection = TEXT("Wait for the active operation to finish before retrying.");
+			return true;
+		}
+		if (Code == TEXT("missing_app_id"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NotConfigured;
+			Error.Explanation = TEXT("The ads provider application identifier is missing.");
+			Error.LikelyCause = TEXT("The packaged application does not contain the configured provider app ID.");
+			Error.SuggestedCorrection = TEXT("Set the provider app ID and inspect the packaged native metadata.");
+			return true;
+		}
+		if (Code == TEXT("internal_error"))
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NativeFailure;
+			Error.Explanation = TEXT("The ads provider returned an internal load error.");
+			Error.LikelyCause = TEXT("The native SDK could not complete the ad request.");
+			Error.SuggestedCorrection = TEXT("Inspect native diagnostics and retry with the configured policy.");
+			Error.bRetryable = true;
+			return true;
+		}
 		return false;
 	}
 

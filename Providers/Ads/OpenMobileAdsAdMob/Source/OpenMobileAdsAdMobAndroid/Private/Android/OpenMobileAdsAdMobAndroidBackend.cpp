@@ -1109,12 +1109,14 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	JNIEnv* Env,
 	jobject Activity,
 	jlong RequestId,
+	jstring ErrorCode,
 	jstring ErrorMessage
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
 		static_cast<int64>(RequestId),
-		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+		FJavaHelper::FStringFromParam(Env, ErrorMessage),
+		FJavaHelper::FStringFromParam(Env, ErrorCode)
 	);
 }
 
@@ -1137,12 +1139,14 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedI
 	JNIEnv* Env,
 	jobject Activity,
 	jlong RequestId,
+	jstring ErrorCode,
 	jstring ErrorMessage
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 		static_cast<int64>(RequestId),
-		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+		FJavaHelper::FStringFromParam(Env, ErrorMessage),
+		FJavaHelper::FStringFromParam(Env, ErrorCode)
 	);
 }
 
@@ -1161,12 +1165,14 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstit
 	JNIEnv* Env,
 	jobject Activity,
 	jlong RequestId,
+	jstring ErrorCode,
 	jstring ErrorMessage
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 		static_cast<int64>(RequestId),
-		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+		FJavaHelper::FStringFromParam(Env, ErrorMessage),
+		FJavaHelper::FStringFromParam(Env, ErrorCode)
 	);
 }
 
@@ -1185,12 +1191,14 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAd
 	JNIEnv* Env,
 	jobject Activity,
 	jlong RequestId,
+	jstring ErrorCode,
 	jstring ErrorMessage
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
 		static_cast<int64>(RequestId),
-		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+		FJavaHelper::FStringFromParam(Env, ErrorMessage),
+		FJavaHelper::FStringFromParam(Env, ErrorCode)
 	);
 }
 
@@ -1209,12 +1217,14 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdL
 	JNIEnv* Env,
 	jobject Activity,
 	jlong RequestId,
+	jstring ErrorCode,
 	jstring ErrorMessage
 )
 {
 	FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
 		static_cast<int64>(RequestId),
-		FJavaHelper::FStringFromParam(Env, ErrorMessage)
+		FJavaHelper::FStringFromParam(Env, ErrorMessage),
+		FJavaHelper::FStringFromParam(Env, ErrorCode)
 	);
 }
 

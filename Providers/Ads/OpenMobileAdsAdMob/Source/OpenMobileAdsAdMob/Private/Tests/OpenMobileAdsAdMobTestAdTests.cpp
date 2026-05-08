@@ -1487,7 +1487,8 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 	{
 		FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
 			Backend.LoadRequestIds[3],
-			TEXT("test native load failed")
+			TEXT("test native load failed"),
+			TEXT("no_fill")
 		);
 	}
 	TestEqual(TEXT("A native load failure emits one terminal event"), FailedSink->Events.Num(), 1);
@@ -1499,9 +1500,14 @@ bool FOpenMobileAdsAdMobLoadContractTest::RunTest(const FString& Parameters)
 			EOpenMobileAdsEventType::LoadFailed
 		);
 		TestEqual(
-			TEXT("Native load failure is typed"),
+			TEXT("Native no-fill is typed"),
 			FailedSink->Events[0].Error.Code,
-			EOpenMobileAdsErrorCode::NativeFailure
+			EOpenMobileAdsErrorCode::NoFill
+		);
+		TestEqual(
+			TEXT("Native no-fill keeps the provider code"),
+			FailedSink->Events[0].Error.NativeDiagnostics.NativeCode,
+			FString(TEXT("no_fill"))
 		);
 	}
 

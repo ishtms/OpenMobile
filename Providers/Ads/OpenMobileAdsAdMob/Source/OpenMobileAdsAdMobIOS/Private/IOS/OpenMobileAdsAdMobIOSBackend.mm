@@ -89,6 +89,36 @@ namespace OpenMobileAdsAdMobIOS
 		return String ? FString(UTF8_TO_TCHAR(String.UTF8String)) : FString();
 	}
 
+	FString LoadErrorCode(NSError* Error)
+	{
+		if (!Error || ![Error.domain isEqualToString:GADErrorDomain])
+		{
+			return TEXT("internal_error");
+		}
+		switch (Error.code)
+		{
+		case GADErrorInvalidRequest:
+		case GADErrorInvalidArgument:
+			return TEXT("invalid_request");
+		case GADErrorNoFill:
+			return TEXT("no_fill");
+		case GADErrorNetworkError:
+			return TEXT("network_error");
+		case GADErrorTimeout:
+			return TEXT("timeout");
+		case GADErrorMediationDataError:
+		case GADErrorMediationAdapterError:
+		case GADErrorMediationInvalidAdSize:
+			return TEXT("adapter_error");
+		case GADErrorAdAlreadyUsed:
+			return TEXT("invalid_state");
+		case GADErrorApplicationIdentifierMissing:
+			return TEXT("missing_app_id");
+		default:
+			return TEXT("internal_error");
+		}
+	}
+
 	FOpenMobileAdsRevenueSource ToRevenueSource(GADResponseInfo* ResponseInfo)
 	{
 		FOpenMobileAdsRevenueSource Source;
@@ -972,7 +1002,8 @@ static BOOL AttachOpenMobileBanner(
 		DestroyOpenMobileBanner(self);
 		FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
 			FailedRequestId,
-			OpenMobileAdsAdMobIOS::ToFString(Message)
+			OpenMobileAdsAdMobIOS::ToFString(Message),
+			OpenMobileAdsAdMobIOS::LoadErrorCode(error)
 		);
 	}
 }
@@ -1311,7 +1342,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRewardedLoadFailed(
 				RequestId,
-				TEXT("The iOS rewarded load request is already active.")
+				TEXT("The iOS rewarded load request is already active."),
+				TEXT("invalid_state")
 			);
 			return;
 		}
@@ -1334,7 +1366,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedAd(
 					RequestId,
 					OpenMobileAdsAdMobIOS::ToFString(
 						[@"Rewarded ad failed to load: " stringByAppendingString:Detail]
-					)
+					),
+					OpenMobileAdsAdMobIOS::LoadErrorCode(Error)
 				);
 				return;
 			}
@@ -1386,7 +1419,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedInterstitialAd(
 		{
 			FOpenMobileAdsAdMobPlatform::NativeRewardedInterstitialLoadFailed(
 				RequestId,
-				TEXT("The iOS rewarded-interstitial load request is already active.")
+				TEXT("The iOS rewarded-interstitial load request is already active."),
+				TEXT("invalid_state")
 			);
 			return;
 		}
@@ -1414,7 +1448,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadRewardedInterstitialAd(
 					OpenMobileAdsAdMobIOS::ToFString(
 						[@"Rewarded interstitial failed to load: "
 							stringByAppendingString:Detail]
-					)
+					),
+					OpenMobileAdsAdMobIOS::LoadErrorCode(Error)
 				);
 				return;
 			}
@@ -1469,7 +1504,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadInterstitialAd(
 		{
 			FOpenMobileAdsAdMobPlatform::NativeInterstitialLoadFailed(
 				RequestId,
-				TEXT("The iOS interstitial load request is already active.")
+				TEXT("The iOS interstitial load request is already active."),
+				TEXT("invalid_state")
 			);
 			return;
 		}
@@ -1493,7 +1529,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadInterstitialAd(
 					RequestId,
 					OpenMobileAdsAdMobIOS::ToFString(
 						[@"Interstitial failed to load: " stringByAppendingString:Detail]
-					)
+					),
+					OpenMobileAdsAdMobIOS::LoadErrorCode(Error)
 				);
 				return;
 			}
@@ -1543,7 +1580,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadAppOpenAd(
 		{
 			FOpenMobileAdsAdMobPlatform::NativeAppOpenLoadFailed(
 				RequestId,
-				TEXT("The iOS app-open load request is already active.")
+				TEXT("The iOS app-open load request is already active."),
+				TEXT("invalid_state")
 			);
 			return;
 		}
@@ -1568,7 +1606,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadAppOpenAd(
 					OpenMobileAdsAdMobIOS::ToFString(
 						[@"App-open ad failed to load: "
 							stringByAppendingString:Detail]
-					)
+					),
+					OpenMobileAdsAdMobIOS::LoadErrorCode(Error)
 				);
 				return;
 			}
@@ -1621,7 +1660,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
 		{
 			FOpenMobileAdsAdMobPlatform::NativeBannerLoadFailed(
 				RequestId,
-				TEXT("The iOS banner load request is already active.")
+				TEXT("The iOS banner load request is already active."),
+				TEXT("invalid_state")
 			);
 			return;
 		}
@@ -1653,7 +1693,8 @@ bool FOpenMobileAdsAdMobIOSBackend::LoadBannerAd(
 				RequestId,
 				OpenMobileAdsAdMobIOS::ToFString(
 					Error ?: @"No iOS view is available for adaptive banner sizing."
-				)
+				),
+				TEXT("invalid_request")
 			);
 			return;
 		}

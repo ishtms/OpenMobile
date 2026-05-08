@@ -507,21 +507,21 @@ namespace OpenMobileAdsAdMobPrivate
 					}
 				),
 				FOnOpenMobileAdMobAdLoadFailed::CreateLambda(
-					[EventSink](FString ErrorMessage)
+					[EventSink](FString ErrorCode, FString ErrorMessage)
 					{
 						FOpenMobileAdsEvent Failed;
 						Failed.Type = EOpenMobileAdsEventType::LoadFailed;
-						Failed.Error = FOpenMobileAdsError::Make(
-							EOpenMobileAdsErrorCode::NativeFailure,
-							EOpenMobileAdsFailureStage::Load,
-							NAME_None,
-							ErrorMessage.IsEmpty()
-								? TEXT("AdMob failed to load an ad.")
-								: MoveTemp(ErrorMessage),
-							TEXT("AdMob"),
-							FString(),
-							true
-						);
+						FOpenMobileAdsErrorMappingContext Context;
+						Context.Domain = ErrorCode == TEXT("adapter_error")
+							? EOpenMobileAdsErrorDomain::Mediation
+							: EOpenMobileAdsErrorDomain::Provider;
+						Context.Stage = EOpenMobileAdsFailureStage::Load;
+						Context.Provider = TEXT("AdMob");
+						Context.NativeCode = MoveTemp(ErrorCode);
+						Context.NativeMessage = ErrorMessage.IsEmpty()
+							? TEXT("AdMob failed to load an ad.")
+							: MoveTemp(ErrorMessage);
+						Failed.Error = FOpenMobileAdsErrorMapper::FromNative(Context);
 						EventSink->Submit(MoveTemp(Failed));
 					}
 				),
