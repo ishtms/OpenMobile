@@ -6,6 +6,8 @@
 namespace OpenMobileDeviceSnapshotServicePrivate
 {
 	int64 SnapshotGeneration = 0;
+	uint64 CachedDeviceInformationBackendGeneration = 0;
+	TOptional<FOpenMobileDeviceInformationSnapshot> CachedDeviceInformation;
 
 	int64 NextGeneration()
 	{
@@ -34,17 +36,37 @@ namespace OpenMobileDeviceSnapshotServicePrivate
 		Snapshot.Metadata.Generation = NextGeneration();
 		return Snapshot;
 	}
+
+	FOpenMobileDeviceInformationSnapshot CaptureDeviceInformation()
+	{
+		check(IsInGameThread());
+		IOpenMobileDeviceBackend* Backend =
+			FOpenMobileDeviceBackendRegistry::FindBackend();
+		const FOpenMobileDeviceCallbackToken Token = Backend
+			? FOpenMobileDeviceBackendRegistry::CaptureCallbackToken()
+			: FOpenMobileDeviceCallbackToken();
+		if (!CachedDeviceInformation.IsSet()
+			|| CachedDeviceInformationBackendGeneration != Token.Generation)
+		{
+			CachedDeviceInformation = Backend
+				? Backend->GetDeviceInformationSnapshot()
+				: FOpenMobileDeviceInformationSnapshot();
+			CachedDeviceInformation->Metadata = {};
+			CachedDeviceInformationBackendGeneration = Token.Generation;
+		}
+
+		FOpenMobileDeviceInformationSnapshot Snapshot =
+			CachedDeviceInformation.GetValue();
+		Snapshot.Metadata.CapturedAtUtc = FDateTime::UtcNow();
+		Snapshot.Metadata.Generation = NextGeneration();
+		return Snapshot;
+	}
 }
 
 FOpenMobileDeviceInformationSnapshot
 FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot()
 {
-	return OpenMobileDeviceSnapshotServicePrivate::Capture<
-		FOpenMobileDeviceInformationSnapshot
-	>([](const IOpenMobileDeviceBackend& Backend)
-	{
-		return Backend.GetDeviceInformationSnapshot();
-	});
+	return OpenMobileDeviceSnapshotServicePrivate::CaptureDeviceInformation();
 }
 
 FOpenMobileApplicationMetadataSnapshot

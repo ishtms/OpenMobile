@@ -203,6 +203,36 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn("FPlatformMisc::GetBatteryLevel", backend)
 			self.assertIn("FPlatformMisc::GetDeviceVolume", backend)
 
+	def test_platform_information_reads_are_backend_owned(self) -> None:
+		shared_parser = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDevicePlatformInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertNotIn("FPlatformMisc", shared_parser)
+
+		for platform in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{platform}"
+				/ "Private"
+				/ f"OpenMobileDevice{platform}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("FPlatformMisc::GetOSVersion", backend)
+			self.assertIn("FOpenMobileDevicePlatformInfo::BuildSnapshot", backend)
+
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FAndroidMisc::GetAndroidBuildVersion", android_backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

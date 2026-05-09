@@ -23,6 +23,7 @@
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
@@ -162,6 +163,103 @@ namespace OpenMobileDeviceTests
 		EOpenMobileDeviceBackendDomain SupportedDomain;
 		TMap<FName, FOpenMobileDeviceCapability> Capabilities;
 	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePlatformInformationTest,
+	"OpenMobile.Device.Identity.PlatformAndOS",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePlatformInformationTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	const FOpenMobileDeviceInformationSnapshot Android =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("14.0.1"),
+			34
+		);
+	TestEqual(TEXT("Android platform normalizes"), Android.Platform, EOpenMobileDevicePlatform::Android);
+	TestEqual(TEXT("Android readable version includes platform"), Android.ReadableOsVersion.Value, FString(TEXT("Android 14.0.1")));
+	TestEqual(TEXT("Android raw version is retained"), Android.RawOsVersion.Value, FString(TEXT("14.0.1")));
+	TestEqual(TEXT("Android major version parses"), Android.OsVersionMajor.Value, 14);
+	TestEqual(TEXT("Android minor version parses"), Android.OsVersionMinor.Value, 0);
+	TestEqual(TEXT("Android patch version parses"), Android.OsVersionPatch.Value, 1);
+	TestEqual(TEXT("Android API level is available"), Android.AndroidApiLevel.Value, 34);
+
+	const FOpenMobileDeviceInformationSnapshot IOS =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::IOS,
+			TEXT("17.5"),
+			0
+		);
+	TestEqual(TEXT("iOS platform normalizes"), IOS.Platform, EOpenMobileDevicePlatform::IOS);
+	TestEqual(TEXT("iOS readable version includes platform"), IOS.ReadableOsVersion.Value, FString(TEXT("iOS 17.5")));
+	TestFalse(TEXT("Missing iOS patch stays unavailable"), IOS.OsVersionPatch.bIsAvailable);
+	TestFalse(TEXT("iOS has no Android API level"), IOS.AndroidApiLevel.bIsAvailable);
+
+	const FOpenMobileDeviceInformationSnapshot Simulator =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::IOS,
+			TEXT("18.0.0"),
+			0
+		);
+	TestEqual(TEXT("Simulator fixture keeps iOS platform"), Simulator.Platform, EOpenMobileDevicePlatform::IOS);
+	TestEqual(TEXT("Simulator fixture parses OS version"), Simulator.OsVersionMajor.Value, 18);
+
+	const FOpenMobileDeviceInformationSnapshot Malformed =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("Future Preview"),
+			99
+		);
+	TestTrue(TEXT("Malformed raw version remains diagnostic"), Malformed.RawOsVersion.bIsAvailable);
+	TestFalse(TEXT("Malformed major version stays unavailable"), Malformed.OsVersionMajor.bIsAvailable);
+	TestEqual(TEXT("Independent API level remains available"), Malformed.AndroidApiLevel.Value, 99);
+
+	const FOpenMobileDeviceInformationSnapshot Future =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("123.45.678.9-preview"),
+			150
+		);
+	TestEqual(TEXT("Future major version parses"), Future.OsVersionMajor.Value, 123);
+	TestEqual(TEXT("Future minor version parses"), Future.OsVersionMinor.Value, 45);
+	TestEqual(TEXT("Future patch version parses"), Future.OsVersionPatch.Value, 678);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	const FOpenMobileDeviceInformationSnapshot Editor =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Unsupported editor platform stays unknown"), Editor.Platform, EOpenMobileDevicePlatform::Unknown);
+	TestFalse(TEXT("Unsupported editor version stays unavailable"), Editor.ReadableOsVersion.bIsAvailable);
+
+	FMockBackend First(TEXT("CachedPlatform"));
+	First.DeviceInformation = Android;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(First);
+	const FOpenMobileDeviceInformationSnapshot CachedFirst =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	First.DeviceInformation.RawOsVersion =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("mutated"));
+	const FOpenMobileDeviceInformationSnapshot CachedSecond =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Immutable platform values query once"), First.DeviceInformationQueries, 1);
+	TestEqual(TEXT("Same backend keeps cached raw version"), CachedSecond.RawOsVersion.Value, CachedFirst.RawOsVersion.Value);
+	TestTrue(TEXT("Cached reads still receive fresh generations"), CachedSecond.Metadata.Generation > CachedFirst.Metadata.Generation);
+
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(First);
+	FMockBackend Replacement(TEXT("ReplacementPlatform"));
+	Replacement.DeviceInformation = IOS;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Replacement);
+	const FOpenMobileDeviceInformationSnapshot Replaced =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Backend replacement invalidates platform cache"), Replaced.Platform, EOpenMobileDevicePlatform::IOS);
+	TestEqual(TEXT("Replacement backend queries once"), Replacement.DeviceInformationQueries, 1);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Replacement);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

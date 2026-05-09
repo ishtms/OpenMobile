@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceIOSBackend.h"
 
 #include "HAL/PlatformMisc.h"
+#include "OpenMobileDevicePlatformInfo.h"
 
 FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 	EOpenMobileDeviceBackendDomain Domain
@@ -8,7 +9,8 @@ FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 {
 	FOpenMobileCapability Capability;
 	Capability.Name = GetDomainCapabilityName(Domain);
-	Capability.State = Domain == EOpenMobileDeviceBackendDomain::Power
+	Capability.State = Domain == EOpenMobileDeviceBackendDomain::Identity
+		|| Domain == EOpenMobileDeviceBackendDomain::Power
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
 		: EOpenMobileCapabilityState::NotSupported;
@@ -19,7 +21,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
-	if (CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PlatformInformation
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::VolumeEvents)
@@ -31,6 +34,16 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		return Capability;
 	}
 	return IOpenMobileDeviceBackend::GetCapability(CapabilityName);
+}
+
+FOpenMobileDeviceInformationSnapshot
+FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
+{
+	return FOpenMobileDevicePlatformInfo::BuildSnapshot(
+		EOpenMobileDevicePlatform::IOS,
+		FPlatformMisc::GetOSVersion(),
+		0
+	);
 }
 
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const

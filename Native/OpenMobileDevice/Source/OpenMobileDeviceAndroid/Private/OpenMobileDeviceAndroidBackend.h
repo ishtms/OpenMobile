@@ -12,6 +12,8 @@ public:
 	virtual FOpenMobileDeviceCapability GetCapability(
 		FName CapabilityName
 	) const override;
+	virtual FOpenMobileDeviceInformationSnapshot
+	GetDeviceInformationSnapshot() const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
 };
