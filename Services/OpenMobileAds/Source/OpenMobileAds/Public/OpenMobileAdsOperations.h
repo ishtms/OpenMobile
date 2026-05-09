@@ -119,6 +119,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsInitializationRequest
 
 	FOpenMobileAdsProviderRequestContext PrivacyContext;
 
+	EOpenMobileAdsTrackingAuthorizationStatus TrackingAuthorizationStatus =
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported;
+
 	FOpenMobileAdsRequestConfiguration RequestConfiguration;
 };
 

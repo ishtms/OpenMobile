@@ -1,4 +1,5 @@
 #include "IOpenMobileAdsConsentSignalConsumer.h"
+#include "IOpenMobileAdsInitializationParticipant.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/AutomationTest.h"
 #include "Modules/ModuleManager.h"
@@ -63,6 +64,11 @@ bool FOpenMobileAdsPublicConsumerCompileTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Public operations retain placement names"), Event.Placement, Placement);
 	TestTrue(TEXT("Public request IDs use Unreal GUIDs"), LoadRequest.RequestId.IsValid());
 	TestTrue(TEXT("Public initialization requests use Unreal GUIDs"), InitializationRequest.RequestId.IsValid());
+	TestEqual(
+		TEXT("Public initialization requests default ATT to unsupported"),
+		InitializationRequest.TrackingAuthorizationStatus,
+		EOpenMobileAdsTrackingAuthorizationStatus::Unsupported
+	);
 	TestTrue(TEXT("Public consent requests use Unreal GUIDs"), ConsentRequest.RequestId.IsValid());
 	TestEqual(TEXT("Public consent signals preserve normalized state"), ConsentSignals.ConsentStatus, EOpenMobileAdsConsentStatus::Obtained);
 	TestEqual(TEXT("Unknown consent signals remain unconfigured"), ConsentSignalMask, 0);

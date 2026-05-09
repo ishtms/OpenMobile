@@ -5,6 +5,7 @@
 #include "Features/IModularFeatures.h"
 #include "HAL/PlatformMisc.h"
 #include "IOpenMobileAdsConsentSignalConsumer.h"
+#include "IOpenMobileAdsInitializationParticipant.h"
 #include "IOpenMobileAdsProvider.h"
 #include "IOpenMobileAdsTrackingAuthorizationBackend.h"
 #include "Misc/App.h"
@@ -667,6 +668,73 @@ namespace OpenMobileAdsProviderContractTests
 
 	private:
 		IOpenMobileAdsConsentSignalConsumer& Consumer;
+	};
+
+	class FMockInitializationParticipant final
+		: public IOpenMobileAdsInitializationParticipant
+	{
+	public:
+		FMockInitializationParticipant(FName InProvider, FName InName)
+			: Provider(InProvider)
+			, Name(InName)
+		{
+		}
+
+		virtual FName GetOwningProviderName() const override { return Provider; }
+		virtual FName GetParticipantName() const override { return Name; }
+		virtual bool PrepareForInitialization(
+			const FOpenMobileAdsInitializationRequest& Request,
+			FOpenMobileAdsError& OutError
+		) override
+		{
+			++Calls;
+			LastRequest = Request;
+			if (Sequence)
+			{
+				LastSequence = ++*Sequence;
+			}
+			if (!bAccept)
+			{
+				OutError = Error;
+				return false;
+			}
+			return true;
+		}
+
+		FName Provider;
+		FName Name;
+		int32 Calls = 0;
+		int32* Sequence = nullptr;
+		int32 LastSequence = 0;
+		bool bAccept = true;
+		FOpenMobileAdsInitializationRequest LastRequest;
+		FOpenMobileAdsError Error;
+	};
+
+	class FScopedInitializationParticipantRegistration
+	{
+	public:
+		explicit FScopedInitializationParticipantRegistration(
+			IOpenMobileAdsInitializationParticipant& InParticipant
+		)
+			: Participant(InParticipant)
+		{
+			IModularFeatures::Get().RegisterModularFeature(
+				IOpenMobileAdsInitializationParticipant::GetModularFeatureName(),
+				&Participant
+			);
+		}
+
+		~FScopedInitializationParticipantRegistration()
+		{
+			IModularFeatures::Get().UnregisterModularFeature(
+				IOpenMobileAdsInitializationParticipant::GetModularFeatureName(),
+				&Participant
+			);
+		}
+
+	private:
+		IOpenMobileAdsInitializationParticipant& Participant;
 	};
 
 	class FScopedProviderRegistration
@@ -7481,6 +7549,101 @@ bool FOpenMobileAdsPrivacyOptionsEntryPointContractTest::RunTest(
 		EOpenMobileAdsErrorCode::ProviderUnavailable
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationParticipantContractTest,
+	"OpenMobile.Ads.Initialization.Participants",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationParticipantContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	ScopedSettings.Settings->bEnableTrackingAuthorization = true;
+	ScopedSettings.Settings->bDelayAdsInitializationUntilTrackingAuthorization = false;
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration ProviderRegistration(Provider);
+	FMockTrackingAuthorizationBackend TrackingBackend;
+	TrackingBackend.Status = EOpenMobileAdsTrackingAuthorizationStatus::Authorized;
+	FScopedTrackingAuthorizationBackendRegistration TrackingRegistration(
+		TrackingBackend
+	);
+	FMockInitializationParticipant Matching(TEXT("MockAds"), TEXT("Adapter"));
+	FMockInitializationParticipant Unrelated(TEXT("OtherAds"), TEXT("OtherAdapter"));
+	FScopedInitializationParticipantRegistration MatchingRegistration(Matching);
+	FScopedInitializationParticipantRegistration UnrelatedRegistration(Unrelated);
+	int32 Sequence = 0;
+	Matching.Sequence = &Sequence;
+	Provider.Sequence = &Sequence;
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+
+	const FOpenMobileAdsOperationResult Result = Subsystem->InitializeAds();
+
+	TestTrue(TEXT("Initialization accepts a prepared adapter"), Result.bAccepted);
+	TestEqual(TEXT("The selected provider adapter is prepared once"), Matching.Calls, 1);
+	TestEqual(TEXT("An unrelated provider adapter is ignored"), Unrelated.Calls, 0);
+	TestEqual(
+		TEXT("The adapter receives the current ATT status"),
+		Matching.LastRequest.TrackingAuthorizationStatus,
+		EOpenMobileAdsTrackingAuthorizationStatus::Authorized
+	);
+	TestTrue(
+		TEXT("The adapter is prepared before provider initialization"),
+		Matching.LastSequence > 0
+			&& Matching.LastSequence < Provider.InitializationSequence
+	);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationParticipantFailureContractTest,
+	"OpenMobile.Ads.Initialization.ParticipantFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationParticipantFailureContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration ProviderRegistration(Provider);
+	FMockInitializationParticipant Participant(TEXT("MockAds"), TEXT("Adapter"));
+	Participant.bAccept = false;
+	Participant.Error = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::ProviderFailure,
+		EOpenMobileAdsFailureStage::Initialization,
+		TEXT("Adapter"),
+		TEXT("The adapter rejected initialization preparation.")
+	);
+	FScopedInitializationParticipantRegistration Registration(Participant);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+
+	const FOpenMobileAdsOperationResult Result = Subsystem->InitializeAds();
+
+	TestFalse(TEXT("A failed adapter preparation rejects initialization"), Result.bAccepted);
+	TestEqual(
+		TEXT("Adapter preparation failure is preserved"),
+		Result.Error.Code,
+		EOpenMobileAdsErrorCode::ProviderFailure
+	);
+	TestEqual(TEXT("The provider does not initialize after adapter failure"), Provider.InitializationCalls, 0);
 	Subsystem->Deinitialize();
 	return true;
 }

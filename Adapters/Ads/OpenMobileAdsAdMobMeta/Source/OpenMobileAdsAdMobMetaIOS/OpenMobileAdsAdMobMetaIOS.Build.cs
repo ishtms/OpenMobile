@@ -131,6 +131,7 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 			"CoreGraphics",
 			"CoreMedia",
 			"CoreTelephony",
+			"Foundation",
 			"StoreKit",
 			"UIKit",
 			"WebKit"

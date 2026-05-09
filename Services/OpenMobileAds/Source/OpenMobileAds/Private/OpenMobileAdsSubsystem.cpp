@@ -6,6 +6,7 @@
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileAdsConsentSignalConsumer.h"
+#include "IOpenMobileAdsInitializationParticipant.h"
 #include "IOpenMobileAdsProvider.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
@@ -1158,6 +1159,74 @@ namespace OpenMobileAdsPrivate
 		return nullptr;
 	}
 
+	bool PrepareInitializationParticipants(
+		FName ProviderName,
+		const FOpenMobileAdsInitializationRequest& Request,
+		FOpenMobileAdsError& OutError
+	)
+	{
+		TArray<IOpenMobileAdsInitializationParticipant*> Participants =
+			IModularFeatures::Get().GetModularFeatureImplementations<
+				IOpenMobileAdsInitializationParticipant
+			>(IOpenMobileAdsInitializationParticipant::GetModularFeatureName());
+		Participants.RemoveAll(
+			[ProviderName](const IOpenMobileAdsInitializationParticipant* Participant)
+			{
+				return !Participant
+					|| Participant->GetOwningProviderName() != ProviderName;
+			}
+		);
+		Participants.Sort(
+			[](const IOpenMobileAdsInitializationParticipant& Left,
+				const IOpenMobileAdsInitializationParticipant& Right)
+			{
+				return Left.GetParticipantName().LexicalLess(
+					Right.GetParticipantName()
+				);
+			}
+		);
+		FName PreviousName = NAME_None;
+		for (IOpenMobileAdsInitializationParticipant* Participant : Participants)
+		{
+			const FName Name = Participant->GetParticipantName();
+			if (Name.IsNone() || Name == PreviousName)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NotConfigured,
+					EOpenMobileAdsFailureStage::Initialization,
+					NAME_None,
+					Name.IsNone()
+						? TEXT("An initialization participant has no name.")
+						: FString::Printf(
+							TEXT("Initialization participant '%s' is registered more than once."),
+							*Name.ToString()
+						),
+					ProviderName
+				);
+				return false;
+			}
+			PreviousName = Name;
+			if (!Participant->PrepareForInitialization(Request, OutError))
+			{
+				if (!OutError.IsSet() && !OutError.NativeDiagnostics.IsSet())
+				{
+					OutError = FOpenMobileAdsError::Make(
+						EOpenMobileAdsErrorCode::ProviderFailure,
+						EOpenMobileAdsFailureStage::Initialization,
+						NAME_None,
+						FString::Printf(
+							TEXT("Initialization participant '%s' rejected provider startup."),
+							*Name.ToString()
+						),
+						ProviderName
+					);
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+
 	void LogEvent(const FOpenMobileAdsEvent& Event)
 	{
 		EOpenMobileAdsLogLevel Level = EOpenMobileAdsLogLevel::Info;
@@ -1814,6 +1883,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 	Request.Privacy.UnderAgeOfConsent = PrivacySnapshot.UnderAgeOfConsent;
 	Request.PrivacyContext =
 		OpenMobileAdsPrivate::MakeProviderPrivacyContext(PrivacySnapshot);
+	Request.TrackingAuthorizationStatus = TrackingAuthorizationStatus;
 	if (
 		Request.Privacy.UnderAgeOfConsent
 			== EOpenMobileAdsAgeTreatment::Yes
@@ -1822,6 +1892,44 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 		Request.Development.bEnableConsentDebug = false;
 	}
 	Request.RequestConfiguration = Settings->RequestConfiguration;
+	FOpenMobileAdsError ParticipantError;
+	if (!OpenMobileAdsPrivate::PrepareInitializationParticipants(
+		SelectedProviderName,
+		Request,
+		ParticipantError
+	))
+	{
+		ServiceState = EOpenMobileAdsServiceState::Failed;
+		InitializationError =
+			OpenMobileAdsPrivate::NormalizeInitializationError(
+				MoveTemp(ParticipantError),
+				SelectedProviderName,
+				TEXT("An initialization participant rejected provider startup.")
+			);
+		InitializationStatus.ServiceState = ServiceState;
+		InitializationStatus.Error = InitializationError;
+		InitializationStatus.LatencyMilliseconds =
+			(FPlatformTime::Seconds() - InitializationStartedSeconds) * 1000.0;
+		if (FOpenMobileAdsInitializationComponentStatus* Component =
+			InitializationStatus.Components.FindByPredicate(
+				[this](
+					const FOpenMobileAdsInitializationComponentStatus& Candidate
+				)
+				{
+					return Candidate.Type
+							== EOpenMobileAdsInitializationComponentType::Provider
+						&& Candidate.Name == SelectedProviderName;
+				}
+			))
+		{
+			Component->State = EOpenMobileAdsInitializationState::Failed;
+			Component->LatencyMilliseconds =
+				InitializationStatus.LatencyMilliseconds;
+			Component->Error = InitializationError;
+		}
+		BroadcastInitializationStatus();
+		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
+	}
 	PropagateConsentSignals(*Provider, false);
 
 	const FGuid RequestId = InitializationRequestId;

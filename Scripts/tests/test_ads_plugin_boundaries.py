@@ -255,6 +255,23 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn('"AppTrackingTransparency"', build_rules)
 		self.assertIn("AdditionalPropertiesForReceipt", build_rules)
 		self.assertIn("OpenMobileAdsAdMobMeta_IOS_UPL.xml", build_rules)
+		module = (
+			module_root / "Private" / "OpenMobileAdsAdMobMetaIOSModule.cpp"
+		).read_text(encoding="utf-8")
+		participant = (
+			module_root
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobMetaIOSInitializationParticipant.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("IOpenMobileAdsInitializationParticipant", module)
+		self.assertIn("RegisterModularFeature", module)
+		self.assertIn("UnregisterModularFeature", module)
+		self.assertIn("FBAdSettings", participant)
+		self.assertIn("setAdvertiserTrackingEnabled", participant)
+		self.assertIn("EOpenMobileAdsTrackingAuthorizationStatus::Authorized", participant)
+		self.assertIn("@available(iOS 17.0", participant)
+		self.assertIn("dispatch_sync", participant)
 		for token in (
 			"ValidateCompatibility",
 			'GetObjectField("compatibility")',
