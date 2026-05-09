@@ -14,6 +14,7 @@ public:
 	static FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot();
 	static FOpenMobileLocaleSnapshot GetLocaleSnapshot();
 	static FOpenMobilePowerSnapshot GetPowerSnapshot();
+	static FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot();
 	static FOpenMobileMemorySnapshot GetMemorySnapshot();
 	static FOpenMobileStorageSnapshot GetStorageSnapshot();
 	static FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot();

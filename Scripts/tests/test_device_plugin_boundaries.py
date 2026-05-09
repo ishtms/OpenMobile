@@ -180,6 +180,29 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("GetDefault<UOpenMobileDeviceSettings>()", service)
 		self.assertIn("GetValidatedFallbackPollingIntervalSeconds", service)
 
+	def test_legacy_battery_and_volume_reads_are_backend_owned(self) -> None:
+		blueprint_library = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceBlueprintLibrary.cpp"
+		).read_text(encoding="utf-8")
+		self.assertNotIn("FPlatformMisc", blueprint_library)
+		self.assertIn("GetPowerSnapshot", blueprint_library)
+		self.assertIn("GetMediaVolumeSnapshot", blueprint_library)
+
+		for platform in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{platform}"
+				/ "Private"
+				/ f"OpenMobileDevice{platform}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("FPlatformMisc::GetBatteryLevel", backend)
+			self.assertIn("FPlatformMisc::GetDeviceVolume", backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

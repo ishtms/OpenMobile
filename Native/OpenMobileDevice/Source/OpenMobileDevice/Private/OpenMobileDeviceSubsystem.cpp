@@ -138,6 +138,14 @@ FOpenMobilePowerSnapshot UOpenMobileDeviceSubsystem::GetPowerSnapshot() const
 		: FOpenMobileDeviceSnapshotService::GetPowerSnapshot();
 }
 
+FOpenMobileMediaVolumeSnapshot
+UOpenMobileDeviceSubsystem::GetMediaVolumeSnapshot() const
+{
+	return bDeinitialized
+		? FOpenMobileMediaVolumeSnapshot()
+		: FOpenMobileDeviceSnapshotService::GetMediaVolumeSnapshot();
+}
+
 FOpenMobileMemorySnapshot UOpenMobileDeviceSubsystem::GetMemorySnapshot() const
 {
 	return bDeinitialized
@@ -392,7 +400,7 @@ void UOpenMobileDeviceSubsystem::PrimeMonitoringGroup(
 		LastAccessibilitySnapshot = GetAccessibilitySnapshot();
 		break;
 	case EOpenMobileDeviceMonitoringGroup::MediaVolume:
-		LatestStatus = UOpenMobileDeviceBlueprintLibrary::GetDeviceStatus();
+		LastMediaVolumeSnapshot = GetMediaVolumeSnapshot();
 		break;
 	}
 }
@@ -431,7 +439,6 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 			OnPowerSnapshotChanged.Broadcast(Snapshot);
 			NativePowerSnapshotChanged.Broadcast(Snapshot);
 		}
-		RefreshNow();
 		break;
 	}
 	case EOpenMobileDeviceMonitoringGroup::MemoryPressure:
@@ -510,8 +517,21 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		break;
 	}
 	case EOpenMobileDeviceMonitoringGroup::MediaVolume:
-		RefreshNow();
+	{
+		const FOpenMobileMediaVolumeSnapshot Snapshot =
+			GetMediaVolumeSnapshot();
+		if (!LastMediaVolumeSnapshot.IsSet()
+			|| !EquivalentWithoutMetadata(
+				LastMediaVolumeSnapshot.GetValue(),
+				Snapshot
+			))
+		{
+			LastMediaVolumeSnapshot = Snapshot;
+			OnMediaVolumeSnapshotChanged.Broadcast(Snapshot);
+			NativeMediaVolumeSnapshotChanged.Broadcast(Snapshot);
+		}
 		break;
+	}
 	}
 }
 

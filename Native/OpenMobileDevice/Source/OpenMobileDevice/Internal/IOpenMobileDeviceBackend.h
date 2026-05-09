@@ -99,6 +99,11 @@ public:
 		return {};
 	}
 
+	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const
+	{
+		return {};
+	}
+
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const
 	{
 		return {};

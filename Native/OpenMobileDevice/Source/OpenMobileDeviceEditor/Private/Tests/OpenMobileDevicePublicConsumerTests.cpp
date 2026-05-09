@@ -18,6 +18,7 @@ bool FOpenMobileDevicePublicConsumerTest::RunTest(const FString& Parameters)
 	FOpenMobileApplicationMetadataSnapshot ApplicationMetadata;
 	FOpenMobileLocaleSnapshot Locale;
 	FOpenMobilePowerSnapshot Power;
+	FOpenMobileMediaVolumeSnapshot MediaVolume;
 	FOpenMobileMemorySnapshot Memory;
 	FOpenMobileStorageSnapshot Storage;
 	FOpenMobileNetworkPathSnapshot Network;
@@ -29,6 +30,7 @@ bool FOpenMobileDevicePublicConsumerTest::RunTest(const FString& Parameters)
 	static_cast<void>(ApplicationMetadata);
 	static_cast<void>(Locale);
 	static_cast<void>(Power);
+	static_cast<void>(MediaVolume);
 	static_cast<void>(Memory);
 	static_cast<void>(Storage);
 	static_cast<void>(Network);

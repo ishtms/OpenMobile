@@ -1,12 +1,33 @@
 #include "OpenMobileDeviceBlueprintLibrary.h"
 
-#include "HAL/PlatformMisc.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceSnapshotService.h"
 
 namespace OpenMobileDeviceBlueprintLibraryPrivate
 {
 	int64 CapabilityReportGeneration = 0;
+
+	int32 ToLegacyPercent(const FOpenMobileDeviceOptionalFloat& Value)
+	{
+		return Value.bIsAvailable
+			? FMath::Clamp(FMath::RoundToInt(Value.Value), 0, 100)
+			: -1;
+	}
+
+	FOpenMobileDeviceStatus GetLegacyStatus()
+	{
+		FOpenMobileDeviceStatus Status;
+		Status.BatteryPercent = ToLegacyPercent(
+			FOpenMobileDeviceSnapshotService::GetPowerSnapshot().BatteryPercent
+		);
+		Status.VolumePercent = ToLegacyPercent(
+			FOpenMobileDeviceSnapshotService::GetMediaVolumeSnapshot().VolumePercent
+		);
+		Status.bBatteryAvailable = Status.BatteryPercent >= 0;
+		Status.bVolumeAvailable = Status.VolumePercent >= 0;
+		return Status;
+	}
 
 	FOpenMobileDeviceCapability QueryKnownCapability(FName CapabilityName)
 	{
@@ -55,24 +76,21 @@ namespace OpenMobileDeviceBlueprintLibraryPrivate
 
 int32 UOpenMobileDeviceBlueprintLibrary::GetBatteryPercent()
 {
-	const int32 Value = FPlatformMisc::GetBatteryLevel();
-	return Value >= 0 ? FMath::Clamp(Value, 0, 100) : -1;
+	return OpenMobileDeviceBlueprintLibraryPrivate::ToLegacyPercent(
+		FOpenMobileDeviceSnapshotService::GetPowerSnapshot().BatteryPercent
+	);
 }
 
 int32 UOpenMobileDeviceBlueprintLibrary::GetVolumePercent()
 {
-	const int32 Value = FPlatformMisc::GetDeviceVolume();
-	return Value >= 0 ? FMath::Clamp(Value, 0, 100) : -1;
+	return OpenMobileDeviceBlueprintLibraryPrivate::ToLegacyPercent(
+		FOpenMobileDeviceSnapshotService::GetMediaVolumeSnapshot().VolumePercent
+	);
 }
 
 FOpenMobileDeviceStatus UOpenMobileDeviceBlueprintLibrary::GetDeviceStatus()
 {
-	FOpenMobileDeviceStatus Status;
-	Status.BatteryPercent = GetBatteryPercent();
-	Status.VolumePercent = GetVolumePercent();
-	Status.bBatteryAvailable = Status.BatteryPercent >= 0;
-	Status.bVolumeAvailable = Status.VolumePercent >= 0;
-	return Status;
+	return OpenMobileDeviceBlueprintLibraryPrivate::GetLegacyStatus();
 }
 
 FOpenMobileDeviceCapability UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(

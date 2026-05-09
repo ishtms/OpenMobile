@@ -125,6 +125,28 @@ struct OPENMOBILEDEVICE_API FOpenMobilePowerSnapshot
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEDEVICE_API FOpenMobileMediaVolumeSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceSnapshotMetadata Metadata;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalFloat VolumePercent;
+
+	bool operator==(const FOpenMobileMediaVolumeSnapshot& Other) const
+	{
+		return Metadata == Other.Metadata && VolumePercent == Other.VolumePercent;
+	}
+
+	bool operator!=(const FOpenMobileMediaVolumeSnapshot& Other) const
+	{
+		return !(*this == Other);
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEDEVICE_API FOpenMobileMemorySnapshot
 {
 	GENERATED_BODY()

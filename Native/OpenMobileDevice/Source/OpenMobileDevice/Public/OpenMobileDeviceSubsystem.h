@@ -29,6 +29,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Snapshot
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileMediaVolumeSnapshotChangedEvent,
+	const FOpenMobileMediaVolumeSnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileMemorySnapshotChangedEvent,
 	const FOpenMobileMemorySnapshot&,
 	Snapshot
@@ -70,6 +75,10 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobilePowerSnapshotChangedNativeEvent,
 	const FOpenMobilePowerSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileMediaVolumeSnapshotChangedNativeEvent,
+	const FOpenMobileMediaVolumeSnapshot&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileMemorySnapshotChangedNativeEvent,
@@ -133,6 +142,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Power Snapshot", ToolTip = "Captures current battery, charging, power-saving, and thermal state without prompting."))
 	FOpenMobilePowerSnapshot GetPowerSnapshot() const;
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Media Volume Snapshot", ToolTip = "Captures the active output or media-volume level with explicit availability."))
+	FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const;
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Memory Snapshot", ToolTip = "Captures current physical-memory and memory-pressure state."))
 	FOpenMobileMemorySnapshot GetMemorySnapshot() const;
 
@@ -187,6 +199,12 @@ public:
 		return NativePowerSnapshotChanged;
 	}
 
+	FOpenMobileMediaVolumeSnapshotChangedNativeEvent&
+	OnNativeMediaVolumeSnapshotChanged()
+	{
+		return NativeMediaVolumeSnapshotChanged;
+	}
+
 	FOpenMobileMemorySnapshotChangedNativeEvent& OnNativeMemorySnapshotChanged()
 	{
 		return NativeMemorySnapshotChanged;
@@ -229,6 +247,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Power Snapshot Changed", ToolTip = "Broadcasts when a monitored power snapshot changes beyond its numeric tolerances."))
 	FOpenMobilePowerSnapshotChangedEvent OnPowerSnapshotChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Media Volume Snapshot Changed", ToolTip = "Broadcasts when the monitored active output or media-volume level changes."))
+	FOpenMobileMediaVolumeSnapshotChangedEvent OnMediaVolumeSnapshotChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Memory Snapshot Changed", ToolTip = "Broadcasts when a monitored memory or memory-pressure snapshot changes."))
 	FOpenMobileMemorySnapshotChangedEvent OnMemorySnapshotChanged;
@@ -275,6 +296,7 @@ private:
 	FDelegateHandle MonitoringMaintenanceHandle;
 	TOptional<FOpenMobileLocaleSnapshot> LastLocaleSnapshot;
 	TOptional<FOpenMobilePowerSnapshot> LastPowerSnapshot;
+	TOptional<FOpenMobileMediaVolumeSnapshot> LastMediaVolumeSnapshot;
 	TOptional<FOpenMobileMemorySnapshot> LastMemorySnapshot;
 	TOptional<FOpenMobileStorageSnapshot> LastStorageSnapshot;
 	TOptional<FOpenMobileNetworkPathSnapshot> LastNetworkSnapshot;
@@ -284,6 +306,8 @@ private:
 	FOpenMobileDeviceStatusChangedNativeEvent NativeDeviceStatusChanged;
 	FOpenMobileLocaleSnapshotChangedNativeEvent NativeLocaleSnapshotChanged;
 	FOpenMobilePowerSnapshotChangedNativeEvent NativePowerSnapshotChanged;
+	FOpenMobileMediaVolumeSnapshotChangedNativeEvent
+		NativeMediaVolumeSnapshotChanged;
 	FOpenMobileMemorySnapshotChangedNativeEvent NativeMemorySnapshotChanged;
 	FOpenMobileStorageSnapshotChangedNativeEvent NativeStorageSnapshotChanged;
 	FOpenMobileNetworkPathSnapshotChangedNativeEvent NativeNetworkPathSnapshotChanged;

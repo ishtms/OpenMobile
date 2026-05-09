@@ -97,6 +97,12 @@ namespace OpenMobileDeviceTests
 			return Snapshot;
 		}
 
+		virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override
+		{
+			++MediaVolumeQueries;
+			return MediaVolume;
+		}
+
 		virtual bool StartMonitoring(
 			EOpenMobileDeviceMonitoringGroup Group,
 			const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -136,9 +142,11 @@ namespace OpenMobileDeviceTests
 		int32 ShutdownCount = 0;
 		mutable int32 DeviceInformationQueries = 0;
 		mutable int32 PowerQueries = 0;
+		mutable int32 MediaVolumeQueries = 0;
 		bool bInBackground = false;
 		FOpenMobileDeviceInformationSnapshot DeviceInformation;
 		FOpenMobilePowerSnapshot Power;
+		FOpenMobileMediaVolumeSnapshot MediaVolume;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStops;
@@ -264,6 +272,145 @@ bool FOpenMobileDeviceStatusRangeTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceLegacyMigrationTest,
+	"OpenMobile.Device.LegacyMigration.BatteryAndVolume",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceLegacyMigrationTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("LegacyMigration"));
+	Backend.NativeMonitoringGroups = {Group::Power, Group::MediaVolume};
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(45.4f);
+	Backend.MediaVolume.VolumePercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(62.6f);
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::BatteryLevel,
+		EOpenMobileCapabilityState::Available
+	);
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::MediaVolume,
+		EOpenMobileCapabilityState::Available
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	TestEqual(
+		TEXT("Legacy battery reads the typed backend snapshot"),
+		UOpenMobileDeviceBlueprintLibrary::GetBatteryPercent(),
+		45
+	);
+	TestEqual(
+		TEXT("Legacy volume reads the typed backend snapshot"),
+		UOpenMobileDeviceBlueprintLibrary::GetVolumePercent(),
+		63
+	);
+	const FOpenMobileDeviceStatus LegacyStatus =
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceStatus();
+	TestTrue(TEXT("Legacy battery availability follows typed data"), LegacyStatus.bBatteryAvailable);
+	TestTrue(TEXT("Legacy volume availability follows typed data"), LegacyStatus.bVolumeAvailable);
+	TestEqual(
+		TEXT("Battery capability remains typed"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::BatteryLevel
+		).State,
+		EOpenMobileCapabilityState::Available
+	);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	const FOpenMobileMediaVolumeSnapshot TypedVolume =
+		Subsystem->GetMediaVolumeSnapshot();
+	TestTrue(TEXT("Typed media volume is available"), TypedVolume.VolumePercent.bIsAvailable);
+	TestEqual(TEXT("Typed media volume preserves precision"), TypedVolume.VolumePercent.Value, 62.6f);
+
+	int32 PowerEvents = 0;
+	int32 VolumeEvents = 0;
+	int32 CombinedEvents = 0;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&PowerEvents](const FOpenMobilePowerSnapshot&)
+		{
+			++PowerEvents;
+		}
+	);
+	Subsystem->OnNativeMediaVolumeSnapshotChanged().AddLambda(
+		[&VolumeEvents](const FOpenMobileMediaVolumeSnapshot&)
+		{
+			++VolumeEvents;
+		}
+	);
+	Subsystem->OnNativeDeviceStatusChanged().AddLambda(
+		[&CombinedEvents](const FOpenMobileDeviceStatus&)
+		{
+			++CombinedEvents;
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Power, Group::MediaVolume},
+			1.0f
+		);
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(50.0f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Battery changes emit only the power event"), PowerEvents, 1);
+	TestEqual(TEXT("Battery changes do not emit volume events"), VolumeEvents, 0);
+	TestEqual(TEXT("Battery changes do not rebroadcast combined status"), CombinedEvents, 0);
+
+	Backend.MediaVolume.VolumePercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(70.0f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::MediaVolume
+	);
+	TestEqual(TEXT("Volume changes do not emit power events"), PowerEvents, 1);
+	TestEqual(TEXT("Volume changes emit their own event"), VolumeEvents, 1);
+	TestEqual(TEXT("Volume changes do not rebroadcast combined status"), CombinedEvents, 0);
+
+#if WITH_METADATA
+	for (const FName FunctionName : {
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileDeviceBlueprintLibrary, GetBatteryPercent),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileDeviceBlueprintLibrary, GetVolumePercent),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileDeviceBlueprintLibrary, GetDeviceStatus)
+	})
+	{
+		const UFunction* Function =
+			UOpenMobileDeviceBlueprintLibrary::StaticClass()->FindFunctionByName(
+				FunctionName
+			);
+		TestTrue(
+			*FString::Printf(TEXT("%s is marked deprecated"), *FunctionName.ToString()),
+			Function && Function->HasMetaData(TEXT("DeprecatedFunction"))
+		);
+	}
+#endif
+
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	TestEqual(
+		TEXT("Legacy battery keeps its unavailable sentinel without a backend"),
+		UOpenMobileDeviceBlueprintLibrary::GetBatteryPercent(),
+		-1
+	);
+	TestEqual(
+		TEXT("Legacy volume keeps its unavailable sentinel without a backend"),
+		UOpenMobileDeviceBlueprintLibrary::GetVolumePercent(),
+		-1
+	);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePublicTypeModelTest,
 	"OpenMobile.Device.Types.PublicModel",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -278,6 +425,7 @@ bool FOpenMobileDevicePublicTypeModelTest::RunTest(const FString& Parameters)
 		FOpenMobileApplicationMetadataSnapshot::StaticStruct(),
 		FOpenMobileLocaleSnapshot::StaticStruct(),
 		FOpenMobilePowerSnapshot::StaticStruct(),
+		FOpenMobileMediaVolumeSnapshot::StaticStruct(),
 		FOpenMobileMemorySnapshot::StaticStruct(),
 		FOpenMobileStorageSnapshot::StaticStruct(),
 		FOpenMobileNetworkPathSnapshot::StaticStruct(),

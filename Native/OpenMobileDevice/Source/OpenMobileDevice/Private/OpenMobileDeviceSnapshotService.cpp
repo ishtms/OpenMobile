@@ -78,6 +78,17 @@ FOpenMobilePowerSnapshot FOpenMobileDeviceSnapshotService::GetPowerSnapshot()
 	);
 }
 
+FOpenMobileMediaVolumeSnapshot
+FOpenMobileDeviceSnapshotService::GetMediaVolumeSnapshot()
+{
+	return OpenMobileDeviceSnapshotServicePrivate::Capture<
+		FOpenMobileMediaVolumeSnapshot
+	>([](const IOpenMobileDeviceBackend& Backend)
+	{
+		return Backend.GetMediaVolumeSnapshot();
+	});
+}
+
 FOpenMobileMemorySnapshot FOpenMobileDeviceSnapshotService::GetMemorySnapshot()
 {
 	return OpenMobileDeviceSnapshotServicePrivate::Capture<FOpenMobileMemorySnapshot>(
