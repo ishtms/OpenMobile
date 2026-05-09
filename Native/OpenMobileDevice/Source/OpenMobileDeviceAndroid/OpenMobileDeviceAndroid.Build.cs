@@ -8,6 +8,7 @@ public class OpenMobileDeviceAndroid : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"ApplicationCore",
 			"Core",
 			"OpenMobileDevice"
 		});

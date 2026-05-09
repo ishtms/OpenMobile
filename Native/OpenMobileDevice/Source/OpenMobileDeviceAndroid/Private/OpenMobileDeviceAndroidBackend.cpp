@@ -2,6 +2,7 @@
 
 #include "Android/AndroidPlatformMisc.h"
 #include "HAL/PlatformMisc.h"
+#include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDevicePlatformInfo.h"
 
 FOpenMobileCapability FOpenMobileDeviceAndroidBackend::GetDomainCapability(
@@ -43,7 +44,10 @@ FOpenMobileDeviceAndroidBackend::GetDeviceInformationSnapshot() const
 	return FOpenMobileDevicePlatformInfo::BuildSnapshot(
 		EOpenMobileDevicePlatform::Android,
 		FPlatformMisc::GetOSVersion(),
-		FAndroidMisc::GetAndroidBuildVersion()
+		FAndroidMisc::GetAndroidBuildVersion(),
+		FAndroidMisc::GetDeviceMake(),
+		GetOpenMobileDeviceAndroidBrand(),
+		FAndroidMisc::GetDeviceModel()
 	);
 }
 

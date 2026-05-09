@@ -232,6 +232,29 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileDeviceAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
 		self.assertIn("FAndroidMisc::GetAndroidBuildVersion", android_backend)
+		self.assertIn("FAndroidMisc::GetDeviceMake", android_backend)
+		self.assertIn("FAndroidMisc::GetDeviceModel", android_backend)
+		self.assertIn("GetOpenMobileDeviceAndroidBrand", android_backend)
+		self.assertNotIn("GetProductName", android_backend)
+
+		android_identity = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidIdentity.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('"BRAND"', android_identity)
+
+		ios_identity = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSIdentity.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("[UIDevice currentDevice]", ios_identity)
+		self.assertIn("model]", ios_identity)
 
 
 if __name__ == "__main__":

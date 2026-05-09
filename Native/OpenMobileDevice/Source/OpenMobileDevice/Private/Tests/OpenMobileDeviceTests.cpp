@@ -180,7 +180,10 @@ bool FOpenMobileDevicePlatformInformationTest::RunTest(const FString& Parameters
 		FOpenMobileDevicePlatformInfo::BuildSnapshot(
 			EOpenMobileDevicePlatform::Android,
 			TEXT("14.0.1"),
-			34
+			34,
+			TEXT("  Samsung  "),
+			TEXT(" samsung "),
+			TEXT(" Galaxy Tab S9 ")
 		);
 	TestEqual(TEXT("Android platform normalizes"), Android.Platform, EOpenMobileDevicePlatform::Android);
 	TestEqual(TEXT("Android readable version includes platform"), Android.ReadableOsVersion.Value, FString(TEXT("Android 14.0.1")));
@@ -189,6 +192,9 @@ bool FOpenMobileDevicePlatformInformationTest::RunTest(const FString& Parameters
 	TestEqual(TEXT("Android minor version parses"), Android.OsVersionMinor.Value, 0);
 	TestEqual(TEXT("Android patch version parses"), Android.OsVersionPatch.Value, 1);
 	TestEqual(TEXT("Android API level is available"), Android.AndroidApiLevel.Value, 34);
+	TestEqual(TEXT("Manufacturer whitespace is trimmed"), Android.Manufacturer.Value, FString(TEXT("Samsung")));
+	TestEqual(TEXT("Brand remains distinct"), Android.Brand.Value, FString(TEXT("samsung")));
+	TestEqual(TEXT("Tablet model is readable"), Android.Model.Value, FString(TEXT("Galaxy Tab S9")));
 
 	const FOpenMobileDeviceInformationSnapshot IOS =
 		FOpenMobileDevicePlatformInfo::BuildSnapshot(
@@ -200,6 +206,42 @@ bool FOpenMobileDevicePlatformInformationTest::RunTest(const FString& Parameters
 	TestEqual(TEXT("iOS readable version includes platform"), IOS.ReadableOsVersion.Value, FString(TEXT("iOS 17.5")));
 	TestFalse(TEXT("Missing iOS patch stays unavailable"), IOS.OsVersionPatch.bIsAvailable);
 	TestFalse(TEXT("iOS has no Android API level"), IOS.AndroidApiLevel.bIsAvailable);
+
+	const FOpenMobileDeviceInformationSnapshot Unicode =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("15"),
+			35,
+			TEXT("小米"),
+			TEXT("Redmi"),
+			TEXT("红米 K80")
+		);
+	TestEqual(TEXT("Unicode manufacturer is preserved"), Unicode.Manufacturer.Value, FString(TEXT("小米")));
+	TestEqual(TEXT("Unicode model is preserved"), Unicode.Model.Value, FString(TEXT("红米 K80")));
+
+	const FOpenMobileDeviceInformationSnapshot Unfamiliar =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("16"),
+			36,
+			TEXT("Aether Labs"),
+			FString(),
+			TEXT("Aurora One")
+		);
+	TestEqual(TEXT("Unfamiliar manufacturer is not guessed"), Unfamiliar.Manufacturer.Value, FString(TEXT("Aether Labs")));
+	TestFalse(TEXT("Missing brand stays unavailable"), Unfamiliar.Brand.bIsAvailable);
+
+	const FOpenMobileDeviceInformationSnapshot IOSSimulator =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::IOS,
+			TEXT("18.0"),
+			0,
+			FString(),
+			FString(),
+			TEXT(" iPhone Simulator ")
+		);
+	TestEqual(TEXT("Simulator model is preserved"), IOSSimulator.Model.Value, FString(TEXT("iPhone Simulator")));
+	TestFalse(TEXT("iOS manufacturer is not guessed"), IOSSimulator.Manufacturer.bIsAvailable);
 
 	const FOpenMobileDeviceInformationSnapshot Simulator =
 		FOpenMobileDevicePlatformInfo::BuildSnapshot(

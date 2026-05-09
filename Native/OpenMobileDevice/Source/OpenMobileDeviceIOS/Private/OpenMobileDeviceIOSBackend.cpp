@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceIOSBackend.h"
 
 #include "HAL/PlatformMisc.h"
+#include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDevicePlatformInfo.h"
 
 FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
@@ -42,7 +43,10 @@ FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 	return FOpenMobileDevicePlatformInfo::BuildSnapshot(
 		EOpenMobileDevicePlatform::IOS,
 		FPlatformMisc::GetOSVersion(),
-		0
+		0,
+		FString(),
+		FString(),
+		GetOpenMobileDeviceIOSModel()
 	);
 }
 

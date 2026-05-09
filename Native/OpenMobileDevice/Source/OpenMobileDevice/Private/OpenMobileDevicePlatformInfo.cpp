@@ -42,13 +42,24 @@ namespace OpenMobileDevicePlatformInfoPrivate
 		}
 		return {};
 	}
+
+	FOpenMobileDeviceOptionalString MakeOptionalText(const FString& Value)
+	{
+		const FString Trimmed = Value.TrimStartAndEnd();
+		return Trimmed.IsEmpty()
+			? FOpenMobileDeviceOptionalString()
+			: FOpenMobileDeviceOptionalString::MakeAvailable(Trimmed);
+	}
 }
 
 FOpenMobileDeviceInformationSnapshot
 FOpenMobileDevicePlatformInfo::BuildSnapshot(
 	EOpenMobileDevicePlatform Platform,
 	const FString& RawOsVersion,
-	int32 AndroidApiLevel
+	int32 AndroidApiLevel,
+	const FString& Manufacturer,
+	const FString& Brand,
+	const FString& Model
 )
 {
 	using namespace OpenMobileDevicePlatformInfoPrivate;
@@ -101,5 +112,8 @@ FOpenMobileDevicePlatformInfo::BuildSnapshot(
 		Snapshot.AndroidApiLevel =
 			FOpenMobileDeviceOptionalInt32::MakeAvailable(AndroidApiLevel);
 	}
+	Snapshot.Manufacturer = MakeOptionalText(Manufacturer);
+	Snapshot.Brand = MakeOptionalText(Brand);
+	Snapshot.Model = MakeOptionalText(Model);
 	return Snapshot;
 }

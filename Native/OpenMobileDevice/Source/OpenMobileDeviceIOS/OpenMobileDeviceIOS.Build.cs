@@ -11,5 +11,7 @@ public class OpenMobileDeviceIOS : ModuleRules
 			"Core",
 			"OpenMobileDevice"
 		});
+
+		PublicFrameworks.Add("UIKit");
 	}
 }
