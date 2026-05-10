@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceIOSBackend.h"
 
 #include "HAL/PlatformMisc.h"
+#include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDevicePlatformInfo.h"
 
@@ -26,6 +27,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ManufacturerBrandModel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -43,7 +45,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 FOpenMobileDeviceInformationSnapshot
 FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 {
-	return FOpenMobileDevicePlatformInfo::BuildSnapshot(
+	FOpenMobileDeviceInformationSnapshot Snapshot =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
 		EOpenMobileDevicePlatform::IOS,
 		FPlatformMisc::GetOSVersion(),
 		0,
@@ -52,6 +55,13 @@ FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 		GetOpenMobileDeviceIOSModel(),
 		GetOpenMobileDeviceIOSHardwareModel()
 	);
+	FOpenMobileDeviceArchitecture::Apply(
+		Snapshot,
+		FPlatformMisc::GetUBTArchitecture(),
+		{},
+		false
+	);
+	return Snapshot;
 }
 
 EOpenMobileDeviceFormFactor

@@ -11,6 +11,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
@@ -239,6 +240,65 @@ bool FOpenMobileDeviceFormFactorTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Form factor is queried on each read"), Backend.FormFactorQueries, 2);
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceArchitectureTest,
+	"OpenMobile.Device.Identity.CpuArchitecture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceArchitectureTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+
+	FOpenMobileDeviceInformationSnapshot Snapshot;
+	FOpenMobileDeviceArchitecture::Apply(
+		Snapshot,
+		TEXT(" ARM64 "),
+		{
+			TEXT(" ARM64-V8A "),
+			TEXT("armeabi-v7a"),
+			TEXT("arm64-v8a"),
+			TEXT(" X86_64 ")
+		},
+		true
+	);
+	TestEqual(TEXT("Process architecture is normalized"), Snapshot.ProcessArchitecture.Value, FString(TEXT("arm64")));
+	TestTrue(TEXT("Android supported ABI list is available"), Snapshot.bSupportedAbisAvailable);
+	TestEqual(TEXT("Supported ABI order is retained"), Snapshot.SupportedAbis, TArray<FString>({TEXT("arm64-v8a"), TEXT("armeabi-v7a"), TEXT("x86_64")}));
+
+	FOpenMobileDeviceInformationSnapshot Mismatch;
+	FOpenMobileDeviceArchitecture::Apply(
+		Mismatch,
+		TEXT("arm64"),
+		{TEXT("x86_64")},
+		true
+	);
+	TestEqual(TEXT("Consumer process architecture stays independent"), Mismatch.ProcessArchitecture.Value, FString(TEXT("arm64")));
+	TestEqual(TEXT("Artifact mismatch does not invent device support"), Mismatch.SupportedAbis, TArray<FString>({TEXT("x86_64")}));
+
+	FOpenMobileDeviceInformationSnapshot Future;
+	FOpenMobileDeviceArchitecture::Apply(
+		Future,
+		TEXT(" RISC-V64 "),
+		{TEXT(" RISC-V64 "), TEXT("risc-v64")},
+		true
+	);
+	TestEqual(TEXT("Future process architecture is preserved"), Future.ProcessArchitecture.Value, FString(TEXT("risc-v64")));
+	TestEqual(TEXT("Future ABI is deduplicated"), Future.SupportedAbis.Num(), 1);
+
+	FOpenMobileDeviceInformationSnapshot Unknown;
+	FOpenMobileDeviceArchitecture::Apply(
+		Unknown,
+		FString(),
+		{TEXT("arm64-v8a")},
+		false
+	);
+	TestFalse(TEXT("Missing process architecture stays unavailable"), Unknown.ProcessArchitecture.bIsAvailable);
+	TestFalse(TEXT("Unavailable ABI source remains explicit"), Unknown.bSupportedAbisAvailable);
+	TestTrue(TEXT("Unavailable ABI source returns no values"), Unknown.SupportedAbis.IsEmpty());
 	return true;
 }
 

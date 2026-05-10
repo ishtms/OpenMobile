@@ -313,6 +313,26 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("Backend->GetDeviceFormFactor()", snapshot_service)
 
+		architecture = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceArchitecture.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ToLowerInline", architecture)
+		self.assertNotIn("SUPPORTED_ABIS", architecture)
+		self.assertIn('"SUPPORTED_ABIS"', android_identity)
+		self.assertIn("FPlatformMisc::GetUBTArchitecture", android_backend)
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FPlatformMisc::GetUBTArchitecture", ios_backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

@@ -254,3 +254,63 @@ EOpenMobileDeviceFormFactor GetOpenMobileDeviceAndroidFormFactor()
 	Traits.bHasFoldableHardware = HasHingeSensor(Env, Activity);
 	return FOpenMobileDeviceFormFactor::Classify(Traits);
 }
+
+bool GetOpenMobileDeviceAndroidSupportedAbis(
+	TArray<FString>& OutSupportedAbis
+)
+{
+	using namespace OpenMobileDeviceAndroidIdentityPrivate;
+	OutSupportedAbis.Reset();
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		return false;
+	}
+
+	FScopedJavaObject<jclass> BuildClass(Env->FindClass("android/os/Build"));
+	const bool bClassError = ClearJavaException(Env);
+	if (!BuildClass || bClassError)
+	{
+		return false;
+	}
+	const jfieldID SupportedAbisField = Env->GetStaticFieldID(
+		*BuildClass,
+		"SUPPORTED_ABIS",
+		"[Ljava/lang/String;"
+	);
+	const bool bFieldError = ClearJavaException(Env);
+	if (!SupportedAbisField || bFieldError)
+	{
+		return false;
+	}
+
+	FScopedJavaObject<jobjectArray> SupportedAbis(
+		static_cast<jobjectArray>(
+			Env->GetStaticObjectField(*BuildClass, SupportedAbisField)
+		)
+	);
+	const bool bArrayError = ClearJavaException(Env);
+	if (!SupportedAbis || bArrayError)
+	{
+		return false;
+	}
+	const jsize Count = Env->GetArrayLength(*SupportedAbis);
+	if (ClearJavaException(Env))
+	{
+		return false;
+	}
+	OutSupportedAbis.Reserve(Count);
+	for (jsize Index = 0; Index < Count; ++Index)
+	{
+		jstring Abi = static_cast<jstring>(
+			Env->GetObjectArrayElement(*SupportedAbis, Index)
+		);
+		if (ClearJavaException(Env))
+		{
+			OutSupportedAbis.Reset();
+			return false;
+		}
+		OutSupportedAbis.Add(FJavaHelper::FStringFromLocalRef(Env, Abi));
+	}
+	return true;
+}

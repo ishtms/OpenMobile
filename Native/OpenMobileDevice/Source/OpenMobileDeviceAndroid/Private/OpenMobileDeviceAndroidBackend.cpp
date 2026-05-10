@@ -2,6 +2,7 @@
 
 #include "Android/AndroidPlatformMisc.h"
 #include "HAL/PlatformMisc.h"
+#include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDevicePlatformInfo.h"
 
@@ -27,6 +28,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ManufacturerBrandModel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -44,7 +46,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 FOpenMobileDeviceInformationSnapshot
 FOpenMobileDeviceAndroidBackend::GetDeviceInformationSnapshot() const
 {
-	return FOpenMobileDevicePlatformInfo::BuildSnapshot(
+	FOpenMobileDeviceInformationSnapshot Snapshot =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
 		EOpenMobileDevicePlatform::Android,
 		FPlatformMisc::GetOSVersion(),
 		FAndroidMisc::GetAndroidBuildVersion(),
@@ -53,6 +56,16 @@ FOpenMobileDeviceAndroidBackend::GetDeviceInformationSnapshot() const
 		FAndroidMisc::GetDeviceModel(),
 		GetOpenMobileDeviceAndroidHardwareModel()
 	);
+	TArray<FString> SupportedAbis;
+	const bool bSupportedAbisAvailable =
+		GetOpenMobileDeviceAndroidSupportedAbis(SupportedAbis);
+	FOpenMobileDeviceArchitecture::Apply(
+		Snapshot,
+		FPlatformMisc::GetUBTArchitecture(),
+		SupportedAbis,
+		bSupportedAbisAvailable
+	);
+	return Snapshot;
 }
 
 EOpenMobileDeviceFormFactor
