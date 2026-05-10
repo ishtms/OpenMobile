@@ -24,6 +24,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 ) const
 {
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PlatformInformation
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ManufacturerBrandModel
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -47,7 +49,8 @@ FOpenMobileDeviceAndroidBackend::GetDeviceInformationSnapshot() const
 		FAndroidMisc::GetAndroidBuildVersion(),
 		FAndroidMisc::GetDeviceMake(),
 		GetOpenMobileDeviceAndroidBrand(),
-		FAndroidMisc::GetDeviceModel()
+		FAndroidMisc::GetDeviceModel(),
+		GetOpenMobileDeviceAndroidHardwareModel()
 	);
 }
 

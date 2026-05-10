@@ -245,6 +245,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileDeviceAndroidIdentity.cpp"
 		).read_text(encoding="utf-8")
 		self.assertIn('"BRAND"', android_identity)
+		self.assertIn('"DEVICE"', android_identity)
 
 		ios_identity = (
 			DEVICE_PLUGIN
@@ -255,6 +256,36 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("[UIDevice currentDevice]", ios_identity)
 		self.assertIn("model]", ios_identity)
+		self.assertIn('"hw.machine"', ios_identity)
+		self.assertIn('SIMULATOR_MODEL_IDENTIFIER', ios_identity)
+
+		for identity_source in (android_identity, ios_identity):
+			for forbidden_token in (
+				"ANDROID_ID",
+				"AdvertisingId",
+				"advertisingIdentifier",
+				"getDeviceId",
+				"getImei",
+				"getMacAddress",
+				"getMeid",
+				"getSerial",
+				"identifierForVendor",
+				'"SERIAL"',
+			):
+				self.assertNotIn(forbidden_token, identity_source)
+
+		for backend in (
+			android_backend,
+			(
+				DEVICE_PLUGIN
+				/ "Source"
+				/ "OpenMobileDeviceIOS"
+				/ "Private"
+				/ "OpenMobileDeviceIOSBackend.cpp"
+			).read_text(encoding="utf-8"),
+		):
+			self.assertIn("ManufacturerBrandModel", backend)
+			self.assertIn("HardwareModelIdentifier", backend)
 
 
 if __name__ == "__main__":

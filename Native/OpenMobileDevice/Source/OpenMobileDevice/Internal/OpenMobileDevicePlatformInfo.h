@@ -11,6 +11,7 @@ public:
 		int32 AndroidApiLevel,
 		const FString& Manufacturer = FString(),
 		const FString& Brand = FString(),
-		const FString& Model = FString()
+		const FString& Model = FString(),
+		const FString& HardwareModelIdentifier = FString()
 	);
 };

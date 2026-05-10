@@ -59,7 +59,8 @@ FOpenMobileDevicePlatformInfo::BuildSnapshot(
 	int32 AndroidApiLevel,
 	const FString& Manufacturer,
 	const FString& Brand,
-	const FString& Model
+	const FString& Model,
+	const FString& HardwareModelIdentifier
 )
 {
 	using namespace OpenMobileDevicePlatformInfoPrivate;
@@ -115,5 +116,8 @@ FOpenMobileDevicePlatformInfo::BuildSnapshot(
 	Snapshot.Manufacturer = MakeOptionalText(Manufacturer);
 	Snapshot.Brand = MakeOptionalText(Brand);
 	Snapshot.Model = MakeOptionalText(Model);
+	Snapshot.HardwareModelIdentifier = MakeOptionalText(
+		HardwareModelIdentifier
+	);
 	return Snapshot;
 }

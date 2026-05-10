@@ -305,6 +305,79 @@ bool FOpenMobileDevicePlatformInformationTest::RunTest(const FString& Parameters
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceHardwareModelIdentifierTest,
+	"OpenMobile.Device.Identity.HardwareModelIdentifier",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceHardwareModelIdentifierTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	const FOpenMobileDeviceInformationSnapshot Android =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::Android,
+			TEXT("15"),
+			35,
+			TEXT("Google"),
+			TEXT("google"),
+			TEXT("Pixel 9 Pro"),
+			TEXT(" caiman ")
+		);
+	TestEqual(TEXT("Android model stays readable"), Android.Model.Value, FString(TEXT("Pixel 9 Pro")));
+	TestEqual(TEXT("Android hardware model is trimmed"), Android.HardwareModelIdentifier.Value, FString(TEXT("caiman")));
+
+	const FOpenMobileDeviceInformationSnapshot IOS =
+		FOpenMobileDevicePlatformInfo::BuildSnapshot(
+			EOpenMobileDevicePlatform::IOS,
+			TEXT("18.0"),
+			0,
+			FString(),
+			FString(),
+			TEXT("iPhone"),
+			TEXT("iPhone17,1")
+		);
+	TestEqual(TEXT("iOS machine identifier is preserved"), IOS.HardwareModelIdentifier.Value, FString(TEXT("iPhone17,1")));
+
+	for (const FName ForbiddenName : {
+		FName(TEXT("IMEI")),
+		FName(TEXT("SerialNumber")),
+		FName(TEXT("RadioIdentifier")),
+		FName(TEXT("MacAddress")),
+		FName(TEXT("AdvertisingId")),
+		FName(TEXT("IDFV"))
+	})
+	{
+		TestNull(
+			*FString::Printf(
+				TEXT("Device information excludes %s"),
+				*ForbiddenName.ToString()
+			),
+			FOpenMobileDeviceInformationSnapshot::StaticStruct()
+				->FindPropertyByName(ForbiddenName)
+		);
+	}
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("HardwareModel"));
+	Backend.DeviceInformation = IOS;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileDeviceInformationSnapshot First =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	const FOpenMobileDeviceInformationSnapshot Second =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Repeated reads query immutable identity once"), Backend.DeviceInformationQueries, 1);
+	TestEqual(TEXT("Repeated reads preserve only the model class"), Second.HardwareModelIdentifier.Value, First.HardwareModelIdentifier.Value);
+	TestTrue(TEXT("Repeated reads still receive new metadata"), Second.Metadata.Generation > First.Metadata.Generation);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceSettingsContractTest,
 	"OpenMobile.Device.Settings.Contract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
