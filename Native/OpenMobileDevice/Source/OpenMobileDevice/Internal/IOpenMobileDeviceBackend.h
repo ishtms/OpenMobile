@@ -84,6 +84,11 @@ public:
 		return {};
 	}
 
+	virtual EOpenMobileDeviceFormFactor GetDeviceFormFactor() const
+	{
+		return EOpenMobileDeviceFormFactor::Unknown;
+	}
+
 	virtual FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot() const
 	{
 		return {};

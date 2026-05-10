@@ -57,6 +57,9 @@ namespace OpenMobileDeviceSnapshotServicePrivate
 
 		FOpenMobileDeviceInformationSnapshot Snapshot =
 			CachedDeviceInformation.GetValue();
+		Snapshot.FormFactor = Backend
+			? Backend->GetDeviceFormFactor()
+			: EOpenMobileDeviceFormFactor::Unknown;
 		Snapshot.Metadata.CapturedAtUtc = FDateTime::UtcNow();
 		Snapshot.Metadata.Generation = NextGeneration();
 		return Snapshot;

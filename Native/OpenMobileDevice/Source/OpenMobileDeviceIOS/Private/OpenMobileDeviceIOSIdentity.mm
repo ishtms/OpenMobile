@@ -1,4 +1,5 @@
 #include "OpenMobileDeviceIOSIdentity.h"
+#include "OpenMobileDeviceFormFactor.h"
 
 #include <sys/sysctl.h>
 
@@ -45,5 +46,20 @@ FString GetOpenMobileDeviceIOSHardwareModel()
 			return {};
 		}
 		return UTF8_TO_TCHAR(Machine.GetData());
+	}
+}
+
+EOpenMobileDeviceFormFactor GetOpenMobileDeviceIOSFormFactor()
+{
+	@autoreleasepool
+	{
+		FOpenMobileDeviceFormFactorTraits Traits;
+		const UIUserInterfaceIdiom Idiom = [[UIDevice currentDevice] userInterfaceIdiom];
+		Traits.bPhoneIdiom = Idiom == UIUserInterfaceIdiomPhone;
+		Traits.bTabletIdiom = Idiom == UIUserInterfaceIdiomPad;
+#if TARGET_OS_SIMULATOR
+		Traits.bSimulator = true;
+#endif
+		return FOpenMobileDeviceFormFactor::Classify(Traits);
 	}
 }

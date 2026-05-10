@@ -25,6 +25,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PlatformInformation
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ManufacturerBrandModel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -51,6 +52,12 @@ FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 		GetOpenMobileDeviceIOSModel(),
 		GetOpenMobileDeviceIOSHardwareModel()
 	);
+}
+
+EOpenMobileDeviceFormFactor
+FOpenMobileDeviceIOSBackend::GetDeviceFormFactor() const
+{
+	return GetOpenMobileDeviceIOSFormFactor();
 }
 
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const

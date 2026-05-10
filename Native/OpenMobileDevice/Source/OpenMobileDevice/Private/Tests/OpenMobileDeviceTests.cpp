@@ -18,6 +18,7 @@
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
@@ -86,6 +87,12 @@ namespace OpenMobileDeviceTests
 			return DeviceInformation;
 		}
 
+		virtual EOpenMobileDeviceFormFactor GetDeviceFormFactor() const override
+		{
+			++FormFactorQueries;
+			return DeviceFormFactor;
+		}
+
 		virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override
 		{
 			++PowerQueries;
@@ -142,10 +149,13 @@ namespace OpenMobileDeviceTests
 
 		int32 ShutdownCount = 0;
 		mutable int32 DeviceInformationQueries = 0;
+		mutable int32 FormFactorQueries = 0;
 		mutable int32 PowerQueries = 0;
 		mutable int32 MediaVolumeQueries = 0;
 		bool bInBackground = false;
 		FOpenMobileDeviceInformationSnapshot DeviceInformation;
+		EOpenMobileDeviceFormFactor DeviceFormFactor =
+			EOpenMobileDeviceFormFactor::Unknown;
 		FOpenMobilePowerSnapshot Power;
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
@@ -163,6 +173,73 @@ namespace OpenMobileDeviceTests
 		EOpenMobileDeviceBackendDomain SupportedDomain;
 		TMap<FName, FOpenMobileDeviceCapability> Capabilities;
 	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceFormFactorTest,
+	"OpenMobile.Device.Identity.FormFactor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceFormFactorTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileDeviceFormFactorTraits Traits;
+	Traits.bPhoneIdiom = true;
+	TestEqual(TEXT("Phone idiom classifies as phone"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Phone);
+
+	Traits = {};
+	Traits.bTabletIdiom = true;
+	TestEqual(TEXT("Tablet idiom classifies as tablet"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Tablet);
+
+	Traits = {};
+	Traits.bPhoneIdiom = true;
+	Traits.bSimulator = true;
+	TestEqual(TEXT("Simulator preserves selected phone idiom"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Phone);
+
+	Traits = {};
+	Traits.bHasFoldableHardware = true;
+	TestEqual(TEXT("Foldable hardware takes priority"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Foldable);
+
+	Traits = {};
+	Traits.bSeparatingPosture = true;
+	TestEqual(TEXT("Separating posture classifies as foldable"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Foldable);
+
+	Traits = {};
+	Traits.SmallestWindowWidthDp = 800;
+	Traits.WindowSizeClass = EOpenMobileDeviceWindowSizeClass::Large;
+	TestEqual(TEXT("Consistent large window traits classify as tablet"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Tablet);
+
+	Traits = {};
+	Traits.SmallestWindowWidthDp = 411;
+	Traits.WindowSizeClass = EOpenMobileDeviceWindowSizeClass::Compact;
+	TestEqual(TEXT("Consistent compact window traits classify as phone"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Phone);
+
+	Traits = {};
+	Traits.SmallestWindowWidthDp = 900;
+	Traits.WindowSizeClass = EOpenMobileDeviceWindowSizeClass::Compact;
+	TestEqual(TEXT("Conflicting resizable-window traits stay unknown"), FOpenMobileDeviceFormFactor::Classify(Traits), EOpenMobileDeviceFormFactor::Unknown);
+	TestEqual(TEXT("Desktop editor traits stay unknown"), FOpenMobileDeviceFormFactor::Classify({}), EOpenMobileDeviceFormFactor::Unknown);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("DynamicFormFactor"));
+	Backend.DeviceInformation.Platform = EOpenMobileDevicePlatform::Android;
+	Backend.DeviceFormFactor = EOpenMobileDeviceFormFactor::Phone;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileDeviceInformationSnapshot Folded =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	Backend.DeviceFormFactor = EOpenMobileDeviceFormFactor::Foldable;
+	const FOpenMobileDeviceInformationSnapshot Unfolded =
+		FOpenMobileDeviceSnapshotService::GetDeviceInformationSnapshot();
+	TestEqual(TEXT("Initial posture reports phone"), Folded.FormFactor, EOpenMobileDeviceFormFactor::Phone);
+	TestEqual(TEXT("Posture change is reevaluated"), Unfolded.FormFactor, EOpenMobileDeviceFormFactor::Foldable);
+	TestEqual(TEXT("Immutable identity remains cached"), Backend.DeviceInformationQueries, 1);
+	TestEqual(TEXT("Form factor is queried on each read"), Backend.FormFactorQueries, 2);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

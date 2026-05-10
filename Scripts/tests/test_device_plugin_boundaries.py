@@ -286,6 +286,32 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn("ManufacturerBrandModel", backend)
 			self.assertIn("HardwareModelIdentifier", backend)
+			self.assertIn("FormFactor", backend)
+
+		form_factor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceFormFactor.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("SmallestWindowWidthDp", form_factor)
+		self.assertIn("WindowSizeClass", form_factor)
+		self.assertNotIn("Pixels", form_factor)
+
+		self.assertIn("smallestScreenWidthDp", android_identity)
+		self.assertIn("screenLayout", android_identity)
+		self.assertIn("android.hardware.sensor.hinge_angle", android_identity)
+		self.assertIn("userInterfaceIdiom", ios_identity)
+
+		snapshot_service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSnapshotService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("Backend->GetDeviceFormFactor()", snapshot_service)
 
 
 if __name__ == "__main__":
