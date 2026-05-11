@@ -238,6 +238,9 @@ public class OpenMobileAdsAdMob : ModuleRules
 	string AndroidInterstitialAdUnitId = "ca-app-pub-3940256099942544/1033173712";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
+	string AndroidBannerAdUnitId = "ca-app-pub-3940256099942544/6300978111";
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSAppId = "ca-app-pub-3940256099942544~1458002511";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
@@ -245,6 +248,9 @@ public class OpenMobileAdsAdMob : ModuleRules
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSInterstitialAdUnitId = "ca-app-pub-3940256099942544/4411468910";
+
+	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
+	string IOSBannerAdUnitId = "ca-app-pub-3940256099942544/2435281174";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	List<string> TestDeviceIdentifiers = new List<string>();
@@ -314,9 +320,11 @@ public class OpenMobileAdsAdMob : ModuleRules
 				AndroidAppId,
 				AndroidRewardedAdUnitId,
 				AndroidInterstitialAdUnitId,
+				AndroidBannerAdUnitId,
 				IOSAppId,
 				IOSRewardedAdUnitId,
-				IOSInterstitialAdUnitId
+				IOSInterstitialAdUnitId,
+				IOSBannerAdUnitId
 			};
 			foreach (string Identifier in Identifiers)
 			{
