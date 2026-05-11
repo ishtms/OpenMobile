@@ -26,6 +26,7 @@
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDevicePlatformInfo.h"
+#include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
@@ -299,6 +300,36 @@ bool FOpenMobileDeviceArchitectureTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Missing process architecture stays unavailable"), Unknown.ProcessArchitecture.bIsAvailable);
 	TestFalse(TEXT("Unavailable ABI source remains explicit"), Unknown.bSupportedAbisAvailable);
 	TestTrue(TEXT("Unavailable ABI source returns no values"), Unknown.SupportedAbis.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceLogicalProcessorCountTest,
+	"OpenMobile.Device.Identity.LogicalProcessorCount",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceLogicalProcessorCountTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	FOpenMobileDeviceInformationSnapshot Snapshot;
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, 0);
+	TestFalse(TEXT("Zero logical processors is unavailable"), Snapshot.LogicalProcessorCount.bIsAvailable);
+
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, -8);
+	TestFalse(TEXT("Negative logical processors is unavailable"), Snapshot.LogicalProcessorCount.bIsAvailable);
+
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, 1);
+	TestEqual(TEXT("Single logical processor is retained"), Snapshot.LogicalProcessorCount.Value, 1);
+
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, 512);
+	TestEqual(TEXT("Large valid logical processor count is retained"), Snapshot.LogicalProcessorCount.Value, 512);
+
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, 2);
+	TestEqual(TEXT("Restricted process count is not expanded"), Snapshot.LogicalProcessorCount.Value, 2);
 	return true;
 }
 

@@ -333,6 +333,19 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("FPlatformMisc::GetUBTArchitecture", ios_backend)
 
+		processor_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceProcessorInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("LogicalProcessorCount > 0", processor_info)
+		self.assertNotIn("FPlatformMisc", processor_info)
+		for backend in (android_backend, ios_backend):
+			self.assertIn("NumberOfCoresIncludingHyperthreads", backend)
+			self.assertIn("LogicalProcessorCount", backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

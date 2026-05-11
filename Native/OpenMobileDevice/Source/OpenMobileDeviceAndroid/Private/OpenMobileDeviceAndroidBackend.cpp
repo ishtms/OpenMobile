@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDevicePlatformInfo.h"
+#include "OpenMobileDeviceProcessorInfo.h"
 
 FOpenMobileCapability FOpenMobileDeviceAndroidBackend::GetDomainCapability(
 	EOpenMobileDeviceBackendDomain Domain
@@ -29,6 +30,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LogicalProcessorCount
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -64,6 +66,10 @@ FOpenMobileDeviceAndroidBackend::GetDeviceInformationSnapshot() const
 		FPlatformMisc::GetUBTArchitecture(),
 		SupportedAbis,
 		bSupportedAbisAvailable
+	);
+	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(
+		Snapshot,
+		FPlatformMisc::NumberOfCoresIncludingHyperthreads()
 	);
 	return Snapshot;
 }
