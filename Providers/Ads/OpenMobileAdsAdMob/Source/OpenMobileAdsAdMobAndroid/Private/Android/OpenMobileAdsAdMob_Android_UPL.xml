@@ -47,9 +47,9 @@ dependencies {
         <insertNewline/>
         <insert>OpenMobileAdsAdMobAndroidManifestContract=4</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidDependencyContract=4</insert>
+        <insert>OpenMobileAdsAdMobAndroidDependencyContract=5</insert>
         <insertNewline/>
-        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=16</insert>
+        <insert>OpenMobileAdsAdMobAndroidRuntimeContract=17</insert>
         <insertNewline/>
     </registerBuildSettings>
 
@@ -108,7 +108,7 @@ import com.google.android.gms.ads.OnUserEarnedRewardListener;
 import com.google.android.gms.ads.RequestConfiguration;
 import com.google.android.gms.ads.ResponseInfo;
 import com.google.android.gms.ads.appopen.AppOpenAd;
-import com.google.android.gms.ads.appopen.AppOpenAdLoadCallback;
+import com.google.android.gms.ads.appopen.AppOpenAd.AppOpenAdLoadCallback;
 import com.google.android.gms.ads.initialization.AdapterStatus;
 import com.google.android.gms.ads.initialization.InitializationStatus;
 import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;

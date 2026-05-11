@@ -159,15 +159,15 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertEqual(["Bidding"], metadata["integration_types"])
 		self.assertEqual({"Android", "IOS"}, set(metadata["platforms"]))
 		android = metadata["platforms"]["Android"]
-		self.assertEqual("6.22.0.0", android["adapter_version"])
-		self.assertEqual("6.22.0", android["network_sdk_version"])
+		self.assertEqual("6.21.0.4", android["adapter_version"])
+		self.assertEqual("6.21.0", android["network_sdk_version"])
 		self.assertEqual(["25.4.0"], android["tested_provider_sdk_versions"])
 		self.assertEqual("23", android["minimum_os_version"])
 		self.assertEqual([], android["attribution_identifiers"])
 		self.assertEqual(
 			{
-				("com.google.ads.mediation:facebook", "6.22.0.0"),
-				("com.facebook.android:audience-network-sdk", "6.22.0"),
+				("com.google.ads.mediation:facebook", "6.21.0.4"),
+				("com.facebook.android:audience-network-sdk", "6.21.0"),
 				("androidx.annotation:annotation", "1.5.0"),
 				("com.google.ads.mediation:common", "1.1.0"),
 				("com.google.android.gms:play-services-ads", "25.4.0"),
@@ -307,8 +307,13 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("OpenMobileAdsAdMobMeta_Android_UPL.xml", build_rules)
 		self.assertIn("OpenMobileAdsAdMobMeta_Dependencies.gradle", build_rules)
 		self.assertIn("com.google.ads.mediation:facebook", gradle)
-		self.assertIn("strictly '6.22.0.0'", gradle)
+		self.assertIn("strictly '6.21.0.4'", gradle)
 		self.assertIn("OpenMobileAdsAdMobMeta_Dependencies.gradle", gradle)
+		build_settings = ElementTree.tostring(
+			upl_root.find("registerBuildSettings"),
+			encoding="unicode",
+		)
+		self.assertIn("OpenMobileAdsAdMobMetaAndroidDependencyContract=2", build_settings)
 		copy_destinations = {
 			element.get("dst") for element in upl_root.findall("./gradleCopies/copyFile")
 		}
@@ -330,8 +335,8 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			"com.google.ads.mediation:facebook",
 			"com.facebook.android:audience-network-sdk",
 			"25.4.0",
-			"6.22.0.0",
-			"6.22.0",
+			"6.21.0.4",
+			"6.21.0",
 			'it.name == "pre${variantName}Build"',
 		):
 			self.assertIn(token, dependency_validation)
@@ -423,8 +428,20 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			encoding="unicode",
 		)
 		self.assertIn("OpenMobileAdsAdMobAndroidManifestContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=4", build_settings)
-		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=16", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidDependencyContract=5", build_settings)
+		self.assertIn("OpenMobileAdsAdMobAndroidRuntimeContract=17", build_settings)
+		game_activity_imports = ElementTree.tostring(
+			root.find("gameActivityImportAdditions"),
+			encoding="unicode",
+		)
+		self.assertIn(
+			"com.google.android.gms.ads.appopen.AppOpenAd.AppOpenAdLoadCallback",
+			game_activity_imports,
+		)
+		self.assertNotIn(
+			"import com.google.android.gms.ads.appopen.AppOpenAdLoadCallback;",
+			game_activity_imports,
+		)
 		game_activity_additions = ElementTree.tostring(
 			root.find("gameActivityClassAdditions"),
 			encoding="unicode",
@@ -594,6 +611,32 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("proguard.txt", dependency_validation)
 		self.assertIn("AndroidManifest.xml", dependency_validation)
 		self.assertIn('it.name == "pre${variantName}Build"', dependency_validation)
+
+	def test_android_dependency_validation_reads_selected_components(self) -> None:
+		dependency_scripts = (
+			ADMOB_PLUGIN
+			/ "Source"
+			/ "OpenMobileAdsAdMobAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMob_Dependencies.gradle",
+			ADMOB_META_ADAPTER
+			/ "Source"
+			/ "OpenMobileAdsAdMobMetaAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMobMeta_Dependencies.gradle",
+		)
+		for dependency_script in dependency_scripts:
+			with self.subTest(script=dependency_script.name):
+				validation = dependency_script.read_text(encoding="utf-8")
+				self.assertIn("resolutionResult.allComponents.each", validation)
+				self.assertIn("component.moduleVersion", validation)
+				self.assertNotIn("component.id", validation)
+				self.assertIn('[requested.group, requested.module].join(":")', validation)
+				self.assertIn('[selected.group, selected.name].join(":")', validation)
+				self.assertIn("if (strictVersion)", validation)
+				self.assertNotIn("strictVersion ?: requested.version", validation)
 
 	def test_admob_paid_events_include_winning_source_metadata(self) -> None:
 		android_root = (

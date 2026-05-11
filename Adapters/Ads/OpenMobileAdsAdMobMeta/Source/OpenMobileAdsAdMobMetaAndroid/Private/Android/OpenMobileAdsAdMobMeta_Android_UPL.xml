@@ -14,7 +14,7 @@ repositories {
 dependencies {
     implementation('com.google.ads.mediation:facebook') {
         version {
-            strictly '6.22.0.0'
+            strictly '6.21.0.4'
         }
     }
 }
@@ -24,7 +24,7 @@ dependencies {
     </buildGradleAdditions>
 
     <registerBuildSettings>
-        <insert>OpenMobileAdsAdMobMetaAndroidDependencyContract=1</insert>
+        <insert>OpenMobileAdsAdMobMetaAndroidDependencyContract=2</insert>
         <insertNewline/>
     </registerBuildSettings>
 

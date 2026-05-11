@@ -7,8 +7,8 @@
 	"integration_types": ["Bidding"],
 	"platforms": {
 		"Android": {
-			"adapter_version": "6.22.0.0",
-			"network_sdk_version": "6.22.0",
+			"adapter_version": "6.21.0.4",
+			"network_sdk_version": "6.21.0",
 			"tested_provider_sdk_versions": ["25.4.0"],
 			"compatibility": {
 				"provider_sdk": {
@@ -17,14 +17,14 @@
 					"tested": ["25.4.0"]
 				},
 				"adapter": {
-					"minimum": "6.22.0.0",
-					"maximum_exclusive": "6.22.0.1",
-					"tested": ["6.22.0.0"]
+					"minimum": "6.21.0.4",
+					"maximum_exclusive": "6.21.0.5",
+					"tested": ["6.21.0.4"]
 				},
 				"network_sdk": {
-					"minimum": "6.22.0",
-					"maximum_exclusive": "6.22.1",
-					"tested": ["6.22.0"]
+					"minimum": "6.21.0",
+					"maximum_exclusive": "6.21.1",
+					"tested": ["6.21.0"]
 				}
 			},
 			"minimum_os_version": "23",
@@ -32,14 +32,14 @@
 				{
 					"kind": "Gradle",
 					"name": "com.google.ads.mediation:facebook",
-					"version": "6.22.0.0",
+					"version": "6.21.0.4",
 					"relationship": "Direct",
 					"ownership": "Owned"
 				},
 				{
 					"kind": "Gradle",
 					"name": "com.facebook.android:audience-network-sdk",
-					"version": "6.22.0",
+					"version": "6.21.0",
 					"relationship": "Transitive",
 					"via": "com.google.ads.mediation:facebook",
 					"ownership": "Owned"

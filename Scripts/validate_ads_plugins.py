@@ -46,20 +46,44 @@ ANDROID_MANIFEST_CONTRACTS = {
 	},
 }
 ANDROID_ADAPTER_MANIFEST_CONTRACTS = {}
-ANDROID_DEPENDENCY_CONTRACTS = {
-	"OpenMobileAdsAdMob": {
-		"com.google.android.gms:play-services-ads": "25.4.0",
-		"com.google.android.ump:user-messaging-platform": "4.0.0",
-	},
-}
-ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = {
-	"OpenMobileAdsAdMobMeta": {
-		"com.google.ads.mediation:facebook": "6.22.0.0",
-		"com.facebook.android:audience-network-sdk": "6.22.0",
-		"com.google.ads.mediation:common": "1.1.0",
-		"com.google.android.gms:play-services-ads": "25.4.0",
-	},
-}
+
+
+def _load_android_dependency_contracts(root: Path, manifest_name: str) -> dict[str, dict[str, str]]:
+	contracts: dict[str, dict[str, str]] = {}
+	for manifest_path in sorted(root.rglob(manifest_name)):
+		try:
+			metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+		except (OSError, json.JSONDecodeError):
+			continue
+		plugin = metadata.get("plugin")
+		dependencies = (
+			metadata.get("platforms", {})
+			.get("Android", {})
+			.get("dependencies", [])
+		)
+		if not isinstance(plugin, str) or not isinstance(dependencies, list):
+			continue
+		contracts[plugin] = {
+			dependency["name"]: dependency["version"]
+			for dependency in dependencies
+			if isinstance(dependency, dict)
+			and dependency.get("kind") == "Gradle"
+			and dependency.get("ownership") == "Owned"
+			and isinstance(dependency.get("name"), str)
+			and isinstance(dependency.get("version"), str)
+		}
+	return contracts
+
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+ANDROID_DEPENDENCY_CONTRACTS = _load_android_dependency_contracts(
+	_REPOSITORY_ROOT / "Providers" / "Ads",
+	"native-dependencies.json",
+)
+ANDROID_ADAPTER_DEPENDENCY_CONTRACTS = _load_android_dependency_contracts(
+	_REPOSITORY_ROOT / "Adapters" / "Ads",
+	"adapter.json",
+)
 IOS_PLIST_CONTRACTS = {
 	"OpenMobileAdsAdMob": {
 		"scalar_keys": {"GADApplicationIdentifier"},
@@ -762,6 +786,7 @@ class AndroidManifestExpectation:
 class AndroidDependencyInventory:
 	requested_versions: dict[str, tuple[str, ...]]
 	selected_versions: dict[str, tuple[str, ...]]
+	strict_versions: dict[str, tuple[str, ...]]
 	failed_coordinates: set[str]
 
 
@@ -2070,16 +2095,20 @@ def _normalize_requested_version(version: str) -> str:
 def inspect_android_dependency_graph(contents: str) -> AndroidDependencyInventory:
 	requested_versions: dict[str, set[str]] = {}
 	selected_versions: dict[str, set[str]] = {}
+	strict_versions: dict[str, set[str]] = {}
 	failed_coordinates: set[str] = set()
 	for line in contents.splitlines():
 		match = ANDROID_DEPENDENCY_PATTERN.search(line)
 		if match is None:
 			continue
 		coordinate = f"{match.group('group')}:{match.group('name')}"
-		requested = _normalize_requested_version(match.group("requested"))
+		raw_requested = match.group("requested")
+		requested = _normalize_requested_version(raw_requested)
 		selected = match.group("selected") or requested
 		requested_versions.setdefault(coordinate, set()).add(requested)
 		selected_versions.setdefault(coordinate, set()).add(selected)
+		if raw_requested.startswith("{strictly "):
+			strict_versions.setdefault(coordinate, set()).add(requested)
 		if " FAILED" in line:
 			failed_coordinates.add(coordinate)
 	return AndroidDependencyInventory(
@@ -2090,6 +2119,10 @@ def inspect_android_dependency_graph(contents: str) -> AndroidDependencyInventor
 		{
 			coordinate: tuple(sorted(versions))
 			for coordinate, versions in selected_versions.items()
+		},
+		{
+			coordinate: tuple(sorted(versions))
+			for coordinate, versions in strict_versions.items()
 		},
 		failed_coordinates,
 	)
@@ -2114,14 +2147,15 @@ def validate_android_dependencies(
 		for coordinate, expected_version in sorted(contract.items()):
 			requested = set(inventory.requested_versions.get(coordinate, ()))
 			selected = set(inventory.selected_versions.get(coordinate, ()))
+			strict = set(inventory.strict_versions.get(coordinate, ()))
 			if not requested:
 				errors.append(f"missing Android dependency '{coordinate}:{expected_version}' for {owner}")
 				continue
-			unexpected_requests = requested - {expected_version}
-			if unexpected_requests:
+			unexpected_strict = strict - {expected_version}
+			if unexpected_strict:
 				errors.append(
-					f"Android dependency '{coordinate}' has unsupported requested version(s) "
-					f"{', '.join(sorted(unexpected_requests))}; expected {expected_version}"
+					f"Android dependency '{coordinate}' has unsupported strict version(s) "
+					f"{', '.join(sorted(unexpected_strict))}; expected {expected_version}"
 				)
 			if selected != {expected_version}:
 				errors.append(
