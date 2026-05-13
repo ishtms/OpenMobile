@@ -133,3 +133,13 @@ UOpenMobileDeviceBlueprintLibrary::GetDeviceCapabilityReport()
 	}
 	return Report;
 }
+
+FText UOpenMobileDeviceBlueprintLibrary::FormatByteCount(int64 Bytes)
+{
+	return Bytes < 0
+		? FText::GetEmpty()
+		: FText::AsMemory(
+			static_cast<uint64>(Bytes),
+			EMemoryUnitStandard::IEC
+		);
+}

@@ -3,6 +3,7 @@
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSIdentity.h"
+#include "OpenMobileDeviceIOSMemory.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -30,6 +31,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LogicalProcessorCount
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PhysicalMemory
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -74,6 +76,11 @@ EOpenMobileDeviceFormFactor
 FOpenMobileDeviceIOSBackend::GetDeviceFormFactor() const
 {
 	return GetOpenMobileDeviceIOSFormFactor();
+}
+
+FOpenMobileMemorySnapshot FOpenMobileDeviceIOSBackend::GetMemorySnapshot() const
+{
+	return GetOpenMobileDeviceIOSMemorySnapshot();
 }
 
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const

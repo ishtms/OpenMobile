@@ -28,4 +28,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Device Capability Report", ToolTip = "Returns typed support and restriction information for every stable Device capability without prompting."))
 	static FOpenMobileDeviceCapabilityReport GetDeviceCapabilityReport();
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Format Byte Count", ToolTip = "Formats a non-negative byte count with IEC memory units. Negative values return empty text."))
+	static FText FormatByteCount(int64 Bytes);
 };

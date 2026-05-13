@@ -203,6 +203,50 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn("FPlatformMisc::GetBatteryLevel", backend)
 			self.assertIn("FPlatformMisc::GetDeviceVolume", backend)
 
+	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
+		memory_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMemoryInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("MAX_int64", memory_info)
+		self.assertIn("AvailablePhysicalBytes <= TotalPhysicalBytes", memory_info)
+		self.assertNotIn("FPlatformMemory", memory_info)
+
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FPlatformMemory::GetStats", android_backend)
+		self.assertIn("PhysicalMemory", android_backend)
+
+		ios_memory = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSMemory.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("TARGET_OS_SIMULATOR", ios_memory)
+		self.assertIn("physicalMemory", ios_memory)
+		self.assertIn("os_proc_available_memory", ios_memory)
+		self.assertIn("true,", ios_memory)
+
+		blueprint_library = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceBlueprintLibrary.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FormatByteCount", blueprint_library)
+		self.assertIn("FText::AsMemory", blueprint_library)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN

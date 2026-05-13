@@ -22,6 +22,7 @@
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
@@ -330,6 +331,95 @@ bool FOpenMobileDeviceLogicalProcessorCountTest::RunTest(
 
 	FOpenMobileDeviceProcessorInfo::ApplyLogicalProcessorCount(Snapshot, 2);
 	TestEqual(TEXT("Restricted process count is not expanded"), Snapshot.LogicalProcessorCount.Value, 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePhysicalMemoryTest,
+	"OpenMobile.Device.Memory.PhysicalSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePhysicalMemoryTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+
+	const FOpenMobileMemorySnapshot Unknown = FOpenMobileDeviceMemoryInfo::Build(
+		0,
+		0,
+		false,
+		EOpenMobileMemoryPressureState::Unknown
+	);
+	TestFalse(TEXT("Unknown total is unavailable"), Unknown.TotalPhysicalBytes.bIsAvailable);
+	TestFalse(TEXT("Unknown available memory is unavailable"), Unknown.AvailablePhysicalBytes.bIsAvailable);
+
+	const FOpenMobileMemorySnapshot Android = FOpenMobileDeviceMemoryInfo::Build(
+		8ull * 1024 * 1024 * 1024,
+		3ull * 1024 * 1024 * 1024,
+		false,
+		EOpenMobileMemoryPressureState::Nominal
+	);
+	TestEqual(TEXT("Android total bytes stay exact"), Android.TotalPhysicalBytes.Value, int64(8ull * 1024 * 1024 * 1024));
+	TestEqual(TEXT("Android available bytes stay exact"), Android.AvailablePhysicalBytes.Value, int64(3ull * 1024 * 1024 * 1024));
+	TestFalse(TEXT("Android estimate is not relabeled approximate"), Android.bAvailableBytesAreApproximate);
+
+	const FOpenMobileMemorySnapshot IOS = FOpenMobileDeviceMemoryInfo::Build(
+		16ull * 1024 * 1024 * 1024,
+		6ull * 1024 * 1024 * 1024,
+		true,
+		EOpenMobileMemoryPressureState::Warning
+	);
+	TestTrue(TEXT("iOS available bytes are approximate"), IOS.bAvailableBytesAreApproximate);
+	TestEqual(TEXT("Memory pressure is prioritized"), IOS.PressureState, EOpenMobileMemoryPressureState::Warning);
+
+	const FOpenMobileMemorySnapshot IOSSimulator =
+		FOpenMobileDeviceMemoryInfo::Build(
+			0,
+			0,
+			true,
+			EOpenMobileMemoryPressureState::Unknown
+		);
+	TestFalse(TEXT("Simulator total stays unavailable"), IOSSimulator.TotalPhysicalBytes.bIsAvailable);
+	TestFalse(TEXT("Simulator estimate stays unavailable"), IOSSimulator.AvailablePhysicalBytes.bIsAvailable);
+	TestFalse(TEXT("Missing simulator estimate is not approximate"), IOSSimulator.bAvailableBytesAreApproximate);
+
+	const FOpenMobileMemorySnapshot Critical = FOpenMobileDeviceMemoryInfo::Build(
+		16ull * 1024 * 1024 * 1024,
+		512ull * 1024 * 1024,
+		true,
+		EOpenMobileMemoryPressureState::Critical
+	);
+	TestEqual(TEXT("Pressure changes are retained"), Critical.PressureState, EOpenMobileMemoryPressureState::Critical);
+
+	const FOpenMobileMemorySnapshot UnknownTotal = FOpenMobileDeviceMemoryInfo::Build(
+		0,
+		1024,
+		true,
+		EOpenMobileMemoryPressureState::Unknown
+	);
+	TestFalse(TEXT("Unknown total remains unavailable"), UnknownTotal.TotalPhysicalBytes.bIsAvailable);
+	TestEqual(TEXT("Independent safe estimate remains available"), UnknownTotal.AvailablePhysicalBytes.Value, int64(1024));
+
+	const FOpenMobileMemorySnapshot Overflow = FOpenMobileDeviceMemoryInfo::Build(
+		static_cast<uint64>(MAX_int64) + 1,
+		static_cast<uint64>(MAX_int64) + 1,
+		false,
+		EOpenMobileMemoryPressureState::Nominal
+	);
+	TestFalse(TEXT("Overflowing total is unavailable"), Overflow.TotalPhysicalBytes.bIsAvailable);
+	TestFalse(TEXT("Overflowing available bytes are unavailable"), Overflow.AvailablePhysicalBytes.bIsAvailable);
+
+	const FOpenMobileMemorySnapshot InvalidOrder = FOpenMobileDeviceMemoryInfo::Build(
+		1024,
+		2048,
+		true,
+		EOpenMobileMemoryPressureState::Unknown
+	);
+	TestFalse(TEXT("Available bytes above total are unavailable"), InvalidOrder.AvailablePhysicalBytes.bIsAvailable);
+	TestFalse(TEXT("Missing estimate is not approximate"), InvalidOrder.bAvailableBytesAreApproximate);
+
+	TestTrue(TEXT("Negative byte formatting is empty"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(-1).IsEmpty());
+	TestTrue(TEXT("IEC formatting labels kibibytes"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(1024).ToString().Contains(TEXT("KiB")));
 	return true;
 }
 

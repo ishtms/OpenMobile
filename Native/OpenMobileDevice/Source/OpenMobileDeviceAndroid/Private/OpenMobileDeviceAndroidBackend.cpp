@@ -1,9 +1,11 @@
 #include "OpenMobileDeviceAndroidBackend.h"
 
 #include "Android/AndroidPlatformMisc.h"
+#include "HAL/PlatformMemory.h"
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
+#include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -31,6 +33,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::FormFactor
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LogicalProcessorCount
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PhysicalMemory
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -78,6 +81,34 @@ EOpenMobileDeviceFormFactor
 FOpenMobileDeviceAndroidBackend::GetDeviceFormFactor() const
 {
 	return GetOpenMobileDeviceAndroidFormFactor();
+}
+
+FOpenMobileMemorySnapshot
+FOpenMobileDeviceAndroidBackend::GetMemorySnapshot() const
+{
+	const FPlatformMemoryStats Stats = FPlatformMemory::GetStats();
+	EOpenMobileMemoryPressureState PressureState =
+		EOpenMobileMemoryPressureState::Unknown;
+	switch (Stats.GetMemoryPressureStatus())
+	{
+	case FPlatformMemoryStats::EMemoryPressureStatus::Nominal:
+		PressureState = EOpenMobileMemoryPressureState::Nominal;
+		break;
+	case FPlatformMemoryStats::EMemoryPressureStatus::Warning:
+		PressureState = EOpenMobileMemoryPressureState::Warning;
+		break;
+	case FPlatformMemoryStats::EMemoryPressureStatus::Critical:
+		PressureState = EOpenMobileMemoryPressureState::Critical;
+		break;
+	case FPlatformMemoryStats::EMemoryPressureStatus::Unknown:
+		break;
+	}
+	return FOpenMobileDeviceMemoryInfo::Build(
+		Stats.TotalPhysical,
+		Stats.AvailablePhysical,
+		false,
+		PressureState
+	);
 }
 
 FOpenMobilePowerSnapshot
