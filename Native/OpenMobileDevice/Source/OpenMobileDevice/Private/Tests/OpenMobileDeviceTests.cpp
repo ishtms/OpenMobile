@@ -24,6 +24,7 @@
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
+#include "OpenMobileDeviceLocaleInfo.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceMonitoringService.h"
@@ -116,6 +117,12 @@ namespace OpenMobileDeviceTests
 			return MediaVolume;
 		}
 
+		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override
+		{
+			++LocaleQueries;
+			return Locale;
+		}
+
 		virtual bool StartMonitoring(
 			EOpenMobileDeviceMonitoringGroup Group,
 			const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -157,12 +164,14 @@ namespace OpenMobileDeviceTests
 		mutable int32 FormFactorQueries = 0;
 		mutable int32 PowerQueries = 0;
 		mutable int32 MediaVolumeQueries = 0;
+		mutable int32 LocaleQueries = 0;
 		bool bInBackground = false;
 		FOpenMobileDeviceInformationSnapshot DeviceInformation;
 		EOpenMobileDeviceFormFactor DeviceFormFactor =
 			EOpenMobileDeviceFormFactor::Unknown;
 		FOpenMobilePowerSnapshot Power;
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
+		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStops;
@@ -553,6 +562,82 @@ bool FOpenMobileDeviceEmulatorDetectionTest::RunTest(
 	const FOpenMobileDeviceInformationSnapshot UnsupportedEditor;
 	TestFalse(TEXT("Unsupported editor has no detection result"), UnsupportedEditor.bProbablyEmulator.bIsAvailable);
 	TestEqual(TEXT("Unsupported editor confidence stays unknown"), UnsupportedEditor.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePreferredLanguagesTest,
+	"OpenMobile.Device.Environment.PreferredLanguages",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePreferredLanguagesTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	const FOpenMobileLocaleSnapshot Multiple =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			{
+				TEXT("zh_hant_tw"),
+				TEXT("en-us"),
+				TEXT("ZH-Hant-TW"),
+				TEXT("sr_Latn_RS")
+			},
+			true,
+			TEXT("fr-FR")
+		);
+	TestTrue(TEXT("OS preference source is available"), Multiple.bPreferredLanguagesAvailable);
+	TestEqual(TEXT("Language order and scripts normalize"), Multiple.PreferredLanguages, TArray<FString>({TEXT("zh-Hant-TW"), TEXT("en-US"), TEXT("sr-Latn-RS")}));
+	TestEqual(TEXT("Active Unreal culture remains separate"), Multiple.ActiveUnrealCulture.Value, FString(TEXT("fr-FR")));
+
+	const FOpenMobileLocaleSnapshot Malformed =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			{
+				TEXT(""),
+				TEXT("bad tag"),
+				TEXT("en--US"),
+				TEXT("de-DE-u-hc-h23"),
+				TEXT("ja")
+			},
+			true,
+			TEXT("en")
+		);
+	TestEqual(TEXT("Malformed tags are skipped without fallback"), Malformed.PreferredLanguages, TArray<FString>({TEXT("de-DE-u-hc-h23"), TEXT("ja")}));
+
+	const FOpenMobileLocaleSnapshot Single =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			{TEXT("pt_BR")},
+			true,
+			TEXT("pt-BR")
+		);
+	TestEqual(TEXT("Single language separator normalizes"), Single.PreferredLanguages, TArray<FString>({TEXT("pt-BR")}));
+
+	const FOpenMobileLocaleSnapshot Unsupported =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			{},
+			false,
+			FString()
+		);
+	TestFalse(TEXT("Unsupported editor list stays unavailable"), Unsupported.bPreferredLanguagesAvailable);
+	TestTrue(TEXT("Unsupported editor list stays empty"), Unsupported.PreferredLanguages.IsEmpty());
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("ChangingLanguages"));
+	Backend.Locale = Single;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileLocaleSnapshot First =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
+	Backend.Locale = Multiple;
+	const FOpenMobileLocaleSnapshot Second =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
+	TestEqual(TEXT("Initial OS preference is returned"), First.PreferredLanguages[0], FString(TEXT("pt-BR")));
+	TestEqual(TEXT("Runtime OS preference changes are visible"), Second.PreferredLanguages[0], FString(TEXT("zh-Hant-TW")));
+	TestEqual(TEXT("Locale snapshots are queried each time"), Backend.LocaleQueries, 2);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

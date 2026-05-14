@@ -17,6 +17,7 @@ public:
 	virtual EOpenMobileDeviceFormFactor GetDeviceFormFactor() const override;
 	virtual FOpenMobileApplicationMetadataSnapshot
 	GetApplicationMetadataSnapshot() const override;
+	virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override;
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;

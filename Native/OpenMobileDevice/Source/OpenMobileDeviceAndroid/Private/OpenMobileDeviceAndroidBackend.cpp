@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
+#include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -38,6 +39,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PhysicalMemory
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ApplicationMetadata
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::EmulatorDetection
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredLanguages
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -92,6 +94,12 @@ FOpenMobileApplicationMetadataSnapshot
 FOpenMobileDeviceAndroidBackend::GetApplicationMetadataSnapshot() const
 {
 	return GetOpenMobileDeviceAndroidApplicationMetadata();
+}
+
+FOpenMobileLocaleSnapshot
+FOpenMobileDeviceAndroidBackend::GetLocaleSnapshot() const
+{
+	return GetOpenMobileDeviceAndroidLocaleSnapshot();
 }
 
 FOpenMobileMemorySnapshot

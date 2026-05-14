@@ -42,6 +42,24 @@
 			? Long.toString(packageInfo.getLongVersionCode())
 			: Integer.toString(packageInfo.versionCode);
 	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetPreferredLanguages()
+	{
+		android.content.res.Configuration configuration = getResources().getConfiguration();
+		if (android.os.Build.VERSION.SDK_INT >= 24)
+		{
+			android.os.LocaleList locales = configuration.getLocales();
+			String[] languages = new String[locales.size()];
+			for (int index = 0; index < locales.size(); ++index)
+			{
+				languages[index] = locales.get(index).toLanguageTag();
+			}
+			return languages;
+		}
+		return configuration.locale == null
+			? new String[0]
+			: new String[] { configuration.locale.toLanguageTag() };
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

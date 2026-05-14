@@ -333,6 +333,40 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("TARGET_OS_SIMULATOR", ios_identity)
 		self.assertIn("ApplyIOS", ios_identity)
 
+	def test_preferred_languages_stay_os_owned(self) -> None:
+		locale_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceLocaleInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('ReplaceInline(TEXT("_"), TEXT("-"))', locale_info)
+		self.assertIn("TSet<FString> Seen", locale_info)
+		self.assertNotIn("GetPrioritizedCultureNames", locale_info)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("configuration.getLocales", android_upl)
+		self.assertIn("toLanguageTag", android_upl)
+
+		ios_locale = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSLocale.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("[NSLocale preferredLanguages]", ios_locale)
+		self.assertIn("GetCurrentCulture", ios_locale)
+		self.assertNotIn("GetPreferredLanguages", ios_locale)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN
