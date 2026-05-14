@@ -1,5 +1,6 @@
 import json
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -246,6 +247,51 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("FormatByteCount", blueprint_library)
 		self.assertIn("FText::AsMemory", blueprint_library)
+
+	def test_application_metadata_uses_packaged_sources(self) -> None:
+		application_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceApplicationInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertNotIn("CFBundle", application_info)
+		self.assertNotIn("PackageManager", application_info)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		)
+		ET.parse(android_upl)
+		android_contents = android_upl.read_text(encoding="utf-8")
+		for expected in (
+			"getApplicationLabel",
+			"getPackageName",
+			"versionName",
+			"getLongVersionCode",
+		):
+			self.assertIn(expected, android_contents)
+
+		ios_application = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSApplication.mm"
+		).read_text(encoding="utf-8")
+		for expected in (
+			"localizedInfoDictionary",
+			"CFBundleDisplayName",
+			"bundleIdentifier",
+			"CFBundleShortVersionString",
+			"CFBundleVersion",
+		):
+			self.assertIn(expected, ios_application)
 
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (

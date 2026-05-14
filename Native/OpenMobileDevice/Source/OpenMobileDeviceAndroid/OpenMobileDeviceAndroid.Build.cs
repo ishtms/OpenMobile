@@ -1,3 +1,4 @@
+using System.IO;
 using UnrealBuildTool;
 
 public class OpenMobileDeviceAndroid : ModuleRules
@@ -12,5 +13,11 @@ public class OpenMobileDeviceAndroid : ModuleRules
 			"Core",
 			"OpenMobileDevice"
 		});
+
+		string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
+		AdditionalPropertiesForReceipt.Add(
+			"AndroidPlugin",
+			Path.Combine(ModulePath, "Private/Android/OpenMobileDevice_Android_UPL.xml")
+		);
 	}
 }

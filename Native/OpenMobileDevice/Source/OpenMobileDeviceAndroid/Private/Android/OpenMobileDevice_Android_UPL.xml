@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<gameActivityClassAdditions>
+		<insert><![CDATA[
+	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
+	{
+		CharSequence label = getPackageManager().getApplicationLabel(getApplicationInfo());
+		return label == null ? "" : label.toString();
+	}
+
+	public String AndroidThunkJava_OpenMobileDeviceGetPackageIdentifier()
+	{
+		return getPackageName();
+	}
+
+	private android.content.pm.PackageInfo AndroidThunkJava_OpenMobileDeviceGetPackageInfo()
+	{
+		try
+		{
+			return getPackageManager().getPackageInfo(getPackageName(), 0);
+		}
+		catch (android.content.pm.PackageManager.NameNotFoundException ignored)
+		{
+			return null;
+		}
+	}
+
+	public String AndroidThunkJava_OpenMobileDeviceGetVersionName()
+	{
+		android.content.pm.PackageInfo packageInfo = AndroidThunkJava_OpenMobileDeviceGetPackageInfo();
+		return packageInfo == null || packageInfo.versionName == null ? "" : packageInfo.versionName;
+	}
+
+	public String AndroidThunkJava_OpenMobileDeviceGetBuildNumber()
+	{
+		android.content.pm.PackageInfo packageInfo = AndroidThunkJava_OpenMobileDeviceGetPackageInfo();
+		if (packageInfo == null)
+		{
+			return "";
+		}
+		return android.os.Build.VERSION.SDK_INT >= 28
+			? Long.toString(packageInfo.getLongVersionCode())
+			: Integer.toString(packageInfo.versionCode);
+	}
+]]></insert>
+	</gameActivityClassAdditions>
+</root>

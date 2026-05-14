@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
+#include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDeviceIOSMemory.h"
 #include "OpenMobileDevicePlatformInfo.h"
@@ -14,6 +15,7 @@ FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 	FOpenMobileCapability Capability;
 	Capability.Name = GetDomainCapabilityName(Domain);
 	Capability.State = Domain == EOpenMobileDeviceBackendDomain::Identity
+		|| Domain == EOpenMobileDeviceBackendDomain::Environment
 		|| Domain == EOpenMobileDeviceBackendDomain::Power
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
@@ -32,6 +34,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::CpuArchitecture
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LogicalProcessorCount
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PhysicalMemory
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ApplicationMetadata
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -76,6 +79,12 @@ EOpenMobileDeviceFormFactor
 FOpenMobileDeviceIOSBackend::GetDeviceFormFactor() const
 {
 	return GetOpenMobileDeviceIOSFormFactor();
+}
+
+FOpenMobileApplicationMetadataSnapshot
+FOpenMobileDeviceIOSBackend::GetApplicationMetadataSnapshot() const
+{
+	return GetOpenMobileDeviceIOSApplicationMetadata();
 }
 
 FOpenMobileMemorySnapshot FOpenMobileDeviceIOSBackend::GetMemorySnapshot() const

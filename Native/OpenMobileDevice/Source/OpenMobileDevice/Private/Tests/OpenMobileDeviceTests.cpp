@@ -11,6 +11,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceApplicationInfo.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
@@ -420,6 +421,68 @@ bool FOpenMobileDevicePhysicalMemoryTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("Negative byte formatting is empty"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(-1).IsEmpty());
 	TestTrue(TEXT("IEC formatting labels kibibytes"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(1024).ToString().Contains(TEXT("KiB")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceApplicationMetadataTest,
+	"OpenMobile.Device.Environment.ApplicationMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceApplicationMetadataTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	const FOpenMobileApplicationMetadataSnapshot Android =
+		FOpenMobileDeviceApplicationInfo::Build(
+			TEXT(" Open Mobile Test "),
+			TEXT("com.example.openmobile"),
+			TEXT("2.4.0"),
+			TEXT("104"),
+			EBuildConfiguration::Development
+		);
+	TestEqual(TEXT("Android display name comes from manifest"), Android.DisplayName.Value, FString(TEXT("Open Mobile Test")));
+	TestEqual(TEXT("Android package identifier is retained"), Android.PackageIdentifier.Value, FString(TEXT("com.example.openmobile")));
+	TestEqual(TEXT("Android version name is retained"), Android.VersionName.Value, FString(TEXT("2.4.0")));
+	TestEqual(TEXT("Android build number is retained"), Android.BuildNumber.Value, FString(TEXT("104")));
+	TestEqual(TEXT("Development build maps explicitly"), Android.BuildConfiguration, EOpenMobileBuildConfiguration::Development);
+
+	const FOpenMobileApplicationMetadataSnapshot IOS =
+		FOpenMobileDeviceApplicationInfo::Build(
+			TEXT("Open Mobile iOS"),
+			TEXT("com.example.openmobile.ios"),
+			TEXT("3.0-beta"),
+			TEXT("104-beta.2"),
+			EBuildConfiguration::Shipping
+		);
+	TestEqual(TEXT("iOS plist version is not forced numeric"), IOS.VersionName.Value, FString(TEXT("3.0-beta")));
+	TestEqual(TEXT("iOS plist build is not forced numeric"), IOS.BuildNumber.Value, FString(TEXT("104-beta.2")));
+	TestEqual(TEXT("Shipping build maps explicitly"), IOS.BuildConfiguration, EOpenMobileBuildConfiguration::Shipping);
+
+	const FOpenMobileApplicationMetadataSnapshot MissingDisplay =
+		FOpenMobileDeviceApplicationInfo::Build(
+			FString(),
+			TEXT("com.example.nolabel"),
+			TEXT("1.0"),
+			TEXT("1"),
+			EBuildConfiguration::Test
+		);
+	TestFalse(TEXT("Missing display name stays unavailable"), MissingDisplay.DisplayName.bIsAvailable);
+	TestEqual(TEXT("Test build maps explicitly"), MissingDisplay.BuildConfiguration, EOpenMobileBuildConfiguration::Test);
+
+	const FOpenMobileApplicationMetadataSnapshot Editor =
+		FOpenMobileDeviceApplicationInfo::Build(
+			FString(),
+			FString(),
+			FString(),
+			FString(),
+			EBuildConfiguration::Unknown
+		);
+	TestFalse(TEXT("Unsupported editor package stays unavailable"), Editor.PackageIdentifier.bIsAvailable);
+	TestEqual(TEXT("Unknown build configuration stays unknown"), Editor.BuildConfiguration, EOpenMobileBuildConfiguration::Unknown);
 	return true;
 }
 
