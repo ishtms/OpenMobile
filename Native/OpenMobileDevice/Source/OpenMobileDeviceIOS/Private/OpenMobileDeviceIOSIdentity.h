@@ -6,3 +6,6 @@
 FString GetOpenMobileDeviceIOSModel();
 FString GetOpenMobileDeviceIOSHardwareModel();
 EOpenMobileDeviceFormFactor GetOpenMobileDeviceIOSFormFactor();
+void ApplyOpenMobileDeviceIOSEmulatorDetection(
+	FOpenMobileDeviceInformationSnapshot& Snapshot
+);

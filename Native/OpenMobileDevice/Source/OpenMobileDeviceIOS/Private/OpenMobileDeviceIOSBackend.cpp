@@ -35,6 +35,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LogicalProcessorCount
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PhysicalMemory
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ApplicationMetadata
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::EmulatorDetection
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -72,6 +73,7 @@ FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 		Snapshot,
 		FPlatformMisc::NumberOfCoresIncludingHyperthreads()
 	);
+	ApplyOpenMobileDeviceIOSEmulatorDetection(Snapshot);
 	return Snapshot;
 }
 

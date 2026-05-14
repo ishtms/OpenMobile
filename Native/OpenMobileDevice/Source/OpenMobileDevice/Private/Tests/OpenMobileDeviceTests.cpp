@@ -20,6 +20,7 @@
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceEmulatorDetection.h"
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -483,6 +484,75 @@ bool FOpenMobileDeviceApplicationMetadataTest::RunTest(
 		);
 	TestFalse(TEXT("Unsupported editor package stays unavailable"), Editor.PackageIdentifier.bIsAvailable);
 	TestEqual(TEXT("Unknown build configuration stays unknown"), Editor.BuildConfiguration, EOpenMobileBuildConfiguration::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceEmulatorDetectionTest,
+	"OpenMobile.Device.Environment.EmulatorDetection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceEmulatorDetectionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	FOpenMobileDeviceInformationSnapshot AndroidEmulator;
+	FOpenMobileDeviceAndroidEmulatorEvidence EmulatorEvidence;
+	EmulatorEvidence.Manufacturer = TEXT("Google");
+	EmulatorEvidence.Brand = TEXT("google");
+	EmulatorEvidence.Model = TEXT("sdk_gphone64_arm64");
+	EmulatorEvidence.Device = TEXT("emu64a");
+	EmulatorEvidence.Hardware = TEXT("ranchu");
+	EmulatorEvidence.Product = TEXT("sdk_gphone64_arm64");
+	EmulatorEvidence.Fingerprint = TEXT("google/sdk_gphone64/generic:15/test-keys");
+	FOpenMobileDeviceEmulatorDetection::ApplyAndroid(
+		AndroidEmulator,
+		EmulatorEvidence
+	);
+	TestTrue(TEXT("Known Android emulator is probable"), AndroidEmulator.bProbablyEmulator.Value);
+	TestEqual(TEXT("Android evidence is likely, not confirmed"), AndroidEmulator.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::Likely);
+	TestTrue(TEXT("Android explanation is available"), AndroidEmulator.EmulatorReason.bIsAvailable);
+	TestFalse(TEXT("Android explanation omits raw fingerprint"), AndroidEmulator.EmulatorReason.Value.Contains(EmulatorEvidence.Fingerprint));
+
+	FOpenMobileDeviceInformationSnapshot PhysicalLooking;
+	FOpenMobileDeviceAndroidEmulatorEvidence PhysicalEvidence;
+	PhysicalEvidence.Manufacturer = TEXT("Google");
+	PhysicalEvidence.Brand = TEXT("google");
+	PhysicalEvidence.Model = TEXT("Pixel 9 Pro");
+	PhysicalEvidence.Device = TEXT("caiman");
+	PhysicalEvidence.Hardware = TEXT("caiman");
+	PhysicalEvidence.Product = TEXT("caiman");
+	PhysicalEvidence.Fingerprint = TEXT("google/caiman/caiman:15/release-keys");
+	FOpenMobileDeviceEmulatorDetection::ApplyAndroid(
+		PhysicalLooking,
+		PhysicalEvidence
+	);
+	TestFalse(TEXT("Physical-looking device is not probable"), PhysicalLooking.bProbablyEmulator.Value);
+	TestEqual(TEXT("No evidence stays explicit"), PhysicalLooking.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::NoEvidence);
+
+	FOpenMobileDeviceInformationSnapshot WeakEvidence;
+	FOpenMobileDeviceAndroidEmulatorEvidence Weak;
+	Weak.Fingerprint = TEXT("generic/device/build");
+	FOpenMobileDeviceEmulatorDetection::ApplyAndroid(WeakEvidence, Weak);
+	TestFalse(TEXT("One weak trait does not become probable"), WeakEvidence.bProbablyEmulator.Value);
+	TestEqual(TEXT("One weak trait is possible"), WeakEvidence.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::Possible);
+
+	FOpenMobileDeviceInformationSnapshot IOSSimulator;
+	FOpenMobileDeviceEmulatorDetection::ApplyIOS(IOSSimulator, true);
+	TestTrue(TEXT("iOS Simulator is detected directly"), IOSSimulator.bProbablyEmulator.Value);
+	TestEqual(TEXT("iOS Simulator detection is confirmed"), IOSSimulator.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::Confirmed);
+
+	FOpenMobileDeviceInformationSnapshot IOSDevice;
+	FOpenMobileDeviceEmulatorDetection::ApplyIOS(IOSDevice, false);
+	TestFalse(TEXT("iOS hardware reports no simulator evidence"), IOSDevice.bProbablyEmulator.Value);
+	TestEqual(TEXT("iOS hardware has no evidence"), IOSDevice.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::NoEvidence);
+
+	const FOpenMobileDeviceInformationSnapshot UnsupportedEditor;
+	TestFalse(TEXT("Unsupported editor has no detection result"), UnsupportedEditor.bProbablyEmulator.bIsAvailable);
+	TestEqual(TEXT("Unsupported editor confidence stays unknown"), UnsupportedEditor.EmulatorConfidence, EOpenMobileDeviceEmulatorConfidence::Unknown);
 	return true;
 }
 

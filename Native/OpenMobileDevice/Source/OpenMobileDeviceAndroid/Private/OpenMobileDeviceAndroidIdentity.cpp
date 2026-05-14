@@ -2,6 +2,7 @@
 
 #include "Android/AndroidApplication.h"
 #include "OpenMobileDeviceFormFactor.h"
+#include "OpenMobileDeviceEmulatorDetection.h"
 
 namespace OpenMobileDeviceAndroidIdentityPrivate
 {
@@ -313,4 +314,28 @@ bool GetOpenMobileDeviceAndroidSupportedAbis(
 		OutSupportedAbis.Add(FJavaHelper::FStringFromLocalRef(Env, Abi));
 	}
 	return true;
+}
+
+void ApplyOpenMobileDeviceAndroidEmulatorDetection(
+	FOpenMobileDeviceInformationSnapshot& Snapshot
+)
+{
+	using namespace OpenMobileDeviceAndroidIdentityPrivate;
+	FOpenMobileDeviceAndroidEmulatorEvidence Evidence;
+	Evidence.Manufacturer = Snapshot.Manufacturer.bIsAvailable
+		? Snapshot.Manufacturer.Value
+		: FString();
+	Evidence.Brand = Snapshot.Brand.bIsAvailable
+		? Snapshot.Brand.Value
+		: FString();
+	Evidence.Model = Snapshot.Model.bIsAvailable
+		? Snapshot.Model.Value
+		: FString();
+	Evidence.Device = Snapshot.HardwareModelIdentifier.bIsAvailable
+		? Snapshot.HardwareModelIdentifier.Value
+		: FString();
+	Evidence.Hardware = GetBuildStringField("HARDWARE");
+	Evidence.Product = GetBuildStringField("PRODUCT");
+	Evidence.Fingerprint = GetBuildStringField("FINGERPRINT");
+	FOpenMobileDeviceEmulatorDetection::ApplyAndroid(Snapshot, Evidence);
 }

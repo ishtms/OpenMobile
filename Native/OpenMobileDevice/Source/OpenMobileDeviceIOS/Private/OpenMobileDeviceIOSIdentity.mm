@@ -1,5 +1,6 @@
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDeviceFormFactor.h"
+#include "OpenMobileDeviceEmulatorDetection.h"
 
 #include <sys/sysctl.h>
 
@@ -62,4 +63,15 @@ EOpenMobileDeviceFormFactor GetOpenMobileDeviceIOSFormFactor()
 #endif
 		return FOpenMobileDeviceFormFactor::Classify(Traits);
 	}
+}
+
+void ApplyOpenMobileDeviceIOSEmulatorDetection(
+	FOpenMobileDeviceInformationSnapshot& Snapshot
+)
+{
+#if TARGET_OS_SIMULATOR
+	FOpenMobileDeviceEmulatorDetection::ApplyIOS(Snapshot, true);
+#else
+	FOpenMobileDeviceEmulatorDetection::ApplyIOS(Snapshot, false);
+#endif
 }

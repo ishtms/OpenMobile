@@ -293,6 +293,46 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(expected, ios_application)
 
+	def test_emulator_detection_uses_non_unique_traits(self) -> None:
+		public_identity = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceIdentityTypes.h"
+		).read_text(encoding="utf-8")
+		self.assertNotIn("Fingerprint", public_identity)
+
+		android_identity = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidIdentity.cpp"
+		).read_text(encoding="utf-8")
+		for expected in ('"HARDWARE"', '"PRODUCT"', '"FINGERPRINT"'):
+			self.assertIn(expected, android_identity)
+		for forbidden in (
+			'"SERIAL"',
+			"ANDROID_ID",
+			"AdvertisingId",
+			"getDeviceId",
+			"getImei",
+			"getMacAddress",
+			"identifierForVendor",
+		):
+			self.assertNotIn(forbidden, android_identity)
+
+		ios_identity = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSIdentity.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("TARGET_OS_SIMULATOR", ios_identity)
+		self.assertIn("ApplyIOS", ios_identity)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN

@@ -7,3 +7,6 @@ FString GetOpenMobileDeviceAndroidBrand();
 FString GetOpenMobileDeviceAndroidHardwareModel();
 EOpenMobileDeviceFormFactor GetOpenMobileDeviceAndroidFormFactor();
 bool GetOpenMobileDeviceAndroidSupportedAbis(TArray<FString>& OutSupportedAbis);
+void ApplyOpenMobileDeviceAndroidEmulatorDetection(
+	FOpenMobileDeviceInformationSnapshot& Snapshot
+);
