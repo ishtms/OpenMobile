@@ -824,6 +824,96 @@ bool FOpenMobileDeviceTimeZoneTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceRegionalPreferencesTest,
+	"OpenMobile.Device.Environment.RegionalPreferences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceRegionalPreferencesTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileLocaleSnapshot UnitedStates;
+	FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+		UnitedStates,
+		TEXT("12"),
+		TEXT("imperial")
+	);
+	TestEqual(TEXT("US clock preference is retained"), UnitedStates.TimeFormat, EOpenMobileTimeFormatPreference::TwelveHour);
+	TestEqual(TEXT("US measurement preference is retained"), UnitedStates.MeasurementSystem, EOpenMobileMeasurementSystem::Imperial);
+
+	FOpenMobileLocaleSnapshot Metric;
+	FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+		Metric,
+		TEXT("24"),
+		TEXT("metric")
+	);
+	TestEqual(TEXT("24-hour preference is retained"), Metric.TimeFormat, EOpenMobileTimeFormatPreference::TwentyFourHour);
+	TestEqual(TEXT("Metric preference is retained"), Metric.MeasurementSystem, EOpenMobileMeasurementSystem::Metric);
+
+	FOpenMobileLocaleSnapshot Unavailable =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			{TEXT("en-US")},
+			true,
+			TEXT("en-US")
+		);
+	FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+		Unavailable,
+		FString(),
+		FString()
+	);
+	TestEqual(TEXT("Language does not imply time preference"), Unavailable.TimeFormat, EOpenMobileTimeFormatPreference::Unknown);
+	TestEqual(TEXT("Language does not imply measurement preference"), Unavailable.MeasurementSystem, EOpenMobileMeasurementSystem::Unknown);
+	FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+		Unavailable,
+		TEXT("locale-default"),
+		TEXT("mixed")
+	);
+	TestEqual(TEXT("Unrecognized time preference stays unknown"), Unavailable.TimeFormat, EOpenMobileTimeFormatPreference::Unknown);
+	TestEqual(TEXT("Mixed measurement preference stays unknown"), Unavailable.MeasurementSystem, EOpenMobileMeasurementSystem::Unknown);
+
+	FOpenMobileLocaleSnapshot RegionOverride;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		RegionOverride,
+		TEXT("en-US"),
+		TEXT("en"),
+		FString(),
+		TEXT("US"),
+		TEXT("USD")
+	);
+	FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+		RegionOverride,
+		TEXT("24"),
+		TEXT("metric")
+	);
+	TestEqual(TEXT("Platform time override wins over locale"), RegionOverride.TimeFormat, EOpenMobileTimeFormatPreference::TwentyFourHour);
+	TestEqual(TEXT("Platform measurement override wins over region"), RegionOverride.MeasurementSystem, EOpenMobileMeasurementSystem::Metric);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("RegionalChange"));
+	Backend.Locale = UnitedStates;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileLocaleSnapshot BeforeChange =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
+	Backend.Locale = Metric;
+	const FOpenMobileLocaleSnapshot AfterChange =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
+	TestEqual(TEXT("Initial regional preference is visible"), BeforeChange.TimeFormat, EOpenMobileTimeFormatPreference::TwelveHour);
+	TestEqual(TEXT("Changed regional preference is visible"), AfterChange.TimeFormat, EOpenMobileTimeFormatPreference::TwentyFourHour);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+
+	const FDateTime Instant(2026, 8, 22, 14, 30, 0);
+	TestFalse(TEXT("Localized date helper returns text"), UOpenMobileDeviceBlueprintLibrary::FormatLocalizedDate(Instant).IsEmpty());
+	TestFalse(TEXT("Localized time helper returns text"), UOpenMobileDeviceBlueprintLibrary::FormatLocalizedTime(Instant).IsEmpty());
+	TestFalse(TEXT("Localized date-time helper returns text"), UOpenMobileDeviceBlueprintLibrary::FormatLocalizedDateTime(Instant).IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

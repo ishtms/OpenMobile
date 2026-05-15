@@ -108,6 +108,35 @@
 			Boolean.toString(timeZone.inDaylightTime(instant))
 		};
 	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetRegionalPreferences()
+	{
+		String timeFormat = android.text.format.DateFormat.is24HourFormat(this)
+			? "24"
+			: "12";
+		String measurementSystem = "";
+		if (android.os.Build.VERSION.SDK_INT >= 28)
+		{
+			android.content.res.Configuration configuration = getResources().getConfiguration();
+			java.util.Locale locale = configuration.getLocales().get(0);
+			if (locale != null && !locale.getCountry().isEmpty())
+			{
+				android.icu.util.LocaleData.MeasurementSystem nativeSystem =
+					android.icu.util.LocaleData.getMeasurementSystem(
+						android.icu.util.ULocale.forLocale(locale)
+					);
+				if (nativeSystem == android.icu.util.LocaleData.MeasurementSystem.SI)
+				{
+					measurementSystem = "metric";
+				}
+				else if (nativeSystem == android.icu.util.LocaleData.MeasurementSystem.US)
+				{
+					measurementSystem = "imperial";
+				}
+			}
+		}
+		return new String[] { timeFormat, measurementSystem };
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

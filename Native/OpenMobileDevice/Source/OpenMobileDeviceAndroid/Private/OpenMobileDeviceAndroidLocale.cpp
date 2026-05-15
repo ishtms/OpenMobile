@@ -138,5 +138,17 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot(
 			bDaylightSavingAvailable
 		);
 	}
+	TArray<FString> RegionalPreferences;
+	if (CallStringArrayMethod(
+		"AndroidThunkJava_OpenMobileDeviceGetRegionalPreferences",
+		RegionalPreferences
+	) && RegionalPreferences.Num() == 2)
+	{
+		FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+			Snapshot,
+			RegionalPreferences[0],
+			RegionalPreferences[1]
+		);
+	}
 	return Snapshot;
 }

@@ -143,3 +143,20 @@ FText UOpenMobileDeviceBlueprintLibrary::FormatByteCount(int64 Bytes)
 			EMemoryUnitStandard::IEC
 		);
 }
+
+FText UOpenMobileDeviceBlueprintLibrary::FormatLocalizedDate(FDateTime DateTime)
+{
+	return FText::AsDate(DateTime);
+}
+
+FText UOpenMobileDeviceBlueprintLibrary::FormatLocalizedTime(FDateTime DateTime)
+{
+	return FText::AsTime(DateTime);
+}
+
+FText UOpenMobileDeviceBlueprintLibrary::FormatLocalizedDateTime(
+	FDateTime DateTime
+)
+{
+	return FText::AsDateTime(DateTime);
+}

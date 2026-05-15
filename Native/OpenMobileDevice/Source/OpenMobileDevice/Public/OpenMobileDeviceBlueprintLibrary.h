@@ -31,4 +31,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Format Byte Count", ToolTip = "Formats a non-negative byte count with IEC memory units. Negative values return empty text."))
 	static FText FormatByteCount(int64 Bytes);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Format Localized Date", ToolTip = "Formats a UTC date through Unreal using the current culture and local time zone."))
+	static FText FormatLocalizedDate(FDateTime DateTime);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Format Localized Time", ToolTip = "Formats a UTC time through Unreal using the current culture and local time zone."))
+	static FText FormatLocalizedTime(FDateTime DateTime);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Format Localized Date and Time", ToolTip = "Formats a UTC date and time through Unreal using the current culture and local time zone."))
+	static FText FormatLocalizedDateTime(FDateTime DateTime);
 };

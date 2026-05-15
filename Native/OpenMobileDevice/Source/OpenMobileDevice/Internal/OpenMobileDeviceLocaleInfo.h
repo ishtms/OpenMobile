@@ -18,4 +18,9 @@ public:
 		const FString& RegionCode,
 		const FString& CurrencyCode
 	);
+	static void ApplyRegionalPreferences(
+		FOpenMobileLocaleSnapshot& Snapshot,
+		const FString& TimeFormat,
+		const FString& MeasurementSystem
+	);
 };

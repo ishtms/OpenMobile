@@ -148,3 +148,45 @@ void FOpenMobileDeviceLocaleInfo::ApplyLocale(
 	Snapshot.RegionCode = MakeOptionalText(RegionCode);
 	Snapshot.CurrencyCode = MakeOptionalText(CurrencyCode);
 }
+
+void FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+	FOpenMobileLocaleSnapshot& Snapshot,
+	const FString& TimeFormat,
+	const FString& MeasurementSystem
+)
+{
+	const FString NormalizedTimeFormat = TimeFormat.TrimStartAndEnd();
+	if (NormalizedTimeFormat == TEXT("12"))
+	{
+		Snapshot.TimeFormat = EOpenMobileTimeFormatPreference::TwelveHour;
+	}
+	else if (NormalizedTimeFormat == TEXT("24"))
+	{
+		Snapshot.TimeFormat = EOpenMobileTimeFormatPreference::TwentyFourHour;
+	}
+	else
+	{
+		Snapshot.TimeFormat = EOpenMobileTimeFormatPreference::Unknown;
+	}
+
+	const FString NormalizedMeasurementSystem =
+		MeasurementSystem.TrimStartAndEnd();
+	if (NormalizedMeasurementSystem.Equals(
+		TEXT("metric"),
+		ESearchCase::IgnoreCase
+	))
+	{
+		Snapshot.MeasurementSystem = EOpenMobileMeasurementSystem::Metric;
+	}
+	else if (NormalizedMeasurementSystem.Equals(
+		TEXT("imperial"),
+		ESearchCase::IgnoreCase
+	))
+	{
+		Snapshot.MeasurementSystem = EOpenMobileMeasurementSystem::Imperial;
+	}
+	else
+	{
+		Snapshot.MeasurementSystem = EOpenMobileMeasurementSystem::Unknown;
+	}
+}

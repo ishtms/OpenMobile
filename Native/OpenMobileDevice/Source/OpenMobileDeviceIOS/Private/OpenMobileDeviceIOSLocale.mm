@@ -46,6 +46,33 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceIOSLocaleSnapshot(
 			[TimeZone isDaylightSavingTimeForDate:Instant],
 			true
 		);
+		NSString* HourPattern = [NSDateFormatter
+			dateFormatFromTemplate:@"j"
+			options:0
+			locale:Locale];
+		FString TimeFormat;
+		if ([HourPattern rangeOfCharacterFromSet:
+			[NSCharacterSet characterSetWithCharactersInString:@"Hk"]].location
+			!= NSNotFound)
+		{
+			TimeFormat = TEXT("24");
+		}
+		else if ([HourPattern rangeOfCharacterFromSet:
+			[NSCharacterSet characterSetWithCharactersInString:@"hKa"]].location
+			!= NSNotFound)
+		{
+			TimeFormat = TEXT("12");
+		}
+		NSNumber* UsesMetricSystem = [Locale countryCode].length > 0
+			? [Locale objectForKey:NSLocaleUsesMetricSystem]
+			: nil;
+		FOpenMobileDeviceLocaleInfo::ApplyRegionalPreferences(
+			Snapshot,
+			TimeFormat,
+			UsesMetricSystem
+				? ([UsesMetricSystem boolValue] ? TEXT("metric") : TEXT("imperial"))
+				: FString()
+		);
 		return Snapshot;
 	}
 }

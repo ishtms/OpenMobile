@@ -398,6 +398,42 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("GetLocaleSnapshotAtUtc(FDateTime::UtcNow())", snapshot_service)
 
+	def test_regional_preferences_use_platform_sources_and_unreal_formatting(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("DateFormat.is24HourFormat(this)", android_upl)
+		self.assertIn("LocaleData.getMeasurementSystem", android_upl)
+		self.assertIn("locale.getCountry().isEmpty()", android_upl)
+		self.assertNotIn("Locale.getDefault().getLanguage", android_upl)
+
+		ios_locale = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSLocale.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn('dateFormatFromTemplate:@"j"', ios_locale)
+		self.assertIn("NSLocaleUsesMetricSystem", ios_locale)
+		self.assertIn("[Locale countryCode]", ios_locale)
+
+		blueprint_library = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceBlueprintLibrary.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FText::AsDate(DateTime)", blueprint_library)
+		self.assertIn("FText::AsTime(DateTime)", blueprint_library)
+		self.assertIn("FText::AsDateTime(DateTime)", blueprint_library)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN
