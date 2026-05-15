@@ -41,6 +41,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::EmulatorDetection
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredLanguages
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::Locale
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::TimeZone
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -100,7 +101,15 @@ FOpenMobileDeviceAndroidBackend::GetApplicationMetadataSnapshot() const
 FOpenMobileLocaleSnapshot
 FOpenMobileDeviceAndroidBackend::GetLocaleSnapshot() const
 {
-	return GetOpenMobileDeviceAndroidLocaleSnapshot();
+	return GetLocaleSnapshotAtUtc(FDateTime::UtcNow());
+}
+
+FOpenMobileLocaleSnapshot
+FOpenMobileDeviceAndroidBackend::GetLocaleSnapshotAtUtc(
+	const FDateTime& UtcInstant
+) const
+{
+	return GetOpenMobileDeviceAndroidLocaleSnapshot(UtcInstant);
 }
 
 FOpenMobileMemorySnapshot

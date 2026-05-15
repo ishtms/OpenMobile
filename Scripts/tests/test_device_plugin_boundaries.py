@@ -381,6 +381,23 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertNotIn(forbidden, android_upl)
 			self.assertNotIn(forbidden, ios_locale)
 
+		self.assertIn("getCanonicalID", android_upl)
+		self.assertIn("getOffset(utcMilliseconds)", android_upl)
+		self.assertIn("inDaylightTime(instant)", android_upl)
+		self.assertNotIn("getRawOffset", android_upl)
+		self.assertIn("secondsFromGMTForDate", ios_locale)
+		self.assertIn("isDaylightSavingTimeForDate", ios_locale)
+		self.assertIn("localTimeZone", ios_locale)
+
+		snapshot_service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSnapshotService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("GetLocaleSnapshotAtUtc(FDateTime::UtcNow())", snapshot_service)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN

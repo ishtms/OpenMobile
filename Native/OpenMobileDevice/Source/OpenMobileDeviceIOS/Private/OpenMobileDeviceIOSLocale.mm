@@ -3,10 +3,13 @@
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "OpenMobileDeviceLocaleInfo.h"
+#include "OpenMobileDeviceTimeZoneInfo.h"
 
 #import <Foundation/Foundation.h>
 
-FOpenMobileLocaleSnapshot GetOpenMobileDeviceIOSLocaleSnapshot()
+FOpenMobileLocaleSnapshot GetOpenMobileDeviceIOSLocaleSnapshot(
+	const FDateTime& UtcInstant
+)
 {
 	@autoreleasepool
 	{
@@ -31,6 +34,17 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceIOSLocaleSnapshot()
 			FString([Locale scriptCode]),
 			FString([Locale countryCode]),
 			FString([Locale currencyCode])
+		);
+		NSTimeZone* TimeZone = [NSTimeZone localTimeZone];
+		NSDate* Instant = [NSDate dateWithTimeIntervalSince1970:
+			static_cast<NSTimeInterval>(UtcInstant.ToUnixTimestamp())];
+		FOpenMobileDeviceTimeZoneInfo::Apply(
+			Snapshot,
+			FString([TimeZone name]),
+			[TimeZone secondsFromGMTForDate:Instant],
+			true,
+			[TimeZone isDaylightSavingTimeForDate:Instant],
+			true
 		);
 		return Snapshot;
 	}

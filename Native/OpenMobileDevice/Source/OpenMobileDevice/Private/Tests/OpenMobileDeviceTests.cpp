@@ -35,6 +35,7 @@
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceSubsystem.h"
+#include "OpenMobileDeviceTimeZoneInfo.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "UObject/UnrealType.h"
@@ -123,6 +124,14 @@ namespace OpenMobileDeviceTests
 			return Locale;
 		}
 
+		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshotAtUtc(
+			const FDateTime& UtcInstant
+		) const override
+		{
+			LastLocaleInstant = UtcInstant;
+			return GetLocaleSnapshot();
+		}
+
 		virtual bool StartMonitoring(
 			EOpenMobileDeviceMonitoringGroup Group,
 			const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -165,6 +174,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 PowerQueries = 0;
 		mutable int32 MediaVolumeQueries = 0;
 		mutable int32 LocaleQueries = 0;
+		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
 		FOpenMobileDeviceInformationSnapshot DeviceInformation;
 		EOpenMobileDeviceFormFactor DeviceFormFactor =
@@ -709,6 +719,105 @@ bool FOpenMobileDeviceLocaleAndRegionTest::RunTest(
 		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
 	TestEqual(TEXT("Editor backend override is retained"), Overridden.LocaleIdentifier.Value, FString(TEXT("fr_CA")));
 	TestEqual(TEXT("Editor region override is retained"), Overridden.RegionCode.Value, FString(TEXT("CA")));
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceTimeZoneTest,
+	"OpenMobile.Device.Environment.TimeZone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceTimeZoneTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileLocaleSnapshot NoDaylightSaving;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		NoDaylightSaving,
+		TEXT("Asia/Kolkata"),
+		19800,
+		true,
+		false,
+		true
+	);
+	TestEqual(TEXT("Half-hour zone identifier is retained"), NoDaylightSaving.TimeZoneIdentifier.Value, FString(TEXT("Asia/Kolkata")));
+	TestEqual(TEXT("Half-hour offset is retained"), NoDaylightSaving.UtcOffsetSeconds.Value, 19800);
+	TestFalse(TEXT("Zone without DST reports false"), NoDaylightSaving.bIsDaylightSavingTime.Value);
+
+	FOpenMobileLocaleSnapshot Winter;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		Winter,
+		TEXT("America/New_York"),
+		-18000,
+		true,
+		false,
+		true
+	);
+	FOpenMobileLocaleSnapshot Summer;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		Summer,
+		TEXT("America/New_York"),
+		-14400,
+		true,
+		true,
+		true
+	);
+	TestEqual(TEXT("Winter negative offset is retained"), Winter.UtcOffsetSeconds.Value, -18000);
+	TestEqual(TEXT("Summer clock change is retained"), Summer.UtcOffsetSeconds.Value, -14400);
+	TestTrue(TEXT("Summer daylight saving is retained"), Summer.bIsDaylightSavingTime.Value);
+
+	FOpenMobileLocaleSnapshot LargePositive;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		LargePositive,
+		TEXT("Pacific/Chatham"),
+		45900,
+		true,
+		true,
+		true
+	);
+	TestEqual(TEXT("Large positive offset is retained"), LargePositive.UtcOffsetSeconds.Value, 45900);
+
+	FOpenMobileLocaleSnapshot Unavailable;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		Unavailable,
+		FString(),
+		0,
+		false,
+		false,
+		false
+	);
+	TestFalse(TEXT("Missing zone identifier stays unavailable"), Unavailable.TimeZoneIdentifier.bIsAvailable);
+	TestFalse(TEXT("Missing offset stays unavailable"), Unavailable.UtcOffsetSeconds.bIsAvailable);
+	TestFalse(TEXT("Missing DST state stays unavailable"), Unavailable.bIsDaylightSavingTime.bIsAvailable);
+
+	FOpenMobileLocaleSnapshot InvalidOffset;
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		InvalidOffset,
+		TEXT("Invalid/Offset"),
+		100000,
+		true,
+		false,
+		true
+	);
+	TestFalse(TEXT("Out-of-range offset stays unavailable"), InvalidOffset.UtcOffsetSeconds.bIsAvailable);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("TimeZoneAtInstant"));
+	Backend.Locale = Winter;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FDateTime WinterInstant(2026, 1, 15, 12, 0, 0);
+	FOpenMobileDeviceSnapshotService::GetLocaleSnapshotAtUtc(WinterInstant);
+	TestEqual(TEXT("Supplied UTC instant reaches backend"), Backend.LastLocaleInstant, WinterInstant);
+	Backend.Locale = LargePositive;
+	const FOpenMobileLocaleSnapshot ChangedZone =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshotAtUtc(
+			FDateTime(2026, 8, 15, 12, 0, 0)
+		);
+	TestEqual(TEXT("Manual time-zone change is visible"), ChangedZone.TimeZoneIdentifier.Value, FString(TEXT("Pacific/Chatham")));
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

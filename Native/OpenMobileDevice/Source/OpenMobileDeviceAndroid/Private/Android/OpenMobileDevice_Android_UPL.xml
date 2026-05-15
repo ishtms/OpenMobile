@@ -88,6 +88,26 @@
 			currencyCode
 		};
 	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetTimeZoneAt(long utcMilliseconds)
+	{
+		java.util.TimeZone timeZone = java.util.TimeZone.getDefault();
+		String identifier = timeZone.getID();
+		if (android.os.Build.VERSION.SDK_INT >= 24)
+		{
+			String canonicalIdentifier = android.icu.util.TimeZone.getCanonicalID(identifier);
+			if (canonicalIdentifier != null && !canonicalIdentifier.isEmpty())
+			{
+				identifier = canonicalIdentifier;
+			}
+		}
+		java.util.Date instant = new java.util.Date(utcMilliseconds);
+		return new String[] {
+			identifier,
+			Integer.toString(timeZone.getOffset(utcMilliseconds) / 1000),
+			Boolean.toString(timeZone.inDaylightTime(instant))
+		};
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

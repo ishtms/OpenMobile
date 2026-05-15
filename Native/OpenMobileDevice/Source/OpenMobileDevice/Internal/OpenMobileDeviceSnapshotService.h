@@ -13,6 +13,9 @@ public:
 	static FOpenMobileDeviceInformationSnapshot GetDeviceInformationSnapshot();
 	static FOpenMobileApplicationMetadataSnapshot GetApplicationMetadataSnapshot();
 	static FOpenMobileLocaleSnapshot GetLocaleSnapshot();
+	static FOpenMobileLocaleSnapshot GetLocaleSnapshotAtUtc(
+		const FDateTime& UtcInstant
+	);
 	static FOpenMobilePowerSnapshot GetPowerSnapshot();
 	static FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot();
 	static FOpenMobileMemorySnapshot GetMemorySnapshot();

@@ -18,6 +18,9 @@ public:
 	virtual FOpenMobileApplicationMetadataSnapshot
 	GetApplicationMetadataSnapshot() const override;
 	virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override;
+	virtual FOpenMobileLocaleSnapshot GetLocaleSnapshotAtUtc(
+		const FDateTime& UtcInstant
+	) const override;
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;

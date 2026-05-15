@@ -85,10 +85,17 @@ FOpenMobileDeviceSnapshotService::GetApplicationMetadataSnapshot()
 
 FOpenMobileLocaleSnapshot FOpenMobileDeviceSnapshotService::GetLocaleSnapshot()
 {
+	return GetLocaleSnapshotAtUtc(FDateTime::UtcNow());
+}
+
+FOpenMobileLocaleSnapshot FOpenMobileDeviceSnapshotService::GetLocaleSnapshotAtUtc(
+	const FDateTime& UtcInstant
+)
+{
 	return OpenMobileDeviceSnapshotServicePrivate::Capture<FOpenMobileLocaleSnapshot>(
-		[](const IOpenMobileDeviceBackend& Backend)
+		[&UtcInstant](const IOpenMobileDeviceBackend& Backend)
 		{
-			return Backend.GetLocaleSnapshot();
+			return Backend.GetLocaleSnapshotAtUtc(UtcInstant);
 		}
 	);
 }

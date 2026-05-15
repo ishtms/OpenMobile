@@ -4,12 +4,15 @@
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "OpenMobileDeviceLocaleInfo.h"
+#include "OpenMobileDeviceTimeZoneInfo.h"
 
 namespace OpenMobileDeviceAndroidLocalePrivate
 {
 	bool CallStringArrayMethod(
 		const char* MethodName,
-		TArray<FString>& OutValues
+		TArray<FString>& OutValues,
+		bool bHasLongArgument = false,
+		jlong LongArgument = 0
 	)
 	{
 		OutValues.Reset();
@@ -24,7 +27,9 @@ namespace OpenMobileDeviceAndroidLocalePrivate
 			? Env->GetMethodID(
 				*ActivityClass,
 				MethodName,
-				"()[Ljava/lang/String;"
+				bHasLongArgument
+					? "(J)[Ljava/lang/String;"
+					: "()[Ljava/lang/String;"
 			)
 			: nullptr;
 		const bool bMethodError = Env->ExceptionCheck();
@@ -37,9 +42,11 @@ namespace OpenMobileDeviceAndroidLocalePrivate
 			return false;
 		}
 
-		FScopedJavaObject<jobjectArray> Values(
-			static_cast<jobjectArray>(Env->CallObjectMethod(Activity, Method))
-		);
+		FScopedJavaObject<jobjectArray> Values(static_cast<jobjectArray>(
+			bHasLongArgument
+				? Env->CallObjectMethod(Activity, Method, LongArgument)
+				: Env->CallObjectMethod(Activity, Method)
+		));
 		const bool bArrayError = Env->ExceptionCheck();
 		if (bArrayError)
 		{
@@ -73,7 +80,9 @@ namespace OpenMobileDeviceAndroidLocalePrivate
 	}
 }
 
-FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot()
+FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot(
+	const FDateTime& UtcInstant
+)
 {
 	using namespace OpenMobileDeviceAndroidLocalePrivate;
 	TArray<FString> PreferredLanguages;
@@ -100,6 +109,33 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot()
 			LocaleDetails[2],
 			LocaleDetails[3],
 			LocaleDetails[4]
+		);
+	}
+	TArray<FString> TimeZoneDetails;
+	if (CallStringArrayMethod(
+		"AndroidThunkJava_OpenMobileDeviceGetTimeZoneAt",
+		TimeZoneDetails,
+		true,
+		static_cast<jlong>(UtcInstant.ToUnixTimestamp()) * 1000
+	) && TimeZoneDetails.Num() == 3)
+	{
+		const bool bOffsetAvailable = TimeZoneDetails[1].IsNumeric();
+		const bool bDaylightSavingAvailable =
+			TimeZoneDetails[2].Equals(TEXT("true"), ESearchCase::IgnoreCase)
+			|| TimeZoneDetails[2].Equals(
+				TEXT("false"),
+				ESearchCase::IgnoreCase
+			);
+		FOpenMobileDeviceTimeZoneInfo::Apply(
+			Snapshot,
+			TimeZoneDetails[0],
+			bOffsetAvailable ? FCString::Atoi64(*TimeZoneDetails[1]) : 0,
+			bOffsetAvailable,
+			TimeZoneDetails[2].Equals(
+				TEXT("true"),
+				ESearchCase::IgnoreCase
+			),
+			bDaylightSavingAvailable
 		);
 	}
 	return Snapshot;

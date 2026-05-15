@@ -2,4 +2,6 @@
 
 #include "OpenMobileDeviceLocaleTypes.h"
 
-FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot();
+FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot(
+	const FDateTime& UtcInstant
+);

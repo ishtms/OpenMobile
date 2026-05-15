@@ -99,6 +99,14 @@ public:
 		return {};
 	}
 
+	virtual FOpenMobileLocaleSnapshot GetLocaleSnapshotAtUtc(
+		const FDateTime& UtcInstant
+	) const
+	{
+		static_cast<void>(UtcInstant);
+		return GetLocaleSnapshot();
+	}
+
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const
 	{
 		return {};
