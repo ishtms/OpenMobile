@@ -642,6 +642,79 @@ bool FOpenMobileDevicePreferredLanguagesTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceLocaleAndRegionTest,
+	"OpenMobile.Device.Environment.LocaleAndRegion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceLocaleAndRegionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileLocaleSnapshot ScriptSpecific;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		ScriptSpecific,
+		TEXT("zh-Hant-TW"),
+		TEXT("zh"),
+		TEXT("Hant"),
+		TEXT("TW"),
+		TEXT("TWD")
+	);
+	TestEqual(TEXT("Script-specific locale is retained"), ScriptSpecific.LocaleIdentifier.Value, FString(TEXT("zh-Hant-TW")));
+	TestEqual(TEXT("Script is independently available"), ScriptSpecific.ScriptCode.Value, FString(TEXT("Hant")));
+	TestEqual(TEXT("Region is independently available"), ScriptSpecific.RegionCode.Value, FString(TEXT("TW")));
+	TestEqual(TEXT("Currency is independently available"), ScriptSpecific.CurrencyCode.Value, FString(TEXT("TWD")));
+
+	FOpenMobileLocaleSnapshot MissingRegion;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		MissingRegion,
+		TEXT("eo"),
+		TEXT("eo"),
+		FString(),
+		FString(),
+		FString()
+	);
+	TestFalse(TEXT("Missing script stays unavailable"), MissingRegion.ScriptCode.bIsAvailable);
+	TestFalse(TEXT("Missing region stays unavailable"), MissingRegion.RegionCode.bIsAvailable);
+	TestFalse(TEXT("Currency is not guessed without region"), MissingRegion.CurrencyCode.bIsAvailable);
+
+	FOpenMobileLocaleSnapshot UnicodeExtension;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		UnicodeExtension,
+		TEXT("en-US-u-ca-buddhist"),
+		TEXT("en"),
+		FString(),
+		TEXT("US"),
+		TEXT("USD")
+	);
+	TestEqual(TEXT("Unicode locale extension is preserved"), UnicodeExtension.LocaleIdentifier.Value, FString(TEXT("en-US-u-ca-buddhist")));
+
+	FOpenMobileLocaleSnapshot EditorOverride;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		EditorOverride,
+		TEXT("fr_CA"),
+		TEXT("fr"),
+		FString(),
+		TEXT("CA"),
+		TEXT("CAD")
+	);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("EditorLocaleOverride"));
+	Backend.Locale = EditorOverride;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileLocaleSnapshot Overridden =
+		FOpenMobileDeviceSnapshotService::GetLocaleSnapshot();
+	TestEqual(TEXT("Editor backend override is retained"), Overridden.LocaleIdentifier.Value, FString(TEXT("fr_CA")));
+	TestEqual(TEXT("Editor region override is retained"), Overridden.RegionCode.Value, FString(TEXT("CA")));
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

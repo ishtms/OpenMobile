@@ -40,6 +40,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ApplicationMetadata
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::EmulatorDetection
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredLanguages
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::Locale
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume

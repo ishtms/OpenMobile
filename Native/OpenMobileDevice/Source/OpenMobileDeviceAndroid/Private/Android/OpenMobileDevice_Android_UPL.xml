@@ -60,6 +60,34 @@
 			? new String[0]
 			: new String[] { configuration.locale.toLanguageTag() };
 	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetLocaleDetails()
+	{
+		android.content.res.Configuration configuration = getResources().getConfiguration();
+		java.util.Locale locale = android.os.Build.VERSION.SDK_INT >= 24
+			? configuration.getLocales().get(0)
+			: configuration.locale;
+		if (locale == null)
+		{
+			return new String[0];
+		}
+		String currencyCode = "";
+		try
+		{
+			java.util.Currency currency = java.util.Currency.getInstance(locale);
+			currencyCode = currency == null ? "" : currency.getCurrencyCode();
+		}
+		catch (IllegalArgumentException ignored)
+		{
+		}
+		return new String[] {
+			locale.toLanguageTag(),
+			locale.getLanguage(),
+			locale.getScript(),
+			locale.getCountry(),
+			currencyCode
+		};
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

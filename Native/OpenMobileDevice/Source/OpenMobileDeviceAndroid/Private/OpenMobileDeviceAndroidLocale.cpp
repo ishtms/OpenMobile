@@ -5,19 +5,25 @@
 #include "Internationalization/Internationalization.h"
 #include "OpenMobileDeviceLocaleInfo.h"
 
-FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot()
+namespace OpenMobileDeviceAndroidLocalePrivate
 {
-	TArray<FString> PreferredLanguages;
-	bool bPreferredLanguagesAvailable = false;
-	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-	jobject Activity = FAndroidApplication::GetGameActivityThis();
-	if (Env && Activity)
+	bool CallStringArrayMethod(
+		const char* MethodName,
+		TArray<FString>& OutValues
+	)
 	{
+		OutValues.Reset();
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return false;
+		}
 		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-		const jmethodID GetPreferredLanguages = ActivityClass
+		const jmethodID Method = ActivityClass
 			? Env->GetMethodID(
 				*ActivityClass,
-				"AndroidThunkJava_OpenMobileDeviceGetPreferredLanguages",
+				MethodName,
 				"()[Ljava/lang/String;"
 			)
 			: nullptr;
@@ -26,52 +32,75 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot()
 		{
 			Env->ExceptionClear();
 		}
-		if (GetPreferredLanguages && !bMethodError)
+		if (!Method || bMethodError)
 		{
-			FScopedJavaObject<jobjectArray> Languages(
-				static_cast<jobjectArray>(
-					Env->CallObjectMethod(Activity, GetPreferredLanguages)
-				)
+			return false;
+		}
+
+		FScopedJavaObject<jobjectArray> Values(
+			static_cast<jobjectArray>(Env->CallObjectMethod(Activity, Method))
+		);
+		const bool bArrayError = Env->ExceptionCheck();
+		if (bArrayError)
+		{
+			Env->ExceptionClear();
+		}
+		if (!Values || bArrayError)
+		{
+			return false;
+		}
+		const jsize Count = Env->GetArrayLength(*Values);
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return false;
+		}
+		OutValues.Reserve(Count);
+		for (jsize Index = 0; Index < Count; ++Index)
+		{
+			jstring Value = static_cast<jstring>(
+				Env->GetObjectArrayElement(*Values, Index)
 			);
-			const bool bArrayError = Env->ExceptionCheck();
-			if (bArrayError)
+			if (Env->ExceptionCheck())
 			{
 				Env->ExceptionClear();
+				OutValues.Reset();
+				return false;
 			}
-			if (Languages && !bArrayError)
-			{
-				const jsize Count = Env->GetArrayLength(*Languages);
-				if (!Env->ExceptionCheck())
-				{
-					PreferredLanguages.Reserve(Count);
-					for (jsize Index = 0; Index < Count; ++Index)
-					{
-						jstring Language = static_cast<jstring>(
-							Env->GetObjectArrayElement(*Languages, Index)
-						);
-						if (Env->ExceptionCheck())
-						{
-							Env->ExceptionClear();
-							PreferredLanguages.Reset();
-							break;
-						}
-						PreferredLanguages.Add(
-							FJavaHelper::FStringFromLocalRef(Env, Language)
-						);
-					}
-					bPreferredLanguagesAvailable =
-						PreferredLanguages.Num() == Count;
-				}
-				else
-				{
-					Env->ExceptionClear();
-				}
-			}
+			OutValues.Add(FJavaHelper::FStringFromLocalRef(Env, Value));
 		}
+		return true;
 	}
-	return FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
-		PreferredLanguages,
-		bPreferredLanguagesAvailable,
-		FInternationalization::Get().GetCurrentCulture()->GetName()
+}
+
+FOpenMobileLocaleSnapshot GetOpenMobileDeviceAndroidLocaleSnapshot()
+{
+	using namespace OpenMobileDeviceAndroidLocalePrivate;
+	TArray<FString> PreferredLanguages;
+	const bool bPreferredLanguagesAvailable = CallStringArrayMethod(
+		"AndroidThunkJava_OpenMobileDeviceGetPreferredLanguages",
+		PreferredLanguages
 	);
+	FOpenMobileLocaleSnapshot Snapshot =
+		FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+			PreferredLanguages,
+			bPreferredLanguagesAvailable,
+			FInternationalization::Get().GetCurrentCulture()->GetName()
+		);
+	TArray<FString> LocaleDetails;
+	if (CallStringArrayMethod(
+		"AndroidThunkJava_OpenMobileDeviceGetLocaleDetails",
+		LocaleDetails
+	) && LocaleDetails.Num() == 5)
+	{
+		FOpenMobileDeviceLocaleInfo::ApplyLocale(
+			Snapshot,
+			LocaleDetails[0],
+			LocaleDetails[1],
+			LocaleDetails[2],
+			LocaleDetails[3],
+			LocaleDetails[4]
+		);
+	}
+	return Snapshot;
 }

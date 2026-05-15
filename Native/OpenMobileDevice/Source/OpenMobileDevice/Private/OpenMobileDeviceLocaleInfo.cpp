@@ -91,6 +91,14 @@ namespace OpenMobileDeviceLocaleInfoPrivate
 		}
 		return FString::Join(Subtags, TEXT("-"));
 	}
+
+	FOpenMobileDeviceOptionalString MakeOptionalText(const FString& Value)
+	{
+		const FString Trimmed = Value.TrimStartAndEnd();
+		return Trimmed.IsEmpty()
+			? FOpenMobileDeviceOptionalString()
+			: FOpenMobileDeviceOptionalString::MakeAvailable(Trimmed);
+	}
 }
 
 FOpenMobileLocaleSnapshot FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
@@ -122,4 +130,21 @@ FOpenMobileLocaleSnapshot FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
 			FOpenMobileDeviceOptionalString::MakeAvailable(TrimmedCulture);
 	}
 	return Snapshot;
+}
+
+void FOpenMobileDeviceLocaleInfo::ApplyLocale(
+	FOpenMobileLocaleSnapshot& Snapshot,
+	const FString& LocaleIdentifier,
+	const FString& LanguageCode,
+	const FString& ScriptCode,
+	const FString& RegionCode,
+	const FString& CurrencyCode
+)
+{
+	using namespace OpenMobileDeviceLocaleInfoPrivate;
+	Snapshot.LocaleIdentifier = MakeOptionalText(LocaleIdentifier);
+	Snapshot.LanguageCode = MakeOptionalText(LanguageCode);
+	Snapshot.ScriptCode = MakeOptionalText(ScriptCode);
+	Snapshot.RegionCode = MakeOptionalText(RegionCode);
+	Snapshot.CurrencyCode = MakeOptionalText(CurrencyCode);
 }

@@ -17,10 +17,21 @@ FOpenMobileLocaleSnapshot GetOpenMobileDeviceIOSLocaleSnapshot()
 		{
 			PreferredLanguages.Add(FString(NativeLanguage));
 		}
-		return FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
-			PreferredLanguages,
-			true,
-			FInternationalization::Get().GetCurrentCulture()->GetName()
+		FOpenMobileLocaleSnapshot Snapshot =
+			FOpenMobileDeviceLocaleInfo::BuildPreferredLanguages(
+				PreferredLanguages,
+				true,
+				FInternationalization::Get().GetCurrentCulture()->GetName()
+			);
+		NSLocale* Locale = [NSLocale currentLocale];
+		FOpenMobileDeviceLocaleInfo::ApplyLocale(
+			Snapshot,
+			FString([Locale localeIdentifier]),
+			FString([Locale languageCode]),
+			FString([Locale scriptCode]),
+			FString([Locale countryCode]),
+			FString([Locale currencyCode])
 		);
+		return Snapshot;
 	}
 }

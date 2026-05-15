@@ -10,4 +10,12 @@ public:
 		bool bPreferredLanguagesAvailable,
 		const FString& ActiveUnrealCulture
 	);
+	static void ApplyLocale(
+		FOpenMobileLocaleSnapshot& Snapshot,
+		const FString& LocaleIdentifier,
+		const FString& LanguageCode,
+		const FString& ScriptCode,
+		const FString& RegionCode,
+		const FString& CurrencyCode
+	);
 };

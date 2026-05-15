@@ -367,6 +367,20 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("GetCurrentCulture", ios_locale)
 		self.assertNotIn("GetPreferredLanguages", ios_locale)
 
+		self.assertIn("AndroidThunkJava_OpenMobileDeviceGetLocaleDetails", android_upl)
+		self.assertIn("locale.toLanguageTag", android_upl)
+		self.assertIn("locale.getScript", android_upl)
+		self.assertIn("java.util.Currency.getInstance", android_upl)
+		self.assertIn("[NSLocale currentLocale]", ios_locale)
+		for forbidden in (
+			"getLastKnownLocation",
+			"getNetworkCountryIso",
+			"getSimCountryIso",
+			"Storefront",
+		):
+			self.assertNotIn(forbidden, android_upl)
+			self.assertNotIn(forbidden, ios_locale)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN
