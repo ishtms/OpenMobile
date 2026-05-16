@@ -218,6 +218,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"BatteryManager.EXTRA_LEVEL",
 			"BatteryManager.EXTRA_SCALE",
 			"BatteryManager.EXTRA_PRESENT",
+			"BatteryManager.EXTRA_STATUS",
 			"ACTION_BATTERY_CHANGED",
 			"OpenMobileDeviceBatteryReceiver",
 			"unregisterReceiver(OpenMobileDeviceBatteryReceiver)",
@@ -243,9 +244,22 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("TARGET_OS_SIMULATOR", ios_battery)
 		self.assertIn("Device.batteryLevel", ios_battery)
+		self.assertIn("Device.batteryState", ios_battery)
 		self.assertIn("UIDeviceBatteryLevelDidChangeNotification", ios_battery)
+		self.assertIn("UIDeviceBatteryStateDidChangeNotification", ios_battery)
 		self.assertIn("bRestoreBatteryMonitoringDisabled", ios_battery)
 		self.assertIn("removeObserver", ios_battery)
+
+		battery_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceBatteryInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('TEXT("Android:%lld")', battery_info)
+		self.assertIn('TEXT("IOS:%lld")', battery_info)
+		self.assertNotIn("BatteryPercent.Value", battery_info)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

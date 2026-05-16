@@ -45,6 +45,7 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::RegionalFormatting
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LocaleChangeEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ChargingState
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::VolumeEvents)

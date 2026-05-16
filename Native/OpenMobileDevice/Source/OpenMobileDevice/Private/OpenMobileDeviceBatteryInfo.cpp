@@ -44,3 +44,67 @@ void FOpenMobileDeviceBatteryInfo::ApplyRatio(
 			&& NativeLevel <= NativeScale
 	);
 }
+
+void FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	int64 NativeState,
+	bool bAvailable
+)
+{
+	Snapshot.ChargingState = EOpenMobileBatteryChargingState::Unknown;
+	Snapshot.NativeChargingState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.NativeChargingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			FString::Printf(TEXT("Android:%lld"), NativeState)
+		);
+	switch (NativeState)
+	{
+	case 2:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Charging;
+		break;
+	case 3:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Discharging;
+		break;
+	case 5:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Full;
+		break;
+	default:
+		break;
+	}
+}
+
+void FOpenMobileDeviceBatteryInfo::ApplyIOSChargingState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	int64 NativeState,
+	bool bAvailable
+)
+{
+	Snapshot.ChargingState = EOpenMobileBatteryChargingState::Unknown;
+	Snapshot.NativeChargingState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.NativeChargingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			FString::Printf(TEXT("IOS:%lld"), NativeState)
+		);
+	switch (NativeState)
+	{
+	case 1:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Discharging;
+		break;
+	case 2:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Charging;
+		break;
+	case 3:
+		Snapshot.ChargingState = EOpenMobileBatteryChargingState::Full;
+		break;
+	default:
+		break;
+	}
+}

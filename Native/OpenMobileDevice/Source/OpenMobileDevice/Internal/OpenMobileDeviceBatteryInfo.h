@@ -16,4 +16,14 @@ public:
 		int64 NativeScale,
 		bool bAvailable
 	);
+	static void ApplyAndroidChargingState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		int64 NativeState,
+		bool bAvailable
+	);
+	static void ApplyIOSChargingState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		int64 NativeState,
+		bool bAvailable
+	);
 };

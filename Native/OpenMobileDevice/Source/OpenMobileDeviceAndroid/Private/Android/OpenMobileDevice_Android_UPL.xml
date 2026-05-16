@@ -227,7 +227,10 @@
 		return new String[] {
 			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)),
 			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)),
-			Boolean.toString(battery.getBooleanExtra(android.os.BatteryManager.EXTRA_PRESENT, true))
+			Boolean.toString(battery.getBooleanExtra(android.os.BatteryManager.EXTRA_PRESENT, true)),
+			battery.hasExtra(android.os.BatteryManager.EXTRA_STATUS)
+				? Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, 0))
+				: ""
 		};
 	}
 

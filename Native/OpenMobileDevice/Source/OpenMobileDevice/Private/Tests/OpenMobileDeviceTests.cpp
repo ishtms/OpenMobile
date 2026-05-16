@@ -1113,6 +1113,109 @@ bool FOpenMobileDeviceBatteryLevelTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceChargingStateTest,
+	"OpenMobile.Device.Power.ChargingState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceChargingStateTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+
+	FOpenMobilePowerSnapshot AndroidUnknown;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		AndroidUnknown,
+		1,
+		true
+	);
+	TestEqual(TEXT("Android unknown state stays unknown"), AndroidUnknown.ChargingState, EOpenMobileBatteryChargingState::Unknown);
+	TestEqual(TEXT("Android unknown state keeps raw detail"), AndroidUnknown.NativeChargingState.Value, FString(TEXT("Android:1")));
+
+	FOpenMobilePowerSnapshot AndroidCharging;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		AndroidCharging,
+		2,
+		true
+	);
+	TestEqual(TEXT("Android charging state maps"), AndroidCharging.ChargingState, EOpenMobileBatteryChargingState::Charging);
+
+	FOpenMobilePowerSnapshot AndroidDischarging;
+	FOpenMobileDeviceBatteryInfo::ApplyFraction(
+		AndroidDischarging,
+		1.0,
+		true
+	);
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		AndroidDischarging,
+		3,
+		true
+	);
+	TestEqual(TEXT("Full percentage does not imply full state"), AndroidDischarging.ChargingState, EOpenMobileBatteryChargingState::Discharging);
+
+	FOpenMobilePowerSnapshot AndroidNotCharging;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		AndroidNotCharging,
+		4,
+		true
+	);
+	TestEqual(TEXT("Ambiguous Android not-charging stays unknown"), AndroidNotCharging.ChargingState, EOpenMobileBatteryChargingState::Unknown);
+	TestEqual(TEXT("Ambiguous Android state keeps raw detail"), AndroidNotCharging.NativeChargingState.Value, FString(TEXT("Android:4")));
+
+	FOpenMobilePowerSnapshot AndroidFull;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		AndroidFull,
+		5,
+		true
+	);
+	TestEqual(TEXT("Android full state maps"), AndroidFull.ChargingState, EOpenMobileBatteryChargingState::Full);
+
+	FOpenMobilePowerSnapshot WirelessCharging;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		WirelessCharging,
+		2,
+		true
+	);
+	TestEqual(TEXT("Wireless charging still maps from native status"), WirelessCharging.ChargingState, EOpenMobileBatteryChargingState::Charging);
+
+	FOpenMobilePowerSnapshot FutureAndroid;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+		FutureAndroid,
+		99,
+		true
+	);
+	TestEqual(TEXT("Future Android state maps safely"), FutureAndroid.ChargingState, EOpenMobileBatteryChargingState::Unknown);
+	TestEqual(TEXT("Future Android state remains diagnostic"), FutureAndroid.NativeChargingState.Value, FString(TEXT("Android:99")));
+
+	for (const TPair<int64, EOpenMobileBatteryChargingState>& Fixture : {
+		TPair<int64, EOpenMobileBatteryChargingState>(0, EOpenMobileBatteryChargingState::Unknown),
+		TPair<int64, EOpenMobileBatteryChargingState>(1, EOpenMobileBatteryChargingState::Discharging),
+		TPair<int64, EOpenMobileBatteryChargingState>(2, EOpenMobileBatteryChargingState::Charging),
+		TPair<int64, EOpenMobileBatteryChargingState>(3, EOpenMobileBatteryChargingState::Full)
+	})
+	{
+		FOpenMobilePowerSnapshot IOS;
+		FOpenMobileDeviceBatteryInfo::ApplyIOSChargingState(
+			IOS,
+			Fixture.Key,
+			true
+		);
+		TestEqual(TEXT("iOS charging state maps"), IOS.ChargingState, Fixture.Value);
+		TestTrue(TEXT("iOS native state stays diagnostic"), IOS.NativeChargingState.bIsAvailable);
+	}
+
+	FOpenMobilePowerSnapshot Missing;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(Missing, 0, false);
+	TestEqual(TEXT("Missing state stays unknown"), Missing.ChargingState, EOpenMobileBatteryChargingState::Unknown);
+	TestFalse(TEXT("Missing state has no raw detail"), Missing.NativeChargingState.bIsAvailable);
+
+	FOpenMobilePowerSnapshot IOSSimulator;
+	FOpenMobileDeviceBatteryInfo::ApplyIOSChargingState(IOSSimulator, 0, false);
+	TestEqual(TEXT("iOS Simulator state stays unknown"), IOSSimulator.ChargingState, EOpenMobileBatteryChargingState::Unknown);
+	TestFalse(TEXT("iOS Simulator has no raw state"), IOSSimulator.NativeChargingState.bIsAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

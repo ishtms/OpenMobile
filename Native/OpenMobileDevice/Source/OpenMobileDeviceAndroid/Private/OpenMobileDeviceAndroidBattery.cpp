@@ -115,7 +115,7 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceAndroidPowerSnapshot()
 	if (CallStringArrayMethod(
 		"AndroidThunkJava_OpenMobileDeviceGetBatteryDetails",
 		Details
-	) && Details.Num() == 3)
+	) && Details.Num() == 4)
 	{
 		const bool bLevelValid = Details[0].IsNumeric();
 		const bool bScaleValid = Details[1].IsNumeric();
@@ -128,6 +128,15 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceAndroidPowerSnapshot()
 			bLevelValid ? FCString::Atoi64(*Details[0]) : 0,
 			bScaleValid ? FCString::Atoi64(*Details[1]) : 0,
 			bLevelValid && bScaleValid && bBatteryPresent
+		);
+		const bool bStateValid = Details[3].IsNumeric();
+		const int64 NativeState = bStateValid
+			? FCString::Atoi64(*Details[3])
+			: 0;
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingState(
+			Snapshot,
+			NativeState,
+			bStateValid && NativeState >= 0
 		);
 	}
 	return Snapshot;
