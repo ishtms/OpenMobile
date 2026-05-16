@@ -20,8 +20,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileLocaleSnapshotChangedEvent,
-	const FOpenMobileLocaleSnapshot&,
-	Snapshot
+	const FOpenMobileLocaleSnapshotChange&,
+	Change
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobilePowerSnapshotChangedEvent,
@@ -70,7 +70,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileLocaleSnapshotChangedNativeEvent,
-	const FOpenMobileLocaleSnapshot&
+	const FOpenMobileLocaleSnapshotChange&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobilePowerSnapshotChangedNativeEvent,
@@ -242,7 +242,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Device Status Changed", ToolTip = "Broadcasts when monitored legacy battery or media-volume status changes."))
 	FOpenMobileDeviceStatusChangedEvent OnDeviceStatusChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Locale Snapshot Changed", ToolTip = "Broadcasts when a monitored locale snapshot changes."))
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Locale Snapshot Changed", ToolTip = "Broadcasts the previous and current locale snapshots after a monitored value changes."))
 	FOpenMobileLocaleSnapshotChangedEvent OnLocaleSnapshotChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Power Snapshot Changed", ToolTip = "Broadcasts when a monitored power snapshot changes beyond its numeric tolerances."))

@@ -914,6 +914,124 @@ bool FOpenMobileDeviceRegionalPreferencesTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceLocaleChangeEventsTest,
+	"OpenMobile.Device.Environment.LocaleChangeEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceLocaleChangeEventsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("LocaleEvents"));
+	Backend.NativeMonitoringGroups = {Group::Locale};
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		Backend.Locale,
+		TEXT("en-US"),
+		TEXT("en"),
+		FString(),
+		TEXT("US"),
+		TEXT("USD")
+	);
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		Backend.Locale,
+		TEXT("America/New_York"),
+		-18000,
+		true,
+		false,
+		true
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileLocaleSnapshotChange> Changes;
+	bool bRefreshedBeforeBroadcast = true;
+	Subsystem->OnNativeLocaleSnapshotChanged().AddLambda(
+		[&Changes, &Backend, &bRefreshedBeforeBroadcast](
+			const FOpenMobileLocaleSnapshotChange& Change
+		)
+		{
+			bRefreshedBeforeBroadcast &= Change.CurrentSnapshot.LocaleIdentifier
+				== Backend.Locale.LocaleIdentifier;
+			Changes.Add(Change);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Locale}, 1.0f);
+	TestNotNull(TEXT("Locale monitoring starts"), Subscription);
+	TestEqual(TEXT("Locale observer starts once"), Backend.MonitoringStarts.FindRef(Group::Locale), 1);
+	TestFalse(TEXT("Native locale observer avoids fallback polling"), FOpenMobileDeviceMonitoringService::UsesFallbackForTests(Group::Locale));
+
+	const FOpenMobileLocaleSnapshot Initial = Backend.Locale;
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		Backend.Locale,
+		TEXT("fr-CA"),
+		TEXT("fr"),
+		FString(),
+		TEXT("CA"),
+		TEXT("CAD")
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Locale);
+	TestEqual(TEXT("Locale change emits once"), Changes.Num(), 1);
+	TestTrue(TEXT("Snapshot refresh precedes the event"), bRefreshedBeforeBroadcast);
+	TestEqual(TEXT("Event retains the old locale"), Changes[0].PreviousSnapshot.LocaleIdentifier, Initial.LocaleIdentifier);
+	TestEqual(TEXT("Event contains the new locale"), Changes[0].CurrentSnapshot.LocaleIdentifier, Backend.Locale.LocaleIdentifier);
+	TestTrue(TEXT("New snapshot generation follows old generation"), Changes[0].CurrentSnapshot.Metadata.Generation > Changes[0].PreviousSnapshot.Metadata.Generation);
+
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Locale);
+	TestEqual(TEXT("Duplicate native notifications coalesce"), Changes.Num(), 1);
+
+	FOpenMobileDeviceTimeZoneInfo::Apply(
+		Backend.Locale,
+		TEXT("America/New_York"),
+		-14400,
+		true,
+		true,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Locale);
+	TestEqual(TEXT("Daylight-saving transition emits once"), Changes.Num(), 2);
+	TestEqual(TEXT("Transition retains old offset"), Changes[1].PreviousSnapshot.UtcOffsetSeconds.Value, -18000);
+	TestEqual(TEXT("Transition contains new offset"), Changes[1].CurrentSnapshot.UtcOffsetSeconds.Value, -14400);
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	FOpenMobileDeviceLocaleInfo::ApplyLocale(
+		Backend.Locale,
+		TEXT("de-DE"),
+		TEXT("de"),
+		FString(),
+		TEXT("DE"),
+		TEXT("EUR")
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Locale);
+	TestEqual(TEXT("Background notification does not emit"), Changes.Num(), 2);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh emits the background change"), Changes.Num(), 3);
+	TestEqual(TEXT("Foreground event contains latest locale"), Changes[2].CurrentSnapshot.LocaleIdentifier.Value, FString(TEXT("de-DE")));
+
+	const FOpenMobileDeviceMonitoringCallbackToken StoppedToken =
+		Backend.MonitoringTokens.FindRef(Group::Locale);
+	Subscription->Stop();
+	TestEqual(TEXT("Locale observer stops with final listener"), Backend.MonitoringStops.FindRef(Group::Locale), 1);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChange(StoppedToken, 100);
+	TestEqual(TEXT("Stopped locale observer cannot emit"), Changes.Num(), 3);
+
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -1427,6 +1545,18 @@ bool FOpenMobileDevicePublicTypeModelTest::RunTest(const FString& Parameters)
 			);
 		}
 	}
+	TestNotNull(
+		TEXT("Locale change exposes its previous snapshot"),
+		FOpenMobileLocaleSnapshotChange::StaticStruct()->FindPropertyByName(
+			TEXT("PreviousSnapshot")
+		)
+	);
+	TestNotNull(
+		TEXT("Locale change exposes its current snapshot"),
+		FOpenMobileLocaleSnapshotChange::StaticStruct()->FindPropertyByName(
+			TEXT("CurrentSnapshot")
+		)
+	);
 
 	const FOpenMobileDeviceInformationSnapshot DeviceDefaults;
 	TestEqual(

@@ -434,6 +434,79 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("FText::AsTime(DateTime)", blueprint_library)
 		self.assertIn("FText::AsDateTime(DateTime)", blueprint_library)
 
+	def test_locale_change_observers_are_native_and_demand_driven(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for action in (
+			"ACTION_LOCALE_CHANGED",
+			"ACTION_CONFIGURATION_CHANGED",
+			"ACTION_TIME_CHANGED",
+			"ACTION_TIMEZONE_CHANGED",
+			"ACTION_DATE_CHANGED",
+		):
+			self.assertIn(action, android_upl)
+		self.assertIn("registerReceiver", android_upl)
+		self.assertIn("unregisterReceiver", android_upl)
+		self.assertNotIn("ACTION_TIME_TICK", android_upl)
+
+		android_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidLocaleMonitor.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("nativeOpenMobileDeviceLocaleChanged", android_monitor)
+		self.assertIn("NotifyNativeChange", android_monitor)
+		self.assertIn("FCriticalSection", android_monitor)
+
+		ios_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSLocaleMonitor.mm"
+		).read_text(encoding="utf-8")
+		for notification in (
+			"NSCurrentLocaleDidChangeNotification",
+			"UIApplicationSignificantTimeChangeNotification",
+			"NSSystemClockDidChangeNotification",
+			"NSSystemTimeZoneDidChangeNotification",
+		):
+			self.assertIn(notification, ios_monitor)
+		self.assertIn("removeObserver", ios_monitor)
+
+		for platform in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{platform}"
+				/ "Private"
+				/ f"OpenMobileDevice{platform}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("LocaleChangeEvents", backend)
+			self.assertIn("RegionalFormatting", backend)
+			self.assertIn("BeginShutdown", backend)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		refresh = subsystem.index("Change.CurrentSnapshot = Snapshot")
+		cache = subsystem.index("LastLocaleSnapshot = Snapshot", refresh)
+		broadcast = subsystem.index("OnLocaleSnapshotChanged.Broadcast", cache)
+		self.assertLess(refresh, cache)
+		self.assertLess(cache, broadcast)
+
 	def test_platform_information_reads_are_backend_owned(self) -> None:
 		shared_parser = (
 			DEVICE_PLUGIN

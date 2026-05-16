@@ -137,6 +137,76 @@
 		}
 		return new String[] { timeFormat, measurementSystem };
 	}
+
+	private android.content.BroadcastReceiver OpenMobileDeviceLocaleReceiver;
+
+	public native void nativeOpenMobileDeviceLocaleChanged();
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartLocaleMonitoring()
+	{
+		if (OpenMobileDeviceLocaleReceiver != null)
+		{
+			return true;
+		}
+		android.content.IntentFilter filter = new android.content.IntentFilter();
+		filter.addAction(android.content.Intent.ACTION_LOCALE_CHANGED);
+		filter.addAction(android.content.Intent.ACTION_CONFIGURATION_CHANGED);
+		filter.addAction(android.content.Intent.ACTION_TIME_CHANGED);
+		filter.addAction(android.content.Intent.ACTION_TIMEZONE_CHANGED);
+		filter.addAction(android.content.Intent.ACTION_DATE_CHANGED);
+		if (android.os.Build.VERSION.SDK_INT >= 33)
+		{
+			filter.addAction(android.content.Intent.ACTION_APPLICATION_LOCALE_CHANGED);
+		}
+		OpenMobileDeviceLocaleReceiver = new android.content.BroadcastReceiver()
+		{
+			@Override
+			public void onReceive(
+				android.content.Context context,
+				android.content.Intent intent
+			)
+			{
+				nativeOpenMobileDeviceLocaleChanged();
+			}
+		};
+		try
+		{
+			if (android.os.Build.VERSION.SDK_INT >= 33)
+			{
+				registerReceiver(
+					OpenMobileDeviceLocaleReceiver,
+					filter,
+					android.content.Context.RECEIVER_NOT_EXPORTED
+				);
+			}
+			else
+			{
+				registerReceiver(OpenMobileDeviceLocaleReceiver, filter);
+			}
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			OpenMobileDeviceLocaleReceiver = null;
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopLocaleMonitoring()
+	{
+		if (OpenMobileDeviceLocaleReceiver == null)
+		{
+			return;
+		}
+		try
+		{
+			unregisterReceiver(OpenMobileDeviceLocaleReceiver);
+		}
+		catch (IllegalArgumentException ignored)
+		{
+		}
+		OpenMobileDeviceLocaleReceiver = null;
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidLocale.h"
+#include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -42,6 +43,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredLanguages
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::Locale
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::TimeZone
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::RegionalFormatting
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::LocaleChangeEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryLevel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::BatteryEvents
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::MediaVolume
@@ -166,4 +169,28 @@ FOpenMobileDeviceAndroidBackend::GetMediaVolumeSnapshot() const
 		);
 	}
 	return Snapshot;
+}
+
+bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
+	EOpenMobileDeviceMonitoringGroup Group,
+	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
+)
+{
+	return Group == EOpenMobileDeviceMonitoringGroup::Locale
+		&& StartOpenMobileDeviceAndroidLocaleMonitoring(CallbackToken);
+}
+
+void FOpenMobileDeviceAndroidBackend::StopMonitoring(
+	EOpenMobileDeviceMonitoringGroup Group
+)
+{
+	if (Group == EOpenMobileDeviceMonitoringGroup::Locale)
+	{
+		StopOpenMobileDeviceAndroidLocaleMonitoring();
+	}
+}
+
+void FOpenMobileDeviceAndroidBackend::BeginShutdown()
+{
+	StopOpenMobileDeviceAndroidLocaleMonitoring();
 }

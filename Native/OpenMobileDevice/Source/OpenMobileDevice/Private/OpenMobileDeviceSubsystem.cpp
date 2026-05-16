@@ -423,9 +423,15 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		if (!LastLocaleSnapshot.IsSet()
 			|| !EquivalentWithoutMetadata(LastLocaleSnapshot.GetValue(), Snapshot))
 		{
+			FOpenMobileLocaleSnapshotChange Change;
+			if (LastLocaleSnapshot.IsSet())
+			{
+				Change.PreviousSnapshot = LastLocaleSnapshot.GetValue();
+			}
+			Change.CurrentSnapshot = Snapshot;
 			LastLocaleSnapshot = Snapshot;
-			OnLocaleSnapshotChanged.Broadcast(Snapshot);
-			NativeLocaleSnapshotChanged.Broadcast(Snapshot);
+			OnLocaleSnapshotChanged.Broadcast(Change);
+			NativeLocaleSnapshotChanged.Broadcast(Change);
 		}
 		break;
 	}

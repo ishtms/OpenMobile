@@ -85,3 +85,15 @@ struct OPENMOBILEDEVICE_API FOpenMobileLocaleSnapshot
 			&& MeasurementSystem == Other.MeasurementSystem;
 	}
 };
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEDEVICE_API FOpenMobileLocaleSnapshotChange
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileLocaleSnapshot PreviousSnapshot;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileLocaleSnapshot CurrentSnapshot;
+};

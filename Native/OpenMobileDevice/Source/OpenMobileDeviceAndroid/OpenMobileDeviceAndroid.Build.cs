@@ -11,8 +11,11 @@ public class OpenMobileDeviceAndroid : ModuleRules
 		{
 			"ApplicationCore",
 			"Core",
+			"Launch",
 			"OpenMobileDevice"
 		});
+
+		PrivateIncludePathModuleNames.Add("Launch");
 
 		string ModulePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
 		AdditionalPropertiesForReceipt.Add(

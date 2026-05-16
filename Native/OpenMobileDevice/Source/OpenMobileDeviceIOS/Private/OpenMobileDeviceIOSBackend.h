@@ -24,4 +24,12 @@ public:
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
+	virtual bool StartMonitoring(
+		EOpenMobileDeviceMonitoringGroup Group,
+		const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
+	) override;
+	virtual void StopMonitoring(
+		EOpenMobileDeviceMonitoringGroup Group
+	) override;
+	virtual void BeginShutdown() override;
 };
