@@ -5,6 +5,7 @@
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
+#include "OpenMobileDeviceAndroidBattery.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
@@ -146,15 +147,7 @@ FOpenMobileDeviceAndroidBackend::GetMemorySnapshot() const
 FOpenMobilePowerSnapshot
 FOpenMobileDeviceAndroidBackend::GetPowerSnapshot() const
 {
-	FOpenMobilePowerSnapshot Snapshot;
-	const int32 BatteryPercent = FPlatformMisc::GetBatteryLevel();
-	if (BatteryPercent >= 0)
-	{
-		Snapshot.BatteryPercent = FOpenMobileDeviceOptionalFloat::MakeAvailable(
-			FMath::Clamp(static_cast<float>(BatteryPercent), 0.0f, 100.0f)
-		);
-	}
-	return Snapshot;
+	return GetOpenMobileDeviceAndroidPowerSnapshot();
 }
 
 FOpenMobileMediaVolumeSnapshot
@@ -176,8 +169,15 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
 )
 {
-	return Group == EOpenMobileDeviceMonitoringGroup::Locale
-		&& StartOpenMobileDeviceAndroidLocaleMonitoring(CallbackToken);
+	if (Group == EOpenMobileDeviceMonitoringGroup::Locale)
+	{
+		return StartOpenMobileDeviceAndroidLocaleMonitoring(CallbackToken);
+	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Power)
+	{
+		return StartOpenMobileDeviceAndroidBatteryMonitoring(CallbackToken);
+	}
+	return false;
 }
 
 void FOpenMobileDeviceAndroidBackend::StopMonitoring(
@@ -188,9 +188,14 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidLocaleMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Power)
+	{
+		StopOpenMobileDeviceAndroidBatteryMonitoring();
+	}
 }
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
 	StopOpenMobileDeviceAndroidLocaleMonitoring();
+	StopOpenMobileDeviceAndroidBatteryMonitoring();
 }

@@ -201,8 +201,51 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 				/ "Private"
 				/ f"OpenMobileDevice{platform}Backend.cpp"
 			).read_text(encoding="utf-8")
-			self.assertIn("FPlatformMisc::GetBatteryLevel", backend)
+			self.assertIn(f"GetOpenMobileDevice{platform}PowerSnapshot", backend)
+			self.assertNotIn("FPlatformMisc::GetBatteryLevel", backend)
 			self.assertIn("FPlatformMisc::GetDeviceVolume", backend)
+
+	def test_battery_precision_and_observers_are_platform_owned(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"BatteryManager.EXTRA_LEVEL",
+			"BatteryManager.EXTRA_SCALE",
+			"BatteryManager.EXTRA_PRESENT",
+			"ACTION_BATTERY_CHANGED",
+			"OpenMobileDeviceBatteryReceiver",
+			"unregisterReceiver(OpenMobileDeviceBatteryReceiver)",
+		):
+			self.assertIn(token, android_upl)
+
+		android_battery = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBattery.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ApplyRatio", android_battery)
+		self.assertIn("NotifyNativeChange", android_battery)
+
+		ios_battery = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBattery.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("TARGET_OS_SIMULATOR", ios_battery)
+		self.assertIn("Device.batteryLevel", ios_battery)
+		self.assertIn("UIDeviceBatteryLevelDidChangeNotification", ios_battery)
+		self.assertIn("bRestoreBatteryMonitoringDisabled", ios_battery)
+		self.assertIn("removeObserver", ios_battery)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

@@ -207,6 +207,92 @@
 		}
 		OpenMobileDeviceLocaleReceiver = null;
 	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetBatteryDetails()
+	{
+		android.content.IntentFilter filter = new android.content.IntentFilter(
+			android.content.Intent.ACTION_BATTERY_CHANGED
+		);
+		android.content.Intent battery = android.os.Build.VERSION.SDK_INT >= 33
+			? registerReceiver(
+				null,
+				filter,
+				android.content.Context.RECEIVER_NOT_EXPORTED
+			)
+			: registerReceiver(null, filter);
+		if (battery == null)
+		{
+			return new String[0];
+		}
+		return new String[] {
+			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)),
+			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)),
+			Boolean.toString(battery.getBooleanExtra(android.os.BatteryManager.EXTRA_PRESENT, true))
+		};
+	}
+
+	private android.content.BroadcastReceiver OpenMobileDeviceBatteryReceiver;
+
+	public native void nativeOpenMobileDeviceBatteryChanged();
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartBatteryMonitoring()
+	{
+		if (OpenMobileDeviceBatteryReceiver != null)
+		{
+			return true;
+		}
+		OpenMobileDeviceBatteryReceiver = new android.content.BroadcastReceiver()
+		{
+			@Override
+			public void onReceive(
+				android.content.Context context,
+				android.content.Intent intent
+			)
+			{
+				nativeOpenMobileDeviceBatteryChanged();
+			}
+		};
+		android.content.IntentFilter filter = new android.content.IntentFilter(
+			android.content.Intent.ACTION_BATTERY_CHANGED
+		);
+		try
+		{
+			if (android.os.Build.VERSION.SDK_INT >= 33)
+			{
+				registerReceiver(
+					OpenMobileDeviceBatteryReceiver,
+					filter,
+					android.content.Context.RECEIVER_NOT_EXPORTED
+				);
+			}
+			else
+			{
+				registerReceiver(OpenMobileDeviceBatteryReceiver, filter);
+			}
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			OpenMobileDeviceBatteryReceiver = null;
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopBatteryMonitoring()
+	{
+		if (OpenMobileDeviceBatteryReceiver == null)
+		{
+			return;
+		}
+		try
+		{
+			unregisterReceiver(OpenMobileDeviceBatteryReceiver);
+		}
+		catch (IllegalArgumentException ignored)
+		{
+		}
+		OpenMobileDeviceBatteryReceiver = null;
+	}
 ]]></insert>
 	</gameActivityClassAdditions>
 </root>

@@ -15,6 +15,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceBatteryInfo.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
@@ -1024,6 +1025,86 @@ bool FOpenMobileDeviceLocaleChangeEventsTest::RunTest(
 	FOpenMobileDeviceMonitoringService::NotifyNativeChange(StoppedToken, 100);
 	TestEqual(TEXT("Stopped locale observer cannot emit"), Changes.Num(), 3);
 
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceBatteryLevelTest,
+	"OpenMobile.Device.Power.BatteryLevel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceBatteryLevelTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobilePowerSnapshot Unavailable;
+	FOpenMobileDeviceBatteryInfo::ApplyFraction(Unavailable, 0.0, false);
+	TestFalse(TEXT("Unavailable battery has no percent"), Unavailable.BatteryPercent.bIsAvailable);
+	TestFalse(TEXT("Unavailable battery has no native level"), Unavailable.NativeBatteryLevel.bIsAvailable);
+
+	FOpenMobilePowerSnapshot Empty;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(Empty, 0, 100, true);
+	TestEqual(TEXT("Empty battery normalizes to zero percent"), Empty.BatteryPercent.Value, 0.0f);
+	TestEqual(TEXT("Empty battery retains native zero"), Empty.NativeBatteryLevel.Value, 0.0f);
+
+	FOpenMobilePowerSnapshot Full;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(Full, 100, 100, true);
+	TestEqual(TEXT("Full battery normalizes to 100 percent"), Full.BatteryPercent.Value, 100.0f);
+	TestEqual(TEXT("Full battery retains native one"), Full.NativeBatteryLevel.Value, 1.0f);
+
+	FOpenMobilePowerSnapshot Precise;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(Precise, 37, 64, true);
+	TestEqual(TEXT("Android scale precision is preserved"), Precise.NativeBatteryLevel.Value, 0.578125f);
+	TestEqual(TEXT("Percent derives from native precision"), Precise.BatteryPercent.Value, 57.8125f);
+
+	for (const double InvalidLevel : {
+		-0.01,
+		1.01,
+		std::numeric_limits<double>::quiet_NaN()
+	})
+	{
+		FOpenMobilePowerSnapshot Invalid;
+		FOpenMobileDeviceBatteryInfo::ApplyFraction(Invalid, InvalidLevel, true);
+		TestFalse(TEXT("Invalid native fraction stays unavailable"), Invalid.BatteryPercent.bIsAvailable);
+	}
+	FOpenMobilePowerSnapshot InvalidScale;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(InvalidScale, 50, 0, true);
+	TestFalse(TEXT("Invalid Android scale stays unavailable"), InvalidScale.BatteryPercent.bIsAvailable);
+	FOpenMobilePowerSnapshot OutOfRangeRatio;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(OutOfRangeRatio, 101, 100, true);
+	TestFalse(TEXT("Out-of-range Android level stays unavailable"), OutOfRangeRatio.BatteryPercent.bIsAvailable);
+
+	FOpenMobilePowerSnapshot AndroidEmulator;
+	FOpenMobileDeviceBatteryInfo::ApplyRatio(AndroidEmulator, 50, 100, true);
+	TestTrue(TEXT("Android emulator may expose synthetic battery data"), AndroidEmulator.BatteryPercent.bIsAvailable);
+	FOpenMobilePowerSnapshot IOSSimulator;
+	FOpenMobileDeviceBatteryInfo::ApplyFraction(IOSSimulator, -1.0, false);
+	TestFalse(TEXT("iOS Simulator battery stays unavailable"), IOSSimulator.BatteryPercent.bIsAvailable);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("BatteryLifecycle"));
+	Backend.Power = Precise;
+	Backend.NativeMonitoringGroups = {Group::Power};
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	TestEqual(TEXT("Battery monitoring starts on first subscription"), Backend.MonitoringStarts.FindRef(Group::Power), 1);
+	Backend.bInBackground = true;
+	const FOpenMobilePowerSnapshot Background = Subsystem->GetPowerSnapshot();
+	TestTrue(TEXT("Background battery remains queryable"), Background.BatteryPercent.bIsAvailable);
+	Subscription->Stop();
+	TestEqual(TEXT("Battery monitoring stops with final subscription"), Backend.MonitoringStops.FindRef(Group::Power), 1);
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
