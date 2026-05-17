@@ -42,4 +42,14 @@ public:
 		bool bEnabled,
 		bool bAvailable
 	);
+	static void ApplyAndroidThermalState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		int32 NativeState,
+		bool bAvailable
+	);
+	static void ApplyIOSThermalState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		int32 NativeState,
+		bool bAvailable
+	);
 };

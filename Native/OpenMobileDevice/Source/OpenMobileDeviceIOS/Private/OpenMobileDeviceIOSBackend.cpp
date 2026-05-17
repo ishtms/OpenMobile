@@ -32,6 +32,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not provide device thermal state.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS thermal state is advisory and available on iOS 11 or newer.");
+#endif
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
 	{
 		FOpenMobileDeviceCapability Capability;

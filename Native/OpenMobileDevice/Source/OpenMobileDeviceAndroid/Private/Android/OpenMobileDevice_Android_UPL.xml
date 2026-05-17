@@ -236,11 +236,15 @@
 			battery.hasExtra(android.os.BatteryManager.EXTRA_PLUGGED)
 				? Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0))
 				: "",
-			powerManager == null ? "" : Boolean.toString(powerManager.isPowerSaveMode())
+			powerManager == null ? "" : Boolean.toString(powerManager.isPowerSaveMode()),
+			powerManager != null && android.os.Build.VERSION.SDK_INT >= 29
+				? Integer.toString(powerManager.getCurrentThermalStatus())
+				: ""
 		};
 	}
 
 	private android.content.BroadcastReceiver OpenMobileDeviceBatteryReceiver;
+	private Object OpenMobileDeviceThermalListener;
 
 	public native void nativeOpenMobileDeviceBatteryChanged();
 
@@ -279,29 +283,68 @@
 			{
 				registerReceiver(OpenMobileDeviceBatteryReceiver, filter);
 			}
+			if (android.os.Build.VERSION.SDK_INT >= 29)
+			{
+				android.os.PowerManager powerManager = (android.os.PowerManager)
+					getSystemService(android.content.Context.POWER_SERVICE);
+				if (powerManager == null)
+				{
+					throw new IllegalStateException();
+				}
+				android.os.PowerManager.OnThermalStatusChangedListener listener =
+					new android.os.PowerManager.OnThermalStatusChangedListener()
+					{
+						@Override
+						public void onThermalStatusChanged(int status)
+						{
+							nativeOpenMobileDeviceBatteryChanged();
+						}
+					};
+				powerManager.addThermalStatusListener(listener);
+				OpenMobileDeviceThermalListener = listener;
+			}
 			return true;
 		}
 		catch (RuntimeException ignored)
 		{
-			OpenMobileDeviceBatteryReceiver = null;
+			AndroidThunkJava_OpenMobileDeviceStopBatteryMonitoring();
 			return false;
 		}
 	}
 
 	public void AndroidThunkJava_OpenMobileDeviceStopBatteryMonitoring()
 	{
-		if (OpenMobileDeviceBatteryReceiver == null)
+		if (OpenMobileDeviceThermalListener != null
+			&& android.os.Build.VERSION.SDK_INT >= 29)
 		{
-			return;
+			android.os.PowerManager powerManager = (android.os.PowerManager)
+				getSystemService(android.content.Context.POWER_SERVICE);
+			if (powerManager != null)
+			{
+				try
+				{
+					powerManager.removeThermalStatusListener(
+						(android.os.PowerManager.OnThermalStatusChangedListener)
+							OpenMobileDeviceThermalListener
+					);
+				}
+				catch (RuntimeException ignored)
+				{
+				}
+			}
 		}
-		try
+		OpenMobileDeviceThermalListener = null;
+		if (OpenMobileDeviceBatteryReceiver != null)
 		{
-			unregisterReceiver(OpenMobileDeviceBatteryReceiver);
+			try
+			{
+				unregisterReceiver(OpenMobileDeviceBatteryReceiver);
+			}
+			catch (IllegalArgumentException ignored)
+			{
+			}
+			OpenMobileDeviceBatteryReceiver = null;
 		}
-		catch (IllegalArgumentException ignored)
-		{
-		}
-		OpenMobileDeviceBatteryReceiver = null;
 	}
 ]]></insert>
 	</gameActivityClassAdditions>

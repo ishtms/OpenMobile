@@ -186,3 +186,72 @@ void FOpenMobileDeviceBatteryInfo::ApplyIOSPowerSavingState(
 			bEnabled ? TEXT("IOS:true") : TEXT("IOS:false")
 		);
 }
+
+void FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	int32 NativeState,
+	bool bAvailable
+)
+{
+	Snapshot.ThermalState = EOpenMobileThermalState::Unknown;
+	Snapshot.NativeThermalState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.NativeThermalState =
+		FOpenMobileDeviceOptionalInt32::MakeAvailable(NativeState);
+	switch (NativeState)
+	{
+	case 0:
+		Snapshot.ThermalState = EOpenMobileThermalState::Nominal;
+		break;
+	case 1:
+		Snapshot.ThermalState = EOpenMobileThermalState::Fair;
+		break;
+	case 2:
+		Snapshot.ThermalState = EOpenMobileThermalState::Serious;
+		break;
+	case 3:
+	case 4:
+	case 5:
+	case 6:
+		Snapshot.ThermalState = EOpenMobileThermalState::Critical;
+		break;
+	default:
+		break;
+	}
+}
+
+void FOpenMobileDeviceBatteryInfo::ApplyIOSThermalState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	int32 NativeState,
+	bool bAvailable
+)
+{
+	Snapshot.ThermalState = EOpenMobileThermalState::Unknown;
+	Snapshot.NativeThermalState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.NativeThermalState =
+		FOpenMobileDeviceOptionalInt32::MakeAvailable(NativeState);
+	switch (NativeState)
+	{
+	case 0:
+		Snapshot.ThermalState = EOpenMobileThermalState::Nominal;
+		break;
+	case 1:
+		Snapshot.ThermalState = EOpenMobileThermalState::Fair;
+		break;
+	case 2:
+		Snapshot.ThermalState = EOpenMobileThermalState::Serious;
+		break;
+	case 3:
+		Snapshot.ThermalState = EOpenMobileThermalState::Critical;
+		break;
+	default:
+		break;
+	}
+}

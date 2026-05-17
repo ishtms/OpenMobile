@@ -115,7 +115,7 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceAndroidPowerSnapshot()
 	if (CallStringArrayMethod(
 		"AndroidThunkJava_OpenMobileDeviceGetBatteryDetails",
 		Details
-	) && Details.Num() == 6)
+	) && Details.Num() == 7)
 	{
 		const bool bLevelValid = Details[0].IsNumeric();
 		const bool bScaleValid = Details[1].IsNumeric();
@@ -152,6 +152,12 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceAndroidPowerSnapshot()
 			Snapshot,
 			Details[5].Equals(TEXT("true"), ESearchCase::IgnoreCase),
 			bPowerSavingAvailable
+		);
+		const bool bThermalAvailable = Details[6].IsNumeric();
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+			Snapshot,
+			bThermalAvailable ? FCString::Atoi(*Details[6]) : 0,
+			bThermalAvailable
 		);
 	}
 	return Snapshot;

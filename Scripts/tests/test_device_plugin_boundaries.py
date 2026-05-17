@@ -225,6 +225,9 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"unregisterReceiver(OpenMobileDeviceBatteryReceiver)",
 			"isPowerSaveMode",
 			"ACTION_POWER_SAVE_MODE_CHANGED",
+			"getCurrentThermalStatus",
+			"addThermalStatusListener",
+			"removeThermalStatusListener",
 		):
 			self.assertIn(token, android_upl)
 
@@ -269,6 +272,9 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ApplyIOSChargingSource", battery_info)
 		self.assertIn("ApplyAndroidPowerSavingState", battery_info)
 		self.assertIn("ApplyIOSPowerSavingState", battery_info)
+		self.assertIn("ApplyAndroidThermalState", battery_info)
+		self.assertIn("ApplyIOSThermalState", battery_info)
+		self.assertNotIn("Scalability", battery_info)
 
 		android_backend = (
 			DEVICE_PLUGIN
@@ -280,6 +286,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("Wireless requires API 17", android_backend)
 		self.assertIn("Dock maps to Other on API 33", android_backend)
 		self.assertIn("power-save mode is available on API 21", android_backend)
+		self.assertIn("thermal status is advisory and available on API 29", android_backend)
+		self.assertIn('TEXT("Android 10 (API 29)")', android_backend)
 
 		ios_backend = (
 			DEVICE_PLUGIN
@@ -291,6 +299,11 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("does not expose a public charging-source API", ios_backend)
 		self.assertIn("Low Power Mode is available on iOS 9", ios_backend)
 		self.assertIn("Simulator does not provide device Low Power Mode", ios_backend)
+		self.assertIn("thermal state is advisory and available on iOS 11", ios_backend)
+		self.assertIn("Simulator does not provide device thermal state", ios_backend)
+
+		self.assertIn("thermalState", ios_battery)
+		self.assertIn("NSProcessInfoThermalStateDidChangeNotification", ios_battery)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

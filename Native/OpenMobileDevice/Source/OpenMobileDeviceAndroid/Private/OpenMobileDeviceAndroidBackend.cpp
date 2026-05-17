@@ -32,6 +32,27 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 29)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android thermal status is advisory and available on API 29 or newer.");
+		}
+		else
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 10 (API 29)")
+				);
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
 	{
 		FOpenMobileDeviceCapability Capability;

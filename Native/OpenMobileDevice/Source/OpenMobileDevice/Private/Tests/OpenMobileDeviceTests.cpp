@@ -1384,6 +1384,121 @@ bool FOpenMobileDevicePowerSavingModeTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceThermalStateTest,
+	"OpenMobile.Device.Power.ThermalState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceThermalStateTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	for (const TPair<int32, EOpenMobileThermalState>& Fixture : {
+		TPair<int32, EOpenMobileThermalState>(0, EOpenMobileThermalState::Nominal),
+		TPair<int32, EOpenMobileThermalState>(1, EOpenMobileThermalState::Fair),
+		TPair<int32, EOpenMobileThermalState>(2, EOpenMobileThermalState::Serious),
+		TPair<int32, EOpenMobileThermalState>(3, EOpenMobileThermalState::Critical),
+		TPair<int32, EOpenMobileThermalState>(4, EOpenMobileThermalState::Critical),
+		TPair<int32, EOpenMobileThermalState>(5, EOpenMobileThermalState::Critical),
+		TPair<int32, EOpenMobileThermalState>(6, EOpenMobileThermalState::Critical)
+	})
+	{
+		FOpenMobilePowerSnapshot Snapshot;
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+			Snapshot,
+			Fixture.Key,
+			true
+		);
+		TestEqual(TEXT("Android thermal severity maps conservatively"), Snapshot.ThermalState, Fixture.Value);
+		TestEqual(TEXT("Android raw thermal state is retained"), Snapshot.NativeThermalState.Value, Fixture.Key);
+	}
+
+	for (const TPair<int32, EOpenMobileThermalState>& Fixture : {
+		TPair<int32, EOpenMobileThermalState>(0, EOpenMobileThermalState::Nominal),
+		TPair<int32, EOpenMobileThermalState>(1, EOpenMobileThermalState::Fair),
+		TPair<int32, EOpenMobileThermalState>(2, EOpenMobileThermalState::Serious),
+		TPair<int32, EOpenMobileThermalState>(3, EOpenMobileThermalState::Critical)
+	})
+	{
+		FOpenMobilePowerSnapshot Snapshot;
+		FOpenMobileDeviceBatteryInfo::ApplyIOSThermalState(
+			Snapshot,
+			Fixture.Key,
+			true
+		);
+		TestEqual(TEXT("iOS thermal severity maps"), Snapshot.ThermalState, Fixture.Value);
+		TestEqual(TEXT("iOS raw thermal state is retained"), Snapshot.NativeThermalState.Value, Fixture.Key);
+	}
+
+	FOpenMobilePowerSnapshot Future;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(Future, 99, true);
+	TestEqual(TEXT("Future thermal severity maps safely"), Future.ThermalState, EOpenMobileThermalState::Unknown);
+	TestEqual(TEXT("Future thermal severity remains diagnostic"), Future.NativeThermalState.Value, 99);
+
+	FOpenMobilePowerSnapshot Missing;
+	FOpenMobileDeviceBatteryInfo::ApplyIOSThermalState(Missing, 0, false);
+	TestEqual(TEXT("Missing thermal state stays unknown"), Missing.ThermalState, EOpenMobileThermalState::Unknown);
+	TestFalse(TEXT("Missing thermal state has no raw detail"), Missing.NativeThermalState.bIsAvailable);
+
+	FOpenMobilePowerSnapshot AndroidEmulator;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+		AndroidEmulator,
+		0,
+		true
+	);
+	TestEqual(TEXT("Android emulator may expose synthetic nominal state"), AndroidEmulator.ThermalState, EOpenMobileThermalState::Nominal);
+	FOpenMobilePowerSnapshot IOSSimulator;
+	FOpenMobileDeviceBatteryInfo::ApplyIOSThermalState(IOSSimulator, 0, false);
+	TestEqual(TEXT("iOS Simulator thermal state stays unknown"), IOSSimulator.ThermalState, EOpenMobileThermalState::Unknown);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("ThermalEvents"));
+	Backend.NativeMonitoringGroups = {Group::Power};
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+		Backend.Power,
+		0,
+		true
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<EOpenMobileThermalState> Events;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&Events](const FOpenMobilePowerSnapshot& Snapshot)
+		{
+			Events.Add(Snapshot.ThermalState);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+		Backend.Power,
+		2,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidThermalState(
+		Backend.Power,
+		4,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Thermal transitions emit in order"), Events.Num(), 2);
+	TestEqual(TEXT("Moderate transition becomes serious"), Events[0], EOpenMobileThermalState::Serious);
+	TestEqual(TEXT("Critical transition remains critical"), Events[1], EOpenMobileThermalState::Critical);
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
