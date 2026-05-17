@@ -37,6 +37,7 @@ namespace OpenMobileDeviceSubsystemPrivate
 			&& Left.NativeChargingState == Right.NativeChargingState
 			&& Left.ChargingSource == Right.ChargingSource
 			&& Left.bPowerSavingEnabled == Right.bPowerSavingEnabled
+			&& Left.NativePowerSavingState == Right.NativePowerSavingState
 			&& Left.ThermalState == Right.ThermalState
 			&& Left.NativeThermalState == Right.NativeThermalState
 			&& EquivalentFloat(Left.ThermalHeadroom, Right.ThermalHeadroom, 0.01f)

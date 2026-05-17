@@ -32,4 +32,14 @@ public:
 		bool bAvailable
 	);
 	static void ApplyIOSChargingSource(FOpenMobilePowerSnapshot& Snapshot);
+	static void ApplyAndroidPowerSavingState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		bool bEnabled,
+		bool bAvailable
+	);
+	static void ApplyIOSPowerSavingState(
+		FOpenMobilePowerSnapshot& Snapshot,
+		bool bEnabled,
+		bool bAvailable
+	);
 };

@@ -224,6 +224,8 @@
 		{
 			return new String[0];
 		}
+		android.os.PowerManager powerManager = (android.os.PowerManager)
+			getSystemService(android.content.Context.POWER_SERVICE);
 		return new String[] {
 			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)),
 			Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)),
@@ -233,7 +235,8 @@
 				: "",
 			battery.hasExtra(android.os.BatteryManager.EXTRA_PLUGGED)
 				? Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0))
-				: ""
+				: "",
+			powerManager == null ? "" : Boolean.toString(powerManager.isPowerSaveMode())
 		};
 	}
 
@@ -261,6 +264,7 @@
 		android.content.IntentFilter filter = new android.content.IntentFilter(
 			android.content.Intent.ACTION_BATTERY_CHANGED
 		);
+		filter.addAction(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
 		try
 		{
 			if (android.os.Build.VERSION.SDK_INT >= 33)

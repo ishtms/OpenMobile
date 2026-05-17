@@ -146,3 +146,43 @@ void FOpenMobileDeviceBatteryInfo::ApplyIOSChargingSource(
 {
 	Snapshot.ChargingSource = EOpenMobileChargingSource::Unsupported;
 }
+
+void FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	bool bEnabled,
+	bool bAvailable
+)
+{
+	Snapshot.bPowerSavingEnabled = {};
+	Snapshot.NativePowerSavingState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.bPowerSavingEnabled =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(bEnabled);
+	Snapshot.NativePowerSavingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			bEnabled ? TEXT("Android:true") : TEXT("Android:false")
+		);
+}
+
+void FOpenMobileDeviceBatteryInfo::ApplyIOSPowerSavingState(
+	FOpenMobilePowerSnapshot& Snapshot,
+	bool bEnabled,
+	bool bAvailable
+)
+{
+	Snapshot.bPowerSavingEnabled = {};
+	Snapshot.NativePowerSavingState = {};
+	if (!bAvailable)
+	{
+		return;
+	}
+	Snapshot.bPowerSavingEnabled =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(bEnabled);
+	Snapshot.NativePowerSavingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			bEnabled ? TEXT("IOS:true") : TEXT("IOS:false")
+		);
+}

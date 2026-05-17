@@ -223,6 +223,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"ACTION_BATTERY_CHANGED",
 			"OpenMobileDeviceBatteryReceiver",
 			"unregisterReceiver(OpenMobileDeviceBatteryReceiver)",
+			"isPowerSaveMode",
+			"ACTION_POWER_SAVE_MODE_CHANGED",
 		):
 			self.assertIn(token, android_upl)
 
@@ -248,6 +250,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("Device.batteryState", ios_battery)
 		self.assertIn("UIDeviceBatteryLevelDidChangeNotification", ios_battery)
 		self.assertIn("UIDeviceBatteryStateDidChangeNotification", ios_battery)
+		self.assertIn("lowPowerModeEnabled", ios_battery)
+		self.assertIn("NSProcessInfoPowerStateDidChangeNotification", ios_battery)
 		self.assertIn("bRestoreBatteryMonitoringDisabled", ios_battery)
 		self.assertIn("removeObserver", ios_battery)
 
@@ -263,6 +267,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("BatteryPercent.Value", battery_info)
 		self.assertIn("ApplyAndroidChargingSource", battery_info)
 		self.assertIn("ApplyIOSChargingSource", battery_info)
+		self.assertIn("ApplyAndroidPowerSavingState", battery_info)
+		self.assertIn("ApplyIOSPowerSavingState", battery_info)
 
 		android_backend = (
 			DEVICE_PLUGIN
@@ -273,6 +279,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("Wireless requires API 17", android_backend)
 		self.assertIn("Dock maps to Other on API 33", android_backend)
+		self.assertIn("power-save mode is available on API 21", android_backend)
 
 		ios_backend = (
 			DEVICE_PLUGIN
@@ -282,6 +289,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileDeviceIOSBackend.cpp"
 		).read_text(encoding="utf-8")
 		self.assertIn("does not expose a public charging-source API", ios_backend)
+		self.assertIn("Low Power Mode is available on iOS 9", ios_backend)
+		self.assertIn("Simulator does not provide device Low Power Mode", ios_backend)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

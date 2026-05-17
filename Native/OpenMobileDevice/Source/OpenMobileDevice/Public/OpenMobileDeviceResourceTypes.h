@@ -88,6 +88,9 @@ struct OPENMOBILEDEVICE_API FOpenMobilePowerSnapshot
 	FOpenMobileDeviceOptionalBool bPowerSavingEnabled;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalString NativePowerSavingState;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	EOpenMobileThermalState ThermalState = EOpenMobileThermalState::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
@@ -111,6 +114,7 @@ struct OPENMOBILEDEVICE_API FOpenMobilePowerSnapshot
 			&& NativeChargingState == Other.NativeChargingState
 			&& ChargingSource == Other.ChargingSource
 			&& bPowerSavingEnabled == Other.bPowerSavingEnabled
+			&& NativePowerSavingState == Other.NativePowerSavingState
 			&& ThermalState == Other.ThermalState
 			&& NativeThermalState == Other.NativeThermalState
 			&& ThermalHeadroom == Other.ThermalHeadroom

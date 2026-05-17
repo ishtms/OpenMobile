@@ -11,6 +11,8 @@
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
+#include <TargetConditionals.h>
+
 FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 	EOpenMobileDeviceBackendDomain Domain
 ) const
@@ -30,6 +32,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not provide device Low Power Mode state.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS Low Power Mode is available on iOS 9 or newer.");
+#endif
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ChargingSource)
 	{
 		FOpenMobileDeviceCapability Capability;

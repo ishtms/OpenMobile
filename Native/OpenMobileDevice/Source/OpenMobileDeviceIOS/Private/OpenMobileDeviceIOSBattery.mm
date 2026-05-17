@@ -76,6 +76,11 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceIOSPowerSnapshot()
 			static_cast<int64>(Device.batteryState),
 			true
 		);
+		FOpenMobileDeviceBatteryInfo::ApplyIOSPowerSavingState(
+			Snapshot,
+			[NSProcessInfo processInfo].lowPowerModeEnabled,
+			true
+		);
 		if (!bWasMonitoring)
 		{
 			Device.batteryMonitoringEnabled = NO;
@@ -123,6 +128,11 @@ bool StartOpenMobileDeviceIOSBatteryMonitoring(
 			addObserver:Observer
 			selector:@selector(handleBatteryLevelChange:)
 			name:UIDeviceBatteryStateDidChangeNotification
+			object:nil];
+		[[NSNotificationCenter defaultCenter]
+			addObserver:Observer
+			selector:@selector(handleBatteryLevelChange:)
+			name:NSProcessInfoPowerStateDidChangeNotification
 			object:nil];
 	}
 	return true;

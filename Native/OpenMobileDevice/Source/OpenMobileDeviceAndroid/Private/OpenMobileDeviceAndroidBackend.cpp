@@ -32,6 +32,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android power-save mode is available on API 21 or newer.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ChargingSource)
 	{
 		FOpenMobileDeviceCapability Capability;

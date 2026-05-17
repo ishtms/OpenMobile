@@ -1277,6 +1277,113 @@ bool FOpenMobileDeviceChargingSourceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePowerSavingModeTest,
+	"OpenMobile.Device.Power.PowerSavingMode",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePowerSavingModeTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobilePowerSnapshot AndroidEnabled;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+		AndroidEnabled,
+		true,
+		true
+	);
+	TestTrue(TEXT("Android enabled state is available"), AndroidEnabled.bPowerSavingEnabled.bIsAvailable);
+	TestTrue(TEXT("Android enabled state maps true"), AndroidEnabled.bPowerSavingEnabled.Value);
+	TestEqual(TEXT("Android raw state is retained"), AndroidEnabled.NativePowerSavingState.Value, FString(TEXT("Android:true")));
+
+	FOpenMobilePowerSnapshot IOSDisabled;
+	FOpenMobileDeviceBatteryInfo::ApplyIOSPowerSavingState(
+		IOSDisabled,
+		false,
+		true
+	);
+	TestTrue(TEXT("iOS disabled state is available"), IOSDisabled.bPowerSavingEnabled.bIsAvailable);
+	TestFalse(TEXT("iOS disabled state maps false"), IOSDisabled.bPowerSavingEnabled.Value);
+	TestEqual(TEXT("iOS raw state is retained"), IOSDisabled.NativePowerSavingState.Value, FString(TEXT("IOS:false")));
+
+	for (const TCHAR* Label : {TEXT("Unsupported"), TEXT("Restricted")})
+	{
+		FOpenMobilePowerSnapshot Unavailable;
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+			Unavailable,
+			false,
+			false
+		);
+		TestFalse(Label, Unavailable.bPowerSavingEnabled.bIsAvailable);
+		TestFalse(TEXT("Unavailable state has no raw detail"), Unavailable.NativePowerSavingState.bIsAvailable);
+	}
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("PowerSavingEvents"));
+	Backend.NativeMonitoringGroups = {Group::Power};
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+		Backend.Power,
+		false,
+		true
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<bool> Events;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&Events](const FOpenMobilePowerSnapshot& Snapshot)
+		{
+			Events.Add(Snapshot.bPowerSavingEnabled.Value);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+		Backend.Power,
+		true,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Duplicate enabled notifications coalesce"), Events.Num(), 1);
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+		Backend.Power,
+		false,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Rapid disable emits the new state"), Events.Num(), 2);
+	TestFalse(TEXT("Rapid disable event carries false"), Events.Last());
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidPowerSavingState(
+		Backend.Power,
+		true,
+		true
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Background power-mode change does not emit"), Events.Num(), 2);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh emits latest power mode"), Events.Num(), 3);
+	TestTrue(TEXT("Foreground event carries latest state"), Events.Last());
+
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	const FOpenMobilePowerSnapshot UnsupportedEditor =
+		FOpenMobileDeviceSnapshotService::GetPowerSnapshot();
+	TestFalse(TEXT("Unsupported editor power mode is unavailable"), UnsupportedEditor.bPowerSavingEnabled.bIsAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
