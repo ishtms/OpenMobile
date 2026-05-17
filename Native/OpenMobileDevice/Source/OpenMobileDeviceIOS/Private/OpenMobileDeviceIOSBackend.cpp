@@ -30,6 +30,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ChargingSource)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS does not expose a public charging-source API.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PlatformInformation
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ManufacturerBrandModel
 		|| CapabilityName == FOpenMobileDeviceCapabilityNames::HardwareModelIdentifier

@@ -219,6 +219,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"BatteryManager.EXTRA_SCALE",
 			"BatteryManager.EXTRA_PRESENT",
 			"BatteryManager.EXTRA_STATUS",
+			"BatteryManager.EXTRA_PLUGGED",
 			"ACTION_BATTERY_CHANGED",
 			"OpenMobileDeviceBatteryReceiver",
 			"unregisterReceiver(OpenMobileDeviceBatteryReceiver)",
@@ -260,6 +261,27 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn('TEXT("Android:%lld")', battery_info)
 		self.assertIn('TEXT("IOS:%lld")', battery_info)
 		self.assertNotIn("BatteryPercent.Value", battery_info)
+		self.assertIn("ApplyAndroidChargingSource", battery_info)
+		self.assertIn("ApplyIOSChargingSource", battery_info)
+
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("Wireless requires API 17", android_backend)
+		self.assertIn("Dock maps to Other on API 33", android_backend)
+
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("does not expose a public charging-source API", ios_backend)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

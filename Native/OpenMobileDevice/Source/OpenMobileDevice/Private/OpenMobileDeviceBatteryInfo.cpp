@@ -108,3 +108,41 @@ void FOpenMobileDeviceBatteryInfo::ApplyIOSChargingState(
 		break;
 	}
 }
+
+void FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingSource(
+	FOpenMobilePowerSnapshot& Snapshot,
+	int64 NativeSource,
+	bool bAvailable
+)
+{
+	Snapshot.ChargingSource = EOpenMobileChargingSource::Unknown;
+	if (!bAvailable || NativeSource <= 0)
+	{
+		return;
+	}
+	switch (NativeSource)
+	{
+	case 1:
+		Snapshot.ChargingSource = EOpenMobileChargingSource::AC;
+		break;
+	case 2:
+		Snapshot.ChargingSource = EOpenMobileChargingSource::USB;
+		break;
+	case 4:
+		Snapshot.ChargingSource = EOpenMobileChargingSource::Wireless;
+		break;
+	default:
+		if ((NativeSource & (NativeSource - 1)) == 0)
+		{
+			Snapshot.ChargingSource = EOpenMobileChargingSource::Other;
+		}
+		break;
+	}
+}
+
+void FOpenMobileDeviceBatteryInfo::ApplyIOSChargingSource(
+	FOpenMobilePowerSnapshot& Snapshot
+)
+{
+	Snapshot.ChargingSource = EOpenMobileChargingSource::Unsupported;
+}

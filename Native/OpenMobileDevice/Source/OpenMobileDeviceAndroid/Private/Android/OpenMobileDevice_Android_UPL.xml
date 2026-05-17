@@ -230,6 +230,9 @@
 			Boolean.toString(battery.getBooleanExtra(android.os.BatteryManager.EXTRA_PRESENT, true)),
 			battery.hasExtra(android.os.BatteryManager.EXTRA_STATUS)
 				? Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, 0))
+				: "",
+			battery.hasExtra(android.os.BatteryManager.EXTRA_PLUGGED)
+				? Integer.toString(battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0))
 				: ""
 		};
 	}

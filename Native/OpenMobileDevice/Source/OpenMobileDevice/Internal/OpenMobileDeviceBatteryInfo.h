@@ -26,4 +26,10 @@ public:
 		int64 NativeState,
 		bool bAvailable
 	);
+	static void ApplyAndroidChargingSource(
+		FOpenMobilePowerSnapshot& Snapshot,
+		int64 NativeSource,
+		bool bAvailable
+	);
+	static void ApplyIOSChargingSource(FOpenMobilePowerSnapshot& Snapshot);
 };

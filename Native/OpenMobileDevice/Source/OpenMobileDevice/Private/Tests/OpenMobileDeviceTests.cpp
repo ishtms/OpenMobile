@@ -1216,6 +1216,67 @@ bool FOpenMobileDeviceChargingStateTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceChargingSourceTest,
+	"OpenMobile.Device.Power.ChargingSource",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceChargingSourceTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+
+	for (const TPair<int64, EOpenMobileChargingSource>& Fixture : {
+		TPair<int64, EOpenMobileChargingSource>(0, EOpenMobileChargingSource::Unknown),
+		TPair<int64, EOpenMobileChargingSource>(1, EOpenMobileChargingSource::AC),
+		TPair<int64, EOpenMobileChargingSource>(2, EOpenMobileChargingSource::USB),
+		TPair<int64, EOpenMobileChargingSource>(4, EOpenMobileChargingSource::Wireless),
+		TPair<int64, EOpenMobileChargingSource>(8, EOpenMobileChargingSource::Other),
+		TPair<int64, EOpenMobileChargingSource>(16, EOpenMobileChargingSource::Other)
+	})
+	{
+		FOpenMobilePowerSnapshot Snapshot;
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingSource(
+			Snapshot,
+			Fixture.Key,
+			true
+		);
+		TestEqual(TEXT("Android charging source maps"), Snapshot.ChargingSource, Fixture.Value);
+	}
+
+	for (const int64 Contradictory : {3, 5, 6, 7, 9})
+	{
+		FOpenMobilePowerSnapshot Snapshot;
+		FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingSource(
+			Snapshot,
+			Contradictory,
+			true
+		);
+		TestEqual(TEXT("Contradictory Android source stays unknown"), Snapshot.ChargingSource, EOpenMobileChargingSource::Unknown);
+	}
+
+	FOpenMobilePowerSnapshot Missing;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingSource(
+		Missing,
+		0,
+		false
+	);
+	TestEqual(TEXT("Missing Android source stays unknown"), Missing.ChargingSource, EOpenMobileChargingSource::Unknown);
+
+	FOpenMobilePowerSnapshot Invalid;
+	FOpenMobileDeviceBatteryInfo::ApplyAndroidChargingSource(
+		Invalid,
+		-1,
+		true
+	);
+	TestEqual(TEXT("Invalid Android source stays unknown"), Invalid.ChargingSource, EOpenMobileChargingSource::Unknown);
+
+	FOpenMobilePowerSnapshot IOS;
+	FOpenMobileDeviceBatteryInfo::ApplyIOSChargingSource(IOS);
+	TestEqual(TEXT("iOS source is explicitly unsupported"), IOS.ChargingSource, EOpenMobileChargingSource::Unsupported);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

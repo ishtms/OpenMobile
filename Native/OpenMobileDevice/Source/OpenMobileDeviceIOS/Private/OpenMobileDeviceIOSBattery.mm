@@ -82,6 +82,7 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceIOSPowerSnapshot()
 		}
 	}
 #endif
+	FOpenMobileDeviceBatteryInfo::ApplyIOSChargingSource(Snapshot);
 	return Snapshot;
 }
 
