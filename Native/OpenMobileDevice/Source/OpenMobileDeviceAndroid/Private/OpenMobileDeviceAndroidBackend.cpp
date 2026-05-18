@@ -11,9 +11,11 @@
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
 #include "OpenMobileDeviceAndroidStorage.h"
+#include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
+#include "OpenMobileDeviceSettings.h"
 
 FOpenMobileCapability FOpenMobileDeviceAndroidBackend::GetDomainCapability(
 	EOpenMobileDeviceBackendDomain Domain
@@ -50,6 +52,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android reports the internal application data volume. Shared and removable storage are outside this query.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::LowStorageEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android system low-storage and recovery broadcasts refresh the application data volume. Custom thresholds add bounded demand-driven checks.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -243,6 +254,16 @@ bool FOpenMobileDeviceAndroidBackend::QueryStorageSnapshot(
 	return QueryOpenMobileDeviceAndroidStorage(OutSnapshot, OutError);
 }
 
+int64 FOpenMobileDeviceAndroidBackend::GetPlatformLowStorageThresholdBytes(
+	const FOpenMobileStorageSnapshot& Snapshot
+) const
+{
+	constexpr int64 MaximumThresholdBytes = 500ll * 1024 * 1024;
+	return Snapshot.TotalBytes.bIsAvailable
+		? FMath::Min(Snapshot.TotalBytes.Value / 20, MaximumThresholdBytes)
+		: MaximumThresholdBytes;
+}
+
 FOpenMobileMediaVolumeSnapshot
 FOpenMobileDeviceAndroidBackend::GetMediaVolumeSnapshot() const
 {
@@ -274,6 +295,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceAndroidMemoryMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Storage)
+	{
+		return StartOpenMobileDeviceAndroidStorageMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -293,6 +318,21 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidMemoryMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Storage)
+	{
+		StopOpenMobileDeviceAndroidStorageMonitoring();
+	}
+}
+
+bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
+	EOpenMobileDeviceMonitoringGroup Group
+) const
+{
+	return Group == EOpenMobileDeviceMonitoringGroup::Storage
+		&& (!GetDefault<UOpenMobileDeviceSettings>()
+				->bUsePlatformDefaultLowStorageThreshold
+			|| GetDefault<UOpenMobileDeviceSettings>()
+				->GetValidatedLowStorageRecoveryHysteresisBytes() > 0);
 }
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
@@ -300,4 +340,5 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidLocaleMonitoring();
 	StopOpenMobileDeviceAndroidBatteryMonitoring();
 	StopOpenMobileDeviceAndroidMemoryMonitoring();
+	StopOpenMobileDeviceAndroidStorageMonitoring();
 }

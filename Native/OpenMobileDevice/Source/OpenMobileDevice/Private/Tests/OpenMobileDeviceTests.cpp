@@ -160,6 +160,13 @@ namespace OpenMobileDeviceTests
 			++MonitoringStops.FindOrAdd(Group);
 		}
 
+		virtual bool RequiresFallbackPolling(
+			EOpenMobileDeviceMonitoringGroup Group
+		) const override
+		{
+			return FallbackMonitoringGroups.Contains(Group);
+		}
+
 		void SetCapability(
 			FName CapabilityName,
 			EOpenMobileCapabilityState State,
@@ -196,6 +203,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobileMemorySnapshot Memory;
 		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
+		TSet<EOpenMobileDeviceMonitoringGroup> FallbackMonitoringGroups;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStops;
 		TMap<
@@ -673,6 +681,82 @@ bool FOpenMobileDeviceStorageSpaceTest::RunTest(const FString& Parameters)
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(ReplacementBackend);
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(FirstBackend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceLowStorageStateTest,
+	"OpenMobile.Device.Storage.LowStorageState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceLowStorageStateTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileStorageSnapshot Snapshot = FOpenMobileDeviceStorageInfo::Build(
+		EOpenMobileStorageScope::ApplicationDataVolume,
+		4096,
+		1024,
+		false,
+		0,
+		true
+	);
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		1024,
+		256,
+		TOptional<bool>()
+	);
+	TestTrue(TEXT("Exact low threshold enters low-storage state"), Snapshot.bIsLowStorage.bIsAvailable);
+	TestTrue(TEXT("Exact low threshold is low"), Snapshot.bIsLowStorage.Value);
+	TestEqual(TEXT("Applied threshold is reported"), Snapshot.LowStorageThresholdBytes.Value, int64(1024));
+	TestEqual(TEXT("Next recovery threshold is reported"), Snapshot.RecoveryThresholdBytes.Value, int64(1280));
+
+	Snapshot.AvailableBytes = FOpenMobileDeviceOptionalInt64::MakeAvailable(1025);
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		1024,
+		256,
+		TOptional<bool>(true)
+	);
+	TestTrue(TEXT("Hysteresis keeps rapid threshold changes low"), Snapshot.bIsLowStorage.Value);
+
+	Snapshot.AvailableBytes = FOpenMobileDeviceOptionalInt64::MakeAvailable(1280);
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		1024,
+		256,
+		TOptional<bool>(true)
+	);
+	TestFalse(TEXT("Exact recovery boundary leaves low-storage state"), Snapshot.bIsLowStorage.Value);
+
+	Snapshot.AvailableBytes = FOpenMobileDeviceOptionalInt64::MakeAvailable(900);
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		512,
+		128,
+		TOptional<bool>(true)
+	);
+	TestFalse(TEXT("Threshold changes reevaluate the previous low state"), Snapshot.bIsLowStorage.Value);
+
+	Snapshot.AvailableBytes = {};
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		1024,
+		256,
+		TOptional<bool>()
+	);
+	TestFalse(TEXT("Failed capacity query leaves low-storage state unavailable"), Snapshot.bIsLowStorage.bIsAvailable);
+	TestEqual(TEXT("Failed query still reports configured threshold"), Snapshot.LowStorageThresholdBytes.Value, int64(1024));
+
+	Snapshot.AvailableBytes = FOpenMobileDeviceOptionalInt64::MakeAvailable(MAX_int64);
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Snapshot,
+		MAX_int64 - 10,
+		100,
+		TOptional<bool>()
+	);
+	TestEqual(TEXT("Recovery threshold saturates safely"), Snapshot.RecoveryThresholdBytes.Value, int64(MAX_int64));
 	return true;
 }
 
@@ -2178,6 +2262,41 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->GetValidatedFallbackPollingIntervalSeconds(),
 		1.0f
 	);
+	TestTrue(
+		TEXT("Platform low-storage threshold is the safe default"),
+		Settings->bUsePlatformDefaultLowStorageThreshold
+	);
+	TestEqual(
+		TEXT("Platform threshold resolves to a nonnegative value"),
+		Settings->ResolveLowStorageThresholdBytes(512ll * 1024 * 1024),
+		int64(512ll * 1024 * 1024)
+	);
+	Settings->bUsePlatformDefaultLowStorageThreshold = false;
+	Settings->LowStorageThresholdBytes = -1;
+	TestEqual(
+		TEXT("Negative custom low-storage threshold clamps to zero"),
+		Settings->ResolveLowStorageThresholdBytes(512ll * 1024 * 1024),
+		int64(0)
+	);
+	Settings->LowStorageRecoveryHysteresisBytes = -1;
+	TestEqual(
+		TEXT("Negative recovery hysteresis clamps to zero"),
+		Settings->GetValidatedLowStorageRecoveryHysteresisBytes(),
+		int64(0)
+	);
+	Settings->LowStorageFallbackPollingIntervalSeconds = 0.1f;
+	TestEqual(
+		TEXT("Low-storage fallback checks have a safe lower bound"),
+		Settings->GetValidatedLowStorageFallbackPollingIntervalSeconds(),
+		5.0f
+	);
+	Settings->LowStorageFallbackPollingIntervalSeconds =
+		std::numeric_limits<float>::quiet_NaN();
+	TestEqual(
+		TEXT("Non-finite low-storage interval uses the safe default"),
+		Settings->GetValidatedLowStorageFallbackPollingIntervalSeconds(),
+		30.0f
+	);
 
 	Settings->FallbackPollingIntervalSeconds =
 		std::numeric_limits<float>::quiet_NaN();
@@ -2205,6 +2324,10 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT(".ini")
 	);
 	Settings->FallbackPollingIntervalSeconds = 2.5f;
+	Settings->bUsePlatformDefaultLowStorageThreshold = false;
+	Settings->LowStorageThresholdBytes = 768ll * 1024 * 1024;
+	Settings->LowStorageRecoveryHysteresisBytes = 96ll * 1024 * 1024;
+	Settings->LowStorageFallbackPollingIntervalSeconds = 45.0f;
 	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 	UOpenMobileDeviceSettings* Loaded = NewObject<UOpenMobileDeviceSettings>();
 	Loaded->LoadConfig(UOpenMobileDeviceSettings::StaticClass(), *ConfigPath);
@@ -2213,6 +2336,25 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Fallback polling interval survives config serialization"),
 		Loaded->FallbackPollingIntervalSeconds,
 		2.5f
+	);
+	TestFalse(
+		TEXT("Low-storage threshold mode survives config serialization"),
+		Loaded->bUsePlatformDefaultLowStorageThreshold
+	);
+	TestEqual(
+		TEXT("Low-storage threshold survives config serialization"),
+		Loaded->LowStorageThresholdBytes,
+		int64(768ll * 1024 * 1024)
+	);
+	TestEqual(
+		TEXT("Low-storage hysteresis survives config serialization"),
+		Loaded->LowStorageRecoveryHysteresisBytes,
+		int64(96ll * 1024 * 1024)
+	);
+	TestEqual(
+		TEXT("Low-storage polling bound survives config serialization"),
+		Loaded->LowStorageFallbackPollingIntervalSeconds,
+		45.0f
 	);
 	return true;
 }
@@ -3065,6 +3207,51 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 	);
 	ConfiguredInterval->Stop();
 	DeviceSettings->FallbackPollingIntervalSeconds = SavedFallbackInterval;
+
+	Backend.NativeMonitoringGroups.Add(Group::Storage);
+	Backend.FallbackMonitoringGroups.Add(Group::Storage);
+	const float SavedLowStorageInterval =
+		DeviceSettings->LowStorageFallbackPollingIntervalSeconds;
+	DeviceSettings->LowStorageFallbackPollingIntervalSeconds = 0.1f;
+	int32 StorageRefreshes = 0;
+	const FDelegateHandle StorageRefreshHandle =
+		FOpenMobileDeviceMonitoringService::OnGroupChanged().AddLambda(
+			[&StorageRefreshes](EOpenMobileDeviceMonitoringGroup ChangedGroup)
+			{
+				if (ChangedGroup == Group::Storage)
+				{
+					++StorageRefreshes;
+				}
+			}
+		);
+	const FGuid StorageRequest =
+		FOpenMobileDeviceMonitoringService::AddSubscription(
+			{Group::Storage},
+			0.1f
+		);
+	TestTrue(
+		TEXT("Custom storage threshold keeps native notifications and fallback checks"),
+		FOpenMobileDeviceMonitoringService::UsesFallbackForTests(Group::Storage)
+	);
+	TestEqual(
+		TEXT("Storage fallback checks use their bounded interval"),
+		FOpenMobileDeviceMonitoringService::GetEffectiveIntervalForTests(
+			Group::Storage
+		),
+		5.0f
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Storage);
+	TestEqual(TEXT("Native low-storage notification refreshes immediately"), StorageRefreshes, 1);
+	FOpenMobileDeviceMonitoringService::TickForTests(4.9f);
+	TestEqual(TEXT("Storage fallback does not run before its bound"), StorageRefreshes, 1);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestEqual(TEXT("Storage fallback runs at its bounded interval"), StorageRefreshes, 2);
+	FOpenMobileDeviceMonitoringService::RemoveSubscription(StorageRequest);
+	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(
+		StorageRefreshHandle
+	);
+	DeviceSettings->LowStorageFallbackPollingIntervalSeconds =
+		SavedLowStorageInterval;
 
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);

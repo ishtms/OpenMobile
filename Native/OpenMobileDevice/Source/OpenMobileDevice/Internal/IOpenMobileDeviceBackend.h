@@ -140,6 +140,14 @@ public:
 		return false;
 	}
 
+	virtual int64 GetPlatformLowStorageThresholdBytes(
+		const FOpenMobileStorageSnapshot& Snapshot
+	) const
+	{
+		static_cast<void>(Snapshot);
+		return 512ll * 1024 * 1024;
+	}
+
 	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const
 	{
 		return {};
@@ -173,6 +181,14 @@ public:
 	virtual void StopMonitoring(EOpenMobileDeviceMonitoringGroup Group)
 	{
 		static_cast<void>(Group);
+	}
+
+	virtual bool RequiresFallbackPolling(
+		EOpenMobileDeviceMonitoringGroup Group
+	) const
+	{
+		static_cast<void>(Group);
+		return false;
 	}
 
 	virtual void BeginShutdown() {}

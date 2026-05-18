@@ -4,7 +4,9 @@
 #include "IOpenMobileDeviceBackend.h"
 #include "OpenMobileAsync.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
+#include "OpenMobileDeviceStorageInfo.h"
 #include "OpenMobileDeviceSubsystem.h"
 
 UOpenMobileDeviceStorageQueryAsyncAction*
@@ -117,6 +119,36 @@ void UOpenMobileDeviceStorageQueryAsyncAction::HandleQueryComplete(
 			));
 		return;
 	}
+	const IOpenMobileDeviceBackend* Backend =
+		FOpenMobileDeviceBackendRegistry::FindBackend();
+	if (!Backend)
+	{
+		FinishFailed(FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device backend became unavailable during the storage query.")
+		));
+		return;
+	}
+	const UOpenMobileDeviceSettings* Settings =
+		GetDefault<UOpenMobileDeviceSettings>();
+	TOptional<bool> PreviousLowStorageState;
+	if (UOpenMobileDeviceSubsystem* DeviceSubsystem = GetDeviceSubsystem())
+	{
+		const FOpenMobileStorageSnapshot Previous =
+			DeviceSubsystem->GetStorageSnapshot();
+		if (Previous.bIsLowStorage.bIsAvailable)
+		{
+			PreviousLowStorageState = Previous.bIsLowStorage.Value;
+		}
+	}
+	FOpenMobileDeviceStorageInfo::ApplyLowStorageState(
+		Result,
+		Settings->ResolveLowStorageThresholdBytes(
+			Backend->GetPlatformLowStorageThresholdBytes(Result)
+		),
+		Settings->GetValidatedLowStorageRecoveryHysteresisBytes(),
+		PreviousLowStorageState
+	);
 	FOpenMobileDeviceSnapshotService::StampStorageSnapshot(Result);
 	Snapshot = MoveTemp(Result);
 	if (UOpenMobileDeviceSubsystem* DeviceSubsystem = GetDeviceSubsystem())

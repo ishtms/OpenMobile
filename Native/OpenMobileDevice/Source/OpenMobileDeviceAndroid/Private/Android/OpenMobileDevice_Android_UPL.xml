@@ -244,11 +244,13 @@
 	}
 
 	private android.content.BroadcastReceiver OpenMobileDeviceBatteryReceiver;
+	private android.content.BroadcastReceiver OpenMobileDeviceStorageReceiver;
 	private Object OpenMobileDeviceThermalListener;
 	private android.content.ComponentCallbacks2 OpenMobileDeviceMemoryCallbacks;
 
 	public native void nativeOpenMobileDeviceBatteryChanged();
 	public native void nativeOpenMobileDeviceMemoryPressure(int level);
+	public native void nativeOpenMobileDeviceStorageChanged();
 
 	public String[] AndroidThunkJava_OpenMobileDeviceGetStorageSpace()
 	{
@@ -312,6 +314,65 @@
 		{
 			return false;
 		}
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartStorageMonitoring()
+	{
+		if (OpenMobileDeviceStorageReceiver != null)
+		{
+			return true;
+		}
+		android.content.IntentFilter filter = new android.content.IntentFilter();
+		filter.addAction(android.content.Intent.ACTION_DEVICE_STORAGE_LOW);
+		filter.addAction(android.content.Intent.ACTION_DEVICE_STORAGE_OK);
+		OpenMobileDeviceStorageReceiver = new android.content.BroadcastReceiver()
+		{
+			@Override
+			public void onReceive(
+				android.content.Context context,
+				android.content.Intent intent
+			)
+			{
+				nativeOpenMobileDeviceStorageChanged();
+			}
+		};
+		try
+		{
+			if (android.os.Build.VERSION.SDK_INT >= 33)
+			{
+				registerReceiver(
+					OpenMobileDeviceStorageReceiver,
+					filter,
+					android.content.Context.RECEIVER_NOT_EXPORTED
+				);
+			}
+			else
+			{
+				registerReceiver(OpenMobileDeviceStorageReceiver, filter);
+			}
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			OpenMobileDeviceStorageReceiver = null;
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopStorageMonitoring()
+	{
+		if (OpenMobileDeviceStorageReceiver == null)
+		{
+			return;
+		}
+		try
+		{
+			unregisterReceiver(OpenMobileDeviceStorageReceiver);
+		}
+		catch (IllegalArgumentException ignored)
+		{
+		}
+		OpenMobileDeviceStorageReceiver = null;
 	}
 
 	public void AndroidThunkJava_OpenMobileDeviceStopMemoryMonitoring()

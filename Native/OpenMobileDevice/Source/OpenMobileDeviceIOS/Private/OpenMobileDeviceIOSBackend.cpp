@@ -58,6 +58,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #endif
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::LowStorageEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator storage would describe the host Mac volume.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS has no public low-storage notification for this threshold. Checks run only while storage monitoring is requested and use the configured bounded interval.");
+#endif
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -206,6 +221,16 @@ bool FOpenMobileDeviceIOSBackend::QueryStorageSnapshot(
 ) const
 {
 	return QueryOpenMobileDeviceIOSStorage(OutSnapshot, OutError);
+}
+
+int64 FOpenMobileDeviceIOSBackend::GetPlatformLowStorageThresholdBytes(
+	const FOpenMobileStorageSnapshot& Snapshot
+) const
+{
+	constexpr int64 MaximumThresholdBytes = 1024ll * 1024 * 1024;
+	return Snapshot.TotalBytes.bIsAvailable
+		? FMath::Min(Snapshot.TotalBytes.Value / 20, MaximumThresholdBytes)
+		: MaximumThresholdBytes;
 }
 
 FOpenMobileMediaVolumeSnapshot

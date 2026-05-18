@@ -13,4 +13,11 @@ public:
 		uint64 ImportantUsageAvailableBytes,
 		bool bQuerySucceeded
 	);
+
+	static void ApplyLowStorageState(
+		FOpenMobileStorageSnapshot& Snapshot,
+		int64 ThresholdBytes,
+		int64 RecoveryHysteresisBytes,
+		const TOptional<bool>& PreviousLowStorageState
+	);
 };

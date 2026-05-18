@@ -57,6 +57,22 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		);
 	}
 
+	float ApplyGroupIntervalBounds(
+		EOpenMobileDeviceMonitoringGroup Group,
+		float IntervalSeconds
+	)
+	{
+		if (Group != EOpenMobileDeviceMonitoringGroup::Storage)
+		{
+			return IntervalSeconds;
+		}
+		return FMath::Max(
+			IntervalSeconds,
+			GetDefault<UOpenMobileDeviceSettings>()
+				->GetValidatedLowStorageFallbackPollingIntervalSeconds()
+		);
+	}
+
 	bool IsValidGroup(EOpenMobileDeviceMonitoringGroup Group)
 	{
 		switch (Group)
@@ -132,7 +148,8 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			Group,
 			State.CallbackToken
 		);
-		State.bUsesFallback = !State.bNativeObserverStarted;
+		State.bUsesFallback = !State.bNativeObserverStarted
+			|| Backend->RequiresFallbackPolling(Group);
 		if (!State.bNativeObserverStarted)
 		{
 			State.CallbackToken = {};
@@ -157,8 +174,14 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 				Interval = FMath::Min(Interval, Pair.Value.PollingIntervalSeconds);
 			}
 		}
-		State->EffectiveIntervalSeconds = Interval;
-		State->ElapsedSeconds = FMath::Min(State->ElapsedSeconds, Interval);
+		State->EffectiveIntervalSeconds = ApplyGroupIntervalBounds(
+			Group,
+			Interval
+		);
+		State->ElapsedSeconds = FMath::Min(
+			State->ElapsedSeconds,
+			State->EffectiveIntervalSeconds
+		);
 	}
 
 	void StopTicker()
@@ -359,7 +382,10 @@ FGuid FOpenMobileDeviceMonitoringService::AddSubscription(
 		++State.ReferenceCount;
 		if (State.ReferenceCount == 1)
 		{
-			State.EffectiveIntervalSeconds = Request.PollingIntervalSeconds;
+			State.EffectiveIntervalSeconds = ApplyGroupIntervalBounds(
+				Group,
+				Request.PollingIntervalSeconds
+			);
 			ConfigureSource(Group, State);
 		}
 		else

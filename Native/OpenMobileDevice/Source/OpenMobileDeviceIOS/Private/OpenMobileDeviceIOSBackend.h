@@ -26,6 +26,9 @@ public:
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError
 	) const override;
+	virtual int64 GetPlatformLowStorageThresholdBytes(
+		const FOpenMobileStorageSnapshot& Snapshot
+	) const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
 	virtual bool StartMonitoring(

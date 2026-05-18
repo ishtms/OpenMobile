@@ -592,6 +592,124 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("important-usage capacity", ios_backend)
 		self.assertIn("host Mac volume", ios_backend)
 
+	def test_low_storage_events_are_bounded_and_demand_driven(self) -> None:
+		storage_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceStorageInfo.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"PreviousLowStorageState",
+			"RecoveryThresholdBytes",
+			"MAX_int64 - ValidThresholdBytes",
+			"AvailableBytes.Value < RecoveryThresholdBytes",
+			"AvailableBytes.Value <= ValidThresholdBytes",
+		):
+			self.assertIn(token, storage_info)
+
+		settings = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSettings.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"bUsePlatformDefaultLowStorageThreshold",
+			"LowStorageThresholdBytes",
+			"LowStorageRecoveryHysteresisBytes",
+			"LowStorageFallbackPollingIntervalSeconds",
+			"GetMinimumLowStorageFallbackPollingIntervalSeconds",
+		):
+			self.assertIn(token, settings)
+
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("RequiresFallbackPolling", service)
+		self.assertIn("ApplyGroupIntervalBounds", service)
+		self.assertIn(
+			"GetValidatedLowStorageFallbackPollingIntervalSeconds",
+			service,
+		)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("RequestStorageRefreshForMonitoring", subsystem)
+		self.assertIn("QueryStorage(GetGameInstance())", subsystem)
+		self.assertIn("ActiveStorageMonitoringQuery", subsystem)
+		self.assertIn("bStorageMonitoringRefreshPending", subsystem)
+
+		android_upl_path = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		)
+		ET.parse(android_upl_path)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		for token in (
+			"ACTION_DEVICE_STORAGE_LOW",
+			"ACTION_DEVICE_STORAGE_OK",
+			"OpenMobileDeviceStorageReceiver",
+			"nativeOpenMobileDeviceStorageChanged",
+			"unregisterReceiver(OpenMobileDeviceStorageReceiver)",
+			"catch (RuntimeException ignored)",
+		):
+			self.assertIn(token, android_upl)
+
+		android_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidStorageMonitor.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("NotifyNativeChange", android_monitor)
+		self.assertIn("FCriticalSection", android_monitor)
+		self.assertNotIn("UE_LOG", android_monitor)
+
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("StartOpenMobileDeviceAndroidStorageMonitoring", android_backend)
+		self.assertIn("LowStorageEvents", android_backend)
+		self.assertIn("MaximumThresholdBytes = 500ll", android_backend)
+		self.assertIn("bUsePlatformDefaultLowStorageThreshold", android_backend)
+		self.assertIn(
+			"GetValidatedLowStorageRecoveryHysteresisBytes",
+			android_backend,
+		)
+
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("LowStorageEvents", ios_backend)
+		self.assertIn("MaximumThresholdBytes = 1024ll", ios_backend)
+		self.assertIn("no public low-storage notification", ios_backend)
+		self.assertNotIn("StartOpenMobileDeviceIOSStorageMonitoring", ios_backend)
+
 	def test_application_metadata_uses_packaged_sources(self) -> None:
 		application_info = (
 			DEVICE_PLUGIN

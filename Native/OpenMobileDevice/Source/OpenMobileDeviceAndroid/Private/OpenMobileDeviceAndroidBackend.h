@@ -26,6 +26,9 @@ public:
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError
 	) const override;
+	virtual int64 GetPlatformLowStorageThresholdBytes(
+		const FOpenMobileStorageSnapshot& Snapshot
+	) const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
 	virtual bool StartMonitoring(
@@ -35,5 +38,8 @@ public:
 	virtual void StopMonitoring(
 		EOpenMobileDeviceMonitoringGroup Group
 	) override;
+	virtual bool RequiresFallbackPolling(
+		EOpenMobileDeviceMonitoringGroup Group
+	) const override;
 	virtual void BeginShutdown() override;
 };

@@ -134,6 +134,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 
 class UOpenMobileDeviceAsyncActionBase;
 class UOpenMobileDeviceStorageQueryAsyncAction;
+enum class EOpenMobileDeviceAsyncTerminalState : uint8;
 
 UCLASS()
 class OPENMOBILEDEVICE_API UOpenMobileDeviceSubsystem : public UGameInstanceSubsystem
@@ -328,6 +329,7 @@ private:
 	friend class UOpenMobileDeviceMonitoringSubscription;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
+	friend class FOpenMobileDeviceLowStorageStateTest;
 
 	void StopMonitoringSubscription(
 		UOpenMobileDeviceMonitoringSubscription* Subscription
@@ -337,6 +339,11 @@ private:
 	void HandleMonitoringGroupChanged(EOpenMobileDeviceMonitoringGroup Group);
 	void HandleMonitoringMaintenance();
 	void PrimeMonitoringGroup(EOpenMobileDeviceMonitoringGroup Group);
+	void RequestStorageRefreshForMonitoring();
+	void HandleStorageMonitoringQueryTerminal(
+		EOpenMobileDeviceAsyncTerminalState State,
+		const FOpenMobileError& Error
+	);
 	void RegisterAsyncAction(UOpenMobileDeviceAsyncActionBase* Action);
 	void UnregisterAsyncAction(UOpenMobileDeviceAsyncActionBase* Action);
 	void CacheStorageSnapshot(
@@ -359,6 +366,9 @@ private:
 	TOptional<FOpenMobileMemorySnapshot> LastMemorySnapshot;
 	TOptional<FOpenMobileStorageSnapshot> LastStorageSnapshot;
 	uint64 LastStorageBackendGeneration = 0;
+	TWeakObjectPtr<UOpenMobileDeviceStorageQueryAsyncAction>
+		ActiveStorageMonitoringQuery;
+	bool bStorageMonitoringRefreshPending = false;
 	TOptional<FOpenMobileNetworkPathSnapshot> LastNetworkSnapshot;
 	TOptional<FOpenMobileWindowDisplaySnapshot> LastWindowSnapshot;
 	TOptional<FOpenMobileAppearanceSnapshot> LastAppearanceSnapshot;

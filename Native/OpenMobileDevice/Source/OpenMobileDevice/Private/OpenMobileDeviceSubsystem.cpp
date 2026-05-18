@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceSnapshotService.h"
+#include "OpenMobileDeviceStorageQueryAsyncAction.h"
 
 namespace OpenMobileDeviceSubsystemPrivate
 {
@@ -130,6 +131,8 @@ void UOpenMobileDeviceSubsystem::Deinitialize()
 			Action->HandleGameInstanceTeardown();
 		}
 	}
+	ActiveStorageMonitoringQuery.Reset();
+	bStorageMonitoringRefreshPending = false;
 
 	Super::Deinitialize();
 }
@@ -421,7 +424,7 @@ void UOpenMobileDeviceSubsystem::PrimeMonitoringGroup(
 		LastMemorySnapshot = GetMemorySnapshot();
 		break;
 	case EOpenMobileDeviceMonitoringGroup::Storage:
-		LastStorageSnapshot = GetStorageSnapshot();
+		RequestStorageRefreshForMonitoring();
 		break;
 	case EOpenMobileDeviceMonitoringGroup::Network:
 		LastNetworkSnapshot = GetNetworkPathSnapshot();
@@ -521,17 +524,8 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		break;
 	}
 	case EOpenMobileDeviceMonitoringGroup::Storage:
-	{
-		const FOpenMobileStorageSnapshot Snapshot = GetStorageSnapshot();
-		if (!LastStorageSnapshot.IsSet()
-			|| !EquivalentWithoutMetadata(LastStorageSnapshot.GetValue(), Snapshot))
-		{
-			LastStorageSnapshot = Snapshot;
-			OnStorageSnapshotChanged.Broadcast(Snapshot);
-			NativeStorageSnapshotChanged.Broadcast(Snapshot);
-		}
+		RequestStorageRefreshForMonitoring();
 		break;
-	}
 	case EOpenMobileDeviceMonitoringGroup::Network:
 	{
 		const FOpenMobileNetworkPathSnapshot Snapshot = GetNetworkPathSnapshot();
@@ -630,10 +624,66 @@ void UOpenMobileDeviceSubsystem::CacheStorageSnapshot(
 	uint64 BackendGeneration
 )
 {
-	if (!bDeinitialized)
+	if (bDeinitialized)
 	{
-		LastStorageSnapshot = Snapshot;
-		LastStorageBackendGeneration = BackendGeneration;
+		return;
+	}
+	const bool bChanged = LastStorageSnapshot.IsSet()
+		&& LastStorageBackendGeneration == BackendGeneration
+		&& !OpenMobileDeviceSubsystemPrivate::EquivalentWithoutMetadata(
+			LastStorageSnapshot.GetValue(),
+			Snapshot
+		);
+	LastStorageSnapshot = Snapshot;
+	LastStorageBackendGeneration = BackendGeneration;
+	if (bChanged
+		&& LocalMonitoringCounts.FindRef(
+			EOpenMobileDeviceMonitoringGroup::Storage
+		) > 0)
+	{
+		OnStorageSnapshotChanged.Broadcast(Snapshot);
+		NativeStorageSnapshotChanged.Broadcast(Snapshot);
+	}
+}
+
+void UOpenMobileDeviceSubsystem::RequestStorageRefreshForMonitoring()
+{
+	if (bDeinitialized
+		|| LocalMonitoringCounts.FindRef(
+			EOpenMobileDeviceMonitoringGroup::Storage
+		) <= 0)
+	{
+		return;
+	}
+	if (ActiveStorageMonitoringQuery.IsValid()
+		&& !ActiveStorageMonitoringQuery->IsFinished())
+	{
+		bStorageMonitoringRefreshPending = true;
+		return;
+	}
+	bStorageMonitoringRefreshPending = false;
+	UOpenMobileDeviceStorageQueryAsyncAction* Action =
+		UOpenMobileDeviceStorageQueryAsyncAction::QueryStorage(GetGameInstance());
+	ActiveStorageMonitoringQuery = Action;
+	Action->OnNativeTerminal().AddUObject(
+		this,
+		&UOpenMobileDeviceSubsystem::HandleStorageMonitoringQueryTerminal
+	);
+	Action->Activate();
+}
+
+void UOpenMobileDeviceSubsystem::HandleStorageMonitoringQueryTerminal(
+	EOpenMobileDeviceAsyncTerminalState State,
+	const FOpenMobileError& Error
+)
+{
+	static_cast<void>(State);
+	static_cast<void>(Error);
+	ActiveStorageMonitoringQuery.Reset();
+	if (bStorageMonitoringRefreshPending)
+	{
+		bStorageMonitoringRefreshPending = false;
+		RequestStorageRefreshForMonitoring();
 	}
 }
 
