@@ -2,15 +2,19 @@
 
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidJNI.h"
+#include "Android/AndroidPlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileDeviceBatteryInfo.h"
 #include "OpenMobileDeviceMonitoringService.h"
+#include "OpenMobileDeviceThermalHeadroom.h"
 
 namespace OpenMobileDeviceAndroidBatteryPrivate
 {
 	FCriticalSection StateMutex;
 	FOpenMobileDeviceMonitoringCallbackToken ActiveToken;
 	uint64 SourceSequence = 0;
+	FOpenMobileDeviceThermalHeadroomTracker ThermalHeadroomTracker;
 
 	bool CallStringArrayMethod(
 		const char* MethodName,
@@ -75,6 +79,44 @@ namespace OpenMobileDeviceAndroidBatteryPrivate
 			OutValues.Add(FJavaHelper::FStringFromLocalRef(Env, Value));
 		}
 		return true;
+	}
+
+	bool CallThermalHeadroomMethod(int32 ForecastSeconds, float& OutHeadroom)
+	{
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return false;
+		}
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID Method = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceGetThermalHeadroom",
+				"(I)F"
+			)
+			: nullptr;
+		const bool bMethodError = Env->ExceptionCheck();
+		if (bMethodError)
+		{
+			Env->ExceptionClear();
+		}
+		if (!Method || bMethodError)
+		{
+			return false;
+		}
+		OutHeadroom = Env->CallFloatMethod(
+			Activity,
+			Method,
+			static_cast<jint>(ForecastSeconds)
+		);
+		const bool bCallError = Env->ExceptionCheck();
+		if (bCallError)
+		{
+			Env->ExceptionClear();
+		}
+		return !bCallError;
 	}
 
 	void ClearState()
@@ -160,6 +202,28 @@ FOpenMobilePowerSnapshot GetOpenMobileDeviceAndroidPowerSnapshot()
 			bThermalAvailable
 		);
 	}
+	const double MonotonicSeconds = FPlatformTime::Seconds();
+	if (FAndroidMisc::GetAndroidBuildVersion() >= 30
+		&& ThermalHeadroomTracker.ShouldSample(MonotonicSeconds))
+	{
+		float Headroom = NAN;
+		const bool bAvailable = CallThermalHeadroomMethod(
+			FOpenMobileDeviceThermalHeadroomTracker::DefaultForecastSeconds,
+			Headroom
+		);
+		ThermalHeadroomTracker.ApplyNativeSample(
+			Snapshot,
+			Headroom,
+			FOpenMobileDeviceThermalHeadroomTracker::DefaultForecastSeconds,
+			MonotonicSeconds,
+			FDateTime::UtcNow(),
+			bAvailable
+		);
+	}
+	else
+	{
+		ThermalHeadroomTracker.ApplyLatest(Snapshot);
+	}
 	return Snapshot;
 }
 
@@ -231,6 +295,16 @@ void StopOpenMobileDeviceAndroidBatteryMonitoring()
 			StopMethod
 		);
 	}
+}
+
+void ResetOpenMobileDeviceAndroidThermalHeadroomTrend()
+{
+	OpenMobileDeviceAndroidBatteryPrivate::ThermalHeadroomTracker.ResetTrend();
+}
+
+void ResetOpenMobileDeviceAndroidThermalHeadroom()
+{
+	OpenMobileDeviceAndroidBatteryPrivate::ThermalHeadroomTracker.Reset();
 }
 
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileDeviceBatteryChanged(

@@ -228,6 +228,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"getCurrentThermalStatus",
 			"addThermalStatusListener",
 			"removeThermalStatusListener",
+			"getThermalHeadroom",
 		):
 			self.assertIn(token, android_upl)
 
@@ -288,6 +289,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("power-save mode is available on API 21", android_backend)
 		self.assertIn("thermal status is advisory and available on API 29", android_backend)
 		self.assertIn('TEXT("Android 10 (API 29)")', android_backend)
+		self.assertIn("forecast windows from 0 through 60 seconds on API 30", android_backend)
+		self.assertIn('TEXT("Android 11 (API 30)")', android_backend)
 
 		ios_backend = (
 			DEVICE_PLUGIN
@@ -301,9 +304,44 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("Simulator does not provide device Low Power Mode", ios_backend)
 		self.assertIn("thermal state is advisory and available on iOS 11", ios_backend)
 		self.assertIn("Simulator does not provide device thermal state", ios_backend)
+		self.assertIn("does not expose a public thermal-headroom", ios_backend)
 
 		self.assertIn("thermalState", ios_battery)
 		self.assertIn("NSProcessInfoThermalStateDidChangeNotification", ios_battery)
+
+		thermal_headroom = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceThermalHeadroom.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("MinimumSampleIntervalSeconds", thermal_headroom)
+		self.assertIn("MaximumTrendGapSeconds", thermal_headroom)
+		self.assertIn("MaximumForecastSeconds", thermal_headroom)
+		self.assertIn("FMath::IsFinite", thermal_headroom)
+
+		android_battery_module = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBattery.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ShouldSample", android_battery_module)
+		self.assertIn("ApplyLatest", android_battery_module)
+		self.assertIn("DefaultForecastSeconds", android_battery_module)
+
+		android_module = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidModule.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ApplicationWillEnterBackgroundDelegate", android_module)
+		self.assertIn("ApplicationHasEnteredForegroundDelegate", android_module)
+		self.assertIn("ResetOpenMobileDeviceAndroidThermalHeadroomTrend", android_module)
 
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (

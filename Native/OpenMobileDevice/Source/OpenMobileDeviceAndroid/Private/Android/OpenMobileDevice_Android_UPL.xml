@@ -248,6 +248,28 @@
 
 	public native void nativeOpenMobileDeviceBatteryChanged();
 
+	public float AndroidThunkJava_OpenMobileDeviceGetThermalHeadroom(int forecastSeconds)
+	{
+		if (android.os.Build.VERSION.SDK_INT < 30)
+		{
+			return Float.NaN;
+		}
+		android.os.PowerManager powerManager = (android.os.PowerManager)
+			getSystemService(android.content.Context.POWER_SERVICE);
+		if (powerManager == null)
+		{
+			return Float.NaN;
+		}
+		try
+		{
+			return powerManager.getThermalHeadroom(forecastSeconds);
+		}
+		catch (RuntimeException ignored)
+		{
+			return Float.NaN;
+		}
+	}
+
 	public boolean AndroidThunkJava_OpenMobileDeviceStartBatteryMonitoring()
 	{
 		if (OpenMobileDeviceBatteryReceiver != null)

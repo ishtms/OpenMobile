@@ -37,6 +37,7 @@
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceSubsystem.h"
 #include "OpenMobileDeviceTimeZoneInfo.h"
+#include "OpenMobileDeviceThermalHeadroom.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "UObject/UnrealType.h"
@@ -1495,6 +1496,67 @@ bool FOpenMobileDeviceThermalStateTest::RunTest(const FString& Parameters)
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceThermalHeadroomTest,
+	"OpenMobile.Device.Power.ThermalHeadroom",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceThermalHeadroomTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceThermalHeadroomTracker Tracker;
+	const FDateTime FirstTime(2026, 8, 22, 10, 0, 0);
+
+	TestTrue(TEXT("First thermal headroom query is allowed"), Tracker.ShouldSample(100.0));
+	FOpenMobilePowerSnapshot First;
+	Tracker.ApplyNativeSample(First, 0.4f, 10, 100.0, FirstTime, true);
+	TestTrue(TEXT("Valid thermal headroom is available"), First.ThermalHeadroom.bIsAvailable);
+	TestEqual(TEXT("Native normalized headroom is preserved"), First.ThermalHeadroom.Value, 0.4f);
+	TestEqual(TEXT("Forecast window is exposed"), First.ThermalForecastSeconds.Value, 10.0f);
+	TestEqual(TEXT("Thermal sample time is exposed"), First.ThermalHeadroomSampleTimeUtc, FirstTime);
+	TestEqual(TEXT("One thermal sample has no trend"), First.ThermalTrend, EOpenMobileThermalTrend::Unknown);
+	TestFalse(TEXT("Thermal query is rate limited"), Tracker.ShouldSample(109.99));
+
+	FOpenMobilePowerSnapshot Cached;
+	Tracker.ApplyLatest(Cached);
+	TestEqual(TEXT("Rate-limited reads use the latest sample"), Cached.ThermalHeadroom.Value, 0.4f);
+	TestEqual(TEXT("Cached sample time stays unchanged"), Cached.ThermalHeadroomSampleTimeUtc, FirstTime);
+
+	TestTrue(TEXT("Thermal query resumes after ten seconds"), Tracker.ShouldSample(110.0));
+	FOpenMobilePowerSnapshot Heating;
+	Tracker.ApplyNativeSample(Heating, 0.45f, 10, 110.0, FirstTime + FTimespan::FromSeconds(10), true);
+	TestEqual(TEXT("Rising headroom use is heating"), Heating.ThermalTrend, EOpenMobileThermalTrend::Heating);
+	FOpenMobilePowerSnapshot Stable;
+	Tracker.ApplyNativeSample(Stable, 0.46f, 10, 120.0, FirstTime + FTimespan::FromSeconds(20), true);
+	TestEqual(TEXT("Small headroom movement is stable"), Stable.ThermalTrend, EOpenMobileThermalTrend::Stable);
+	FOpenMobilePowerSnapshot Cooling;
+	Tracker.ApplyNativeSample(Cooling, 0.3f, 10, 130.0, FirstTime + FTimespan::FromSeconds(30), true);
+	TestEqual(TEXT("Falling headroom use is cooling"), Cooling.ThermalTrend, EOpenMobileThermalTrend::Cooling);
+
+	FOpenMobilePowerSnapshot Invalid;
+	Tracker.ApplyNativeSample(Invalid, NAN, 10, 140.0, FirstTime + FTimespan::FromSeconds(40), true);
+	TestFalse(TEXT("NaN thermal headroom is unavailable"), Invalid.ThermalHeadroom.bIsAvailable);
+	TestEqual(TEXT("Invalid thermal samples clear their time"), Invalid.ThermalHeadroomSampleTimeUtc, FDateTime());
+	TestFalse(TEXT("Invalid attempts remain rate limited"), Tracker.ShouldSample(149.0));
+
+	FOpenMobilePowerSnapshot InvalidForecast;
+	Tracker.ApplyNativeSample(InvalidForecast, 0.5f, 61, 150.0, FirstTime, true);
+	TestFalse(TEXT("Forecasts above sixty seconds are rejected"), InvalidForecast.ThermalHeadroom.bIsAvailable);
+	FOpenMobilePowerSnapshot AfterInvalid;
+	Tracker.ApplyNativeSample(AfterInvalid, 0.5f, 10, 160.0, FirstTime, true);
+	TestEqual(TEXT("History resets after an invalid sample"), AfterInvalid.ThermalTrend, EOpenMobileThermalTrend::Unknown);
+	FOpenMobilePowerSnapshot AfterGap;
+	Tracker.ApplyNativeSample(AfterGap, 0.7f, 10, 200.0, FirstTime, true);
+	TestEqual(TEXT("History resets after a sampling gap"), AfterGap.ThermalTrend, EOpenMobileThermalTrend::Unknown);
+
+	Tracker.ResetTrend();
+	FOpenMobilePowerSnapshot AfterLifecycle;
+	Tracker.ApplyLatest(AfterLifecycle);
+	TestEqual(TEXT("Lifecycle reset clears the cached trend"), AfterLifecycle.ThermalTrend, EOpenMobileThermalTrend::Unknown);
 	return true;
 }
 

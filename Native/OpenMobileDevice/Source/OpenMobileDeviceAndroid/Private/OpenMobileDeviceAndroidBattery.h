@@ -8,3 +8,5 @@ bool StartOpenMobileDeviceAndroidBatteryMonitoring(
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
 );
 void StopOpenMobileDeviceAndroidBatteryMonitoring();
+void ResetOpenMobileDeviceAndroidThermalHeadroomTrend();
+void ResetOpenMobileDeviceAndroidThermalHeadroom();

@@ -32,6 +32,27 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 30)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android thermal headroom accepts forecast windows from 0 through 60 seconds on API 30 or newer. OpenMobile requests a 10-second forecast no more than once every 10 seconds; unsupported devices return unavailable data.");
+		}
+		else
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 11 (API 30)")
+				);
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState)
 	{
 		FOpenMobileDeviceCapability Capability;

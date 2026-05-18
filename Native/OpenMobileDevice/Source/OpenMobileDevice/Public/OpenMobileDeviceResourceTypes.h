@@ -103,6 +103,9 @@ struct OPENMOBILEDEVICE_API FOpenMobilePowerSnapshot
 	FOpenMobileDeviceOptionalFloat ThermalForecastSeconds;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FDateTime ThermalHeadroomSampleTimeUtc;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	EOpenMobileThermalTrend ThermalTrend = EOpenMobileThermalTrend::Unknown;
 
 	bool operator==(const FOpenMobilePowerSnapshot& Other) const
@@ -119,6 +122,7 @@ struct OPENMOBILEDEVICE_API FOpenMobilePowerSnapshot
 			&& NativeThermalState == Other.NativeThermalState
 			&& ThermalHeadroom == Other.ThermalHeadroom
 			&& ThermalForecastSeconds == Other.ThermalForecastSeconds
+			&& ThermalHeadroomSampleTimeUtc == Other.ThermalHeadroomSampleTimeUtc
 			&& ThermalTrend == Other.ThermalTrend;
 	}
 
