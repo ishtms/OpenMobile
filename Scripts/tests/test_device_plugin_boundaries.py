@@ -430,6 +430,75 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("FormatByteCount", blueprint_library)
 		self.assertIn("FText::AsMemory", blueprint_library)
 
+		resource_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceResourceTypes.h"
+		).read_text(encoding="utf-8")
+		for field in (
+			"LatestPressureEventState",
+			"NativeMemoryPressureLevel",
+			"PressureEventTimeUtc",
+			"PressureEventSequence",
+		):
+			self.assertIn(field, resource_types)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"ComponentCallbacks2",
+			"onTrimMemory",
+			"onLowMemory",
+			"registerComponentCallbacks",
+			"unregisterComponentCallbacks",
+			"nativeOpenMobileDeviceMemoryPressure",
+		):
+			self.assertIn(token, android_upl)
+
+		android_memory_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidMemoryMonitor.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("NormalizeAndroidTrimLevel", android_memory_monitor)
+		self.assertIn("NotifyNativeChange", android_memory_monitor)
+		self.assertNotIn("UE_LOG", android_memory_monitor)
+		self.assertNotIn("TArray", android_memory_monitor)
+
+		ios_memory_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSMemoryMonitor.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("UIApplicationDidReceiveMemoryWarningNotification", ios_memory_monitor)
+		self.assertIn("NotifyNativeChange", ios_memory_monitor)
+		self.assertIn("removeObserver", ios_memory_monitor)
+		self.assertNotIn("UE_LOG", ios_memory_monitor)
+
+		self.assertIn("StartOpenMobileDeviceAndroidMemoryMonitoring", android_backend)
+		self.assertIn("MemoryPressureEvents", android_backend)
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("StartOpenMobileDeviceIOSMemoryMonitoring", ios_backend)
+		self.assertIn("MemoryPressureEvents", ios_backend)
+
 	def test_application_metadata_uses_packaged_sources(self) -> None:
 		application_info = (
 			DEVICE_PLUGIN

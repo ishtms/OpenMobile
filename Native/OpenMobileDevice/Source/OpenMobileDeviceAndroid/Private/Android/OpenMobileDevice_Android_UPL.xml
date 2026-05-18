@@ -245,8 +245,66 @@
 
 	private android.content.BroadcastReceiver OpenMobileDeviceBatteryReceiver;
 	private Object OpenMobileDeviceThermalListener;
+	private android.content.ComponentCallbacks2 OpenMobileDeviceMemoryCallbacks;
 
 	public native void nativeOpenMobileDeviceBatteryChanged();
+	public native void nativeOpenMobileDeviceMemoryPressure(int level);
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartMemoryMonitoring()
+	{
+		if (OpenMobileDeviceMemoryCallbacks != null)
+		{
+			return true;
+		}
+		android.content.ComponentCallbacks2 callbacks =
+			new android.content.ComponentCallbacks2()
+			{
+				@Override
+				public void onTrimMemory(int level)
+				{
+					nativeOpenMobileDeviceMemoryPressure(level);
+				}
+
+				@Override
+				public void onLowMemory()
+				{
+					nativeOpenMobileDeviceMemoryPressure(-1);
+				}
+
+				@Override
+				public void onConfigurationChanged(
+					android.content.res.Configuration configuration
+				)
+				{
+				}
+			};
+		try
+		{
+			registerComponentCallbacks(callbacks);
+			OpenMobileDeviceMemoryCallbacks = callbacks;
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopMemoryMonitoring()
+	{
+		if (OpenMobileDeviceMemoryCallbacks == null)
+		{
+			return;
+		}
+		try
+		{
+			unregisterComponentCallbacks(OpenMobileDeviceMemoryCallbacks);
+		}
+		catch (RuntimeException ignored)
+		{
+		}
+		OpenMobileDeviceMemoryCallbacks = null;
+	}
 
 	public float AndroidThunkJava_OpenMobileDeviceGetThermalHeadroom(int forecastSeconds)
 	{

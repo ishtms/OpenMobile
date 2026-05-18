@@ -9,6 +9,7 @@
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
+#include "OpenMobileDeviceAndroidMemoryMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -32,6 +33,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android memory events use ComponentCallbacks2 trim hints. Running-pressure levels deprecated in API 35 may be absent on current systems; byte estimates remain independent.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -199,12 +209,14 @@ FOpenMobileDeviceAndroidBackend::GetMemorySnapshot() const
 	case FPlatformMemoryStats::EMemoryPressureStatus::Unknown:
 		break;
 	}
-	return FOpenMobileDeviceMemoryInfo::Build(
+	FOpenMobileMemorySnapshot Snapshot = FOpenMobileDeviceMemoryInfo::Build(
 		Stats.TotalPhysical,
 		Stats.AvailablePhysical,
 		false,
 		PressureState
 	);
+	ApplyOpenMobileDeviceAndroidMemoryPressureEvent(Snapshot);
+	return Snapshot;
 }
 
 FOpenMobilePowerSnapshot
@@ -240,6 +252,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceAndroidBatteryMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::MemoryPressure)
+	{
+		return StartOpenMobileDeviceAndroidMemoryMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -255,10 +271,15 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidBatteryMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::MemoryPressure)
+	{
+		StopOpenMobileDeviceAndroidMemoryMonitoring();
+	}
 }
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
 	StopOpenMobileDeviceAndroidLocaleMonitoring();
 	StopOpenMobileDeviceAndroidBatteryMonitoring();
+	StopOpenMobileDeviceAndroidMemoryMonitoring();
 }

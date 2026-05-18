@@ -174,13 +174,30 @@ struct OPENMOBILEDEVICE_API FOpenMobileMemorySnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	EOpenMobileMemoryPressureState PressureState = EOpenMobileMemoryPressureState::Unknown;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	EOpenMobileMemoryPressureState LatestPressureEventState =
+		EOpenMobileMemoryPressureState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalInt32 NativeMemoryPressureLevel;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FDateTime PressureEventTimeUtc;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	int64 PressureEventSequence = 0;
+
 	bool operator==(const FOpenMobileMemorySnapshot& Other) const
 	{
 		return Metadata == Other.Metadata
 			&& TotalPhysicalBytes == Other.TotalPhysicalBytes
 			&& AvailablePhysicalBytes == Other.AvailablePhysicalBytes
 			&& bAvailableBytesAreApproximate == Other.bAvailableBytesAreApproximate
-			&& PressureState == Other.PressureState;
+			&& PressureState == Other.PressureState
+			&& LatestPressureEventState == Other.LatestPressureEventState
+			&& NativeMemoryPressureLevel == Other.NativeMemoryPressureLevel
+			&& PressureEventTimeUtc == Other.PressureEventTimeUtc
+			&& PressureEventSequence == Other.PressureEventSequence;
 	}
 };
 

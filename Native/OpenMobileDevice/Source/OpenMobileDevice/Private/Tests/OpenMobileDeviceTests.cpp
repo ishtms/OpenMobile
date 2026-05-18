@@ -27,6 +27,7 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceLocaleInfo.h"
 #include "OpenMobileDeviceMemoryInfo.h"
+#include "OpenMobileDeviceMemoryPressureInfo.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
@@ -120,6 +121,12 @@ namespace OpenMobileDeviceTests
 			return MediaVolume;
 		}
 
+		virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override
+		{
+			++MemoryQueries;
+			return Memory;
+		}
+
 		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override
 		{
 			++LocaleQueries;
@@ -175,6 +182,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 FormFactorQueries = 0;
 		mutable int32 PowerQueries = 0;
 		mutable int32 MediaVolumeQueries = 0;
+		mutable int32 MemoryQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -183,6 +191,7 @@ namespace OpenMobileDeviceTests
 			EOpenMobileDeviceFormFactor::Unknown;
 		FOpenMobilePowerSnapshot Power;
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
+		FOpenMobileMemorySnapshot Memory;
 		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TMap<EOpenMobileDeviceMonitoringGroup, int32> MonitoringStarts;
@@ -443,6 +452,113 @@ bool FOpenMobileDevicePhysicalMemoryTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("Negative byte formatting is empty"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(-1).IsEmpty());
 	TestTrue(TEXT("IEC formatting labels kibibytes"), UOpenMobileDeviceBlueprintLibrary::FormatByteCount(1024).ToString().Contains(TEXT("KiB")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceMemoryPressureEventsTest,
+	"OpenMobile.Device.Memory.PressureEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceMemoryPressureEventsTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	TestEqual(TEXT("Android running moderate maps to warning"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(5), EOpenMobileMemoryPressureState::Warning);
+	TestEqual(TEXT("Android running low maps to warning"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(10), EOpenMobileMemoryPressureState::Warning);
+	TestEqual(TEXT("Android running critical maps to critical"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(15), EOpenMobileMemoryPressureState::Critical);
+	TestEqual(TEXT("Android UI-hidden hint is not memory pressure"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(20), EOpenMobileMemoryPressureState::Unknown);
+	TestEqual(TEXT("Android background trim maps to warning"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(40), EOpenMobileMemoryPressureState::Warning);
+	TestEqual(TEXT("Android complete trim maps to critical"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(80), EOpenMobileMemoryPressureState::Critical);
+	TestEqual(TEXT("Future severe Android trim maps conservatively"), FOpenMobileDeviceMemoryPressureInfo::NormalizeAndroidTrimLevel(90), EOpenMobileMemoryPressureState::Critical);
+	TestEqual(TEXT("iOS memory warning maps to warning"), FOpenMobileDeviceMemoryPressureInfo::NormalizeIOSWarning(), EOpenMobileMemoryPressureState::Warning);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("MemoryPressureEvents"));
+	Backend.NativeMonitoringGroups = {Group::MemoryPressure};
+	Backend.Memory.PressureState = EOpenMobileMemoryPressureState::Nominal;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileMemorySnapshot> Events;
+	int32 CleanupRequests = 0;
+	Subsystem->OnNativeMemorySnapshotChanged().AddLambda(
+		[&Events, &CleanupRequests](const FOpenMobileMemorySnapshot& Snapshot)
+		{
+			Events.Add(Snapshot);
+			++CleanupRequests;
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* First = Subsystem->StartMonitoring(
+		GameInstance,
+		{Group::MemoryPressure},
+		1.0f
+	);
+	UOpenMobileDeviceMonitoringSubscription* Second = Subsystem->StartMonitoring(
+		GameInstance,
+		{Group::MemoryPressure},
+		1.0f
+	);
+	TestEqual(TEXT("Memory subscriptions share one native observer"), Backend.MonitoringStarts.FindRef(Group::MemoryPressure), 1);
+
+	const FDateTime FirstWarningTime(2026, 8, 22, 11, 0, 0);
+	Backend.Memory.PressureState = EOpenMobileMemoryPressureState::Warning;
+	Backend.Memory.LatestPressureEventState =
+		EOpenMobileMemoryPressureState::Warning;
+	Backend.Memory.NativeMemoryPressureLevel =
+		FOpenMobileDeviceOptionalInt32::MakeAvailable(10);
+	Backend.Memory.PressureEventSequence = 1;
+	Backend.Memory.PressureEventTimeUtc = FirstWarningTime;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::MemoryPressure
+	);
+	Backend.Memory.PressureEventSequence = 2;
+	Backend.Memory.PressureEventTimeUtc = FirstWarningTime + FTimespan::FromSeconds(1);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::MemoryPressure
+	);
+	TestEqual(TEXT("Repeated native warnings remain distinct events"), Events.Num(), 2);
+	TestEqual(TEXT("Repeated warning sequence is retained"), Events[1].PressureEventSequence, int64(2));
+	TestEqual(TEXT("Warning event state is normalized"), Events[0].LatestPressureEventState, EOpenMobileMemoryPressureState::Warning);
+	TestEqual(TEXT("Native warning time is retained"), Events[0].PressureEventTimeUtc, FirstWarningTime);
+	TestTrue(TEXT("Memory event capture is timestamped"), Events[0].Metadata.CapturedAtUtc.GetTicks() > 0);
+
+	Backend.Memory.PressureState = EOpenMobileMemoryPressureState::Critical;
+	Backend.Memory.LatestPressureEventState =
+		EOpenMobileMemoryPressureState::Critical;
+	Backend.Memory.NativeMemoryPressureLevel.Value = 15;
+	Backend.Memory.PressureEventSequence = 3;
+	Backend.Memory.PressureEventTimeUtc = FirstWarningTime + FTimespan::FromSeconds(2);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::MemoryPressure
+	);
+	TestEqual(TEXT("Escalating warning reaches critical"), Events.Last().PressureState, EOpenMobileMemoryPressureState::Critical);
+	TestEqual(TEXT("Escalating event state reaches critical"), Events.Last().LatestPressureEventState, EOpenMobileMemoryPressureState::Critical);
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	Backend.Memory.PressureEventSequence = 4;
+	Backend.Memory.PressureEventTimeUtc = FirstWarningTime + FTimespan::FromSeconds(3);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::MemoryPressure
+	);
+	TestEqual(TEXT("Background callback does not broadcast immediately"), Events.Num(), 3);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh delivers latest warning"), Events.Num(), 4);
+	TestEqual(TEXT("Cleanup remains subscriber-owned"), CleanupRequests, 4);
+
+	First->Stop();
+	TestEqual(TEXT("First stop retains memory observer"), Backend.MonitoringStops.FindRef(Group::MemoryPressure), 0);
+	Second->Stop();
+	TestEqual(TEXT("Final stop releases memory observer"), Backend.MonitoringStops.FindRef(Group::MemoryPressure), 1);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

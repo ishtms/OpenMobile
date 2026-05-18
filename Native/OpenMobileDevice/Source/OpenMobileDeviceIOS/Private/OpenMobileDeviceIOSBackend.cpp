@@ -8,6 +8,7 @@
 #include "OpenMobileDeviceIOSLocale.h"
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
 #include "OpenMobileDeviceIOSMemory.h"
+#include "OpenMobileDeviceIOSMemoryMonitor.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -32,6 +33,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS memory-warning notifications are advisory and do not report an exact free-memory threshold.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -164,7 +174,9 @@ FOpenMobileLocaleSnapshot FOpenMobileDeviceIOSBackend::GetLocaleSnapshotAtUtc(
 
 FOpenMobileMemorySnapshot FOpenMobileDeviceIOSBackend::GetMemorySnapshot() const
 {
-	return GetOpenMobileDeviceIOSMemorySnapshot();
+	FOpenMobileMemorySnapshot Snapshot = GetOpenMobileDeviceIOSMemorySnapshot();
+	ApplyOpenMobileDeviceIOSMemoryPressureEvent(Snapshot);
+	return Snapshot;
 }
 
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const
@@ -199,6 +211,10 @@ bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceIOSBatteryMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::MemoryPressure)
+	{
+		return StartOpenMobileDeviceIOSMemoryMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -214,10 +230,15 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceIOSBatteryMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::MemoryPressure)
+	{
+		StopOpenMobileDeviceIOSMemoryMonitoring();
+	}
 }
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
 	StopOpenMobileDeviceIOSLocaleMonitoring();
 	StopOpenMobileDeviceIOSBatteryMonitoring();
+	StopOpenMobileDeviceIOSMemoryMonitoring();
 }
