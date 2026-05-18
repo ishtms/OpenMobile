@@ -127,6 +127,19 @@ public:
 		return {};
 	}
 
+	virtual bool QueryStorageSnapshot(
+		FOpenMobileStorageSnapshot& OutSnapshot,
+		FOpenMobileError& OutError
+	) const
+	{
+		OutSnapshot = {};
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support storage queries.")
+		);
+		return false;
+	}
+
 	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const
 	{
 		return {};

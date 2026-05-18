@@ -250,6 +250,30 @@
 	public native void nativeOpenMobileDeviceBatteryChanged();
 	public native void nativeOpenMobileDeviceMemoryPressure(int level);
 
+	public String[] AndroidThunkJava_OpenMobileDeviceGetStorageSpace()
+	{
+		try
+		{
+			java.io.File dataDirectory = getFilesDir();
+			if (dataDirectory == null)
+			{
+				return new String[0];
+			}
+			android.os.StatFs stats = new android.os.StatFs(
+				dataDirectory.getAbsolutePath()
+			);
+			return new String[]
+			{
+				Long.toString(stats.getTotalBytes()),
+				Long.toString(stats.getAvailableBytes())
+			};
+		}
+		catch (RuntimeException ignored)
+		{
+			return new String[0];
+		}
+	}
+
 	public boolean AndroidThunkJava_OpenMobileDeviceStartMemoryMonitoring()
 	{
 		if (OpenMobileDeviceMemoryCallbacks != null)

@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceSubsystem.h"
 
 #include "OpenMobileDeviceAsyncActionBase.h"
+#include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceSnapshotService.h"
@@ -180,9 +181,19 @@ FOpenMobileMemorySnapshot UOpenMobileDeviceSubsystem::GetMemorySnapshot() const
 
 FOpenMobileStorageSnapshot UOpenMobileDeviceSubsystem::GetStorageSnapshot() const
 {
-	return bDeinitialized
+	if (bDeinitialized)
+	{
+		return {};
+	}
+	const IOpenMobileDeviceBackend* Backend =
+		FOpenMobileDeviceBackendRegistry::FindBackend();
+	const uint64 CurrentBackendGeneration = Backend
+		? FOpenMobileDeviceBackendRegistry::CaptureCallbackToken().Generation
+		: 0;
+	return !LastStorageSnapshot.IsSet()
+		|| LastStorageBackendGeneration != CurrentBackendGeneration
 		? FOpenMobileStorageSnapshot()
-		: FOpenMobileDeviceSnapshotService::GetStorageSnapshot();
+		: LastStorageSnapshot.GetValue();
 }
 
 FOpenMobileNetworkPathSnapshot
@@ -612,6 +623,18 @@ void UOpenMobileDeviceSubsystem::UnregisterAsyncAction(
 )
 {
 	ActiveAsyncActions.Remove(Action);
+}
+
+void UOpenMobileDeviceSubsystem::CacheStorageSnapshot(
+	const FOpenMobileStorageSnapshot& Snapshot,
+	uint64 BackendGeneration
+)
+{
+	if (!bDeinitialized)
+	{
+		LastStorageSnapshot = Snapshot;
+		LastStorageBackendGeneration = BackendGeneration;
+	}
 }
 
 void UOpenMobileDeviceMonitoringSubscription::Stop()

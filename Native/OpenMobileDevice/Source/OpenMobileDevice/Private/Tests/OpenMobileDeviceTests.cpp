@@ -36,6 +36,8 @@
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
+#include "OpenMobileDeviceStorageInfo.h"
+#include "OpenMobileDeviceStorageQueryAsyncAction.h"
 #include "OpenMobileDeviceSubsystem.h"
 #include "OpenMobileDeviceTimeZoneInfo.h"
 #include "OpenMobileDeviceThermalHeadroom.h"
@@ -558,6 +560,118 @@ bool FOpenMobileDeviceMemoryPressureEventsTest::RunTest(const FString& Parameter
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceStorageSpaceTest,
+	"OpenMobile.Device.Storage.Space",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceStorageSpaceTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileStorageSnapshot Android =
+		FOpenMobileDeviceStorageInfo::Build(
+			EOpenMobileStorageScope::ApplicationDataVolume,
+			128ull * 1024 * 1024 * 1024,
+			32ull * 1024 * 1024 * 1024,
+			false,
+			0,
+			true
+		);
+	TestEqual(TEXT("Android storage scope is the application data volume"), Android.Scope, EOpenMobileStorageScope::ApplicationDataVolume);
+	TestEqual(TEXT("Storage total bytes stay exact"), Android.TotalBytes.Value, int64(128ull * 1024 * 1024 * 1024));
+	TestEqual(TEXT("Storage available bytes stay exact"), Android.AvailableBytes.Value, int64(32ull * 1024 * 1024 * 1024));
+	TestFalse(TEXT("Android important-usage capacity is unavailable"), Android.ImportantUsageAvailableBytes.bIsAvailable);
+
+	const FOpenMobileStorageSnapshot IOS = FOpenMobileDeviceStorageInfo::Build(
+		EOpenMobileStorageScope::ApplicationDataVolume,
+		128ull * 1024 * 1024 * 1024,
+		8ull * 1024 * 1024 * 1024,
+		true,
+		20ull * 1024 * 1024 * 1024,
+		true
+	);
+	TestEqual(TEXT("iOS immediate capacity remains distinct"), IOS.AvailableBytes.Value, int64(8ull * 1024 * 1024 * 1024));
+	TestEqual(TEXT("iOS important-usage capacity is retained"), IOS.ImportantUsageAvailableBytes.Value, int64(20ull * 1024 * 1024 * 1024));
+
+	const FOpenMobileStorageSnapshot Full = FOpenMobileDeviceStorageInfo::Build(
+		EOpenMobileStorageScope::ApplicationDataVolume,
+		1024,
+		0,
+		true,
+		0,
+		true
+	);
+	TestTrue(TEXT("Zero available bytes is a valid full-disk result"), Full.AvailableBytes.bIsAvailable);
+	TestEqual(TEXT("Full disk preserves zero bytes"), Full.AvailableBytes.Value, int64(0));
+	TestEqual(TEXT("Important usage can also be exhausted"), Full.ImportantUsageAvailableBytes.Value, int64(0));
+
+	const FOpenMobileStorageSnapshot MissingVolume =
+		FOpenMobileDeviceStorageInfo::Build(
+			EOpenMobileStorageScope::ApplicationDataVolume,
+			0,
+			0,
+			false,
+			0,
+			false
+		);
+	TestEqual(TEXT("Failed volume keeps its requested scope"), MissingVolume.Scope, EOpenMobileStorageScope::ApplicationDataVolume);
+	TestFalse(TEXT("Failed volume has no total"), MissingVolume.TotalBytes.bIsAvailable);
+	TestFalse(TEXT("Failed volume has no available bytes"), MissingVolume.AvailableBytes.bIsAvailable);
+
+	const FOpenMobileStorageSnapshot Overflow =
+		FOpenMobileDeviceStorageInfo::Build(
+			EOpenMobileStorageScope::ApplicationDataVolume,
+			static_cast<uint64>(MAX_int64) + 1,
+			1024,
+			false,
+			0,
+			true
+		);
+	TestFalse(TEXT("Overflowing storage total is unavailable"), Overflow.TotalBytes.bIsAvailable);
+	TestFalse(TEXT("Correlated values are unavailable after total overflow"), Overflow.AvailableBytes.bIsAvailable);
+
+	const FOpenMobileStorageSnapshot InvalidOrder =
+		FOpenMobileDeviceStorageInfo::Build(
+			EOpenMobileStorageScope::ApplicationDataVolume,
+			1024,
+			2048,
+			true,
+			4096,
+			true
+		);
+	TestFalse(TEXT("Available bytes above total are unavailable"), InvalidOrder.AvailableBytes.bIsAvailable);
+	TestFalse(TEXT("Important-usage bytes above total are unavailable"), InvalidOrder.ImportantUsageAvailableBytes.bIsAvailable);
+
+	const UClass* ActionClass =
+		UOpenMobileDeviceStorageQueryAsyncAction::StaticClass();
+	TestNotNull(TEXT("Storage query exposes its typed snapshot"), ActionClass->FindPropertyByName(TEXT("Snapshot")));
+	TestNotNull(TEXT("Storage query inherits Success"), ActionClass->FindPropertyByName(TEXT("Success")));
+	TestNotNull(TEXT("Storage query inherits Failed"), ActionClass->FindPropertyByName(TEXT("Failed")));
+
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend FirstBackend(TEXT("StorageCache"));
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(FirstBackend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	FOpenMobileStorageSnapshot Cached = Android;
+	FOpenMobileDeviceSnapshotService::StampStorageSnapshot(Cached);
+	const uint64 FirstGeneration =
+		FOpenMobileDeviceBackendRegistry::CaptureCallbackToken().Generation;
+	Subsystem->CacheStorageSnapshot(Cached, FirstGeneration);
+	TestEqual(TEXT("Successful async result is cached"), Subsystem->GetStorageSnapshot(), Cached);
+	FMockBackend ReplacementBackend(TEXT("StorageReplacement"), 1);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(ReplacementBackend);
+	TestEqual(TEXT("Backend replacement invalidates storage cache"), Subsystem->GetStorageSnapshot().Metadata.Generation, int64(0));
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(ReplacementBackend);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(FirstBackend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

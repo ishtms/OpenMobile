@@ -13,5 +13,6 @@
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSettings.h"
+#include "OpenMobileDeviceStorageQueryAsyncAction.h"
 #include "OpenMobileDeviceSubsystem.h"
 #include "OpenMobileDeviceTypes.h"

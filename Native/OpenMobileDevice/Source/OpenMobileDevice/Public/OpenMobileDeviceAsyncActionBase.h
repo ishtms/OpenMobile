@@ -70,6 +70,10 @@ public:
 
 protected:
 	bool InitializeAction(const UObject* WorldContextObject);
+	UOpenMobileDeviceSubsystem* GetDeviceSubsystem() const
+	{
+		return Subsystem.Get();
+	}
 	void FinishSucceeded();
 	void FinishFailed(FOpenMobileError Error);
 	void FinishCancelled(FOpenMobileError Error);

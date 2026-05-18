@@ -133,6 +133,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 );
 
 class UOpenMobileDeviceAsyncActionBase;
+class UOpenMobileDeviceStorageQueryAsyncAction;
 
 UCLASS()
 class OPENMOBILEDEVICE_API UOpenMobileDeviceSubsystem : public UGameInstanceSubsystem
@@ -175,7 +176,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Memory Snapshot", ToolTip = "Captures current physical-memory and memory-pressure state."))
 	FOpenMobileMemorySnapshot GetMemorySnapshot() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Storage Snapshot", ToolTip = "Captures current application storage capacity and low-storage state."))
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Storage Snapshot", ToolTip = "Returns the latest successful asynchronous application storage query without filesystem work."))
 	FOpenMobileStorageSnapshot GetStorageSnapshot() const;
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Network Path Snapshot", ToolTip = "Captures the current network path and transport state without contacting an endpoint."))
@@ -323,8 +324,10 @@ public:
 
 private:
 	friend class UOpenMobileDeviceAsyncActionBase;
+	friend class UOpenMobileDeviceStorageQueryAsyncAction;
 	friend class UOpenMobileDeviceMonitoringSubscription;
 	friend class FOpenMobileDeviceAsyncContractTest;
+	friend class FOpenMobileDeviceStorageSpaceTest;
 
 	void StopMonitoringSubscription(
 		UOpenMobileDeviceMonitoringSubscription* Subscription
@@ -336,6 +339,10 @@ private:
 	void PrimeMonitoringGroup(EOpenMobileDeviceMonitoringGroup Group);
 	void RegisterAsyncAction(UOpenMobileDeviceAsyncActionBase* Action);
 	void UnregisterAsyncAction(UOpenMobileDeviceAsyncActionBase* Action);
+	void CacheStorageSnapshot(
+		const FOpenMobileStorageSnapshot& Snapshot,
+		uint64 BackendGeneration
+	);
 
 	UPROPERTY(Transient)
 	FOpenMobileDeviceStatus LatestStatus;
@@ -351,6 +358,7 @@ private:
 	TOptional<FOpenMobileMediaVolumeSnapshot> LastMediaVolumeSnapshot;
 	TOptional<FOpenMobileMemorySnapshot> LastMemorySnapshot;
 	TOptional<FOpenMobileStorageSnapshot> LastStorageSnapshot;
+	uint64 LastStorageBackendGeneration = 0;
 	TOptional<FOpenMobileNetworkPathSnapshot> LastNetworkSnapshot;
 	TOptional<FOpenMobileWindowDisplaySnapshot> LastWindowSnapshot;
 	TOptional<FOpenMobileAppearanceSnapshot> LastAppearanceSnapshot;

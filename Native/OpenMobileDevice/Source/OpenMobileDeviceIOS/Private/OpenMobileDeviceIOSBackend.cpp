@@ -9,6 +9,7 @@
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
 #include "OpenMobileDeviceIOSMemory.h"
 #include "OpenMobileDeviceIOSMemoryMonitor.h"
+#include "OpenMobileDeviceIOSStorage.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -40,6 +41,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("iOS memory-warning notifications are advisory and do not report an exact free-memory threshold.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::StorageSpace)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator storage would describe the host Mac volume.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS reports the application data volume, including distinct important-usage capacity where available.");
+#endif
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -182,6 +198,14 @@ FOpenMobileMemorySnapshot FOpenMobileDeviceIOSBackend::GetMemorySnapshot() const
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const
 {
 	return GetOpenMobileDeviceIOSPowerSnapshot();
+}
+
+bool FOpenMobileDeviceIOSBackend::QueryStorageSnapshot(
+	FOpenMobileStorageSnapshot& OutSnapshot,
+	FOpenMobileError& OutError
+) const
+{
+	return QueryOpenMobileDeviceIOSStorage(OutSnapshot, OutError);
 }
 
 FOpenMobileMediaVolumeSnapshot

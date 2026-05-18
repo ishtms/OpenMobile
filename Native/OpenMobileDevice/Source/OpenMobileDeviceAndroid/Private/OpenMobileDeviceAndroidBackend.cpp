@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
+#include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -40,6 +41,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android memory events use ComponentCallbacks2 trim hints. Running-pressure levels deprecated in API 35 may be absent on current systems; byte estimates remain independent.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::StorageSpace)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports the internal application data volume. Shared and removable storage are outside this query.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -223,6 +233,14 @@ FOpenMobilePowerSnapshot
 FOpenMobileDeviceAndroidBackend::GetPowerSnapshot() const
 {
 	return GetOpenMobileDeviceAndroidPowerSnapshot();
+}
+
+bool FOpenMobileDeviceAndroidBackend::QueryStorageSnapshot(
+	FOpenMobileStorageSnapshot& OutSnapshot,
+	FOpenMobileError& OutError
+) const
+{
+	return QueryOpenMobileDeviceAndroidStorage(OutSnapshot, OutError);
 }
 
 FOpenMobileMediaVolumeSnapshot

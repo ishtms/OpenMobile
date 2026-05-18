@@ -20,6 +20,7 @@ public:
 	static FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot();
 	static FOpenMobileMemorySnapshot GetMemorySnapshot();
 	static FOpenMobileStorageSnapshot GetStorageSnapshot();
+	static void StampStorageSnapshot(FOpenMobileStorageSnapshot& Snapshot);
 	static FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot();
 	static FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot();
 	static FOpenMobileAppearanceSnapshot GetAppearanceSnapshot();

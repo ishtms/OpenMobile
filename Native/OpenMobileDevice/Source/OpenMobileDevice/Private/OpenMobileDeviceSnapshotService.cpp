@@ -141,6 +141,16 @@ FOpenMobileStorageSnapshot FOpenMobileDeviceSnapshotService::GetStorageSnapshot(
 	);
 }
 
+void FOpenMobileDeviceSnapshotService::StampStorageSnapshot(
+	FOpenMobileStorageSnapshot& Snapshot
+)
+{
+	check(IsInGameThread());
+	Snapshot.Metadata.CapturedAtUtc = FDateTime::UtcNow();
+	Snapshot.Metadata.Generation =
+		OpenMobileDeviceSnapshotServicePrivate::NextGeneration();
+}
+
 FOpenMobileNetworkPathSnapshot
 FOpenMobileDeviceSnapshotService::GetNetworkPathSnapshot()
 {

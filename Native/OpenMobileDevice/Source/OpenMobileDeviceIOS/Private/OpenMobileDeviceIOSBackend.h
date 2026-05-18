@@ -22,6 +22,10 @@ public:
 		const FDateTime& UtcInstant
 	) const override;
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
+	virtual bool QueryStorageSnapshot(
+		FOpenMobileStorageSnapshot& OutSnapshot,
+		FOpenMobileError& OutError
+	) const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
 	virtual bool StartMonitoring(

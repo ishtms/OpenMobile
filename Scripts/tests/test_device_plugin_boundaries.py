@@ -153,6 +153,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"OpenMobileDeviceCapabilities.h",
 			"OpenMobileDeviceMonitoring.h",
 			"OpenMobileDeviceSettings.h",
+			"OpenMobileDeviceStorageQueryAsyncAction.h",
 			"OpenMobileDeviceSubsystem.h",
 		):
 			self.assertIn(public_contract, umbrella)
@@ -498,6 +499,98 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("StartOpenMobileDeviceIOSMemoryMonitoring", ios_backend)
 		self.assertIn("MemoryPressureEvents", ios_backend)
+
+	def test_storage_space_is_async_and_volume_scoped(self) -> None:
+		storage_info = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceStorageInfo.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("MAX_int64", storage_info)
+		self.assertIn("AvailableBytes <= TotalBytes", storage_info)
+		self.assertIn("ImportantUsageAvailableBytes <= TotalBytes", storage_info)
+
+		async_query = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceStorageQueryAsyncAction.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("EAsyncExecution::ThreadPool", async_query)
+		self.assertIn("OpenMobile::DispatchToGameThread", async_query)
+		self.assertIn("IsCallbackCurrent", async_query)
+		self.assertIn("StampStorageSnapshot", async_query)
+		self.assertIn("CacheStorageSnapshot", async_query)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertNotIn(
+			"FOpenMobileDeviceSnapshotService::GetStorageSnapshot()",
+			subsystem,
+		)
+		self.assertIn("LastStorageBackendGeneration", subsystem)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"getFilesDir()",
+			"android.os.StatFs",
+			"getTotalBytes()",
+			"getAvailableBytes()",
+		):
+			self.assertIn(token, android_upl)
+		self.assertNotIn("getExternalStorageDirectory", android_upl)
+
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("QueryOpenMobileDeviceAndroidStorage", android_backend)
+		self.assertIn("internal application data volume", android_backend)
+
+		ios_storage = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSStorage.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"NSHomeDirectory()",
+			"NSURLVolumeTotalCapacityKey",
+			"NSURLVolumeAvailableCapacityKey",
+			"NSURLVolumeAvailableCapacityForImportantUsageKey",
+			"TARGET_OS_SIMULATOR",
+		):
+			self.assertIn(token, ios_storage)
+
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("QueryOpenMobileDeviceIOSStorage", ios_backend)
+		self.assertIn("important-usage capacity", ios_backend)
+		self.assertIn("host Mac volume", ios_backend)
 
 	def test_application_metadata_uses_packaged_sources(self) -> None:
 		application_info = (
