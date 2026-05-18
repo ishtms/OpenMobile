@@ -22,6 +22,7 @@ public:
 		const FDateTime& UtcInstant
 	) const override;
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
+	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const override;
 	virtual bool QueryStorageSnapshot(
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError

@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
+#include "OpenMobileDeviceAndroidNetwork.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
@@ -26,6 +27,7 @@ FOpenMobileCapability FOpenMobileDeviceAndroidBackend::GetDomainCapability(
 	Capability.State = Domain == EOpenMobileDeviceBackendDomain::Identity
 		|| Domain == EOpenMobileDeviceBackendDomain::Environment
 		|| Domain == EOpenMobileDeviceBackendDomain::Power
+		|| Domain == EOpenMobileDeviceBackendDomain::Connectivity
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
 		: EOpenMobileCapabilityState::NotSupported;
@@ -61,6 +63,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android system low-storage and recovery broadcasts refresh the application data volume. Custom thresholds add bounded demand-driven checks.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::NetworkPath)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android distinguishes a declared Internet capability from an OS-validated default path. The snapshot performs no endpoint probe.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -238,6 +249,12 @@ FOpenMobileDeviceAndroidBackend::GetMemorySnapshot() const
 	);
 	ApplyOpenMobileDeviceAndroidMemoryPressureEvent(Snapshot);
 	return Snapshot;
+}
+
+FOpenMobileNetworkPathSnapshot
+FOpenMobileDeviceAndroidBackend::GetNetworkPathSnapshot() const
+{
+	return GetOpenMobileDeviceAndroidNetworkPathSnapshot();
 }
 
 FOpenMobilePowerSnapshot

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root xmlns:android="http://schemas.android.com/apk/res/android">
+	<androidManifestUpdates>
+		<addPermission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	</androidManifestUpdates>
 	<gameActivityClassAdditions>
 		<insert><![CDATA[
 	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
@@ -268,6 +271,78 @@
 			{
 				Long.toString(stats.getTotalBytes()),
 				Long.toString(stats.getAvailableBytes())
+			};
+		}
+		catch (RuntimeException ignored)
+		{
+			return new String[0];
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetNetworkPath()
+	{
+		try
+		{
+			android.net.ConnectivityManager manager =
+				(android.net.ConnectivityManager) getSystemService(
+					android.content.Context.CONNECTIVITY_SERVICE
+				);
+			if (manager == null)
+			{
+				return new String[0];
+			}
+			if (android.os.Build.VERSION.SDK_INT < 23)
+			{
+				android.net.NetworkInfo info = manager.getActiveNetworkInfo();
+				boolean active = info != null && info.isConnected();
+				return new String[] {
+					Boolean.toString(active),
+					"false", "false", "false",
+					"false", "false", "false", "false"
+				};
+			}
+			android.net.Network network = manager.getActiveNetwork();
+			if (network == null)
+			{
+				return new String[] {
+					"false", "false", "false", "false",
+					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
+					"false", "false", "false"
+				};
+			}
+			android.net.NetworkCapabilities capabilities =
+				manager.getNetworkCapabilities(network);
+			if (capabilities == null)
+			{
+				return new String[] {
+					"true", "false", "false", "false",
+					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
+					"false", "false", "false"
+				};
+			}
+			boolean captiveSupported = android.os.Build.VERSION.SDK_INT >= 23;
+			boolean local = android.os.Build.VERSION.SDK_INT >= 35
+				&& capabilities.hasCapability(
+					android.net.NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK
+				);
+			return new String[] {
+				"true",
+				"true",
+				Boolean.toString(capabilities.hasCapability(
+					android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET
+				)),
+				Boolean.toString(capabilities.hasCapability(
+					android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED
+				)),
+				Boolean.toString(captiveSupported),
+				Boolean.toString(captiveSupported
+					&& capabilities.hasCapability(
+						android.net.NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL
+					)),
+				Boolean.toString(local),
+				Boolean.toString(!capabilities.hasCapability(
+					android.net.NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED
+				))
 			};
 		}
 		catch (RuntimeException ignored)

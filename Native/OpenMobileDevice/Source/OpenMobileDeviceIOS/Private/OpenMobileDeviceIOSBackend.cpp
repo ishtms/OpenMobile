@@ -9,6 +9,7 @@
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
 #include "OpenMobileDeviceIOSMemory.h"
 #include "OpenMobileDeviceIOSMemoryMonitor.h"
+#include "OpenMobileDeviceIOSNetwork.h"
 #include "OpenMobileDeviceIOSStorage.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -24,6 +25,7 @@ FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 	Capability.State = Domain == EOpenMobileDeviceBackendDomain::Identity
 		|| Domain == EOpenMobileDeviceBackendDomain::Environment
 		|| Domain == EOpenMobileDeviceBackendDomain::Power
+		|| Domain == EOpenMobileDeviceBackendDomain::Connectivity
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
 		: EOpenMobileCapabilityState::NotSupported;
@@ -71,6 +73,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.Detail = TEXT("iOS has no public low-storage notification for this threshold. Checks run only while storage monitoring is requested and use the configured bounded interval.");
 #endif
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::NetworkPath)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports whether the process has a usable local route. This does not prove that any remote endpoint can answer.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -208,6 +219,12 @@ FOpenMobileMemorySnapshot FOpenMobileDeviceIOSBackend::GetMemorySnapshot() const
 	FOpenMobileMemorySnapshot Snapshot = GetOpenMobileDeviceIOSMemorySnapshot();
 	ApplyOpenMobileDeviceIOSMemoryPressureEvent(Snapshot);
 	return Snapshot;
+}
+
+FOpenMobileNetworkPathSnapshot
+FOpenMobileDeviceIOSBackend::GetNetworkPathSnapshot() const
+{
+	return GetOpenMobileDeviceIOSNetworkPathSnapshot();
 }
 
 FOpenMobilePowerSnapshot FOpenMobileDeviceIOSBackend::GetPowerSnapshot() const

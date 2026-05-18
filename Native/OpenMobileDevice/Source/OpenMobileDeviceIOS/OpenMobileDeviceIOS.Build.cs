@@ -15,6 +15,7 @@ public class OpenMobileDeviceIOS : ModuleRules
 		PublicFrameworks.AddRange(new[]
 		{
 			"Foundation",
+			"SystemConfiguration",
 			"UIKit"
 		});
 	}

@@ -710,6 +710,93 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("no public low-storage notification", ios_backend)
 		self.assertNotIn("StartOpenMobileDeviceIOSStorageMonitoring", ios_backend)
 
+	def test_network_path_uses_os_state_without_endpoint_probes(self) -> None:
+		normalizer = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceNetworkPathInfo.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"DeclaredCapability",
+			"OsValidatedPath",
+			"CaptivePortal",
+			"InternetCapable",
+			"bInternetValidated",
+			"bRestricted",
+		):
+			self.assertIn(token, normalizer)
+
+		android_upl_path = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		)
+		ET.parse(android_upl_path)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		for token in (
+			"android.permission.ACCESS_NETWORK_STATE",
+			"getActiveNetwork()",
+			"getNetworkCapabilities(network)",
+			"NET_CAPABILITY_INTERNET",
+			"NET_CAPABILITY_VALIDATED",
+			"NET_CAPABILITY_CAPTIVE_PORTAL",
+			"NET_CAPABILITY_LOCAL_NETWORK",
+			"NET_CAPABILITY_NOT_RESTRICTED",
+		):
+			self.assertIn(token, android_upl)
+		for forbidden in (
+			"ACCESS_FINE_LOCATION",
+			"ACCESS_COARSE_LOCATION",
+			"getSSID",
+			"getBSSID",
+			"TelephonyManager",
+		):
+			self.assertNotIn(forbidden, android_upl)
+
+		android_network = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidNetwork.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ParseBoolean", android_network)
+		self.assertIn("BuildAndroid", android_network)
+		self.assertNotIn("FHttpModule", android_network)
+
+		ios_network = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSNetwork.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"SCNetworkReachabilityCreateWithAddress",
+			"SCNetworkReachabilityGetFlags",
+			"kSCNetworkReachabilityFlagsReachable",
+			"kSCNetworkReachabilityFlagsConnectionRequired",
+		):
+			self.assertIn(token, ios_network)
+		for forbidden in ("CreateWithName", "NSURLSession", "FHttpModule"):
+			self.assertNotIn(forbidden, ios_network)
+
+		for platform in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{platform}"
+				/ "Private"
+				/ f"OpenMobileDevice{platform}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("NetworkPath", backend)
+			self.assertIn("GetNetworkPathSnapshot", backend)
+
 	def test_application_metadata_uses_packaged_sources(self) -> None:
 		application_info = (
 			DEVICE_PLUGIN

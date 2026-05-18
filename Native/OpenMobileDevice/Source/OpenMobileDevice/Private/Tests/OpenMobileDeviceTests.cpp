@@ -31,6 +31,7 @@
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceNetworkPathInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
@@ -819,6 +820,105 @@ bool FOpenMobileDeviceApplicationMetadataTest::RunTest(
 		);
 	TestFalse(TEXT("Unsupported editor package stays unavailable"), Editor.PackageIdentifier.bIsAvailable);
 	TestEqual(TEXT("Unknown build configuration stays unknown"), Editor.BuildConfiguration, EOpenMobileBuildConfiguration::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceNetworkPathStateTest,
+	"OpenMobile.Device.Network.PathState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceNetworkPathStateTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceAndroidNetworkPathTraits Android;
+	Android.bQuerySucceeded = true;
+	const FOpenMobileNetworkPathSnapshot Offline =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Missing active network is unavailable"), Offline.PathState, EOpenMobileNetworkPathState::Unavailable);
+	TestEqual(TEXT("Offline state comes from platform path"), Offline.ValidationSource, EOpenMobileNetworkValidationSource::PlatformPath);
+
+	Android.bHasActiveNetwork = true;
+	const FOpenMobileNetworkPathSnapshot MissingCapabilities =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Active path with missing detail stays available"), MissingCapabilities.PathState, EOpenMobileNetworkPathState::Available);
+	TestEqual(TEXT("Missing capability detail uses platform path evidence"), MissingCapabilities.ValidationSource, EOpenMobileNetworkValidationSource::PlatformPath);
+
+	Android.bCapabilitiesAvailable = true;
+	Android.bInternetDeclared = true;
+	Android.bCaptivePortalSupported = true;
+	const FOpenMobileNetworkPathSnapshot Declared =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Declared Internet without validation stays available"), Declared.PathState, EOpenMobileNetworkPathState::Available);
+	TestEqual(TEXT("Declared Internet retains its weaker source"), Declared.ValidationSource, EOpenMobileNetworkValidationSource::DeclaredCapability);
+	TestTrue(TEXT("Android captive state is explicitly available"), Declared.bIsCaptivePortal.bIsAvailable);
+	TestFalse(TEXT("Absent captive capability reports false"), Declared.bIsCaptivePortal.Value);
+
+	Android.bInternetValidated = true;
+	const FOpenMobileNetworkPathSnapshot Validated =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Validated Internet path is Internet capable"), Validated.PathState, EOpenMobileNetworkPathState::InternetCapable);
+	TestEqual(TEXT("Validated path names OS validation"), Validated.ValidationSource, EOpenMobileNetworkValidationSource::OsValidatedPath);
+
+	Android.bInternetValidated = false;
+	Android.bCaptivePortal = true;
+	const FOpenMobileNetworkPathSnapshot Captive =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Captive capability takes priority"), Captive.PathState, EOpenMobileNetworkPathState::CaptivePortal);
+	TestTrue(TEXT("Captive flag is exposed"), Captive.bIsCaptivePortal.Value);
+
+	Android.bInternetDeclared = false;
+	Android.bCaptivePortal = false;
+	Android.bLocalNetwork = true;
+	const FOpenMobileNetworkPathSnapshot Local =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Explicit local path stays local only"), Local.PathState, EOpenMobileNetworkPathState::LocalOnly);
+
+	Android.bInternetDeclared = true;
+	Android.bLocalNetwork = false;
+	Android.bInternetValidated = true;
+	Android.bRestricted = true;
+	const FOpenMobileNetworkPathSnapshot Restricted =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Restricted unvalidated path does not claim Internet"), Restricted.PathState, EOpenMobileNetworkPathState::Available);
+
+	Android = {};
+	const FOpenMobileNetworkPathSnapshot PermissionFailure =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Permission failure leaves path unknown"), PermissionFailure.PathState, EOpenMobileNetworkPathState::Unknown);
+	TestEqual(TEXT("Permission failure has no validation source"), PermissionFailure.ValidationSource, EOpenMobileNetworkValidationSource::Unknown);
+
+	const FOpenMobileNetworkPathSnapshot IOSSatisfied =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Satisfied
+		);
+	TestEqual(TEXT("Satisfied iOS path is available"), IOSSatisfied.PathState, EOpenMobileNetworkPathState::Available);
+	TestEqual(TEXT("iOS satisfaction is platform path evidence"), IOSSatisfied.ValidationSource, EOpenMobileNetworkValidationSource::PlatformPath);
+	TestFalse(TEXT("iOS path does not claim OS-validated Internet"), IOSSatisfied.PathState == EOpenMobileNetworkPathState::InternetCapable);
+
+	const FOpenMobileNetworkPathSnapshot IOSOffline =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Unsatisfied
+		);
+	TestEqual(TEXT("Unsatisfied iOS path is unavailable"), IOSOffline.PathState, EOpenMobileNetworkPathState::Unavailable);
+	const FOpenMobileNetworkPathSnapshot IOSSatisfiable =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Satisfiable
+		);
+	TestEqual(TEXT("Activatable iOS path stays available without Internet proof"), IOSSatisfiable.PathState, EOpenMobileNetworkPathState::Available);
+	const FOpenMobileNetworkPathSnapshot IOSFuture =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			static_cast<EOpenMobileDeviceIOSPathStatus>(255)
+		);
+	TestEqual(TEXT("Future iOS status stays unknown"), IOSFuture.PathState, EOpenMobileNetworkPathState::Unknown);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	const FOpenMobileNetworkPathSnapshot Unsupported =
+		FOpenMobileDeviceSnapshotService::GetNetworkPathSnapshot();
+	TestEqual(TEXT("Unsupported editor path stays unknown"), Unsupported.PathState, EOpenMobileNetworkPathState::Unknown);
+	TestTrue(TEXT("Unsupported editor snapshot is still stamped"), Unsupported.Metadata.Generation > 0);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 
