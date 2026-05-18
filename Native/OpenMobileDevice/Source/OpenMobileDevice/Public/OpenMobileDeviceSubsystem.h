@@ -29,6 +29,21 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Snapshot
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileBatteryChangedEvent,
+	const FOpenMobilePowerSnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobilePowerSavingModeChangedEvent,
+	const FOpenMobilePowerSnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileThermalChangedEvent,
+	const FOpenMobilePowerSnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileMediaVolumeSnapshotChangedEvent,
 	const FOpenMobileMediaVolumeSnapshot&,
 	Snapshot
@@ -74,6 +89,18 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobilePowerSnapshotChangedNativeEvent,
+	const FOpenMobilePowerSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileBatteryChangedNativeEvent,
+	const FOpenMobilePowerSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobilePowerSavingModeChangedNativeEvent,
+	const FOpenMobilePowerSnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileThermalChangedNativeEvent,
 	const FOpenMobilePowerSnapshot&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
@@ -199,6 +226,22 @@ public:
 		return NativePowerSnapshotChanged;
 	}
 
+	FOpenMobileBatteryChangedNativeEvent& OnNativeBatteryChanged()
+	{
+		return NativeBatteryChanged;
+	}
+
+	FOpenMobilePowerSavingModeChangedNativeEvent&
+	OnNativePowerSavingModeChanged()
+	{
+		return NativePowerSavingModeChanged;
+	}
+
+	FOpenMobileThermalChangedNativeEvent& OnNativeThermalChanged()
+	{
+		return NativeThermalChanged;
+	}
+
 	FOpenMobileMediaVolumeSnapshotChangedNativeEvent&
 	OnNativeMediaVolumeSnapshotChanged()
 	{
@@ -247,6 +290,15 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Power Snapshot Changed", ToolTip = "Broadcasts when a monitored power snapshot changes beyond its numeric tolerances."))
 	FOpenMobilePowerSnapshotChangedEvent OnPowerSnapshotChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Battery Changed", ToolTip = "Broadcasts when monitored battery level, charging state, or charging source changes beyond its numeric tolerances."))
+	FOpenMobileBatteryChangedEvent OnBatteryChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Power Saving Mode Changed", ToolTip = "Broadcasts when the monitored Battery Saver or Low Power Mode state changes."))
+	FOpenMobilePowerSavingModeChangedEvent OnPowerSavingModeChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Thermal Changed", ToolTip = "Broadcasts when monitored thermal state, headroom, forecast, or trend changes beyond its numeric tolerances."))
+	FOpenMobileThermalChangedEvent OnThermalChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Media Volume Snapshot Changed", ToolTip = "Broadcasts when the monitored active output or media-volume level changes."))
 	FOpenMobileMediaVolumeSnapshotChangedEvent OnMediaVolumeSnapshotChanged;
@@ -306,6 +358,9 @@ private:
 	FOpenMobileDeviceStatusChangedNativeEvent NativeDeviceStatusChanged;
 	FOpenMobileLocaleSnapshotChangedNativeEvent NativeLocaleSnapshotChanged;
 	FOpenMobilePowerSnapshotChangedNativeEvent NativePowerSnapshotChanged;
+	FOpenMobileBatteryChangedNativeEvent NativeBatteryChanged;
+	FOpenMobilePowerSavingModeChangedNativeEvent NativePowerSavingModeChanged;
+	FOpenMobileThermalChangedNativeEvent NativeThermalChanged;
 	FOpenMobileMediaVolumeSnapshotChangedNativeEvent
 		NativeMediaVolumeSnapshotChanged;
 	FOpenMobileMemorySnapshotChangedNativeEvent NativeMemorySnapshotChanged;

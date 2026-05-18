@@ -1561,6 +1561,135 @@ bool FOpenMobileDeviceThermalHeadroomTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceFocusedPowerEventsTest,
+	"OpenMobile.Device.Power.FocusedEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceFocusedPowerEventsTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("FocusedPowerEvents"));
+	Backend.NativeMonitoringGroups = {Group::Power};
+	Backend.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(50.0f);
+	Backend.Power.NativeBatteryLevel =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.5f);
+	Backend.Power.ChargingState = EOpenMobileBatteryChargingState::Discharging;
+	Backend.Power.NativeChargingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("Android:3"));
+	Backend.Power.ChargingSource = EOpenMobileChargingSource::USB;
+	Backend.Power.bPowerSavingEnabled =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(false);
+	Backend.Power.NativePowerSavingState =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("Android:false"));
+	Backend.Power.ThermalState = EOpenMobileThermalState::Nominal;
+	Backend.Power.NativeThermalState =
+		FOpenMobileDeviceOptionalInt32::MakeAvailable(0);
+	Backend.Power.ThermalHeadroom =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.3f);
+	Backend.Power.ThermalForecastSeconds =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(10.0f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FString> EventOrder;
+	Subsystem->OnNativeBatteryChanged().AddLambda(
+		[&EventOrder](const FOpenMobilePowerSnapshot&)
+		{
+			EventOrder.Add(TEXT("Battery"));
+		}
+	);
+	Subsystem->OnNativePowerSavingModeChanged().AddLambda(
+		[&EventOrder](const FOpenMobilePowerSnapshot&)
+		{
+			EventOrder.Add(TEXT("PowerSaving"));
+		}
+	);
+	Subsystem->OnNativeThermalChanged().AddLambda(
+		[&EventOrder](const FOpenMobilePowerSnapshot&)
+		{
+			EventOrder.Add(TEXT("Thermal"));
+		}
+	);
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&EventOrder](const FOpenMobilePowerSnapshot&)
+		{
+			EventOrder.Add(TEXT("Combined"));
+		}
+	);
+
+	UOpenMobileDeviceMonitoringSubscription* First =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	UOpenMobileDeviceMonitoringSubscription* Second =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	TestEqual(TEXT("Two Power subscriptions share one native observer"), Backend.MonitoringStarts.FindRef(Group::Power), 1);
+	TestEqual(TEXT("Power observer reference count tracks both subscriptions"), FOpenMobileDeviceMonitoringService::GetReferenceCountForTests(Group::Power), 2);
+	TestEqual(TEXT("Power monitoring starts no unrelated observers"), Backend.MonitoringStarts.Num(), 1);
+
+	Backend.Power.BatteryPercent.Value = 50.4f;
+	Backend.Power.NativeBatteryLevel.Value = 0.504f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Noisy battery deltas are coalesced"), EventOrder.Num(), 0);
+
+	Backend.Power.BatteryPercent.Value = 50.6f;
+	Backend.Power.NativeBatteryLevel.Value = 0.506f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Battery change emits focused then combined"), EventOrder, TArray<FString>({TEXT("Battery"), TEXT("Combined")}));
+	EventOrder.Reset();
+
+	Backend.Power.bPowerSavingEnabled.Value = true;
+	Backend.Power.NativePowerSavingState.Value = TEXT("Android:true");
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Power-saving change emits focused then combined"), EventOrder, TArray<FString>({TEXT("PowerSaving"), TEXT("Combined")}));
+	EventOrder.Reset();
+
+	Backend.Power.ThermalState = EOpenMobileThermalState::Serious;
+	Backend.Power.NativeThermalState.Value = 2;
+	Backend.Power.ThermalHeadroom.Value = 0.33f;
+	Backend.Power.ThermalTrend = EOpenMobileThermalTrend::Heating;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Thermal change emits focused then combined"), EventOrder, TArray<FString>({TEXT("Thermal"), TEXT("Combined")}));
+	EventOrder.Reset();
+	Backend.Power.ThermalHeadroom.Value = 0.339f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Thermal headroom noise is coalesced"), EventOrder.Num(), 0);
+	Backend.Power.ThermalHeadroom.Value = 0.341f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Thermal headroom beyond tolerance emits"), EventOrder, TArray<FString>({TEXT("Thermal"), TEXT("Combined")}));
+	EventOrder.Reset();
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	Backend.Power.BatteryPercent.Value = 40.0f;
+	Backend.Power.NativeBatteryLevel.Value = 0.4f;
+	Backend.Power.bPowerSavingEnabled.Value = false;
+	Backend.Power.NativePowerSavingState.Value = TEXT("Android:false");
+	Backend.Power.ThermalState = EOpenMobileThermalState::Fair;
+	Backend.Power.NativeThermalState.Value = 1;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(Group::Power);
+	TestEqual(TEXT("Background power changes do not broadcast"), EventOrder.Num(), 0);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh has deterministic focused order"), EventOrder, TArray<FString>({TEXT("Battery"), TEXT("PowerSaving"), TEXT("Thermal"), TEXT("Combined")}));
+
+	First->Stop();
+	TestEqual(TEXT("First stop retains the shared Power observer"), Backend.MonitoringStops.FindRef(Group::Power), 0);
+	Second->Stop();
+	TestEqual(TEXT("Final stop releases the shared Power observer"), Backend.MonitoringStops.FindRef(Group::Power), 1);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDevicePlatformInformationTest,
 	"OpenMobile.Device.Identity.PlatformAndOS",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

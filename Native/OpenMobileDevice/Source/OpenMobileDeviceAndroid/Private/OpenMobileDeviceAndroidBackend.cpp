@@ -53,7 +53,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
-	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState)
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
@@ -74,7 +75,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
-	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;

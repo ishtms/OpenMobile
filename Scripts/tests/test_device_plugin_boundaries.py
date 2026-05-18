@@ -343,6 +343,49 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ApplicationHasEnteredForegroundDelegate", android_module)
 		self.assertIn("ResetOpenMobileDeviceAndroidThermalHeadroomTrend", android_module)
 
+		subsystem_header = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSubsystem.h"
+		).read_text(encoding="utf-8")
+		for event in (
+			"OnBatteryChanged",
+			"OnPowerSavingModeChanged",
+			"OnThermalChanged",
+			"OnPowerSnapshotChanged",
+			"OnNativeBatteryChanged",
+			"OnNativePowerSavingModeChanged",
+			"OnNativeThermalChanged",
+		):
+			self.assertIn(event, subsystem_header)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		for comparator in (
+			"EquivalentBattery",
+			"EquivalentPowerSavingMode",
+			"EquivalentThermal",
+		):
+			self.assertIn(comparator, subsystem)
+		battery_broadcast = subsystem.index("OnBatteryChanged.Broadcast")
+		power_saving_broadcast = subsystem.index("OnPowerSavingModeChanged.Broadcast")
+		thermal_broadcast = subsystem.index("OnThermalChanged.Broadcast")
+		combined_broadcast = subsystem.index("OnPowerSnapshotChanged.Broadcast")
+		self.assertLess(battery_broadcast, power_saving_broadcast)
+		self.assertLess(power_saving_broadcast, thermal_broadcast)
+		self.assertLess(thermal_broadcast, combined_broadcast)
+		self.assertIn("PowerSavingEvents", android_backend)
+		self.assertIn("ThermalEvents", android_backend)
+		self.assertIn("PowerSavingEvents", ios_backend)
+		self.assertIn("ThermalEvents", ios_backend)
+
 	def test_memory_snapshot_uses_platform_owned_sources(self) -> None:
 		memory_info = (
 			DEVICE_PLUGIN

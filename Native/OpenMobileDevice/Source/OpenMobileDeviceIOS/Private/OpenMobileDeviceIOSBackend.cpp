@@ -41,7 +41,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS does not expose a public thermal-headroom or forecast API.");
 		return Capability;
 	}
-	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState)
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalState
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
@@ -56,7 +57,8 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #endif
 		return Capability;
 	}
-	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode)
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingMode
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::PowerSavingEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;

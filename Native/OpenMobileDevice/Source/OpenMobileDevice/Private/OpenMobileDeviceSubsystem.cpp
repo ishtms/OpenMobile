@@ -26,7 +26,7 @@ namespace OpenMobileDeviceSubsystemPrivate
 				|| FMath::Abs(Left.Value - Right.Value) <= Tolerance);
 	}
 
-	bool EquivalentPower(
+	bool EquivalentBattery(
 		const FOpenMobilePowerSnapshot& Left,
 		const FOpenMobilePowerSnapshot& Right
 	)
@@ -35,10 +35,24 @@ namespace OpenMobileDeviceSubsystemPrivate
 			&& EquivalentFloat(Left.NativeBatteryLevel, Right.NativeBatteryLevel, 0.005f)
 			&& Left.ChargingState == Right.ChargingState
 			&& Left.NativeChargingState == Right.NativeChargingState
-			&& Left.ChargingSource == Right.ChargingSource
-			&& Left.bPowerSavingEnabled == Right.bPowerSavingEnabled
-			&& Left.NativePowerSavingState == Right.NativePowerSavingState
-			&& Left.ThermalState == Right.ThermalState
+			&& Left.ChargingSource == Right.ChargingSource;
+	}
+
+	bool EquivalentPowerSavingMode(
+		const FOpenMobilePowerSnapshot& Left,
+		const FOpenMobilePowerSnapshot& Right
+	)
+	{
+		return Left.bPowerSavingEnabled == Right.bPowerSavingEnabled
+			&& Left.NativePowerSavingState == Right.NativePowerSavingState;
+	}
+
+	bool EquivalentThermal(
+		const FOpenMobilePowerSnapshot& Left,
+		const FOpenMobilePowerSnapshot& Right
+	)
+	{
+		return Left.ThermalState == Right.ThermalState
 			&& Left.NativeThermalState == Right.NativeThermalState
 			&& EquivalentFloat(Left.ThermalHeadroom, Right.ThermalHeadroom, 0.01f)
 			&& EquivalentFloat(
@@ -47,6 +61,16 @@ namespace OpenMobileDeviceSubsystemPrivate
 				0.1f
 			)
 			&& Left.ThermalTrend == Right.ThermalTrend;
+	}
+
+	bool EquivalentPower(
+		const FOpenMobilePowerSnapshot& Left,
+		const FOpenMobilePowerSnapshot& Right
+	)
+	{
+		return EquivalentBattery(Left, Right)
+			&& EquivalentPowerSavingMode(Left, Right)
+			&& EquivalentThermal(Left, Right);
 	}
 
 	bool EquivalentAccessibility(
@@ -439,10 +463,35 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 	case EOpenMobileDeviceMonitoringGroup::Power:
 	{
 		const FOpenMobilePowerSnapshot Snapshot = GetPowerSnapshot();
-		if (!LastPowerSnapshot.IsSet()
+		const bool bHadPrevious = LastPowerSnapshot.IsSet();
+		const bool bBatteryChanged = !bHadPrevious
+			|| !EquivalentBattery(LastPowerSnapshot.GetValue(), Snapshot);
+		const bool bPowerSavingModeChanged = !bHadPrevious
+			|| !EquivalentPowerSavingMode(
+				LastPowerSnapshot.GetValue(),
+				Snapshot
+			);
+		const bool bThermalChanged = !bHadPrevious
+			|| !EquivalentThermal(LastPowerSnapshot.GetValue(), Snapshot);
+		if (!bHadPrevious
 			|| !EquivalentPower(LastPowerSnapshot.GetValue(), Snapshot))
 		{
 			LastPowerSnapshot = Snapshot;
+			if (bBatteryChanged)
+			{
+				OnBatteryChanged.Broadcast(Snapshot);
+				NativeBatteryChanged.Broadcast(Snapshot);
+			}
+			if (bPowerSavingModeChanged)
+			{
+				OnPowerSavingModeChanged.Broadcast(Snapshot);
+				NativePowerSavingModeChanged.Broadcast(Snapshot);
+			}
+			if (bThermalChanged)
+			{
+				OnThermalChanged.Broadcast(Snapshot);
+				NativeThermalChanged.Broadcast(Snapshot);
+			}
 			OnPowerSnapshotChanged.Broadcast(Snapshot);
 			NativePowerSnapshotChanged.Broadcast(Snapshot);
 		}
