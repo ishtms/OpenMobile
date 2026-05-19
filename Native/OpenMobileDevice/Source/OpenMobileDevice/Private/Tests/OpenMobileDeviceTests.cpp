@@ -995,6 +995,67 @@ bool FOpenMobileDeviceNetworkPathStateTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceCaptivePortalTest,
+	"OpenMobile.Device.Network.CaptivePortal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceCaptivePortalTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceAndroidNetworkPathTraits Android;
+	Android.bQuerySucceeded = true;
+	Android.bHasActiveNetwork = true;
+	Android.bCapabilitiesAvailable = true;
+	Android.bInternetDeclared = true;
+	Android.bCaptivePortalSupported = true;
+
+	Android.bCaptivePortal = true;
+	const FOpenMobileNetworkPathSnapshot Captive =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("OS captive capability sets captive path"), Captive.PathState, EOpenMobileNetworkPathState::CaptivePortal);
+	TestTrue(TEXT("OS captive capability is exposed"), Captive.bIsCaptivePortal.Value);
+
+	Android.bCaptivePortal = false;
+	Android.bInternetValidated = true;
+	const FOpenMobileNetworkPathSnapshot Validated =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Validated path is not captive"), Validated.PathState, EOpenMobileNetworkPathState::InternetCapable);
+	TestFalse(TEXT("Validated captive indication is false"), Validated.bIsCaptivePortal.Value);
+
+	Android.bInternetDeclared = false;
+	Android.bInternetValidated = false;
+	Android.bLocalNetwork = true;
+	const FOpenMobileNetworkPathSnapshot LocalOnly =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Local-only path is not captive"), LocalOnly.PathState, EOpenMobileNetworkPathState::LocalOnly);
+	TestFalse(TEXT("Local-only captive indication is false"), LocalOnly.bIsCaptivePortal.Value);
+
+	Android.bInternetDeclared = true;
+	Android.bLocalNetwork = false;
+	const FOpenMobileNetworkPathSnapshot Unvalidated =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Unvalidated Internet is not guessed captive"), Unvalidated.PathState, EOpenMobileNetworkPathState::Available);
+	TestFalse(TEXT("Missing captive capability avoids false positive"), Unvalidated.bIsCaptivePortal.Value);
+
+	Android.bCaptivePortalSupported = false;
+	Android.bCaptivePortal = true;
+	const FOpenMobileNetworkPathSnapshot UnsupportedSignal =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestFalse(TEXT("Unsupported Android captive state stays unknown"), UnsupportedSignal.bIsCaptivePortal.bIsAvailable);
+	TestFalse(TEXT("Unsupported captive flag is ignored"), UnsupportedSignal.PathState == EOpenMobileNetworkPathState::CaptivePortal);
+
+	const FOpenMobileNetworkPathSnapshot IOS =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Satisfied
+		);
+	TestFalse(TEXT("iOS captive indication stays unknown"), IOS.bIsCaptivePortal.bIsAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceNetworkPolicyHintsTest,
 	"OpenMobile.Device.Network.PolicyHints",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

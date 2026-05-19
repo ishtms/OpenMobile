@@ -107,7 +107,7 @@ FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildAndroid(
 			EOpenMobileNetworkValidationSource::PlatformPath;
 		return Snapshot;
 	}
-	if (Traits.bCaptivePortal)
+	if (Traits.bCaptivePortalSupported && Traits.bCaptivePortal)
 	{
 		Snapshot.PathState = EOpenMobileNetworkPathState::CaptivePortal;
 		Snapshot.ValidationSource =

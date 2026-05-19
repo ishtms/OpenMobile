@@ -772,6 +772,10 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"getSSID",
 			"getBSSID",
 			"TelephonyManager",
+			"startCaptivePortalApp",
+			"ACTION_CAPTIVE_PORTAL_SIGN_IN",
+			"HttpURLConnection",
+			"java.net.URL",
 		):
 			self.assertNotIn(forbidden, android_upl)
 
