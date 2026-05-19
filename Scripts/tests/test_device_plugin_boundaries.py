@@ -793,6 +793,30 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("bConstrainedStateAvailable", android_network)
 		self.assertNotIn("FHttpModule", android_network)
 
+		android_network_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidNetworkMonitor.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"nativeOpenMobileDeviceNetworkChanged",
+			"NotifyNativeChange",
+			"StartNetworkMonitoring",
+			"StopNetworkMonitoring",
+		):
+			self.assertIn(token, android_network_monitor)
+		for token in (
+			"registerDefaultNetworkCallback",
+			"unregisterNetworkCallback",
+			"onAvailable",
+			"onLost",
+			"onCapabilitiesChanged",
+			"onBlockedStatusChanged",
+		):
+			self.assertIn(token, android_upl)
+
 		ios_network = (
 			DEVICE_PLUGIN
 			/ "Source"
@@ -816,6 +840,36 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn(token, ios_network)
 		for forbidden in ("CreateWithName", "NSURLSession", "FHttpModule"):
 			self.assertNotIn(forbidden, ios_network)
+
+		ios_network_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSNetworkMonitor.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"OnNetworkConnectionChanged",
+			"OnNetworkConnectionCharacteristicsChanged",
+			"NotifyNativeChange",
+		):
+			self.assertIn(token, ios_network_monitor)
+		self.assertNotIn("nw_path_monitor_create", ios_network_monitor)
+
+		monitoring_service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"NetworkDebounceSeconds = 0.25f",
+			"GetNetworkPathSnapshot",
+			"NetworkPathChanged.Broadcast(Snapshot)",
+			"PendingNetworkSnapshot",
+		):
+			self.assertIn(token, monitoring_service)
 
 		for platform in ("Android", "IOS"):
 			backend = (

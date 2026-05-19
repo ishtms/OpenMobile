@@ -250,10 +250,12 @@
 	private android.content.BroadcastReceiver OpenMobileDeviceStorageReceiver;
 	private Object OpenMobileDeviceThermalListener;
 	private android.content.ComponentCallbacks2 OpenMobileDeviceMemoryCallbacks;
+	private android.net.ConnectivityManager.NetworkCallback OpenMobileDeviceNetworkCallback;
 
 	public native void nativeOpenMobileDeviceBatteryChanged();
 	public native void nativeOpenMobileDeviceMemoryPressure(int level);
 	public native void nativeOpenMobileDeviceStorageChanged();
+	public native void nativeOpenMobileDeviceNetworkChanged();
 
 	public String[] AndroidThunkJava_OpenMobileDeviceGetStorageSpace()
 	{
@@ -448,6 +450,94 @@
 			result.append(type);
 		}
 		return result.toString();
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartNetworkMonitoring()
+	{
+		if (OpenMobileDeviceNetworkCallback != null)
+		{
+			return true;
+		}
+		if (android.os.Build.VERSION.SDK_INT < 24)
+		{
+			return false;
+		}
+		android.net.ConnectivityManager manager =
+			(android.net.ConnectivityManager) getSystemService(
+				android.content.Context.CONNECTIVITY_SERVICE
+			);
+		if (manager == null)
+		{
+			return false;
+		}
+		android.net.ConnectivityManager.NetworkCallback callback =
+			new android.net.ConnectivityManager.NetworkCallback()
+			{
+				@Override
+				public void onAvailable(android.net.Network network)
+				{
+					nativeOpenMobileDeviceNetworkChanged();
+				}
+
+				@Override
+				public void onLost(android.net.Network network)
+				{
+					nativeOpenMobileDeviceNetworkChanged();
+				}
+
+				@Override
+				public void onCapabilitiesChanged(
+					android.net.Network network,
+					android.net.NetworkCapabilities capabilities
+				)
+				{
+					nativeOpenMobileDeviceNetworkChanged();
+				}
+
+				@Override
+				public void onBlockedStatusChanged(
+					android.net.Network network,
+					boolean blocked
+				)
+				{
+					nativeOpenMobileDeviceNetworkChanged();
+				}
+			};
+		try
+		{
+			manager.registerDefaultNetworkCallback(callback);
+			OpenMobileDeviceNetworkCallback = callback;
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopNetworkMonitoring()
+	{
+		if (OpenMobileDeviceNetworkCallback == null)
+		{
+			return;
+		}
+		android.net.ConnectivityManager manager =
+			(android.net.ConnectivityManager) getSystemService(
+				android.content.Context.CONNECTIVITY_SERVICE
+			);
+		if (manager != null)
+		{
+			try
+			{
+				manager.unregisterNetworkCallback(
+					OpenMobileDeviceNetworkCallback
+				);
+			}
+			catch (RuntimeException ignored)
+			{
+			}
+		}
+		OpenMobileDeviceNetworkCallback = null;
 	}
 
 	public boolean AndroidThunkJava_OpenMobileDeviceStartMemoryMonitoring()

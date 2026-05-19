@@ -11,6 +11,7 @@
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
 #include "OpenMobileDeviceAndroidNetwork.h"
+#include "OpenMobileDeviceAndroidNetworkMonitor.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
@@ -72,6 +73,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android distinguishes a declared Internet capability from an OS-validated default path. The snapshot performs no endpoint probe.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::NetworkChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = FAndroidMisc::GetAndroidBuildVersion() >= 24
+			? TEXT("Android default-network callbacks provide demand-driven path events.")
+			: TEXT("Android versions before API 24 use demand-driven fallback checks.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -316,6 +328,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceAndroidStorageMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+	{
+		return StartOpenMobileDeviceAndroidNetworkMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -339,6 +355,10 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidStorageMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+	{
+		StopOpenMobileDeviceAndroidNetworkMonitoring();
+	}
 }
 
 bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
@@ -358,4 +378,5 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidBatteryMonitoring();
 	StopOpenMobileDeviceAndroidMemoryMonitoring();
 	StopOpenMobileDeviceAndroidStorageMonitoring();
+	StopOpenMobileDeviceAndroidNetworkMonitoring();
 }

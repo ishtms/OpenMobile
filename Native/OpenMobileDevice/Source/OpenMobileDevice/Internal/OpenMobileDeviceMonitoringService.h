@@ -3,12 +3,17 @@
 #include "CoreMinimal.h"
 #include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceMonitoring.h"
+#include "OpenMobileDeviceNetworkTypes.h"
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileDeviceMonitoringGroupChanged,
 	EOpenMobileDeviceMonitoringGroup
 );
 DECLARE_MULTICAST_DELEGATE(FOpenMobileDeviceMonitoringMaintenance);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileDeviceMonitoredNetworkPathChanged,
+	const FOpenMobileNetworkPathSnapshot&
+);
 
 class OPENMOBILEDEVICE_API FOpenMobileDeviceMonitoringService final
 {
@@ -25,6 +30,7 @@ public:
 		uint64 SourceSequence
 	);
 	static FOpenMobileDeviceMonitoringGroupChanged& OnGroupChanged();
+	static FOpenMobileDeviceMonitoredNetworkPathChanged& OnNetworkPathChanged();
 	static FOpenMobileDeviceMonitoringMaintenance& OnMaintenance();
 
 #if WITH_DEV_AUTOMATION_TESTS

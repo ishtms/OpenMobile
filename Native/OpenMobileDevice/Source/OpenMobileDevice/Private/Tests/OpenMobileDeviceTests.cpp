@@ -130,6 +130,13 @@ namespace OpenMobileDeviceTests
 			return Memory;
 		}
 
+		virtual FOpenMobileNetworkPathSnapshot
+		GetNetworkPathSnapshot() const override
+		{
+			++NetworkQueries;
+			return Network;
+		}
+
 		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override
 		{
 			++LocaleQueries;
@@ -193,6 +200,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 PowerQueries = 0;
 		mutable int32 MediaVolumeQueries = 0;
 		mutable int32 MemoryQueries = 0;
+		mutable int32 NetworkQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -202,6 +210,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobilePowerSnapshot Power;
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
 		FOpenMobileMemorySnapshot Memory;
+		FOpenMobileNetworkPathSnapshot Network;
 		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TSet<EOpenMobileDeviceMonitoringGroup> FallbackMonitoringGroups;
@@ -3557,6 +3566,147 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 		SavedLowStorageInterval;
 
 	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceNetworkChangeEventsTest,
+	"OpenMobile.Device.Network.ChangeEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceNetworkChangeEventsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("NetworkEvents"));
+	Backend.NativeMonitoringGroups = {Group::Network};
+	Backend.Network.PathState = EOpenMobileNetworkPathState::InternetCapable;
+	Backend.Network.ValidationSource =
+		EOpenMobileNetworkValidationSource::OsValidatedPath;
+	Backend.Network.bTransportsAvailable = true;
+	Backend.Network.Transports = {EOpenMobileNetworkTransport::Wifi};
+	Backend.Network.bDefaultTransportAvailable = true;
+	Backend.Network.DefaultTransport = EOpenMobileNetworkTransport::Wifi;
+	Backend.Network.bIsMetered =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(false);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* FirstSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(FirstGameInstance);
+	UOpenMobileDeviceSubsystem* SecondSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(SecondGameInstance);
+	TArray<FOpenMobileNetworkPathSnapshot> FirstEvents;
+	TArray<FOpenMobileNetworkPathSnapshot> SecondEvents;
+	FirstSubsystem->OnNativeNetworkPathSnapshotChanged().AddLambda(
+		[&FirstEvents](const FOpenMobileNetworkPathSnapshot& Snapshot)
+		{
+			FirstEvents.Add(Snapshot);
+		}
+	);
+	SecondSubsystem->OnNativeNetworkPathSnapshotChanged().AddLambda(
+		[&SecondEvents](const FOpenMobileNetworkPathSnapshot& Snapshot)
+		{
+			SecondEvents.Add(Snapshot);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* FirstSubscription =
+		FirstSubsystem->StartMonitoring(
+			FirstGameInstance,
+			{Group::Network},
+			1.0f
+		);
+	UOpenMobileDeviceMonitoringSubscription* SecondSubscription =
+		SecondSubsystem->StartMonitoring(
+			SecondGameInstance,
+			{Group::Network},
+			1.0f
+		);
+	TestNotNull(TEXT("First network subscription starts"), FirstSubscription);
+	TestNotNull(TEXT("Second network subscription starts"), SecondSubscription);
+	TestEqual(TEXT("PIE consumers share one native path monitor"), Backend.MonitoringStarts.FindRef(Group::Network), 1);
+
+	Backend.Network.Transports = {EOpenMobileNetworkTransport::Cellular};
+	Backend.Network.DefaultTransport = EOpenMobileNetworkTransport::Cellular;
+	Backend.Network.bIsMetered.Value = true;
+	const int32 QueriesBeforeHandoff = Backend.NetworkQueries;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	TestEqual(TEXT("Transport handoff waits for debounce"), FirstEvents.Num(), 0);
+	TestEqual(TEXT("Handoff captures one process snapshot"), Backend.NetworkQueries, QueriesBeforeHandoff + 1);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+	TestEqual(TEXT("Transient handoff stays coalesced"), FirstEvents.Num(), 0);
+
+	Backend.Network.Transports = {
+		EOpenMobileNetworkTransport::VPN,
+		EOpenMobileNetworkTransport::Cellular
+	};
+	Backend.Network.DefaultTransport = EOpenMobileNetworkTransport::VPN;
+	Backend.Network.bIsConstrained =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(true);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.24f);
+	TestEqual(TEXT("Rapid VPN change resets debounce"), FirstEvents.Num(), 0);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.01f);
+	TestEqual(TEXT("Settled handoff broadcasts once"), FirstEvents.Num(), 1);
+	TestEqual(TEXT("Second PIE consumer receives same event"), SecondEvents.Num(), 1);
+	TestTrue(TEXT("Consumers receive one atomically captured snapshot"), FirstEvents[0] == SecondEvents[0]);
+	TestEqual(TEXT("Settled event contains VPN default"), FirstEvents[0].DefaultTransport, EOpenMobileNetworkTransport::VPN);
+	TestTrue(TEXT("Settled event contains policy fields"), FirstEvents[0].bIsConstrained.Value);
+
+	Backend.Network = {};
+	Backend.Network.PathState = EOpenMobileNetworkPathState::Unavailable;
+	Backend.Network.ValidationSource =
+		EOpenMobileNetworkValidationSource::PlatformPath;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	TestEqual(TEXT("Airplane-mode transition broadcasts immediately"), FirstEvents.Num(), 2);
+	TestEqual(TEXT("Offline event is unavailable"), FirstEvents.Last().PathState, EOpenMobileNetworkPathState::Unavailable);
+
+	Backend.Network.PathState = EOpenMobileNetworkPathState::CaptivePortal;
+	Backend.Network.ValidationSource =
+		EOpenMobileNetworkValidationSource::OsValidatedPath;
+	Backend.Network.bIsCaptivePortal =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(true);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	TestEqual(TEXT("Offline-to-captive transition broadcasts immediately"), FirstEvents.Num(), 3);
+	TestEqual(TEXT("Captive transition remains explicit"), FirstEvents.Last().PathState, EOpenMobileNetworkPathState::CaptivePortal);
+
+	FirstSubscription->Stop();
+	TestEqual(TEXT("One PIE teardown keeps shared monitor"), Backend.MonitoringStops.FindRef(Group::Network), 0);
+	Backend.Network.PathState = EOpenMobileNetworkPathState::InternetCapable;
+	Backend.Network.bIsCaptivePortal.Value = false;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.25f);
+	TestEqual(TEXT("Stopped PIE consumer receives no captive-login event"), FirstEvents.Num(), 3);
+	TestEqual(TEXT("Active PIE consumer receives captive-login event"), SecondEvents.Num(), 4);
+
+	SecondSubsystem->Deinitialize();
+	TestEqual(TEXT("Final Game Instance teardown stops native monitor"), Backend.MonitoringStops.FindRef(Group::Network), 1);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Network
+	);
+	TestEqual(TEXT("Shutdown drops later network callbacks"), SecondEvents.Num(), 4);
+	FirstSubsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();

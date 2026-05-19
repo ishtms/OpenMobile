@@ -6,10 +6,12 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceSettings.h"
+#include "OpenMobileDeviceSnapshotService.h"
 
 namespace OpenMobileDeviceMonitoringServicePrivate
 {
 	constexpr float MaintenanceIntervalSeconds = 0.1f;
+	constexpr float NetworkDebounceSeconds = 0.25f;
 
 	struct FRequest
 	{
@@ -33,6 +35,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 	TMap<FGuid, FRequest> Requests;
 	TMap<EOpenMobileDeviceMonitoringGroup, FGroupState> GroupStates;
 	FOpenMobileDeviceMonitoringGroupChanged GroupChanged;
+	FOpenMobileDeviceMonitoredNetworkPathChanged NetworkPathChanged;
 	FOpenMobileDeviceMonitoringMaintenance Maintenance;
 	FTSTicker::FDelegateHandle TickerHandle;
 	FDelegateHandle BackgroundHandle;
@@ -41,6 +44,104 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 	bool bApplicationActive = true;
 	bool bInsideTicker = false;
 	uint64 ObserverGeneration = 0;
+	TOptional<FOpenMobileNetworkPathSnapshot> LastNetworkSnapshot;
+	TOptional<FOpenMobileNetworkPathSnapshot> PendingNetworkSnapshot;
+	float NetworkDebounceElapsedSeconds = 0.0f;
+
+	bool EquivalentNetworkWithoutMetadata(
+		FOpenMobileNetworkPathSnapshot Left,
+		FOpenMobileNetworkPathSnapshot Right
+	)
+	{
+		Left.Metadata = {};
+		Right.Metadata = {};
+		return Left == Right;
+	}
+
+	bool IsUnavailable(const FOpenMobileNetworkPathSnapshot& Snapshot)
+	{
+		return Snapshot.PathState == EOpenMobileNetworkPathState::Unavailable;
+	}
+
+	void ResetNetworkState()
+	{
+		LastNetworkSnapshot.Reset();
+		PendingNetworkSnapshot.Reset();
+		NetworkDebounceElapsedSeconds = 0.0f;
+	}
+
+	void PrimeNetworkState()
+	{
+		LastNetworkSnapshot =
+			FOpenMobileDeviceSnapshotService::GetNetworkPathSnapshot();
+		PendingNetworkSnapshot.Reset();
+		NetworkDebounceElapsedSeconds = 0.0f;
+	}
+
+	void PublishNetworkSnapshot(
+		const FOpenMobileNetworkPathSnapshot& Snapshot
+	)
+	{
+		LastNetworkSnapshot = Snapshot;
+		PendingNetworkSnapshot.Reset();
+		NetworkDebounceElapsedSeconds = 0.0f;
+		NetworkPathChanged.Broadcast(Snapshot);
+	}
+
+	void RefreshNetworkPath()
+	{
+		const FOpenMobileNetworkPathSnapshot Snapshot =
+			FOpenMobileDeviceSnapshotService::GetNetworkPathSnapshot();
+		if (!LastNetworkSnapshot.IsSet())
+		{
+			PublishNetworkSnapshot(Snapshot);
+			return;
+		}
+		if (EquivalentNetworkWithoutMetadata(
+			LastNetworkSnapshot.GetValue(),
+			Snapshot
+		))
+		{
+			PendingNetworkSnapshot.Reset();
+			NetworkDebounceElapsedSeconds = 0.0f;
+			return;
+		}
+		if (IsUnavailable(LastNetworkSnapshot.GetValue())
+			!= IsUnavailable(Snapshot))
+		{
+			PublishNetworkSnapshot(Snapshot);
+			return;
+		}
+		PendingNetworkSnapshot = Snapshot;
+		NetworkDebounceElapsedSeconds = 0.0f;
+	}
+
+	void RefreshGroup(EOpenMobileDeviceMonitoringGroup Group)
+	{
+		if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+		{
+			RefreshNetworkPath();
+		}
+		else
+		{
+			GroupChanged.Broadcast(Group);
+		}
+	}
+
+	void ProcessNetworkDebounce(float DeltaTime)
+	{
+		if (!PendingNetworkSnapshot.IsSet())
+		{
+			return;
+		}
+		NetworkDebounceElapsedSeconds += FMath::Max(0.0f, DeltaTime);
+		if (NetworkDebounceElapsedSeconds >= NetworkDebounceSeconds)
+		{
+			const FOpenMobileNetworkPathSnapshot Snapshot =
+				PendingNetworkSnapshot.GetValue();
+			PublishNetworkSnapshot(Snapshot);
+		}
+	}
 
 	float ClampInterval(float IntervalSeconds)
 	{
@@ -205,6 +306,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		{
 			return;
 		}
+		ProcessNetworkDebounce(DeltaTime);
 
 		TArray<EOpenMobileDeviceMonitoringGroup> Groups;
 		GroupStates.GenerateKeyArray(Groups);
@@ -222,6 +324,10 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			{
 				StopNativeObserver(Group, *State);
 				ConfigureSource(Group, *State);
+				if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+				{
+					PrimeNetworkState();
+				}
 			}
 			if (!State->bUsesFallback)
 			{
@@ -232,7 +338,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			if (State->ElapsedSeconds >= State->EffectiveIntervalSeconds)
 			{
 				State->ElapsedSeconds = 0.0f;
-				GroupChanged.Broadcast(Group);
+				RefreshGroup(Group);
 			}
 		}
 	}
@@ -282,7 +388,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			if (FGroupState* State = GroupStates.Find(Group))
 			{
 				State->ElapsedSeconds = 0.0f;
-				GroupChanged.Broadcast(Group);
+				RefreshGroup(Group);
 			}
 		}
 	}
@@ -305,6 +411,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		}
 		Requests.Reset();
 		GroupStates.Reset();
+		ResetNetworkState();
 		StopTicker();
 	}
 }
@@ -343,6 +450,7 @@ void FOpenMobileDeviceMonitoringService::Shutdown()
 		ForegroundHandle.Reset();
 	}
 	GroupChanged.Clear();
+	NetworkPathChanged.Clear();
 	Maintenance.Clear();
 	bStarted = false;
 }
@@ -387,6 +495,10 @@ FGuid FOpenMobileDeviceMonitoringService::AddSubscription(
 				Request.PollingIntervalSeconds
 			);
 			ConfigureSource(Group, State);
+			if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+			{
+				PrimeNetworkState();
+			}
 		}
 		else
 		{
@@ -419,6 +531,10 @@ void FOpenMobileDeviceMonitoringService::RemoveSubscription(const FGuid& Request
 		{
 			StopNativeObserver(Group, *State);
 			GroupStates.Remove(Group);
+			if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+			{
+				ResetNetworkState();
+			}
 		}
 		else
 		{
@@ -464,13 +580,19 @@ void FOpenMobileDeviceMonitoringService::NotifyNativeChange(
 		return;
 	}
 	State->LastNativeSequence = SourceSequence;
-	GroupChanged.Broadcast(CallbackToken.Group);
+	RefreshGroup(CallbackToken.Group);
 }
 
 FOpenMobileDeviceMonitoringGroupChanged&
 FOpenMobileDeviceMonitoringService::OnGroupChanged()
 {
 	return OpenMobileDeviceMonitoringServicePrivate::GroupChanged;
+}
+
+FOpenMobileDeviceMonitoredNetworkPathChanged&
+FOpenMobileDeviceMonitoringService::OnNetworkPathChanged()
+{
+	return OpenMobileDeviceMonitoringServicePrivate::NetworkPathChanged;
 }
 
 FOpenMobileDeviceMonitoringMaintenance&

@@ -337,6 +337,9 @@ private:
 	void BindMonitoringService();
 	void UnbindMonitoringService();
 	void HandleMonitoringGroupChanged(EOpenMobileDeviceMonitoringGroup Group);
+	void HandleMonitoredNetworkPathChanged(
+		const FOpenMobileNetworkPathSnapshot& Snapshot
+	);
 	void HandleMonitoringMaintenance();
 	void PrimeMonitoringGroup(EOpenMobileDeviceMonitoringGroup Group);
 	void RequestStorageRefreshForMonitoring();
@@ -359,6 +362,7 @@ private:
 
 	TMap<EOpenMobileDeviceMonitoringGroup, int32> LocalMonitoringCounts;
 	FDelegateHandle MonitoringChangedHandle;
+	FDelegateHandle MonitoredNetworkChangedHandle;
 	FDelegateHandle MonitoringMaintenanceHandle;
 	TOptional<FOpenMobileLocaleSnapshot> LastLocaleSnapshot;
 	TOptional<FOpenMobilePowerSnapshot> LastPowerSnapshot;

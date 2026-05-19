@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceIOSMemory.h"
 #include "OpenMobileDeviceIOSMemoryMonitor.h"
 #include "OpenMobileDeviceIOSNetwork.h"
+#include "OpenMobileDeviceIOSNetworkMonitor.h"
 #include "OpenMobileDeviceIOSStorage.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -82,6 +83,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("iOS reports whether the process has a usable local route. This does not prove that any remote endpoint can answer.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::NetworkChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS uses Unreal's process-level default-path monitor for demand-driven events.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ThermalHeadroom)
@@ -281,6 +291,10 @@ bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceIOSMemoryMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+	{
+		return StartOpenMobileDeviceIOSNetworkMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -300,6 +314,10 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceIOSMemoryMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Network)
+	{
+		StopOpenMobileDeviceIOSNetworkMonitoring();
+	}
 }
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
@@ -307,4 +325,5 @@ void FOpenMobileDeviceIOSBackend::BeginShutdown()
 	StopOpenMobileDeviceIOSLocaleMonitoring();
 	StopOpenMobileDeviceIOSBatteryMonitoring();
 	StopOpenMobileDeviceIOSMemoryMonitoring();
+	StopOpenMobileDeviceIOSNetworkMonitoring();
 }

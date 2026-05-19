@@ -367,6 +367,14 @@ void UOpenMobileDeviceSubsystem::BindMonitoringService()
 				&UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged
 			);
 	}
+	if (!MonitoredNetworkChangedHandle.IsValid())
+	{
+		MonitoredNetworkChangedHandle =
+			FOpenMobileDeviceMonitoringService::OnNetworkPathChanged().AddUObject(
+				this,
+				&UOpenMobileDeviceSubsystem::HandleMonitoredNetworkPathChanged
+			);
+	}
 	if (!MonitoringMaintenanceHandle.IsValid())
 	{
 		MonitoringMaintenanceHandle =
@@ -386,12 +394,42 @@ void UOpenMobileDeviceSubsystem::UnbindMonitoringService()
 		);
 		MonitoringChangedHandle.Reset();
 	}
+	if (MonitoredNetworkChangedHandle.IsValid())
+	{
+		FOpenMobileDeviceMonitoringService::OnNetworkPathChanged().Remove(
+			MonitoredNetworkChangedHandle
+		);
+		MonitoredNetworkChangedHandle.Reset();
+	}
 	if (MonitoringMaintenanceHandle.IsValid())
 	{
 		FOpenMobileDeviceMonitoringService::OnMaintenance().Remove(
 			MonitoringMaintenanceHandle
 		);
 		MonitoringMaintenanceHandle.Reset();
+	}
+}
+
+void UOpenMobileDeviceSubsystem::HandleMonitoredNetworkPathChanged(
+	const FOpenMobileNetworkPathSnapshot& Snapshot
+)
+{
+	if (bDeinitialized
+		|| LocalMonitoringCounts.FindRef(
+			EOpenMobileDeviceMonitoringGroup::Network
+		) <= 0)
+	{
+		return;
+	}
+	if (!LastNetworkSnapshot.IsSet()
+		|| !OpenMobileDeviceSubsystemPrivate::EquivalentWithoutMetadata(
+			LastNetworkSnapshot.GetValue(),
+			Snapshot
+		))
+	{
+		LastNetworkSnapshot = Snapshot;
+		OnNetworkPathSnapshotChanged.Broadcast(Snapshot);
+		NativeNetworkPathSnapshotChanged.Broadcast(Snapshot);
 	}
 }
 
@@ -527,17 +565,7 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 		RequestStorageRefreshForMonitoring();
 		break;
 	case EOpenMobileDeviceMonitoringGroup::Network:
-	{
-		const FOpenMobileNetworkPathSnapshot Snapshot = GetNetworkPathSnapshot();
-		if (!LastNetworkSnapshot.IsSet()
-			|| !EquivalentWithoutMetadata(LastNetworkSnapshot.GetValue(), Snapshot))
-		{
-			LastNetworkSnapshot = Snapshot;
-			OnNetworkPathSnapshotChanged.Broadcast(Snapshot);
-			NativeNetworkPathSnapshotChanged.Broadcast(Snapshot);
-		}
 		break;
-	}
 	case EOpenMobileDeviceMonitoringGroup::WindowDisplay:
 	{
 		const FOpenMobileWindowDisplaySnapshot Snapshot = GetWindowDisplaySnapshot();
