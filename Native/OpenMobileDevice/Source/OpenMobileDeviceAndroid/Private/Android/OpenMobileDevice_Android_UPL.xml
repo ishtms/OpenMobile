@@ -298,7 +298,7 @@
 				return new String[] {
 					Boolean.toString(active),
 					"false", "false", "false",
-					"false", "false", "false", "false"
+					"false", "false", "false", "false", ""
 				};
 			}
 			android.net.Network network = manager.getActiveNetwork();
@@ -307,7 +307,7 @@
 				return new String[] {
 					"false", "false", "false", "false",
 					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
-					"false", "false", "false"
+					"false", "false", "false", ""
 				};
 			}
 			android.net.NetworkCapabilities capabilities =
@@ -317,7 +317,7 @@
 				return new String[] {
 					"true", "false", "false", "false",
 					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
-					"false", "false", "false"
+					"false", "false", "false", ""
 				};
 			}
 			boolean captiveSupported = android.os.Build.VERSION.SDK_INT >= 23;
@@ -342,13 +342,91 @@
 				Boolean.toString(local),
 				Boolean.toString(!capabilities.hasCapability(
 					android.net.NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED
-				))
+				)),
+				AndroidThunkJava_OpenMobileDeviceGetTransportTypes(capabilities)
 			};
 		}
 		catch (RuntimeException ignored)
 		{
 			return new String[0];
 		}
+	}
+
+	private String AndroidThunkJava_OpenMobileDeviceGetTransportTypes(
+		android.net.NetworkCapabilities capabilities
+	)
+	{
+		int[] baseTypes = {
+			android.net.NetworkCapabilities.TRANSPORT_CELLULAR,
+			android.net.NetworkCapabilities.TRANSPORT_WIFI,
+			android.net.NetworkCapabilities.TRANSPORT_BLUETOOTH,
+			android.net.NetworkCapabilities.TRANSPORT_ETHERNET,
+			android.net.NetworkCapabilities.TRANSPORT_VPN
+		};
+		java.util.ArrayList<Integer> transportTypes =
+			new java.util.ArrayList<Integer>();
+		for (int type : baseTypes)
+		{
+			if (capabilities.hasTransport(type))
+			{
+				transportTypes.add(type);
+			}
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 26
+			&& capabilities.hasTransport(
+				android.net.NetworkCapabilities.TRANSPORT_WIFI_AWARE
+			))
+		{
+			transportTypes.add(
+				android.net.NetworkCapabilities.TRANSPORT_WIFI_AWARE
+			);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 27
+			&& capabilities.hasTransport(
+				android.net.NetworkCapabilities.TRANSPORT_LOWPAN
+			))
+		{
+			transportTypes.add(
+				android.net.NetworkCapabilities.TRANSPORT_LOWPAN
+			);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 31
+			&& capabilities.hasTransport(
+				android.net.NetworkCapabilities.TRANSPORT_USB
+			))
+		{
+			transportTypes.add(
+				android.net.NetworkCapabilities.TRANSPORT_USB
+			);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 34
+			&& capabilities.hasTransport(
+				android.net.NetworkCapabilities.TRANSPORT_THREAD
+			))
+		{
+			transportTypes.add(
+				android.net.NetworkCapabilities.TRANSPORT_THREAD
+			);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 35
+			&& capabilities.hasTransport(
+				android.net.NetworkCapabilities.TRANSPORT_SATELLITE
+			))
+		{
+			transportTypes.add(
+				android.net.NetworkCapabilities.TRANSPORT_SATELLITE
+			);
+		}
+		StringBuilder result = new StringBuilder();
+		for (int type : transportTypes)
+		{
+			if (result.length() > 0)
+			{
+				result.append(',');
+			}
+			result.append(type);
+		}
+		return result.toString();
 	}
 
 	public boolean AndroidThunkJava_OpenMobileDeviceStartMemoryMonitoring()

@@ -56,13 +56,13 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceAndroidNetworkPathSnapshot()
 		Env->ExceptionClear();
 		return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
 	}
-	if (!Result || Env->GetArrayLength(*Result) != 8)
+	if (!Result || Env->GetArrayLength(*Result) != 9)
 	{
 		return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
 	}
 	TArray<FString> Values;
-	Values.Reserve(8);
-	for (jsize Index = 0; Index < 8; ++Index)
+	Values.Reserve(9);
+	for (jsize Index = 0; Index < 9; ++Index)
 	{
 		jstring Value = static_cast<jstring>(
 			Env->GetObjectArrayElement(*Result, Index)
@@ -92,5 +92,18 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceAndroidNetworkPathSnapshot()
 	Traits.bCaptivePortal = ParsedValues[5];
 	Traits.bLocalNetwork = ParsedValues[6];
 	Traits.bRestricted = ParsedValues[7];
+	Traits.bTransportsAvailable = Traits.bCapabilitiesAvailable;
+	TArray<FString> TransportTypes;
+	Values[8].ParseIntoArray(TransportTypes, TEXT(","), true);
+	for (const FString& TransportType : TransportTypes)
+	{
+		if (!TransportType.IsNumeric())
+		{
+			Traits.bTransportsAvailable = false;
+			Traits.NativeTransportTypes.Reset();
+			break;
+		}
+		Traits.NativeTransportTypes.Add(FCString::Atoi(*TransportType));
+	}
 	return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
 }

@@ -725,6 +725,9 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"InternetCapable",
 			"bInternetValidated",
 			"bRestricted",
+			"StableOrder",
+			"EOpenMobileNetworkTransport::VPN",
+			"EOpenMobileNetworkTransport::Other",
 		):
 			self.assertIn(token, normalizer)
 
@@ -747,6 +750,17 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"NET_CAPABILITY_CAPTIVE_PORTAL",
 			"NET_CAPABILITY_LOCAL_NETWORK",
 			"NET_CAPABILITY_NOT_RESTRICTED",
+			"hasTransport(type)",
+			"TRANSPORT_CELLULAR",
+			"TRANSPORT_WIFI",
+			"TRANSPORT_BLUETOOTH",
+			"TRANSPORT_ETHERNET",
+			"TRANSPORT_VPN",
+			"TRANSPORT_WIFI_AWARE",
+			"TRANSPORT_LOWPAN",
+			"TRANSPORT_USB",
+			"TRANSPORT_THREAD",
+			"TRANSPORT_SATELLITE",
 		):
 			self.assertIn(token, android_upl)
 		for forbidden in (
@@ -767,6 +781,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("ParseBoolean", android_network)
 		self.assertIn("BuildAndroid", android_network)
+		self.assertIn("ParseIntoArray", android_network)
 		self.assertNotIn("FHttpModule", android_network)
 
 		ios_network = (
@@ -781,6 +796,10 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"SCNetworkReachabilityGetFlags",
 			"kSCNetworkReachabilityFlagsReachable",
 			"kSCNetworkReachabilityFlagsConnectionRequired",
+			"FPlatformMisc::GetNetworkConnectionType",
+			"EOpenMobileNetworkTransport::Wifi",
+			"EOpenMobileNetworkTransport::Cellular",
+			"EOpenMobileNetworkTransport::Ethernet",
 		):
 			self.assertIn(token, ios_network)
 		for forbidden in ("CreateWithName", "NSURLSession", "FHttpModule"):

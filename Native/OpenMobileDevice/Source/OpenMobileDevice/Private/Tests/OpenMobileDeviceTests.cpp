@@ -289,6 +289,78 @@ bool FOpenMobileDeviceFormFactorTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceActiveNetworkTransportTest,
+	"OpenMobile.Device.Network.ActiveTransport",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceActiveNetworkTransportTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceAndroidNetworkPathTraits Android;
+	Android.bQuerySucceeded = true;
+	Android.bHasActiveNetwork = true;
+	Android.bCapabilitiesAvailable = true;
+	Android.bTransportsAvailable = true;
+	Android.NativeTransportTypes = {4, 1, 4, 99};
+	const FOpenMobileNetworkPathSnapshot VPN =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestTrue(TEXT("Android transport set is available"), VPN.bTransportsAvailable);
+	TestEqual(TEXT("VPN and underlying transports are deduplicated"), VPN.Transports.Num(), 3);
+	TestEqual(TEXT("VPN route is ordered first"), VPN.Transports[0], EOpenMobileNetworkTransport::VPN);
+	TestEqual(TEXT("Underlying Wi-Fi remains visible"), VPN.Transports[1], EOpenMobileNetworkTransport::Wifi);
+	TestEqual(TEXT("Future transport maps to Other"), VPN.Transports[2], EOpenMobileNetworkTransport::Other);
+	TestTrue(TEXT("Default route transport is available"), VPN.bDefaultTransportAvailable);
+	TestEqual(TEXT("VPN remains the default route"), VPN.DefaultTransport, EOpenMobileNetworkTransport::VPN);
+
+	Android.NativeTransportTypes = {0};
+	const FOpenMobileNetworkPathSnapshot Cellular =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Transport handoff reports cellular"), Cellular.DefaultTransport, EOpenMobileNetworkTransport::Cellular);
+	Android.NativeTransportTypes = {3, 2, -1};
+	const FOpenMobileNetworkPathSnapshot Additional =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Ethernet transport is normalized"), Additional.Transports[0], EOpenMobileNetworkTransport::Ethernet);
+	TestEqual(TEXT("Bluetooth transport is normalized"), Additional.Transports[1], EOpenMobileNetworkTransport::Bluetooth);
+	TestEqual(TEXT("Explicit unknown transport is retained"), Additional.Transports[2], EOpenMobileNetworkTransport::Unknown);
+
+	Android.bTransportsAvailable = false;
+	Android.NativeTransportTypes.Reset();
+	const FOpenMobileNetworkPathSnapshot Missing =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestFalse(TEXT("Missing transport detail stays unavailable"), Missing.bTransportsAvailable);
+	TestFalse(TEXT("Missing transport has no default"), Missing.bDefaultTransportAvailable);
+
+	FOpenMobileNetworkPathSnapshot IOS =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Satisfied
+		);
+	FOpenMobileDeviceNetworkPathInfo::ApplyTransports(
+		IOS,
+		true,
+		{EOpenMobileNetworkTransport::Wifi},
+		EOpenMobileNetworkTransport::Wifi
+	);
+	TestEqual(TEXT("iOS default Wi-Fi route is explicit"), IOS.DefaultTransport, EOpenMobileNetworkTransport::Wifi);
+	TestEqual(TEXT("iOS route contributes one known transport"), IOS.Transports.Num(), 1);
+
+	FOpenMobileDeviceNetworkPathInfo::ApplyTransports(
+		IOS,
+		true,
+		{
+			EOpenMobileNetworkTransport::Unknown,
+			EOpenMobileNetworkTransport::Unknown
+		},
+		EOpenMobileNetworkTransport::Unknown
+	);
+	TestEqual(TEXT("Unknown native transport is retained once"), IOS.Transports.Num(), 1);
+	TestEqual(TEXT("Unknown default transport remains explicit"), IOS.DefaultTransport, EOpenMobileNetworkTransport::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceArchitectureTest,
 	"OpenMobile.Device.Identity.CpuArchitecture",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

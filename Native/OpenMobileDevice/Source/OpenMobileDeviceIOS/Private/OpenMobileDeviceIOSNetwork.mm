@@ -1,10 +1,66 @@
 #include "OpenMobileDeviceIOSNetwork.h"
 
+#include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceNetworkPathInfo.h"
 
 #import <SystemConfiguration/SystemConfiguration.h>
 
 #include <netinet/in.h>
+
+namespace OpenMobileDeviceIOSNetworkPrivate
+{
+	void ApplyTransport(FOpenMobileNetworkPathSnapshot& Snapshot)
+	{
+		EOpenMobileNetworkTransport Transport =
+			EOpenMobileNetworkTransport::Unknown;
+		bool bHasTransport = true;
+		switch (FPlatformMisc::GetNetworkConnectionType())
+		{
+		case ENetworkConnectionType::Cell:
+			Transport = EOpenMobileNetworkTransport::Cellular;
+			break;
+		case ENetworkConnectionType::WiFi:
+			Transport = EOpenMobileNetworkTransport::Wifi;
+			break;
+		case ENetworkConnectionType::Bluetooth:
+			Transport = EOpenMobileNetworkTransport::Bluetooth;
+			break;
+		case ENetworkConnectionType::Ethernet:
+			Transport = EOpenMobileNetworkTransport::Ethernet;
+			break;
+		case ENetworkConnectionType::WiMAX:
+			Transport = EOpenMobileNetworkTransport::Other;
+			break;
+		case ENetworkConnectionType::None:
+		case ENetworkConnectionType::AirplaneMode:
+			bHasTransport = false;
+			break;
+		case ENetworkConnectionType::Unknown:
+		default:
+			break;
+		}
+		FOpenMobileDeviceNetworkPathInfo::ApplyTransports(
+			Snapshot,
+			true,
+			bHasTransport
+				? TArray<EOpenMobileNetworkTransport>({Transport})
+				: TArray<EOpenMobileNetworkTransport>(),
+			bHasTransport
+				? TOptional<EOpenMobileNetworkTransport>(Transport)
+				: TOptional<EOpenMobileNetworkTransport>()
+		);
+	}
+
+	FOpenMobileNetworkPathSnapshot BuildSnapshot(
+		EOpenMobileDeviceIOSPathStatus Status
+	)
+	{
+		FOpenMobileNetworkPathSnapshot Snapshot =
+			FOpenMobileDeviceNetworkPathInfo::BuildIOS(Status);
+		ApplyTransport(Snapshot);
+		return Snapshot;
+	}
+}
 
 FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceIOSNetworkPathSnapshot()
 {
@@ -18,7 +74,7 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceIOSNetworkPathSnapshot()
 		);
 	if (!Reachability)
 	{
-		return FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+		return OpenMobileDeviceIOSNetworkPrivate::BuildSnapshot(
 			EOpenMobileDeviceIOSPathStatus::Invalid
 		);
 	}
@@ -30,19 +86,19 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceIOSNetworkPathSnapshot()
 	CFRelease(Reachability);
 	if (!bReadSucceeded)
 	{
-		return FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+		return OpenMobileDeviceIOSNetworkPrivate::BuildSnapshot(
 			EOpenMobileDeviceIOSPathStatus::Invalid
 		);
 	}
 	if ((Flags & kSCNetworkReachabilityFlagsReachable) == 0)
 	{
-		return FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+		return OpenMobileDeviceIOSNetworkPrivate::BuildSnapshot(
 			EOpenMobileDeviceIOSPathStatus::Unsatisfied
 		);
 	}
 	const bool bConnectionRequired =
 		(Flags & kSCNetworkReachabilityFlagsConnectionRequired) != 0;
-	return FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+	return OpenMobileDeviceIOSNetworkPrivate::BuildSnapshot(
 		bConnectionRequired
 			? EOpenMobileDeviceIOSPathStatus::Satisfiable
 			: EOpenMobileDeviceIOSPathStatus::Satisfied

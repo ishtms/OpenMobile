@@ -1,10 +1,75 @@
 #include "OpenMobileDeviceNetworkPathInfo.h"
 
+namespace OpenMobileDeviceNetworkPathInfoPrivate
+{
+	EOpenMobileNetworkTransport NormalizeAndroidTransport(int32 NativeType)
+	{
+		switch (NativeType)
+		{
+		case 0:
+			return EOpenMobileNetworkTransport::Cellular;
+		case 1:
+			return EOpenMobileNetworkTransport::Wifi;
+		case 2:
+			return EOpenMobileNetworkTransport::Bluetooth;
+		case 3:
+			return EOpenMobileNetworkTransport::Ethernet;
+		case 4:
+			return EOpenMobileNetworkTransport::VPN;
+		case -1:
+			return EOpenMobileNetworkTransport::Unknown;
+		default:
+			return EOpenMobileNetworkTransport::Other;
+		}
+	}
+
+	TArray<EOpenMobileNetworkTransport> NormalizeAndroidTransports(
+		const TArray<int32>& NativeTypes
+	)
+	{
+		TSet<EOpenMobileNetworkTransport> Present;
+		for (int32 NativeType : NativeTypes)
+		{
+			Present.Add(NormalizeAndroidTransport(NativeType));
+		}
+		const EOpenMobileNetworkTransport StableOrder[] = {
+			EOpenMobileNetworkTransport::VPN,
+			EOpenMobileNetworkTransport::Wifi,
+			EOpenMobileNetworkTransport::Cellular,
+			EOpenMobileNetworkTransport::Ethernet,
+			EOpenMobileNetworkTransport::Bluetooth,
+			EOpenMobileNetworkTransport::Other,
+			EOpenMobileNetworkTransport::Unknown
+		};
+		TArray<EOpenMobileNetworkTransport> Result;
+		for (EOpenMobileNetworkTransport Transport : StableOrder)
+		{
+			if (Present.Contains(Transport))
+			{
+				Result.Add(Transport);
+			}
+		}
+		return Result;
+	}
+}
+
 FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildAndroid(
 	const FOpenMobileDeviceAndroidNetworkPathTraits& Traits
 )
 {
 	FOpenMobileNetworkPathSnapshot Snapshot;
+	const TArray<EOpenMobileNetworkTransport> Transports =
+		OpenMobileDeviceNetworkPathInfoPrivate::NormalizeAndroidTransports(
+			Traits.NativeTransportTypes
+		);
+	ApplyTransports(
+		Snapshot,
+		Traits.bTransportsAvailable,
+		Transports,
+		Transports.IsEmpty()
+			? TOptional<EOpenMobileNetworkTransport>()
+			: TOptional<EOpenMobileNetworkTransport>(Transports[0])
+	);
 	if (!Traits.bQuerySucceeded)
 	{
 		return Snapshot;
@@ -54,6 +119,32 @@ FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildAndroid(
 	Snapshot.ValidationSource =
 		EOpenMobileNetworkValidationSource::DeclaredCapability;
 	return Snapshot;
+}
+
+void FOpenMobileDeviceNetworkPathInfo::ApplyTransports(
+	FOpenMobileNetworkPathSnapshot& Snapshot,
+	bool bTransportsAvailable,
+	const TArray<EOpenMobileNetworkTransport>& Transports,
+	const TOptional<EOpenMobileNetworkTransport>& DefaultTransport
+)
+{
+	Snapshot.bTransportsAvailable = bTransportsAvailable;
+	Snapshot.Transports.Reset();
+	Snapshot.bDefaultTransportAvailable = false;
+	Snapshot.DefaultTransport = EOpenMobileNetworkTransport::Unknown;
+	if (!bTransportsAvailable)
+	{
+		return;
+	}
+	for (EOpenMobileNetworkTransport Transport : Transports)
+	{
+		Snapshot.Transports.AddUnique(Transport);
+	}
+	if (DefaultTransport.IsSet())
+	{
+		Snapshot.bDefaultTransportAvailable = true;
+		Snapshot.DefaultTransport = DefaultTransport.GetValue();
+	}
 }
 
 FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildIOS(

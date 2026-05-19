@@ -13,6 +13,8 @@ struct OPENMOBILEDEVICE_API FOpenMobileDeviceAndroidNetworkPathTraits
 	bool bCaptivePortal = false;
 	bool bLocalNetwork = false;
 	bool bRestricted = false;
+	bool bTransportsAvailable = false;
+	TArray<int32> NativeTransportTypes;
 };
 
 enum class EOpenMobileDeviceIOSPathStatus : uint8
@@ -31,5 +33,11 @@ public:
 	);
 	static FOpenMobileNetworkPathSnapshot BuildIOS(
 		EOpenMobileDeviceIOSPathStatus Status
+	);
+	static void ApplyTransports(
+		FOpenMobileNetworkPathSnapshot& Snapshot,
+		bool bTransportsAvailable,
+		const TArray<EOpenMobileNetworkTransport>& Transports,
+		const TOptional<EOpenMobileNetworkTransport>& DefaultTransport
 	);
 };
