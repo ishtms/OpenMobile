@@ -22,6 +22,9 @@
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceEmulatorDetection.h"
+#include "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
+#include "OpenMobileDeviceEndpointReachabilityPolicy.h"
+#include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -1131,6 +1134,86 @@ bool FOpenMobileDeviceNetworkPolicyHintsTest::RunTest(
 	);
 	TestFalse(TEXT("Policy runtime change clears expensive"), IOS.bIsExpensive.Value);
 	TestFalse(TEXT("Policy runtime change clears constrained"), IOS.bIsConstrained.Value);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceEndpointReachabilityPolicyTest,
+	"OpenMobile.Device.Network.EndpointReachabilityPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceEndpointReachabilityPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileEndpointReachabilityOptions Options;
+	TestEqual(TEXT("Default timeout is bounded"), Options.TimeoutSeconds, 10.0f);
+	TestEqual(TEXT("Default accepted range starts at 200"), Options.MinimumAcceptedStatusCode, 200);
+	TestEqual(TEXT("Default accepted range ends at 299"), Options.MaximumAcceptedStatusCode, 299);
+	TestFalse(TEXT("Redirects are rejected by default"), Options.bAllowRedirects);
+	TestEqual(TEXT("Default response cap is 64 KiB"), Options.MaximumResponseBytes, static_cast<int64>(64 * 1024));
+
+	Options.TimeoutSeconds = std::numeric_limits<float>::quiet_NaN();
+	Options.MinimumAcceptedStatusCode = 700;
+	Options.MaximumAcceptedStatusCode = -1;
+	Options.MaximumResponseBytes = MAX_int64;
+	Options = FOpenMobileDeviceEndpointReachabilityPolicy::NormalizeOptions(
+		Options
+	);
+	TestEqual(TEXT("Invalid timeout returns to safe default"), Options.TimeoutSeconds, 10.0f);
+	TestEqual(TEXT("Invalid status range returns to 200"), Options.MinimumAcceptedStatusCode, 200);
+	TestEqual(TEXT("Invalid status range returns to 299"), Options.MaximumAcceptedStatusCode, 299);
+	TestEqual(TEXT("Response cap clamps to one MiB"), Options.MaximumResponseBytes, static_cast<int64>(1024 * 1024));
+
+	TestTrue(TEXT("Explicit HTTPS endpoint is valid"), FOpenMobileDeviceEndpointReachabilityPolicy::IsValidEndpoint(TEXT("https://api.example.test/health?token=secret")));
+	TestFalse(TEXT("HTTP endpoint is rejected"), FOpenMobileDeviceEndpointReachabilityPolicy::IsValidEndpoint(TEXT("http://api.example.test/health")));
+	TestFalse(TEXT("Credential-bearing endpoint is rejected"), FOpenMobileDeviceEndpointReachabilityPolicy::IsValidEndpoint(TEXT("https://user:pass@example.test/health")));
+	TestFalse(TEXT("Missing host is rejected"), FOpenMobileDeviceEndpointReachabilityPolicy::IsValidEndpoint(TEXT("https:///health")));
+	const FString Redacted =
+		FOpenMobileDeviceEndpointReachabilityPolicy::RedactEndpoint(
+			TEXT("https://user:pass@example.test/private/path?token=secret")
+		);
+	TestFalse(TEXT("Redaction omits credentials"), Redacted.Contains(TEXT("user")) || Redacted.Contains(TEXT("pass")));
+	TestFalse(TEXT("Redaction omits paths"), Redacted.Contains(TEXT("private")));
+	TestFalse(TEXT("Redaction omits query values"), Redacted.Contains(TEXT("secret")));
+
+	FOpenMobileDeviceEndpointCompletionEvidence Evidence;
+	Evidence.TransportFailure = EOpenMobileDeviceEndpointTransportFailure::Dns;
+	TestEqual(TEXT("DNS failure stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::DnsFailure);
+	Evidence.TransportFailure = EOpenMobileDeviceEndpointTransportFailure::Connection;
+	TestEqual(TEXT("Connection failure stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::ConnectionFailure);
+	Evidence.bTcpConnectionSucceeded = true;
+	TestEqual(TEXT("HTTP failure after TCP connect is TLS"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::TlsFailure);
+	Evidence.bTcpConnectionSucceeded = false;
+	Evidence.TransportFailure = EOpenMobileDeviceEndpointTransportFailure::Tls;
+	TestEqual(TEXT("TLS failure stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::TlsFailure);
+	Evidence.TransportFailure = EOpenMobileDeviceEndpointTransportFailure::Timeout;
+	TestEqual(TEXT("Timeout stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::Timeout);
+	Evidence.TransportFailure = EOpenMobileDeviceEndpointTransportFailure::Cancelled;
+	TestEqual(TEXT("Cancellation stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::Cancelled);
+
+	Evidence = {};
+	Evidence.bResponseReceived = true;
+	Evidence.StatusCode = 204;
+	TestEqual(TEXT("Accepted HTTP response succeeds"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::Succeeded);
+	Evidence.StatusCode = 503;
+	TestEqual(TEXT("Rejected HTTP response stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::HttpResponseRejected);
+	Evidence.bRedirected = true;
+	TestEqual(TEXT("Disallowed redirect stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::RedirectRejected);
+	Evidence.bRedirected = false;
+	Evidence.bResponseTooLarge = true;
+	TestEqual(TEXT("Oversized response stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::ResponseTooLarge);
+
+	FOpenMobileDeviceEndpointRequestLimiter::ResetForTests();
+	TestTrue(TEXT("First request acquires a slot"), FOpenMobileDeviceEndpointRequestLimiter::TryAcquire(2));
+	TestTrue(TEXT("Second request acquires a slot"), FOpenMobileDeviceEndpointRequestLimiter::TryAcquire(2));
+	TestFalse(TEXT("Concurrency limit rejects excess request"), FOpenMobileDeviceEndpointRequestLimiter::TryAcquire(2));
+	FOpenMobileDeviceEndpointRequestLimiter::Release();
+	TestTrue(TEXT("Released slot can be reacquired"), FOpenMobileDeviceEndpointRequestLimiter::TryAcquire(2));
+	FOpenMobileDeviceEndpointRequestLimiter::Release();
+	FOpenMobileDeviceEndpointRequestLimiter::Release();
 	return true;
 }
 
@@ -2629,6 +2712,18 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->GetValidatedFallbackPollingIntervalSeconds(),
 		60.0f
 	);
+	const FIntProperty* EndpointConcurrencyProperty = FindFProperty<FIntProperty>(
+		UOpenMobileDeviceSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileDeviceSettings,
+			EndpointReachabilityMaximumConcurrentRequests
+		)
+	);
+	TestTrue(TEXT("Endpoint concurrency limit is serialized to config"), EndpointConcurrencyProperty && EndpointConcurrencyProperty->HasAnyPropertyFlags(CPF_Config));
+	Settings->EndpointReachabilityMaximumConcurrentRequests = 0;
+	TestEqual(TEXT("Endpoint concurrency has a safe minimum"), Settings->GetValidatedEndpointReachabilityMaximumConcurrentRequests(), 1);
+	Settings->EndpointReachabilityMaximumConcurrentRequests = 99;
+	TestEqual(TEXT("Endpoint concurrency has a safe maximum"), Settings->GetValidatedEndpointReachabilityMaximumConcurrentRequests(), 16);
 
 	const FString ConfigPath = FPaths::CreateTempFilename(
 		*FPaths::ProjectIntermediateDir(),
@@ -2640,6 +2735,7 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->LowStorageThresholdBytes = 768ll * 1024 * 1024;
 	Settings->LowStorageRecoveryHysteresisBytes = 96ll * 1024 * 1024;
 	Settings->LowStorageFallbackPollingIntervalSeconds = 45.0f;
+	Settings->EndpointReachabilityMaximumConcurrentRequests = 6;
 	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 	UOpenMobileDeviceSettings* Loaded = NewObject<UOpenMobileDeviceSettings>();
 	Loaded->LoadConfig(UOpenMobileDeviceSettings::StaticClass(), *ConfigPath);
@@ -2668,6 +2764,7 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		Loaded->LowStorageFallbackPollingIntervalSeconds,
 		45.0f
 	);
+	TestEqual(TEXT("Endpoint concurrency survives config serialization"), Loaded->EndpointReachabilityMaximumConcurrentRequests, 6);
 	return true;
 }
 
@@ -3228,6 +3325,11 @@ bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Async action exposes Success branch"), ActionClass->FindPropertyByName(TEXT("Success")));
 	TestNotNull(TEXT("Async action exposes Cancelled branch"), ActionClass->FindPropertyByName(TEXT("Cancelled")));
 	TestNotNull(TEXT("Async action exposes Failed branch"), ActionClass->FindPropertyByName(TEXT("Failed")));
+	const UClass* EndpointActionClass =
+		UOpenMobileDeviceEndpointReachabilityAsyncAction::StaticClass();
+	TestNotNull(TEXT("Endpoint action exposes typed completion"), EndpointActionClass->FindPropertyByName(TEXT("Completed")));
+	TestNotNull(TEXT("Endpoint action exposes typed result"), EndpointActionClass->FindPropertyByName(TEXT("Result")));
+	TestNotNull(TEXT("Endpoint action exposes Blueprint factory"), EndpointActionClass->FindFunctionByName(TEXT("TestEndpointReachability")));
 	int32 TerminalCount = 0;
 	EOpenMobileDeviceAsyncTerminalState LastState =
 		EOpenMobileDeviceAsyncTerminalState::Pending;

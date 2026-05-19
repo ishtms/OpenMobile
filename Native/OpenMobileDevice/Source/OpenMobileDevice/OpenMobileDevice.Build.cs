@@ -14,5 +14,11 @@ public class OpenMobileDevice : ModuleRules
 			"Engine",
 			"OpenMobileCore"
 		});
+
+		PrivateDependencyModuleNames.AddRange(new[]
+		{
+			"HTTP",
+			"Sockets"
+		});
 	}
 }

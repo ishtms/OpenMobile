@@ -7,6 +7,8 @@
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
+#include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"

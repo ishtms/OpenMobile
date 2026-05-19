@@ -124,6 +124,42 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("TickerHandle", subsystem)
 		self.assertNotIn("AddTicker", subsystem)
 
+	def test_endpoint_reachability_is_explicit_bounded_and_private(self) -> None:
+		action = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceEndpointReachabilityAsyncAction.cpp"
+		).read_text(encoding="utf-8")
+		header = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
+		).read_text(encoding="utf-8")
+		build_rules = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "OpenMobileDevice.Build.cs"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("UOpenMobileDeviceAsyncActionBase", header)
+		self.assertIn("GetAddressInfoAsync", action)
+		self.assertIn("CreateUniqueSocket", action)
+		self.assertIn("WaitForWrite", action)
+		self.assertIn("SetTimeout", action)
+		self.assertIn("SetActivityTimeout", action)
+		self.assertIn("SetResponseBodyReceiveStreamDelegateV2", action)
+		self.assertIn("MaximumConcurrentRequests", action)
+		self.assertIn("CancelNativeOperation", action)
+		self.assertNotIn("UE_LOG", action)
+		self.assertNotIn("GetContent", action)
+		self.assertIn('"HTTP"', build_rules)
+		self.assertIn('"Sockets"', build_rules)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

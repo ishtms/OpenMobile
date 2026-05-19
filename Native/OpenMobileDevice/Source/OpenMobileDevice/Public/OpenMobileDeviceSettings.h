@@ -94,6 +94,22 @@ public:
 	)
 	float FallbackPollingIntervalSeconds = 1.0f;
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Connectivity",
+		meta = (
+			ClampMin = "1",
+			ClampMax = "16",
+			UIMin = "1",
+			UIMax = "16",
+			DisplayName = "Maximum Concurrent Endpoint Tests",
+			ToolTip = "Maximum number of explicit endpoint-reachability requests allowed at once."
+		)
+	)
+	int32 EndpointReachabilityMaximumConcurrentRequests = 4;
+
 	float GetValidatedFallbackPollingIntervalSeconds() const
 	{
 		if (!FMath::IsFinite(FallbackPollingIntervalSeconds))
@@ -120,6 +136,15 @@ public:
 	static constexpr float GetDefaultFallbackPollingIntervalSeconds()
 	{
 		return 1.0f;
+	}
+
+	int32 GetValidatedEndpointReachabilityMaximumConcurrentRequests() const
+	{
+		return FMath::Clamp(
+			EndpointReachabilityMaximumConcurrentRequests,
+			1,
+			16
+		);
 	}
 
 	int64 ResolveLowStorageThresholdBytes(
