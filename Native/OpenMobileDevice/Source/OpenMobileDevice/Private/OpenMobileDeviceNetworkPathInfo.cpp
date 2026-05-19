@@ -70,6 +70,16 @@ FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildAndroid(
 			? TOptional<EOpenMobileNetworkTransport>()
 			: TOptional<EOpenMobileNetworkTransport>(Transports[0])
 	);
+	ApplyPolicyHints(
+		Snapshot,
+		Traits.bMeteredStateAvailable
+			? TOptional<bool>(Traits.bIsMetered)
+			: TOptional<bool>(),
+		TOptional<bool>(),
+		Traits.bConstrainedStateAvailable
+			? TOptional<bool>(Traits.bIsConstrained)
+			: TOptional<bool>()
+	);
 	if (!Traits.bQuerySucceeded)
 	{
 		return Snapshot;
@@ -145,6 +155,26 @@ void FOpenMobileDeviceNetworkPathInfo::ApplyTransports(
 		Snapshot.bDefaultTransportAvailable = true;
 		Snapshot.DefaultTransport = DefaultTransport.GetValue();
 	}
+}
+
+void FOpenMobileDeviceNetworkPathInfo::ApplyPolicyHints(
+	FOpenMobileNetworkPathSnapshot& Snapshot,
+	const TOptional<bool>& bIsMetered,
+	const TOptional<bool>& bIsExpensive,
+	const TOptional<bool>& bIsConstrained
+)
+{
+	Snapshot.bIsMetered = bIsMetered.IsSet()
+		? FOpenMobileDeviceOptionalBool::MakeAvailable(bIsMetered.GetValue())
+		: FOpenMobileDeviceOptionalBool();
+	Snapshot.bIsExpensive = bIsExpensive.IsSet()
+		? FOpenMobileDeviceOptionalBool::MakeAvailable(bIsExpensive.GetValue())
+		: FOpenMobileDeviceOptionalBool();
+	Snapshot.bIsConstrained = bIsConstrained.IsSet()
+		? FOpenMobileDeviceOptionalBool::MakeAvailable(
+			bIsConstrained.GetValue()
+		)
+		: FOpenMobileDeviceOptionalBool();
 }
 
 FOpenMobileNetworkPathSnapshot FOpenMobileDeviceNetworkPathInfo::BuildIOS(

@@ -56,13 +56,13 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceAndroidNetworkPathSnapshot()
 		Env->ExceptionClear();
 		return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
 	}
-	if (!Result || Env->GetArrayLength(*Result) != 9)
+	if (!Result || Env->GetArrayLength(*Result) != 13)
 	{
 		return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
 	}
 	TArray<FString> Values;
-	Values.Reserve(9);
-	for (jsize Index = 0; Index < 9; ++Index)
+	Values.Reserve(13);
+	for (jsize Index = 0; Index < 13; ++Index)
 	{
 		jstring Value = static_cast<jstring>(
 			Env->GetObjectArrayElement(*Result, Index)
@@ -75,8 +75,15 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceAndroidNetworkPathSnapshot()
 		Values.Add(FJavaHelper::FStringFromLocalRef(Env, Value));
 	}
 	using namespace OpenMobileDeviceAndroidNetworkPrivate;
-	bool ParsedValues[8] = {};
+	bool ParsedValues[13] = {};
 	for (int32 Index = 0; Index < 8; ++Index)
+	{
+		if (!ParseBoolean(Values[Index], ParsedValues[Index]))
+		{
+			return FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Traits);
+		}
+	}
+	for (int32 Index = 9; Index < 13; ++Index)
 	{
 		if (!ParseBoolean(Values[Index], ParsedValues[Index]))
 		{
@@ -92,6 +99,10 @@ FOpenMobileNetworkPathSnapshot GetOpenMobileDeviceAndroidNetworkPathSnapshot()
 	Traits.bCaptivePortal = ParsedValues[5];
 	Traits.bLocalNetwork = ParsedValues[6];
 	Traits.bRestricted = ParsedValues[7];
+	Traits.bMeteredStateAvailable = ParsedValues[9];
+	Traits.bIsMetered = ParsedValues[10];
+	Traits.bConstrainedStateAvailable = ParsedValues[11];
+	Traits.bIsConstrained = ParsedValues[12];
 	Traits.bTransportsAvailable = Traits.bCapabilitiesAvailable;
 	TArray<FString> TransportTypes;
 	Values[8].ParseIntoArray(TransportTypes, TEXT(","), true);

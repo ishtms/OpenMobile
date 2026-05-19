@@ -750,6 +750,9 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"NET_CAPABILITY_CAPTIVE_PORTAL",
 			"NET_CAPABILITY_LOCAL_NETWORK",
 			"NET_CAPABILITY_NOT_RESTRICTED",
+			"NET_CAPABILITY_NOT_METERED",
+			"NET_CAPABILITY_TEMPORARILY_NOT_METERED",
+			"notBandwidthConstrainedCapability = 37",
 			"hasTransport(type)",
 			"TRANSPORT_CELLULAR",
 			"TRANSPORT_WIFI",
@@ -782,6 +785,8 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ParseBoolean", android_network)
 		self.assertIn("BuildAndroid", android_network)
 		self.assertIn("ParseIntoArray", android_network)
+		self.assertIn("bMeteredStateAvailable", android_network)
+		self.assertIn("bConstrainedStateAvailable", android_network)
 		self.assertNotIn("FHttpModule", android_network)
 
 		ios_network = (
@@ -800,6 +805,9 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"EOpenMobileNetworkTransport::Wifi",
 			"EOpenMobileNetworkTransport::Cellular",
 			"EOpenMobileNetworkTransport::Ethernet",
+			"GetNetworkConnectionCharacteristics",
+			"Policy.bIsExpensive",
+			"Policy.bIsConstrained",
 		):
 			self.assertIn(token, ios_network)
 		for forbidden in ("CreateWithName", "NSURLSession", "FHttpModule"):

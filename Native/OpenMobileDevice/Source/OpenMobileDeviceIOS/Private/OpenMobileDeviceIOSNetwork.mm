@@ -49,6 +49,17 @@ namespace OpenMobileDeviceIOSNetworkPrivate
 				? TOptional<EOpenMobileNetworkTransport>(Transport)
 				: TOptional<EOpenMobileNetworkTransport>()
 		);
+		if (Snapshot.PathState != EOpenMobileNetworkPathState::Unknown)
+		{
+			const FPlatformMisc::FNetworkConnectionCharacteristics Policy =
+				FPlatformMisc::GetNetworkConnectionCharacteristics();
+			FOpenMobileDeviceNetworkPathInfo::ApplyPolicyHints(
+				Snapshot,
+				TOptional<bool>(),
+				TOptional<bool>(Policy.bIsExpensive),
+				TOptional<bool>(Policy.bIsConstrained)
+			);
+		}
 	}
 
 	FOpenMobileNetworkPathSnapshot BuildSnapshot(

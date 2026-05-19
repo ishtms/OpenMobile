@@ -995,6 +995,76 @@ bool FOpenMobileDeviceNetworkPathStateTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceNetworkPolicyHintsTest,
+	"OpenMobile.Device.Network.PolicyHints",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceNetworkPolicyHintsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceAndroidNetworkPathTraits Android;
+	Android.bQuerySucceeded = true;
+	Android.bHasActiveNetwork = true;
+	Android.bCapabilitiesAvailable = true;
+	Android.bTransportsAvailable = true;
+	Android.NativeTransportTypes = {0};
+	Android.bMeteredStateAvailable = true;
+	Android.bIsMetered = true;
+	const FOpenMobileNetworkPathSnapshot Cellular =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestTrue(TEXT("Android metered hint is available"), Cellular.bIsMetered.bIsAvailable);
+	TestTrue(TEXT("Cellular fixture remains metered"), Cellular.bIsMetered.Value);
+	TestFalse(TEXT("Android does not collapse metered into expensive"), Cellular.bIsExpensive.bIsAvailable);
+	TestFalse(TEXT("Older Android constrained state stays unknown"), Cellular.bIsConstrained.bIsAvailable);
+
+	Android.NativeTransportTypes = {1};
+	Android.bConstrainedStateAvailable = true;
+	Android.bIsConstrained = true;
+	const FOpenMobileNetworkPathSnapshot MeteredWifi =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("Metered Wi-Fi remains Wi-Fi"), MeteredWifi.DefaultTransport, EOpenMobileNetworkTransport::Wifi);
+	TestTrue(TEXT("Metered Wi-Fi retains its policy hint"), MeteredWifi.bIsMetered.Value);
+	TestTrue(TEXT("Android bandwidth constraint is independent"), MeteredWifi.bIsConstrained.Value);
+
+	Android.NativeTransportTypes = {4, 1};
+	Android.bIsMetered = false;
+	Android.bIsConstrained = false;
+	const FOpenMobileNetworkPathSnapshot VPN =
+		FOpenMobileDeviceNetworkPathInfo::BuildAndroid(Android);
+	TestEqual(TEXT("VPN remains the default transport"), VPN.DefaultTransport, EOpenMobileNetworkTransport::VPN);
+	TestFalse(TEXT("VPN metered hint follows active capabilities"), VPN.bIsMetered.Value);
+	TestFalse(TEXT("Runtime constrained change is retained"), VPN.bIsConstrained.Value);
+
+	FOpenMobileNetworkPathSnapshot IOS =
+		FOpenMobileDeviceNetworkPathInfo::BuildIOS(
+			EOpenMobileDeviceIOSPathStatus::Satisfied
+		);
+	FOpenMobileDeviceNetworkPathInfo::ApplyPolicyHints(
+		IOS,
+		TOptional<bool>(),
+		TOptional<bool>(true),
+		TOptional<bool>(true)
+	);
+	TestFalse(TEXT("iOS metered hint stays unknown"), IOS.bIsMetered.bIsAvailable);
+	TestTrue(TEXT("iOS expensive hint is available"), IOS.bIsExpensive.bIsAvailable);
+	TestTrue(TEXT("Cellular or hotspot fixture is expensive"), IOS.bIsExpensive.Value);
+	TestTrue(TEXT("Low Data Mode fixture is constrained"), IOS.bIsConstrained.Value);
+
+	FOpenMobileDeviceNetworkPathInfo::ApplyPolicyHints(
+		IOS,
+		TOptional<bool>(),
+		TOptional<bool>(false),
+		TOptional<bool>(false)
+	);
+	TestFalse(TEXT("Policy runtime change clears expensive"), IOS.bIsExpensive.Value);
+	TestFalse(TEXT("Policy runtime change clears constrained"), IOS.bIsConstrained.Value);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceEmulatorDetectionTest,
 	"OpenMobile.Device.Environment.EmulatorDetection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

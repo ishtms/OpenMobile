@@ -298,7 +298,8 @@
 				return new String[] {
 					Boolean.toString(active),
 					"false", "false", "false",
-					"false", "false", "false", "false", ""
+					"false", "false", "false", "false", "",
+					"false", "false", "false", "false"
 				};
 			}
 			android.net.Network network = manager.getActiveNetwork();
@@ -307,7 +308,8 @@
 				return new String[] {
 					"false", "false", "false", "false",
 					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
-					"false", "false", "false", ""
+					"false", "false", "false", "",
+					"false", "false", "false", "false"
 				};
 			}
 			android.net.NetworkCapabilities capabilities =
@@ -317,13 +319,28 @@
 				return new String[] {
 					"true", "false", "false", "false",
 					Boolean.toString(android.os.Build.VERSION.SDK_INT >= 23),
-					"false", "false", "false", ""
+					"false", "false", "false", "",
+					"false", "false", "false", "false"
 				};
 			}
 			boolean captiveSupported = android.os.Build.VERSION.SDK_INT >= 23;
 			boolean local = android.os.Build.VERSION.SDK_INT >= 35
 				&& capabilities.hasCapability(
 					android.net.NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK
+				);
+			boolean temporarilyNotMetered =
+				android.os.Build.VERSION.SDK_INT >= 30
+				&& capabilities.hasCapability(
+					android.net.NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED
+				);
+			boolean metered = !capabilities.hasCapability(
+				android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+			) && !temporarilyNotMetered;
+			boolean constrainedAvailable = android.os.Build.VERSION.SDK_INT >= 36;
+			final int notBandwidthConstrainedCapability = 37;
+			boolean constrained = constrainedAvailable
+				&& !capabilities.hasCapability(
+					notBandwidthConstrainedCapability
 				);
 			return new String[] {
 				"true",
@@ -343,7 +360,11 @@
 				Boolean.toString(!capabilities.hasCapability(
 					android.net.NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED
 				)),
-				AndroidThunkJava_OpenMobileDeviceGetTransportTypes(capabilities)
+				AndroidThunkJava_OpenMobileDeviceGetTransportTypes(capabilities),
+				"true",
+				Boolean.toString(metered),
+				Boolean.toString(constrainedAvailable),
+				Boolean.toString(constrained)
 			};
 		}
 		catch (RuntimeException ignored)

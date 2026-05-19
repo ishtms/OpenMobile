@@ -15,6 +15,10 @@ struct OPENMOBILEDEVICE_API FOpenMobileDeviceAndroidNetworkPathTraits
 	bool bRestricted = false;
 	bool bTransportsAvailable = false;
 	TArray<int32> NativeTransportTypes;
+	bool bMeteredStateAvailable = false;
+	bool bIsMetered = false;
+	bool bConstrainedStateAvailable = false;
+	bool bIsConstrained = false;
 };
 
 enum class EOpenMobileDeviceIOSPathStatus : uint8
@@ -39,5 +43,11 @@ public:
 		bool bTransportsAvailable,
 		const TArray<EOpenMobileNetworkTransport>& Transports,
 		const TOptional<EOpenMobileNetworkTransport>& DefaultTransport
+	);
+	static void ApplyPolicyHints(
+		FOpenMobileNetworkPathSnapshot& Snapshot,
+		const TOptional<bool>& bIsMetered,
+		const TOptional<bool>& bIsExpensive,
+		const TOptional<bool>& bIsConstrained
 	);
 };
