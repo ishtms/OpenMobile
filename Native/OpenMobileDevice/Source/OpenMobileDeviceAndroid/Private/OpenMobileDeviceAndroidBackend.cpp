@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidBattery.h"
+#include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
@@ -29,6 +30,7 @@ FOpenMobileCapability FOpenMobileDeviceAndroidBackend::GetDomainCapability(
 		|| Domain == EOpenMobileDeviceBackendDomain::Environment
 		|| Domain == EOpenMobileDeviceBackendDomain::Power
 		|| Domain == EOpenMobileDeviceBackendDomain::Connectivity
+		|| Domain == EOpenMobileDeviceBackendDomain::Display
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
 		: EOpenMobileCapabilityState::NotSupported;
@@ -39,6 +41,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::WindowMetrics)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports the active native window, drawable surface, density, display, and multi-window state without using physical panel dimensions.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -184,6 +195,12 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		return Capability;
 	}
 	return IOpenMobileDeviceBackend::GetCapability(CapabilityName);
+}
+
+FOpenMobileWindowDisplaySnapshot
+FOpenMobileDeviceAndroidBackend::GetWindowDisplaySnapshot() const
+{
+	return GetOpenMobileDeviceAndroidWindowDisplaySnapshot();
 }
 
 FOpenMobileDeviceInformationSnapshot

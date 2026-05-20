@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSBattery.h"
+#include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDeviceIOSLocale.h"
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
@@ -27,6 +28,7 @@ FOpenMobileCapability FOpenMobileDeviceIOSBackend::GetDomainCapability(
 		|| Domain == EOpenMobileDeviceBackendDomain::Environment
 		|| Domain == EOpenMobileDeviceBackendDomain::Power
 		|| Domain == EOpenMobileDeviceBackendDomain::Connectivity
+		|| Domain == EOpenMobileDeviceBackendDomain::Display
 		|| Domain == EOpenMobileDeviceBackendDomain::Utility
 		? EOpenMobileCapabilityState::Available
 		: EOpenMobileCapabilityState::NotSupported;
@@ -37,6 +39,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	FName CapabilityName
 ) const
 {
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::WindowMetrics)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports the active Unreal view, drawable size, native scale, current screen, and windowed state. Physical DPI is unavailable.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -180,6 +191,12 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		return Capability;
 	}
 	return IOpenMobileDeviceBackend::GetCapability(CapabilityName);
+}
+
+FOpenMobileWindowDisplaySnapshot
+FOpenMobileDeviceIOSBackend::GetWindowDisplaySnapshot() const
+{
+	return GetOpenMobileDeviceIOSWindowDisplaySnapshot();
 }
 
 FOpenMobileDeviceInformationSnapshot

@@ -160,6 +160,44 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn('"HTTP"', build_rules)
 		self.assertIn('"Sockets"', build_rules)
 
+	def test_window_metrics_use_the_active_platform_window(self) -> None:
+		android = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"GetNativeWindowResolution",
+			"screenWidthDp",
+			"screenHeightDp",
+			"densityDpi",
+			"getDisplayId",
+			"isInMultiWindowMode",
+		):
+			self.assertIn(token, android)
+		self.assertNotIn("widthPixels", android)
+
+		for token in (
+			"IOSView",
+			"View.bounds",
+			"View.ViewSize",
+			"View.window.screen",
+			"contentScaleFactor",
+			"windowScene",
+		):
+			self.assertIn(token, ios)
+		self.assertNotIn("mainScreen", ios)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

@@ -45,6 +45,7 @@
 #include "OpenMobileDeviceSubsystem.h"
 #include "OpenMobileDeviceTimeZoneInfo.h"
 #include "OpenMobileDeviceThermalHeadroom.h"
+#include "OpenMobileDeviceWindowMetrics.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "UObject/UnrealType.h"
@@ -1214,6 +1215,66 @@ bool FOpenMobileDeviceEndpointReachabilityPolicyTest::RunTest(
 	TestTrue(TEXT("Released slot can be reacquired"), FOpenMobileDeviceEndpointRequestLimiter::TryAcquire(2));
 	FOpenMobileDeviceEndpointRequestLimiter::Release();
 	FOpenMobileDeviceEndpointRequestLimiter::Release();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceWindowMetricsTest,
+	"OpenMobile.Device.Display.WindowMetrics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceWindowMetricsEvidence Evidence;
+	Evidence.LogicalWindowSize = FVector2D(400.0, 800.0);
+	Evidence.DrawablePixelSize = FIntPoint(1080, 2160);
+	Evidence.ScaleFactor = 2.7f;
+	Evidence.DensityDpi = 440.0f;
+	Evidence.ScreenIdentifier = TEXT(" display-1 ");
+	Evidence.bIsWindowed = true;
+	const FOpenMobileWindowDisplaySnapshot Snapshot =
+		FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	TestTrue(TEXT("Logical window size is available"), Snapshot.bLogicalWindowSizeAvailable);
+	TestEqual(TEXT("Logical width stays in window units"), Snapshot.LogicalWindowSize.X, 400.0);
+	TestEqual(TEXT("Logical height stays in window units"), Snapshot.LogicalWindowSize.Y, 800.0);
+	TestTrue(TEXT("Drawable pixel size is available"), Snapshot.bDrawablePixelSizeAvailable);
+	TestEqual(TEXT("Drawable width stays in pixels"), Snapshot.DrawablePixelSize.X, 1080);
+	TestEqual(TEXT("Drawable height stays in pixels"), Snapshot.DrawablePixelSize.Y, 2160);
+	TestTrue(TEXT("Scale factor is available"), Snapshot.ScaleFactor.bIsAvailable);
+	TestEqual(TEXT("Scale factor is retained"), Snapshot.ScaleFactor.Value, 2.7f);
+	TestTrue(TEXT("Density is available"), Snapshot.DensityDpi.bIsAvailable);
+	TestEqual(TEXT("Density is retained"), Snapshot.DensityDpi.Value, 440.0f);
+	TestEqual(TEXT("Screen identifier is trimmed"), Snapshot.CurrentScreenIdentifier.Value, FString(TEXT("display-1")));
+	TestTrue(TEXT("Windowed state is available"), Snapshot.bIsWindowed.bIsAvailable);
+	TestTrue(TEXT("Windowed state is retained"), Snapshot.bIsWindowed.Value);
+	Evidence.LogicalWindowSize = FVector2D(1024.0, 600.0);
+	Evidence.ScreenIdentifier = TEXT("external-2");
+	Evidence.bIsWindowed = false;
+	const FOpenMobileWindowDisplaySnapshot Landscape =
+		FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	TestTrue(TEXT("Landscape window remains available"), Landscape.bLogicalWindowSizeAvailable);
+	TestTrue(TEXT("Landscape dimensions are not transposed"), Landscape.LogicalWindowSize.X > Landscape.LogicalWindowSize.Y);
+	TestEqual(TEXT("Current external screen is retained"), Landscape.CurrentScreenIdentifier.Value, FString(TEXT("external-2")));
+	TestFalse(TEXT("Full-screen state is retained"), Landscape.bIsWindowed.Value);
+
+	Evidence.LogicalWindowSize = FVector2D(0.0, 800.0);
+	Evidence.DrawablePixelSize = FIntPoint(-1, 2160);
+	Evidence.ScaleFactor = std::numeric_limits<float>::quiet_NaN();
+	Evidence.DensityDpi = -1.0f;
+	Evidence.ScreenIdentifier = TEXT("  ");
+	const FOpenMobileWindowDisplaySnapshot Invalid =
+		FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	TestFalse(TEXT("Invalid logical size stays unavailable"), Invalid.bLogicalWindowSizeAvailable);
+	TestFalse(TEXT("Invalid drawable size stays unavailable"), Invalid.bDrawablePixelSizeAvailable);
+	TestFalse(TEXT("Invalid scale stays unavailable"), Invalid.ScaleFactor.bIsAvailable);
+	TestFalse(TEXT("Invalid density stays unavailable"), Invalid.DensityDpi.bIsAvailable);
+	TestFalse(TEXT("Empty screen identifier stays unavailable"), Invalid.CurrentScreenIdentifier.bIsAvailable);
+	const FOpenMobileWindowDisplaySnapshot Startup =
+		FOpenMobileDeviceWindowMetrics::Build({});
+	TestFalse(TEXT("Zero-size startup stays unavailable"), Startup.bLogicalWindowSizeAvailable);
+	TestFalse(TEXT("Unsupported editor drawable stays unavailable"), Startup.bDrawablePixelSizeAvailable);
 	return true;
 }
 

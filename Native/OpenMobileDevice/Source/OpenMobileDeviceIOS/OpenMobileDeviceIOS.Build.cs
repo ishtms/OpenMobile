@@ -8,6 +8,7 @@ public class OpenMobileDeviceIOS : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"ApplicationCore",
 			"Core",
 			"OpenMobileDevice"
 		});

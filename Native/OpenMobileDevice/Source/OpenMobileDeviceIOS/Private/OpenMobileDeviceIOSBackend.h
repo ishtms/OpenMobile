@@ -23,6 +23,8 @@ public:
 	) const override;
 	virtual FOpenMobileMemorySnapshot GetMemorySnapshot() const override;
 	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const override;
+	virtual FOpenMobileWindowDisplaySnapshot
+	GetWindowDisplaySnapshot() const override;
 	virtual bool QueryStorageSnapshot(
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError
