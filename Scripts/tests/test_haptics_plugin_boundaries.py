@@ -1,0 +1,173 @@
+import json
+import unittest
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CORE_PLUGIN = REPOSITORY_ROOT / "Foundation" / "OpenMobileCore"
+HAPTICS_PLUGIN = REPOSITORY_ROOT / "Native" / "OpenMobileHaptics"
+
+
+def load_descriptor() -> dict:
+	with (HAPTICS_PLUGIN / "OpenMobileHaptics.uplugin").open(
+		encoding="utf-8"
+	) as file:
+		return json.load(file)
+
+
+class HapticsPluginBoundaryTests(unittest.TestCase):
+	def test_plugin_is_independently_enabled(self) -> None:
+		self.assertTrue((HAPTICS_PLUGIN / "OpenMobileHaptics.uplugin").is_file())
+
+		parent = HAPTICS_PLUGIN.parent
+		while parent != REPOSITORY_ROOT:
+			self.assertEqual([], list(parent.glob("*.uplugin")), str(parent))
+			parent = parent.parent
+
+	def test_modules_match_runtime_platform_and_editor_boundaries(self) -> None:
+		modules = {module["Name"]: module for module in load_descriptor()["Modules"]}
+
+		self.assertEqual(
+			{
+				"OpenMobileHaptics",
+				"OpenMobileHapticsAndroid",
+				"OpenMobileHapticsIOS",
+				"OpenMobileHapticsEditor",
+			},
+			set(modules),
+		)
+		self.assertEqual("Runtime", modules["OpenMobileHaptics"]["Type"])
+		self.assertNotIn("PlatformAllowList", modules["OpenMobileHaptics"])
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileHapticsAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileHapticsIOS"]["PlatformAllowList"],
+		)
+		self.assertEqual("Editor", modules["OpenMobileHapticsEditor"]["Type"])
+
+		for module_name in modules:
+			module_root = HAPTICS_PLUGIN / "Source" / module_name
+			self.assertTrue((module_root / f"{module_name}.Build.cs").is_file())
+			self.assertTrue(
+				(module_root / "Private" / f"{module_name}Module.cpp").is_file()
+			)
+
+	def test_core_dependency_is_declared_and_remains_one_way(self) -> None:
+		descriptor_dependencies = {
+			plugin["Name"] for plugin in load_descriptor().get("Plugins", [])
+		}
+		self.assertEqual({"OpenMobileCore"}, descriptor_dependencies)
+
+		build_rules = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "OpenMobileHaptics.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertIn('"OpenMobileCore"', build_rules)
+
+		for path in CORE_PLUGIN.rglob("*"):
+			if not path.is_file() or path.suffix not in {
+				".cs",
+				".cpp",
+				".h",
+				".uplugin",
+			}:
+				continue
+			self.assertNotIn(
+				"OpenMobileHaptics",
+				path.read_text(encoding="utf-8"),
+				str(path),
+			)
+
+	def test_common_runtime_is_platform_neutral_and_headless(self) -> None:
+		common_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		for path in common_module.rglob("*"):
+			if not path.is_file() or path.suffix not in {".cs", ".cpp", ".h"}:
+				continue
+			contents = path.read_text(encoding="utf-8")
+			for forbidden_token in (
+				"Android/",
+				"AndroidJNI",
+				"JNIEnv",
+				"jni.h",
+				"CoreHaptics/",
+				"UIKit/",
+				"CHHaptic",
+				"UMG",
+				"GameplayAbilities",
+				"MovieScene",
+				"Slate",
+				"UnrealEd",
+			):
+				self.assertNotIn(forbidden_token, contents, str(path))
+
+	def test_platform_and_gamepad_code_cannot_cross_boundaries(self) -> None:
+		android_tokens = (
+			"AndroidJNI",
+			"JNIEnv",
+			"jni.h",
+			"GameActivity",
+			"VibrationEffect",
+		)
+		ios_tokens = (
+			"CoreHaptics/",
+			"UIKit/",
+			"CHHaptic",
+			"UIFeedbackGenerator",
+		)
+		gamepad_tokens = (
+			"FForceFeedback",
+			"IInputInterface",
+			"SetForceFeedbackChannelValue",
+			"SetForceFeedbackChannelValues",
+		)
+
+		for path in (HAPTICS_PLUGIN / "Source").rglob("*"):
+			if not path.is_file() or path.suffix not in {
+				".cs",
+				".cpp",
+				".h",
+				".java",
+				".kt",
+				".mm",
+				".xml",
+			}:
+				continue
+			contents = path.read_text(encoding="utf-8")
+			relative_path = path.relative_to(HAPTICS_PLUGIN / "Source")
+			if path.suffix in {".java", ".kt", ".xml"}:
+				self.assertEqual("OpenMobileHapticsAndroid", relative_path.parts[0])
+			if path.suffix == ".mm":
+				self.assertEqual("OpenMobileHapticsIOS", relative_path.parts[0])
+			if any(token in contents for token in android_tokens):
+				self.assertEqual("OpenMobileHapticsAndroid", relative_path.parts[0])
+			if any(token in contents for token in ios_tokens):
+				self.assertEqual("OpenMobileHapticsIOS", relative_path.parts[0])
+			for token in gamepad_tokens:
+				self.assertNotIn(token, contents, str(path))
+
+	def test_base_plugin_has_no_optional_integration_dependencies(self) -> None:
+		for build_rules in (HAPTICS_PLUGIN / "Source").glob("*/*.Build.cs"):
+			contents = build_rules.read_text(encoding="utf-8")
+			for forbidden_dependency in (
+				"EnhancedInput",
+				"GameplayAbilities",
+				"InputCore",
+				"InputDevice",
+				"MovieScene",
+				"OpenMobileAds",
+				"OpenMobileDevice",
+				"OpenMobileMedia",
+				"OpenMobileSensors",
+				"SlateCore",
+				"UMG",
+			):
+				self.assertNotIn(forbidden_dependency, contents, str(build_rules))
+
+
+if __name__ == "__main__":
+	unittest.main()

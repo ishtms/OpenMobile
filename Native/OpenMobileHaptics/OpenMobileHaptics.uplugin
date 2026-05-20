@@ -1,0 +1,43 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Haptics",
+	"Description": "Portable phone vibration and tactile feedback for Android and iOS.",
+	"Category": "OpenMobile",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": true,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenMobileHaptics",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileHapticsAndroid",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["Android"]
+		},
+		{
+			"Name": "OpenMobileHapticsIOS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["IOS"]
+		},
+		{
+			"Name": "OpenMobileHapticsEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		}
+	]
+}
