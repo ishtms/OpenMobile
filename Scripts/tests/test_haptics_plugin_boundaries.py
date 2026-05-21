@@ -83,6 +83,19 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 				str(path),
 			)
 
+	def test_core_contains_no_haptics_specific_contract(self) -> None:
+		for path in (CORE_PLUGIN / "Source").rglob("*"):
+			if not path.is_file() or path.suffix not in {".cs", ".cpp", ".h"}:
+				continue
+			contents = path.read_text(encoding="utf-8")
+			for forbidden_token in (
+				"AHAP",
+				"Haptic",
+				"PlaybackHandle",
+				"Vibration",
+			):
+				self.assertNotIn(forbidden_token, contents, str(path))
+
 	def test_common_runtime_is_platform_neutral_and_headless(self) -> None:
 		common_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
 		for path in common_module.rglob("*"):
