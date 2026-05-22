@@ -204,6 +204,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		for public_contract in (
 			"OpenMobileHapticsAsyncAction.h",
 			"OpenMobileHapticsNative.h",
+			"OpenMobileHapticsSettings.h",
 			"OpenMobileHapticsSubsystem.h",
 			"OpenMobileHapticsTypes.h",
 		):

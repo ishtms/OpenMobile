@@ -10,6 +10,7 @@ public class OpenMobileHaptics : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"OpenMobileCore"
 		});

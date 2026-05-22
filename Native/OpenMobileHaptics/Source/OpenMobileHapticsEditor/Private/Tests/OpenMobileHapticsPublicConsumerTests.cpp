@@ -25,6 +25,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	FOpenMobileHapticPlaybackEvent PlaybackEvent;
 	FOpenMobileHapticUserPolicy Policy;
 	FOpenMobileHapticsDiagnostics Diagnostics;
+	UOpenMobileHapticsSettings* Settings = nullptr;
 	static_cast<void>(Capabilities);
 	static_cast<void>(SemanticRequest);
 	static_cast<void>(OneShotRequest);
@@ -36,6 +37,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	static_cast<void>(PlaybackEvent);
 	static_cast<void>(Policy);
 	static_cast<void>(Diagnostics);
+	static_cast<void>(Settings);
 
 	using FNativeSemanticSubmit = FOpenMobileHapticPlaybackResult (
 		IOpenMobileHaptics::*

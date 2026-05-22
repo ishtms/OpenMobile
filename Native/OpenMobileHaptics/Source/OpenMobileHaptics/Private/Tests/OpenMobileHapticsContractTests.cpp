@@ -3,8 +3,11 @@
 #include <limits>
 
 #include "Engine/GameInstance.h"
+#include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Paths.h"
 #include "OpenMobileHapticsAsyncAction.h"
+#include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "OpenMobileHapticsTypes.h"
 #include "UObject/UnrealType.h"
@@ -55,6 +58,185 @@ bool FOpenMobileHapticsTypeDefaultsTest::RunTest(const FString& Parameters)
 	const FOpenMobileHapticUserPolicy Policy;
 	TestTrue(TEXT("Haptics are enabled by default"), Policy.bEnabled);
 	TestEqual(TEXT("Master intensity defaults to one"), Policy.MasterIntensity, 1.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsSettingsContractTest,
+	"OpenMobile.Haptics.Settings.Contract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticsSettings* Settings =
+		NewObject<UOpenMobileHapticsSettings>();
+	TestEqual(
+		TEXT("Haptics settings use the OpenMobile category"),
+		Settings->GetCategoryName(),
+		FName(TEXT("OpenMobile"))
+	);
+	TestEqual(
+		TEXT("Haptics settings keep their own section"),
+		Settings->GetSectionName(),
+		FName(TEXT("OpenMobile Haptics"))
+	);
+#if WITH_METADATA
+	TestEqual(
+		TEXT("Haptics display name matches its section"),
+		Settings->GetClass()->GetMetaData(TEXT("DisplayName")),
+		FString(TEXT("OpenMobile Haptics"))
+	);
+#endif
+	TestTrue(
+		TEXT("Haptics settings use default config"),
+		Settings->GetClass()->HasAnyClassFlags(CLASS_DefaultConfig)
+	);
+	const FFloatProperty* IntensityProperty = FindFProperty<FFloatProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileHapticsSettings,
+			DefaultMasterIntensity
+		)
+	);
+	TestTrue(
+		TEXT("Master intensity is serialized to config"),
+		IntensityProperty && IntensityProperty->HasAnyPropertyFlags(CPF_Config)
+	);
+	TestTrue(TEXT("Haptics are enabled by default"), Settings->bEnabledByDefault);
+	TestEqual(
+		TEXT("Default project intensity is one"),
+		Settings->DefaultMasterIntensity,
+		1.0f
+	);
+	TestEqual(TEXT("Five default channels are present"), Settings->Channels.Num(), 5);
+	TestEqual(
+		TEXT("Default channel is Gameplay"),
+		Settings->DefaultChannel,
+		FName(TEXT("Gameplay"))
+	);
+	TestTrue(
+		TEXT("Custom Android vibration packaging is enabled by default"),
+		Settings->Android.bPackageCustomVibration
+	);
+
+	TArray<FString> Errors;
+	TestTrue(TEXT("Default settings validate"), Settings->Validate(Errors));
+	TestTrue(TEXT("Default validation has no errors"), Errors.IsEmpty());
+
+	Settings->DefaultMasterIntensity =
+		std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("Nonfinite intensity is invalid"), Settings->Validate(Errors));
+	Settings->DefaultMasterIntensity = 1.0f;
+
+	FOpenMobileHapticChannelSettings DuplicateChannel = Settings->Channels[0];
+	DuplicateChannel.Name = TEXT("ui");
+	Settings->Channels.Add(DuplicateChannel);
+	TestFalse(TEXT("Case-conflicting channels are invalid"), Settings->Validate(Errors));
+	Settings->Channels.Pop();
+
+	FOpenMobileHapticEffectSettings Effect;
+	Effect.Name = TEXT("Confirm");
+	Settings->EffectOverrides = {Effect, Effect};
+	TestFalse(TEXT("Duplicate effects are invalid"), Settings->Validate(Errors));
+	Settings->EffectOverrides.Reset();
+
+	FOpenMobileHapticNamedLibrarySettings MissingLibrary;
+	MissingLibrary.Name = TEXT("Missing");
+	MissingLibrary.Asset = FSoftObjectPath(TEXT("/Game/Haptics/Missing.Missing"));
+	Settings->NamedLibraries.Add(MissingLibrary);
+	TestFalse(TEXT("Missing library assets are invalid"), Settings->Validate(Errors));
+	Settings->NamedLibraries.Reset();
+
+	Settings->MaximumFiniteRepeatCount = 0;
+	TestFalse(TEXT("Zero loop limit is invalid"), Settings->Validate(Errors));
+	Settings->MaximumFiniteRepeatCount = 32;
+
+	Settings->BackgroundPolicy =
+		EOpenMobileHapticBackgroundPolicy::AllowAll;
+	TestFalse(TEXT("Unrestricted background haptics are invalid"), Settings->Validate(Errors));
+	Settings->BackgroundPolicy = EOpenMobileHapticBackgroundPolicy::StopAll;
+
+	Settings->bEnableCustomPlayback = false;
+	TestFalse(TEXT("Disabled custom playback cannot package Android vibration"), Settings->Validate(Errors));
+	Settings->Android.bPackageCustomVibration = false;
+	Settings->IOS.bEnableCoreHaptics = false;
+	TestFalse(TEXT("Disabled Core Haptics cannot package AHAP"), Settings->Validate(Errors));
+	Settings->IOS.bPackageAHAPResources = false;
+	TestTrue(TEXT("Semantic-only platform settings validate"), Settings->Validate(Errors));
+
+	const FString ConfigPath = FPaths::CreateTempFilename(
+		*FPaths::ProjectIntermediateDir(),
+		TEXT("OpenMobileHapticsSettings"),
+		TEXT(".ini")
+	);
+	Settings->bEnabledByDefault = false;
+	Settings->DefaultMasterIntensity = 0.75f;
+	Settings->DefaultChannel = TEXT("UI");
+	Settings->MaximumQueuedHandles = 12;
+	Settings->SelectionDebounceSeconds = 0.06f;
+	Settings->Channels[0].IntensityScale = 0.6f;
+	Effect.IntensityScale = 0.8f;
+	Settings->EffectOverrides.Add(Effect);
+	Settings->NamedLibraries.Add(MissingLibrary);
+	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
+	UOpenMobileHapticsSettings* Loaded =
+		NewObject<UOpenMobileHapticsSettings>();
+	Loaded->LoadConfig(UOpenMobileHapticsSettings::StaticClass(), *ConfigPath);
+	IFileManager::Get().Delete(*ConfigPath, false, true, true);
+	TestFalse(
+		TEXT("Enable default survives editor restart serialization"),
+		Loaded->bEnabledByDefault
+	);
+	TestEqual(
+		TEXT("Master intensity survives editor restart serialization"),
+		Loaded->DefaultMasterIntensity,
+		0.75f
+	);
+	TestEqual(
+		TEXT("Default channel survives editor restart serialization"),
+		Loaded->DefaultChannel,
+		FName(TEXT("UI"))
+	);
+	TestEqual(
+		TEXT("Queue limit survives editor restart serialization"),
+		Loaded->MaximumQueuedHandles,
+		12
+	);
+	TestEqual(
+		TEXT("Rate limit survives editor restart serialization"),
+		Loaded->SelectionDebounceSeconds,
+		0.06f
+	);
+	TestFalse(
+		TEXT("Android packaging override survives serialization"),
+		Loaded->Android.bPackageCustomVibration
+	);
+	TestFalse(
+		TEXT("Apple engine override survives serialization"),
+		Loaded->IOS.bEnableCoreHaptics
+	);
+	TestEqual(
+		TEXT("Channel defaults are not duplicated during reload"),
+		Loaded->Channels.Num(),
+		5
+	);
+	TestEqual(
+		TEXT("Nested channel settings survive serialization"),
+		Loaded->Channels[0].IntensityScale,
+		0.6f
+	);
+	TestEqual(
+		TEXT("Effect overrides survive serialization"),
+		Loaded->EffectOverrides.Num(),
+		1
+	);
+	TestEqual(
+		TEXT("Named library paths survive serialization"),
+		Loaded->NamedLibraries[0].Asset,
+		MissingLibrary.Asset
+	);
 	return true;
 }
 
