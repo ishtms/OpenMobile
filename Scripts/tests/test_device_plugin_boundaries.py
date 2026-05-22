@@ -198,6 +198,42 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn(token, ios)
 		self.assertNotIn("mainScreen", ios)
 
+	def test_refresh_rate_information_preserves_mode_constraints(self) -> None:
+		android = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+		display_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceDisplayTypes.h"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"getRefreshRate",
+			"getSupportedModes",
+			"getPhysicalWidth",
+			"getPhysicalHeight",
+			"getAlternativeRefreshRates",
+		):
+			self.assertIn(token, android)
+		self.assertIn("maximumFramesPerSecond", ios)
+		self.assertNotIn("GetFramePace", ios)
+		self.assertIn("SupportedRefreshModes", display_types)
+		self.assertIn("bVariableRefreshRateSupported", display_types)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

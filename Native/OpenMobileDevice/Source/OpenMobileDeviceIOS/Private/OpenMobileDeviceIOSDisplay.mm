@@ -2,6 +2,7 @@
 
 #include "IOS/IOSAppDelegate.h"
 #include "IOS/IOSView.h"
+#include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 
 #import <UIKit/UIKit.h>
@@ -11,6 +12,7 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 	@autoreleasepool
 	{
 		__block FOpenMobileDeviceWindowMetricsEvidence Evidence;
+		__block FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
 		void (^CaptureMetrics)(void) = ^{
 			FIOSView* View = [IOSAppDelegate GetDelegate].IOSView;
 			if (View == nil)
@@ -32,6 +34,8 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 			UIScreen* Screen = View.window.screen;
 			if (Screen != nil)
 			{
+				RefreshRateEvidence.MaximumRefreshRateHz =
+					static_cast<float>(Screen.maximumFramesPerSecond);
 				UIWindowScene* WindowScene = View.window.windowScene;
 				const CGRect ScreenBounds = WindowScene != nil
 					? WindowScene.screen.coordinateSpace.bounds
@@ -55,6 +59,12 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 		{
 			dispatch_sync(dispatch_get_main_queue(), CaptureMetrics);
 		}
-		return FOpenMobileDeviceWindowMetrics::Build(Evidence);
+		FOpenMobileWindowDisplaySnapshot Snapshot =
+			FOpenMobileDeviceWindowMetrics::Build(Evidence);
+		FOpenMobileDeviceRefreshRateInfo::Apply(
+			Snapshot,
+			RefreshRateEvidence
+		);
+		return Snapshot;
 	}
 }

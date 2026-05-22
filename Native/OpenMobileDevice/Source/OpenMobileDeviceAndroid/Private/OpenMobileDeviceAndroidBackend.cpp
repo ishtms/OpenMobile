@@ -50,6 +50,16 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android reports the active native window, drawable surface, density, display, and multi-window state without using physical panel dimensions.");
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::RefreshRateInformation)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports the active display rate and resolution-specific supported modes. API 31 or newer also reports discrete same-resolution alternatives; variable refresh support remains unknown.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

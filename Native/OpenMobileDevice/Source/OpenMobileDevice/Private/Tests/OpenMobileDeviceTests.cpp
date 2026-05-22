@@ -38,6 +38,7 @@
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceStorageInfo.h"
@@ -1275,6 +1276,81 @@ bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
 		FOpenMobileDeviceWindowMetrics::Build({});
 	TestFalse(TEXT("Zero-size startup stays unavailable"), Startup.bLogicalWindowSizeAvailable);
 	TestFalse(TEXT("Unsupported editor drawable stays unavailable"), Startup.bDrawablePixelSizeAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceRefreshRateInfoTest,
+	"OpenMobile.Device.Display.RefreshRateInfo",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceRefreshRateInfoTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileDeviceRefreshRateEvidence Evidence;
+	Evidence.CurrentRefreshRateHz = 90.0f;
+	Evidence.MaximumRefreshRateHz = 120.0f;
+	Evidence.bVariableRefreshRateSupported = true;
+	Evidence.bSupportedModesAvailable = true;
+	FOpenMobileDeviceRefreshModeEvidence NativeMode;
+	NativeMode.PixelSize = FIntPoint(1080, 2400);
+	NativeMode.RefreshRatesHz = {120.0f, 60.0f, 120.0f};
+	Evidence.SupportedModes.Add(NativeMode);
+	NativeMode.PixelSize = FIntPoint(1440, 3200);
+	NativeMode.RefreshRatesHz = {60.0f};
+	Evidence.SupportedModes.Add(NativeMode);
+
+	FOpenMobileWindowDisplaySnapshot Snapshot;
+	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Current effective rate is retained"), Snapshot.CurrentRefreshRateHz.Value, 90.0f);
+	TestEqual(TEXT("Maximum supported rate is retained"), Snapshot.MaximumRefreshRateHz.Value, 120.0f);
+	TestTrue(TEXT("Variable refresh support is available"), Snapshot.bVariableRefreshRateSupported.bIsAvailable);
+	TestTrue(TEXT("Variable refresh support is retained"), Snapshot.bVariableRefreshRateSupported.Value);
+	TestTrue(TEXT("Supported modes are available"), Snapshot.bSupportedRefreshModesAvailable);
+	TestEqual(TEXT("Resolution constraints stay separate"), Snapshot.SupportedRefreshModes.Num(), 2);
+	TestEqual(TEXT("Mode rates are deduplicated"), Snapshot.SupportedRefreshModes[0].RefreshRatesHz.Num(), 2);
+	TestEqual(TEXT("Mode rates are sorted"), Snapshot.SupportedRefreshModes[0].RefreshRatesHz[0], 60.0f);
+	TestEqual(TEXT("Mode maximum remains available"), Snapshot.SupportedRefreshModes[0].RefreshRatesHz[1], 120.0f);
+	TestEqual(TEXT("Second mode keeps its resolution"), Snapshot.SupportedRefreshModes[1].PixelSize, FIntPoint(1440, 3200));
+	TestTrue(TEXT("Legacy distinct rates remain available"), Snapshot.bSupportedRefreshRatesAvailable);
+	TestEqual(TEXT("Legacy distinct rates are not duplicated"), Snapshot.SupportedRefreshRatesHz.Num(), 2);
+#if WITH_METADATA
+	TestTrue(TEXT("Refresh modes are reflected for Blueprint"), FOpenMobileDisplayRefreshMode::StaticStruct()->HasMetaData(TEXT("BlueprintType")));
+#endif
+
+	Evidence = {};
+	Evidence.MaximumRefreshRateHz = 120.0f;
+	Snapshot = {};
+	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, Evidence);
+	TestFalse(TEXT("Unavailable current iOS rate stays unavailable"), Snapshot.CurrentRefreshRateHz.bIsAvailable);
+	TestTrue(TEXT("Available iOS maximum is retained"), Snapshot.MaximumRefreshRateHz.bIsAvailable);
+	TestFalse(TEXT("Unavailable iOS mode catalog stays unavailable"), Snapshot.bSupportedRefreshModesAvailable);
+
+	Evidence = {};
+	Evidence.CurrentRefreshRateHz = 60.0f;
+	Evidence.MaximumRefreshRateHz = 60.0f;
+	Evidence.bVariableRefreshRateSupported = false;
+	Evidence.bSupportedModesAvailable = true;
+	NativeMode = {};
+	NativeMode.PixelSize = FIntPoint(1920, 1080);
+	NativeMode.RefreshRatesHz = {60.0f};
+	Evidence.SupportedModes.Add(NativeMode);
+	Snapshot = {};
+	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Fixed 60 Hz display stays exact"), Snapshot.CurrentRefreshRateHz.Value, 60.0f);
+	TestFalse(TEXT("Fixed display is not marked variable"), Snapshot.bVariableRefreshRateSupported.Value);
+
+	Evidence.CurrentRefreshRateHz = std::numeric_limits<float>::quiet_NaN();
+	Evidence.MaximumRefreshRateHz = -1.0f;
+	Evidence.SupportedModes.Reset();
+	Evidence.bSupportedModesAvailable = false;
+	Evidence.bVariableRefreshRateSupported.Reset();
+	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, Evidence);
+	TestFalse(TEXT("Invalid current rate clears earlier data"), Snapshot.CurrentRefreshRateHz.bIsAvailable);
+	TestFalse(TEXT("Invalid maximum rate clears earlier data"), Snapshot.MaximumRefreshRateHz.bIsAvailable);
+	TestFalse(TEXT("Unavailable modes clear earlier data"), Snapshot.bSupportedRefreshModesAvailable);
+	TestTrue(TEXT("Unavailable mode list is empty"), Snapshot.SupportedRefreshModes.IsEmpty());
 	return true;
 }
 

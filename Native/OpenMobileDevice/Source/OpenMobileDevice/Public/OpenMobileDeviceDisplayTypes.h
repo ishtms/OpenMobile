@@ -110,6 +110,24 @@ struct OPENMOBILEDEVICE_API FOpenMobileDeviceInsets
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEDEVICE_API FOpenMobileDisplayRefreshMode
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FIntPoint PixelSize = FIntPoint::ZeroValue;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	TArray<float> RefreshRatesHz;
+
+	bool operator==(const FOpenMobileDisplayRefreshMode& Other) const
+	{
+		return PixelSize == Other.PixelSize
+			&& RefreshRatesHz == Other.RefreshRatesHz;
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 {
 	GENERATED_BODY()
@@ -152,6 +170,15 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	TArray<float> SupportedRefreshRatesHz;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalBool bVariableRefreshRateSupported;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	bool bSupportedRefreshModesAvailable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	TArray<FOpenMobileDisplayRefreshMode> SupportedRefreshModes;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	FOpenMobileDeviceInsets SafeAreaInsets;
@@ -216,6 +243,9 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 			&& MaximumRefreshRateHz == Other.MaximumRefreshRateHz
 			&& bSupportedRefreshRatesAvailable == Other.bSupportedRefreshRatesAvailable
 			&& SupportedRefreshRatesHz == Other.SupportedRefreshRatesHz
+			&& bVariableRefreshRateSupported == Other.bVariableRefreshRateSupported
+			&& bSupportedRefreshModesAvailable == Other.bSupportedRefreshModesAvailable
+			&& SupportedRefreshModes == Other.SupportedRefreshModes
 			&& SafeAreaInsets == Other.SafeAreaInsets
 			&& SystemBarInsets == Other.SystemBarInsets
 			&& SystemGestureInsets == Other.SystemGestureInsets

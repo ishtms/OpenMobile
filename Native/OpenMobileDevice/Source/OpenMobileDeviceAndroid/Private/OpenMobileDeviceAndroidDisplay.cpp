@@ -2,6 +2,7 @@
 
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidPlatformMisc.h"
+#include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 
 namespace OpenMobileDeviceAndroidDisplayPrivate
@@ -108,10 +109,132 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 		return !ClearJavaException(Env);
 	}
 
+	void ReadRefreshRateInfo(
+		JNIEnv* Env,
+		jobject Display,
+		jclass DisplayClass,
+		FOpenMobileDeviceRefreshRateEvidence& Evidence
+	)
+	{
+		const jmethodID GetRefreshRate = Env->GetMethodID(
+			DisplayClass,
+			"getRefreshRate",
+			"()F"
+		);
+		if (GetRefreshRate && !ClearJavaException(Env))
+		{
+			Evidence.CurrentRefreshRateHz = Env->CallFloatMethod(
+				Display,
+				GetRefreshRate
+			);
+			ClearJavaException(Env);
+		}
+
+		const jmethodID GetSupportedModes = Env->GetMethodID(
+			DisplayClass,
+			"getSupportedModes",
+			"()[Landroid/view/Display$Mode;"
+		);
+		if (!GetSupportedModes || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jobjectArray> Modes(static_cast<jobjectArray>(
+			Env->CallObjectMethod(Display, GetSupportedModes)
+		));
+		if (!Modes || ClearJavaException(Env))
+		{
+			return;
+		}
+		Evidence.bSupportedModesAvailable = true;
+		const bool bAlternativeRatesAvailable =
+			FAndroidMisc::GetAndroidBuildVersion() >= 31;
+		const jsize ModeCount = Env->GetArrayLength(*Modes);
+		for (jsize ModeIndex = 0; ModeIndex < ModeCount; ++ModeIndex)
+		{
+			FScopedJavaObject<jobject> Mode(
+				Env->GetObjectArrayElement(*Modes, ModeIndex)
+			);
+			if (!Mode || ClearJavaException(Env))
+			{
+				continue;
+			}
+			FScopedJavaObject<jclass> ModeClass(Env->GetObjectClass(*Mode));
+			const jmethodID GetPhysicalWidth = ModeClass
+				? Env->GetMethodID(*ModeClass, "getPhysicalWidth", "()I")
+				: nullptr;
+			const jmethodID GetPhysicalHeight = ModeClass
+				? Env->GetMethodID(*ModeClass, "getPhysicalHeight", "()I")
+				: nullptr;
+			const jmethodID GetModeRefreshRate = ModeClass
+				? Env->GetMethodID(*ModeClass, "getRefreshRate", "()F")
+				: nullptr;
+			if (!GetPhysicalWidth || !GetPhysicalHeight || !GetModeRefreshRate
+				|| ClearJavaException(Env))
+			{
+				continue;
+			}
+			FOpenMobileDeviceRefreshModeEvidence NativeMode;
+			NativeMode.PixelSize = FIntPoint(
+				Env->CallIntMethod(*Mode, GetPhysicalWidth),
+				Env->CallIntMethod(*Mode, GetPhysicalHeight)
+			);
+			NativeMode.RefreshRatesHz.Add(
+				Env->CallFloatMethod(*Mode, GetModeRefreshRate)
+			);
+			if (ClearJavaException(Env))
+			{
+				continue;
+			}
+
+			if (bAlternativeRatesAvailable)
+			{
+				const jmethodID GetAlternativeRefreshRates =
+					Env->GetMethodID(
+						*ModeClass,
+						"getAlternativeRefreshRates",
+						"()[F"
+					);
+				if (GetAlternativeRefreshRates && !ClearJavaException(Env))
+				{
+					FScopedJavaObject<jfloatArray> AlternativeRates(
+						static_cast<jfloatArray>(Env->CallObjectMethod(
+							*Mode,
+							GetAlternativeRefreshRates
+						))
+					);
+					if (AlternativeRates && !ClearJavaException(Env))
+					{
+						const jsize RateCount = Env->GetArrayLength(
+							*AlternativeRates
+						);
+						TArray<jfloat> Rates;
+						Rates.SetNumUninitialized(RateCount);
+						Env->GetFloatArrayRegion(
+							*AlternativeRates,
+							0,
+							RateCount,
+							Rates.GetData()
+						);
+						if (!ClearJavaException(Env))
+						{
+							for (const jfloat Rate : Rates)
+							{
+								NativeMode.RefreshRatesHz.Add(Rate);
+							}
+						}
+					}
+				}
+			}
+			Evidence.SupportedModes.Add(MoveTemp(NativeMode));
+		}
+	}
+
 	void ReadDisplayAndWindowMode(
 		JNIEnv* Env,
 		jobject Activity,
-		FOpenMobileDeviceWindowMetricsEvidence& Evidence
+		FOpenMobileDeviceWindowMetricsEvidence& Evidence,
+		FOpenMobileDeviceRefreshRateEvidence& RefreshRateEvidence
 	)
 	{
 		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
@@ -168,6 +291,15 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 					);
 				}
 			}
+			if (Display && DisplayClass && !ClearJavaException(Env))
+			{
+				ReadRefreshRateInfo(
+					Env,
+					*Display,
+					*DisplayClass,
+					RefreshRateEvidence
+				);
+			}
 		}
 
 		if (FAndroidMisc::GetAndroidBuildVersion() >= 24)
@@ -199,6 +331,7 @@ FOpenMobileWindowDisplaySnapshot
 GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 {
 	FOpenMobileDeviceWindowMetricsEvidence Evidence;
+	FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
 	if (FAndroidApplication* Application = FAndroidApplication::Get())
 	{
 		int32 Width = 0;
@@ -220,8 +353,12 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 		OpenMobileDeviceAndroidDisplayPrivate::ReadDisplayAndWindowMode(
 			Env,
 			Activity,
-			Evidence
+			Evidence,
+			RefreshRateEvidence
 		);
 	}
-	return FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	FOpenMobileWindowDisplaySnapshot Snapshot =
+		FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, RefreshRateEvidence);
+	return Snapshot;
 }
