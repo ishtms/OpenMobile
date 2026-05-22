@@ -33,6 +33,10 @@
 		{
 			"Name": "OpenMobileCore",
 			"Enabled": true
+		},
+		{
+			"Name": "OpenMobilePermissions",
+			"Enabled": true
 		}
 	]
 }

@@ -43,7 +43,10 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		descriptor_dependencies = {
 			plugin["Name"] for plugin in load_descriptor().get("Plugins", [])
 		}
-		self.assertEqual({"OpenMobileCore"}, descriptor_dependencies)
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobilePermissions"},
+			descriptor_dependencies,
+		)
 
 		common_rules = (
 			SENSORS_PLUGIN
@@ -54,12 +57,16 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn('"OpenMobileCore"', common_rules)
 
 		for path in CORE_PLUGIN.rglob("*"):
-			if not path.is_file() or path.suffix not in {
+			if (
+				not path.is_file()
+				or {"Binaries", "Intermediate"}.intersection(path.parts)
+				or path.suffix not in {
 				".cs",
 				".cpp",
 				".h",
 				".uplugin",
-			}:
+				}
+			):
 				continue
 			self.assertNotIn(
 				"OpenMobileSensors",
@@ -137,7 +144,10 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				self.assertNotIn(forbidden_dependency, contents, str(build_rules))
 
 		for path in SENSORS_PLUGIN.rglob("*"):
-			if not path.is_file() or path.suffix not in {
+			if (
+				not path.is_file()
+				or {"Binaries", "Intermediate"}.intersection(path.parts)
+				or path.suffix not in {
 				".cs",
 				".cpp",
 				".h",
@@ -145,7 +155,8 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				".md",
 				".uplugin",
 				".xml",
-			}:
+				}
+			):
 				continue
 			contents = path.read_text(encoding="utf-8")
 			for forbidden_payload in (

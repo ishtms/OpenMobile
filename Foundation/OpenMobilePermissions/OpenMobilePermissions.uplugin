@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Permissions",
+	"Description": "Normalized permission status and request mechanics for OpenMobile plugins.",
+	"Category": "OpenMobile",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenMobilePermissions",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		}
+	]
+}

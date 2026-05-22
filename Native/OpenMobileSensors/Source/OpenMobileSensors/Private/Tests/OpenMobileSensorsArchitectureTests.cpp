@@ -4,6 +4,7 @@
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsModule.h"
+#include "OpenMobileSensorsPermissionPolicy.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsBackendRegistryTest,
@@ -130,6 +131,52 @@ bool FOpenMobileSensorsMockScriptTest::RunTest(const FString& Parameters)
 		TEXT("The delayed event preserves its type"),
 		Delivered.Last(),
 		EOpenMobileSensorsMockEventType::Error
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsPermissionOwnershipTest,
+	"OpenMobile.Sensors.Architecture.PermissionOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsPermissionOwnershipTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const TArray<FName> Permissions = {
+		FOpenMobileSensorsPermissionPolicy::MotionActivity(),
+		FOpenMobileSensorsPermissionPolicy::ActivityRecognition(),
+		FOpenMobileSensorsPermissionPolicy::TrueHeadingLocation()
+	};
+	TSet<FName> UniquePermissions;
+	for (FName Permission : Permissions)
+	{
+		UniquePermissions.Add(Permission);
+	}
+	TestEqual(
+		TEXT("Sensor permission and prerequisite names are unique"),
+		UniquePermissions.Num(),
+		Permissions.Num()
+	);
+	for (FName Permission : Permissions)
+	{
+		TestTrue(
+			TEXT("Sensor permission is recognized"),
+			FOpenMobileSensorsPermissionPolicy::IsSensorPermission(Permission)
+		);
+		TestFalse(
+			TEXT("Sensor permission has an explanation"),
+			FOpenMobileSensorsPermissionPolicy::GetExplanation(Permission).IsEmpty()
+		);
+	}
+	TestFalse(
+		TEXT("Unknown permission is not sensor owned"),
+		FOpenMobileSensorsPermissionPolicy::IsSensorPermission(
+			TEXT("OpenMobile.Other.Permission")
+		)
 	);
 	return true;
 }
