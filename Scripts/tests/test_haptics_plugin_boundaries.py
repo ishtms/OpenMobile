@@ -181,6 +181,34 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			):
 				self.assertNotIn(forbidden_dependency, contents, str(build_rules))
 
+	def test_public_consumer_uses_only_the_documented_haptics_header(self) -> None:
+		consumer = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsEditor"
+			/ "Private"
+			/ "Tests"
+			/ "OpenMobileHapticsPublicConsumerTests.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('#include "OpenMobileHaptics.h"', consumer)
+		for forbidden_path in ("/Internal/", "/Private/"):
+			self.assertNotIn(forbidden_path, consumer)
+
+		umbrella = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Public"
+			/ "OpenMobileHaptics.h"
+		).read_text(encoding="utf-8")
+		for public_contract in (
+			"OpenMobileHapticsAsyncAction.h",
+			"OpenMobileHapticsNative.h",
+			"OpenMobileHapticsSubsystem.h",
+			"OpenMobileHapticsTypes.h",
+		):
+			self.assertIn(public_contract, umbrella)
+
 
 if __name__ == "__main__":
 	unittest.main()

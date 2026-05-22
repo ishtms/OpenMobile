@@ -9,6 +9,8 @@ public class OpenMobileHaptics : ModuleRules
 		PublicDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"CoreUObject",
+			"Engine",
 			"OpenMobileCore"
 		});
 	}

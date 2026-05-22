@@ -9,6 +9,7 @@ public class OpenMobileHapticsEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"CoreUObject",
 			"OpenMobileHaptics"
 		});
 	}
