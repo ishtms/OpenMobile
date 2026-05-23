@@ -1,0 +1,443 @@
+#include "OpenMobileSensorsSubsystem.h"
+
+#include "OpenMobileAsync.h"
+#include "OpenMobilePermissions.h"
+#include "OpenMobileSensorsModule.h"
+
+namespace OpenMobileSensorsSubsystemPrivate
+{
+	FOpenMobileSensorOperationResult MakeOperationFailure(
+		EOpenMobileSensorResultCode ResultCode,
+		EOpenMobileErrorCode ErrorCode,
+		FString Message
+	)
+	{
+		FOpenMobileSensorOperationResult Result;
+		Result.Code = ResultCode;
+		Result.Error = FOpenMobileError::Make(ErrorCode, MoveTemp(Message));
+		return Result;
+	}
+
+	FOpenMobileSensorOperationResult MakeHandleFailure(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	)
+	{
+		if (!Handle.IsValid())
+		{
+			return MakeOperationFailure(
+				EOpenMobileSensorResultCode::InvalidHandle,
+				EOpenMobileErrorCode::InvalidArgument,
+				TEXT("The sensor subscription handle is invalid.")
+			);
+		}
+		return MakeOperationFailure(
+			EOpenMobileSensorResultCode::InvalidHandle,
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The sensor subscription is no longer active.")
+		);
+	}
+
+	template <typename SampleType>
+	bool ReadUnavailable(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		FOpenMobileSensorReadResult& OutResult,
+		SampleType& OutSample
+	)
+	{
+		OutSample = {};
+		OutResult = {};
+		OutResult.Status = Handle.IsValid()
+			? EOpenMobileSensorReadStatus::Stopped
+			: EOpenMobileSensorReadStatus::InvalidHandle;
+		OutResult.Error = MakeHandleFailure(Handle).Error;
+		return false;
+	}
+
+	template <typename BatchType>
+	bool DrainUnavailable(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		BatchType& OutBatch
+	)
+	{
+		OutBatch = {};
+		OutResult = {};
+		if (MaximumSamples <= 0)
+		{
+			OutResult.Operation = MakeOperationFailure(
+				EOpenMobileSensorResultCode::InvalidArgument,
+				EOpenMobileErrorCode::InvalidArgument,
+				TEXT("MaximumSamples must be greater than zero.")
+			);
+			return false;
+		}
+		OutResult.Operation = MakeHandleFailure(Handle);
+		return false;
+	}
+}
+
+void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+}
+
+void UOpenMobileSensorsSubsystem::Deinitialize()
+{
+	CapabilitiesChangedEvent.Clear();
+	SubscriptionStateChangedEvent.Clear();
+	VectorSamplesEvent.Clear();
+	AttitudeSamplesEvent.Clear();
+	ScalarSamplesEvent.Clear();
+	HeadingSamplesEvent.Clear();
+	StepsSamplesEvent.Clear();
+	ActivitySamplesEvent.Clear();
+	OrientationSamplesEvent.Clear();
+	ProximitySamplesEvent.Clear();
+	Super::Deinitialize();
+}
+
+FOpenMobileSensorCapabilitySnapshot
+UOpenMobileSensorsSubsystem::GetCapabilitySnapshotNative() const
+{
+	FOpenMobileSensorCapabilitySnapshot Snapshot;
+	Snapshot.BackendAvailability =
+		FOpenMobileSensorsModule::GetBackendCapability();
+	return Snapshot;
+}
+
+TArray<FOpenMobileSensorMetadata>
+UOpenMobileSensorsSubsystem::GetMetadataNative() const
+{
+	return {};
+}
+
+FOpenMobileSensorSubscriptionResult
+UOpenMobileSensorsSubsystem::StartSubscriptionNative(
+	const FOpenMobileSensorSubscriptionRequest& Request
+)
+{
+	using namespace OpenMobileSensorsSubsystemPrivate;
+	FOpenMobileSensorSubscriptionResult Result;
+	Result.RequestedOptions = Request.Options;
+	Result.AppliedOptions = Request.Options;
+	if (!Request.Sensor.IsValid())
+	{
+		Result.Operation = MakeOperationFailure(
+			EOpenMobileSensorResultCode::InvalidArgument,
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("A valid sensor identifier is required.")
+		);
+		return Result;
+	}
+	Result.Operation = MakeOperationFailure(
+		EOpenMobileSensorResultCode::NotSupported,
+		EOpenMobileErrorCode::NotSupported,
+		TEXT("Sensor streaming is not available without a streaming backend.")
+	);
+	return Result;
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::UpdateSubscriptionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	const FOpenMobileSensorStreamOptions& Options
+)
+{
+	static_cast<void>(Options);
+	return OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::StopSubscriptionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	return OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+}
+
+int32 UOpenMobileSensorsSubsystem::StopAllSubscriptionsNative()
+{
+	return 0;
+}
+
+bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	FOpenMobileSensorSubscriptionStateSnapshot& OutState
+) const
+{
+	OutState = {};
+	OutState.Handle = Handle;
+	OutState.Error = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle).Error;
+	return false;
+}
+
+#define OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(MethodName, SampleType) \
+	bool UOpenMobileSensorsSubsystem::MethodName( \
+		const FOpenMobileSensorSubscriptionHandle& Handle, \
+		int64 LastSeenSequence, \
+		FOpenMobileSensorReadResult& OutResult, \
+		SampleType& OutSample \
+	) const \
+	{ \
+		static_cast<void>(LastSeenSequence); \
+		return OpenMobileSensorsSubsystemPrivate::ReadUnavailable( \
+			Handle, OutResult, OutSample \
+		); \
+	}
+
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestVectorSampleNative,
+	FOpenMobileVectorSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestAttitudeSampleNative,
+	FOpenMobileAttitudeSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestScalarSampleNative,
+	FOpenMobileScalarSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestHeadingSampleNative,
+	FOpenMobileHeadingSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestStepsSampleNative,
+	FOpenMobileStepsSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestActivitySampleNative,
+	FOpenMobileActivitySensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestOrientationSampleNative,
+	FOpenMobileOrientationSensorSample
+)
+OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
+	GetLatestProximitySampleNative,
+	FOpenMobileProximitySensorSample
+)
+
+#undef OPENMOBILE_IMPLEMENT_LATEST_SAMPLE
+
+#define OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(MethodName, BatchType) \
+	bool UOpenMobileSensorsSubsystem::MethodName( \
+		const FOpenMobileSensorSubscriptionHandle& Handle, \
+		int32 MaximumSamples, \
+		FOpenMobileSensorBufferReadResult& OutResult, \
+		BatchType& OutBatch \
+	) \
+	{ \
+		return OpenMobileSensorsSubsystemPrivate::DrainUnavailable( \
+			Handle, MaximumSamples, OutResult, OutBatch \
+		); \
+	}
+
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedVectorSamplesNative,
+	FOpenMobileVectorSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedAttitudeSamplesNative,
+	FOpenMobileAttitudeSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedScalarSamplesNative,
+	FOpenMobileScalarSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedHeadingSamplesNative,
+	FOpenMobileHeadingSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedStepsSamplesNative,
+	FOpenMobileStepsSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedActivitySamplesNative,
+	FOpenMobileActivitySensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedOrientationSamplesNative,
+	FOpenMobileOrientationSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
+	GetBufferedProximitySamplesNative,
+	FOpenMobileProximitySensorBatch
+)
+
+#undef OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES
+
+FGuid UOpenMobileSensorsSubsystem::FlushNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	FOnOpenMobileSensorFlushComplete&& Completion
+)
+{
+	const FGuid RequestId = FGuid::NewGuid();
+	FOpenMobileSensorFlushResult Result;
+	Result.RequestId = RequestId;
+	Result.Handle = Handle;
+	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Result]() mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+	return RequestId;
+}
+
+FGuid UOpenMobileSensorsSubsystem::RecenterNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	EOpenMobileSensorRecenterMode Mode,
+	FOnOpenMobileSensorRecenterComplete&& Completion
+)
+{
+	const FGuid RequestId = FGuid::NewGuid();
+	FOpenMobileSensorRecenterResult Result;
+	Result.RequestId = RequestId;
+	Result.Handle = Handle;
+	Result.Mode = Mode;
+	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Result]() mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+	return RequestId;
+}
+
+FOpenMobilePermissionResult
+UOpenMobileSensorsSubsystem::GetPermissionStatusNative(
+	EOpenMobileSensorPermission Permission
+) const
+{
+	return FOpenMobilePermissions::GetStatus(
+		FOpenMobileSensorPermissions::GetPermissionName(Permission)
+	);
+}
+
+FOpenMobilePermissionRequestHandle
+UOpenMobileSensorsSubsystem::RequestPermissionNative(
+	EOpenMobileSensorPermission Permission,
+	FOnOpenMobilePermissionRequestComplete&& Completion
+)
+{
+	return FOpenMobilePermissions::RequestPermission(
+		FOpenMobileSensorPermissions::GetPermissionName(Permission),
+		MoveTemp(Completion)
+	);
+}
+
+bool UOpenMobileSensorsSubsystem::CancelPermissionRequestNative(
+	const FOpenMobilePermissionRequestHandle& Handle
+)
+{
+	return FOpenMobilePermissions::CancelRequest(Handle);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
+	const FOpenMobileSensorLocationInput& LocationInput
+)
+{
+	using namespace OpenMobileSensorsSubsystemPrivate;
+	if (!FMath::IsFinite(LocationInput.LatitudeDegrees)
+		|| !FMath::IsFinite(LocationInput.LongitudeDegrees)
+		|| !FMath::IsFinite(LocationInput.AltitudeMeters)
+		|| !FMath::IsFinite(LocationInput.HorizontalAccuracyMeters)
+		|| !FMath::IsFinite(LocationInput.TimestampSeconds)
+		|| LocationInput.LatitudeDegrees < -90.0
+		|| LocationInput.LatitudeDegrees > 90.0
+		|| LocationInput.LongitudeDegrees < -180.0
+		|| LocationInput.LongitudeDegrees > 180.0
+		|| LocationInput.HorizontalAccuracyMeters < 0.0
+		|| LocationInput.TimestampSeconds < 0.0)
+	{
+		return MakeOperationFailure(
+			EOpenMobileSensorResultCode::InvalidArgument,
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("The true-heading location input is invalid.")
+		);
+	}
+	return MakeOperationFailure(
+		EOpenMobileSensorResultCode::NotSupported,
+		EOpenMobileErrorCode::NotSupported,
+		TEXT("True-heading location input is not supported by the active backend.")
+	);
+}
+
+FOpenMobileSensorDiagnosticsSnapshot
+UOpenMobileSensorsSubsystem::GetDiagnosticsSnapshotNative() const
+{
+	FOpenMobileSensorDiagnosticsSnapshot Snapshot;
+	const FOpenMobileCapability Backend =
+		FOpenMobileSensorsModule::GetBackendCapability();
+	if (Backend.IsAvailable())
+	{
+		Snapshot.BackendName = TEXT("Registered");
+	}
+	return Snapshot;
+}
+
+FOnOpenMobileSensorCapabilitiesChanged&
+UOpenMobileSensorsSubsystem::OnCapabilitiesChangedNative()
+{
+	return CapabilitiesChangedEvent;
+}
+
+FOnOpenMobileSensorSubscriptionStateChanged&
+UOpenMobileSensorsSubsystem::OnSubscriptionStateChangedNative()
+{
+	return SubscriptionStateChangedEvent;
+}
+
+FOnOpenMobileVectorSensorBatch&
+UOpenMobileSensorsSubsystem::OnVectorSamplesNative()
+{
+	return VectorSamplesEvent;
+}
+
+FOnOpenMobileAttitudeSensorBatch&
+UOpenMobileSensorsSubsystem::OnAttitudeSamplesNative()
+{
+	return AttitudeSamplesEvent;
+}
+
+FOnOpenMobileScalarSensorBatch&
+UOpenMobileSensorsSubsystem::OnScalarSamplesNative()
+{
+	return ScalarSamplesEvent;
+}
+
+FOnOpenMobileHeadingSensorBatch&
+UOpenMobileSensorsSubsystem::OnHeadingSamplesNative()
+{
+	return HeadingSamplesEvent;
+}
+
+FOnOpenMobileStepsSensorBatch&
+UOpenMobileSensorsSubsystem::OnStepsSamplesNative()
+{
+	return StepsSamplesEvent;
+}
+
+FOnOpenMobileActivitySensorBatch&
+UOpenMobileSensorsSubsystem::OnActivitySamplesNative()
+{
+	return ActivitySamplesEvent;
+}
+
+FOnOpenMobileOrientationSensorBatch&
+UOpenMobileSensorsSubsystem::OnOrientationSamplesNative()
+{
+	return OrientationSamplesEvent;
+}
+
+FOnOpenMobileProximitySensorBatch&
+UOpenMobileSensorsSubsystem::OnProximitySamplesNative()
+{
+	return ProximitySamplesEvent;
+}

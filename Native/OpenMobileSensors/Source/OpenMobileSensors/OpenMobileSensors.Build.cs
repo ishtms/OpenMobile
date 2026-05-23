@@ -9,6 +9,8 @@ public class OpenMobileSensors : ModuleRules
 		PublicDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"CoreUObject",
+			"Engine",
 			"OpenMobileCore",
 			"OpenMobilePermissions"
 		});

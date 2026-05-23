@@ -27,6 +27,11 @@
 			"Type": "Runtime",
 			"LoadingPhase": "PreDefault",
 			"PlatformAllowList": ["IOS"]
+		},
+		{
+			"Name": "OpenMobileSensorsConsumerTests",
+			"Type": "DeveloperTool",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

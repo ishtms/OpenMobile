@@ -18,7 +18,12 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		modules = {module["Name"]: module for module in load_descriptor()["Modules"]}
 
 		self.assertEqual(
-			{"OpenMobileSensors", "OpenMobileSensorsAndroid", "OpenMobileSensorsIOS"},
+			{
+				"OpenMobileSensors",
+				"OpenMobileSensorsAndroid",
+				"OpenMobileSensorsIOS",
+				"OpenMobileSensorsConsumerTests",
+			},
 			set(modules),
 		)
 		self.assertEqual("Runtime", modules["OpenMobileSensors"]["Type"])
@@ -30,6 +35,10 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		self.assertEqual(
 			["IOS"],
 			modules["OpenMobileSensorsIOS"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			"DeveloperTool",
+			modules["OpenMobileSensorsConsumerTests"]["Type"],
 		)
 
 		for module_name in modules:
