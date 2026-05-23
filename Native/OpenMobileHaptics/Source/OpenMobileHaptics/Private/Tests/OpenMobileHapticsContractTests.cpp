@@ -2,15 +2,172 @@
 
 #include <limits>
 
+#include "Async/TaskGraphInterfaces.h"
 #include "Engine/GameInstance.h"
 #include "HAL/FileManager.h"
+#include "IOpenMobileHapticsBackend.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "OpenMobileHapticsTypes.h"
 #include "UObject/UnrealType.h"
+
+namespace OpenMobileHapticsTests
+{
+	class FMockBackend final : public IOpenMobileHapticsBackend
+	{
+	public:
+		explicit FMockBackend(FName InName, int32 InPriority = 0)
+			: Name(InName)
+			, Priority(InPriority)
+		{
+			Capabilities.BackendName = Name;
+		}
+
+		virtual FName GetBackendName() const override { return Name; }
+		virtual int32 GetPriority() const override { return Priority; }
+		virtual bool IsAvailable() const override { return bAvailable; }
+		virtual FOpenMobileHapticCapabilities GetCapabilities() const override
+		{
+			return Capabilities;
+		}
+		virtual EOpenMobileHapticsBackendPreparationState
+		GetPreparationState() const override
+		{
+			return PreparationState;
+		}
+		virtual FOpenMobileHapticsBackendControlSupport
+		GetControlSupport() const override
+		{
+			return ControlSupport;
+		}
+
+		virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
+			const FOpenMobileHapticSemanticRequest& Request,
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			FOpenMobileHapticsBackendEventCallback Callback
+		) override
+		{
+			static_cast<void>(Request);
+			++SemanticSubmissionCount;
+			LastToken = Token;
+			return MakeSubmission(false, false, MoveTemp(Callback));
+		}
+
+		virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
+			const FOpenMobileHapticOneShotRequest& Request,
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			FOpenMobileHapticsBackendEventCallback Callback
+		) override
+		{
+			static_cast<void>(Request);
+			++OneShotSubmissionCount;
+			LastToken = Token;
+			return MakeSubmission(true, true, MoveTemp(Callback));
+		}
+
+		virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
+			const FOpenMobileHapticNamedPatternRequest& Request,
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			FOpenMobileHapticsBackendEventCallback Callback
+		) override
+		{
+			static_cast<void>(Request);
+			++NamedSubmissionCount;
+			LastToken = Token;
+			return MakeSubmission(true, true, MoveTemp(Callback));
+		}
+
+		virtual FOpenMobileHapticControlResult StopPlayback(
+			const FOpenMobileHapticsBackendRequestToken& Token
+		) override
+		{
+			LastStoppedToken = Token;
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = ControlSupport.bStop
+				? EOpenMobileHapticControlOutcome::Accepted
+				: EOpenMobileHapticControlOutcome::Unsupported;
+			return Result;
+		}
+
+		virtual void BeginShutdown() override
+		{
+			++ShutdownCount;
+		}
+
+		void Emit(
+			int32 PendingIndex,
+			EOpenMobileHapticPlaybackState State,
+			uint64 Sequence
+		)
+		{
+			FOpenMobileHapticsBackendCallback Callback;
+			Callback.Token = PendingCallbacks[PendingIndex].Token;
+			Callback.Sequence = Sequence;
+			Callback.Event.Handle = Callback.Token.PlaybackHandle;
+			Callback.Event.State = State;
+			Callback.Event.TimestampSeconds = CurrentTimeSeconds;
+			PendingCallbacks[PendingIndex].Callback(Callback);
+		}
+
+		FOpenMobileHapticCapabilities Capabilities;
+		EOpenMobileHapticsBackendPreparationState PreparationState =
+			EOpenMobileHapticsBackendPreparationState::Unprepared;
+		FOpenMobileHapticsBackendControlSupport ControlSupport;
+		bool bAvailable = true;
+		bool bFailSubmissions = false;
+		double CurrentTimeSeconds = 0.0;
+		int32 SemanticSubmissionCount = 0;
+		int32 OneShotSubmissionCount = 0;
+		int32 NamedSubmissionCount = 0;
+		int32 ShutdownCount = 0;
+		FOpenMobileHapticsBackendRequestToken LastToken;
+		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
+
+	private:
+		struct FPendingCallback
+		{
+			FOpenMobileHapticsBackendRequestToken Token;
+			FOpenMobileHapticsBackendEventCallback Callback;
+		};
+
+		FOpenMobileHapticsBackendSubmission MakeSubmission(
+			bool bControllable,
+			bool bExpectsCallbacks,
+			FOpenMobileHapticsBackendEventCallback Callback
+		)
+		{
+			FOpenMobileHapticsBackendSubmission Submission;
+			if (bFailSubmissions)
+			{
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						EOpenMobileErrorCode::NativeFailure,
+						TEXT("Injected backend failure.")
+					);
+				return Submission;
+			}
+
+			Submission.Result.Outcome =
+				EOpenMobileHapticPlaybackOutcome::Accepted;
+			Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+			Submission.bCreatesControllablePlayback = bControllable;
+			Submission.bExpectsCallbacks = bExpectsCallbacks;
+			if (bExpectsCallbacks)
+			{
+				PendingCallbacks.Add({LastToken, MoveTemp(Callback)});
+			}
+			return Submission;
+		}
+
+		FName Name;
+		int32 Priority = 0;
+		TArray<FPendingCallback> PendingCallbacks;
+	};
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsTypeDefaultsTest,
@@ -417,6 +574,247 @@ bool FOpenMobileHapticsAsyncContractTest::RunTest(const FString& Parameters)
 		TeardownCancellationCount,
 		1
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBackendRegistryTest,
+	"OpenMobile.Haptics.Backend.Registry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+
+	FMockBackend Beta(TEXT("Beta"), 10);
+	FMockBackend Alpha(TEXT("Alpha"), 10);
+	FMockBackend Higher(TEXT("Higher"), 20);
+	TestTrue(
+		TEXT("First backend registers"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Beta)
+	);
+	TestTrue(
+		TEXT("Equal-priority backend registers"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Alpha)
+	);
+	TestTrue(
+		TEXT("Backend name breaks priority ties deterministically"),
+		FOpenMobileHapticsBackendRegistry::FindBackend() == &Alpha
+	);
+
+	const FOpenMobileHapticsBackendRequestToken AlphaToken =
+		FOpenMobileHapticsBackendRegistry::CreateRequestToken(Alpha, true);
+	TestTrue(
+		TEXT("Captured request token starts current"),
+		FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(AlphaToken)
+	);
+	TestTrue(
+		TEXT("Higher-priority backend registers"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Higher)
+	);
+	TestTrue(
+		TEXT("Backend resolves lazily to the higher priority"),
+		FOpenMobileHapticsBackendRegistry::FindBackend() == &Higher
+	);
+	TestFalse(
+		TEXT("Registration invalidates stale callback tokens"),
+		FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(AlphaToken)
+	);
+
+	FMockBackend Duplicate(TEXT("Higher"), 100);
+	TestFalse(
+		TEXT("Duplicate backend identity is rejected"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Duplicate)
+	);
+	TestTrue(
+		TEXT("Backend unregisters"),
+		FOpenMobileHapticsBackendRegistry::UnregisterBackend(Higher)
+	);
+	TestEqual(
+		TEXT("Unregister begins shutdown before destruction"),
+		Higher.ShutdownCount,
+		1
+	);
+	TestTrue(
+		TEXT("Tie-break remains stable after removal"),
+		FOpenMobileHapticsBackendRegistry::FindBackend() == &Alpha
+	);
+
+	FOpenMobileHapticsBackendRegistry::BeginShutdown();
+	TestEqual(TEXT("Alpha shuts down once"), Alpha.ShutdownCount, 1);
+	TestEqual(TEXT("Beta shuts down once"), Beta.ShutdownCount, 1);
+	TestNull(
+		TEXT("No backend resolves during shutdown"),
+		FOpenMobileHapticsBackendRegistry::FindBackend()
+	);
+	TestFalse(
+		TEXT("Registration is rejected during shutdown"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Duplicate)
+	);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Alpha);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Beta);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBackendSubmissionTest,
+	"OpenMobile.Haptics.Backend.SubmissionAndCallbacks",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+
+	FMockBackend Low(TEXT("Low"), 1);
+	Low.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Low.PreparationState =
+		EOpenMobileHapticsBackendPreparationState::Preparing;
+	FMockBackend High(TEXT("High"), 10);
+	High.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	High.PreparationState =
+		EOpenMobileHapticsBackendPreparationState::Prepared;
+	High.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Low);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TestEqual(
+		TEXT("Capability query uses the current backend"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::BasicVibration
+	);
+	const FOpenMobileHapticPlaybackResult LowSemantic =
+		Subsystem->PlaySemanticFeedback(
+			EOpenMobileHapticSemanticEffect::Selection
+		);
+	TestTrue(TEXT("Semantic request is accepted"), LowSemantic.IsAccepted());
+	TestFalse(
+		TEXT("Fire-and-forget semantic request has no handle"),
+		LowSemantic.Handle.IsValid()
+	);
+	TestTrue(TEXT("Request ID crosses the backend seam"), Low.LastToken.RequestId > 0);
+	TestFalse(
+		TEXT("Semantic request has no playback ID"),
+		Low.LastToken.PlaybackHandle.IsValid()
+	);
+
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(High);
+	Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Click);
+	TestEqual(
+		TEXT("Next operation resolves the replacement backend"),
+		High.SemanticSubmissionCount,
+		1
+	);
+	TestEqual(
+		TEXT("Backend preparation state is reported"),
+		FOpenMobileHapticsBackendRegistry::FindBackend()->GetPreparationState(),
+		EOpenMobileHapticsBackendPreparationState::Prepared
+	);
+
+	int32 EventCount = 0;
+	EOpenMobileHapticPlaybackState LastState =
+		EOpenMobileHapticPlaybackState::Invalid;
+	double LastTimestamp = 0.0;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&EventCount, &LastState, &LastTimestamp](
+			const FOpenMobileHapticPlaybackEvent& Event
+		)
+		{
+			++EventCount;
+			LastState = Event.State;
+			LastTimestamp = Event.TimestampSeconds;
+		}
+	);
+	const FOpenMobileHapticPlaybackResult Named =
+		Subsystem->PlayNamedPattern(TEXT("UI_Confirm"));
+	TestTrue(TEXT("Named request is accepted"), Named.IsAccepted());
+	TestTrue(TEXT("Controllable request has a handle"), Named.Handle.IsValid());
+	TestEqual(
+		TEXT("Accepted handle state is retained"),
+		Subsystem->GetPlaybackState(Named.Handle),
+		EOpenMobileHapticPlaybackState::Accepted
+	);
+
+	const FOpenMobileHapticControlResult Stop =
+		Subsystem->StopPlayback(Named.Handle);
+	TestEqual(
+		TEXT("Supported stop routes to the owning backend"),
+		Stop.Outcome,
+		EOpenMobileHapticControlOutcome::Accepted
+	);
+	TestEqual(
+		TEXT("Stop preserves request identity"),
+		High.LastStoppedToken.RequestId,
+		High.LastToken.RequestId
+	);
+	TestEqual(
+		TEXT("Stop preserves playback identity"),
+		High.LastStoppedToken.PlaybackHandle,
+		Named.Handle
+	);
+
+	High.CurrentTimeSeconds = 12.5;
+	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Delayed callback is delivered"), EventCount, 1);
+	TestEqual(
+		TEXT("Callback state is preserved"),
+		LastState,
+		EOpenMobileHapticPlaybackState::Started
+	);
+	TestEqual(TEXT("Mock time is preserved"), LastTimestamp, 12.5);
+	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Duplicate callback is ignored"), EventCount, 1);
+
+	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 2);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Terminal callback is delivered once"), EventCount, 2);
+	TestEqual(
+		TEXT("Completed state remains queryable"),
+		Subsystem->GetPlaybackState(Named.Handle),
+		EOpenMobileHapticPlaybackState::Completed
+	);
+	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 3);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 2);
+
+	const FOpenMobileHapticPlaybackResult Stale =
+		Subsystem->PlayNamedPattern(TEXT("Stale"));
+	FMockBackend Newest(TEXT("Newest"), 20);
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Newest);
+	High.Emit(1, EOpenMobileHapticPlaybackState::Started, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Stale backend callback is ignored"), EventCount, 2);
+	TestTrue(TEXT("Stale request originally had a handle"), Stale.Handle.IsValid());
+
+	Newest.bFailSubmissions = true;
+	const FOpenMobileHapticPlaybackResult Failed =
+		Subsystem->PlayNamedPattern(TEXT("Failure"));
+	TestEqual(
+		TEXT("Injected native failure remains typed"),
+		Failed.Error.Code,
+		EOpenMobileErrorCode::NativeFailure
+	);
+	TestFalse(TEXT("Failed submission has no handle"), Failed.Handle.IsValid());
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Newest);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(High);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Low);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }
 

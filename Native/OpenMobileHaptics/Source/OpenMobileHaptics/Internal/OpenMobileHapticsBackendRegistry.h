@@ -1,0 +1,29 @@
+#pragma once
+
+#include "CoreMinimal.h"
+
+class IOpenMobileHapticsBackend;
+struct FOpenMobileHapticsBackendRequestToken;
+
+class OPENMOBILEHAPTICS_API FOpenMobileHapticsBackendRegistry final
+{
+public:
+	static void Start();
+	static bool RegisterBackend(IOpenMobileHapticsBackend& Backend);
+	static bool UnregisterBackend(IOpenMobileHapticsBackend& Backend);
+	static bool IsBackendRegistered(const IOpenMobileHapticsBackend* Backend);
+	static IOpenMobileHapticsBackend* FindBackend();
+	static FOpenMobileHapticsBackendRequestToken CreateRequestToken(
+		IOpenMobileHapticsBackend& Backend,
+		bool bCreatePlaybackHandle
+	);
+	static bool IsCallbackCurrent(
+		const FOpenMobileHapticsBackendRequestToken& Token
+	);
+	static bool IsShuttingDown();
+	static void BeginShutdown();
+
+#if WITH_DEV_AUTOMATION_TESTS
+	static void ResetForTests();
+#endif
+};

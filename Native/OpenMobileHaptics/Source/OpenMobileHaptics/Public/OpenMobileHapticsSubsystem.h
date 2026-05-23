@@ -12,6 +12,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 );
 
 class UOpenMobileHapticPlaybackAsyncAction;
+struct FOpenMobileHapticsBackendCallback;
+struct FOpenMobileHapticsSubsystemState;
+
+struct FOpenMobileHapticsSubsystemStateDeleter
+{
+	void operator()(FOpenMobileHapticsSubsystemState* State) const;
+};
 
 /**
  * Game-facing Haptics facade owned by one Game Instance.
@@ -26,6 +33,7 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticsSubsystem final :
 	GENERATED_BODY()
 
 public:
+	virtual ~UOpenMobileHapticsSubsystem() override;
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
@@ -137,9 +145,19 @@ private:
 
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
+	FOpenMobileHapticsSubsystemState& GetOrCreateState() const;
+	TFunction<void(const FOpenMobileHapticsBackendCallback&)>
+	MakeBackendCallback();
+	void HandleBackendCallback(
+		const FOpenMobileHapticsBackendCallback& Callback
+	);
 
 	FOpenMobileHapticUserPolicy UserPolicy;
 	FOpenMobileHapticNativePlaybackEvent NativePlaybackEvent;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> ActiveAsyncActions;
+	mutable TUniquePtr<
+		FOpenMobileHapticsSubsystemState,
+		FOpenMobileHapticsSubsystemStateDeleter
+	> State;
 	bool bDeinitialized = false;
 };

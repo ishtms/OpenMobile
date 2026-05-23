@@ -69,7 +69,9 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn('"OpenMobileCore"', build_rules)
 
-		for path in CORE_PLUGIN.rglob("*"):
+		core_inputs = list((CORE_PLUGIN / "Source").rglob("*"))
+		core_inputs.append(CORE_PLUGIN / "OpenMobileCore.uplugin")
+		for path in core_inputs:
 			if not path.is_file() or path.suffix not in {
 				".cs",
 				".cpp",
@@ -209,6 +211,34 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"OpenMobileHapticsTypes.h",
 		):
 			self.assertIn(public_contract, umbrella)
+
+	def test_native_backend_seam_stays_internal(self) -> None:
+		internal_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		self.assertTrue(
+			(internal_module / "Internal" / "IOpenMobileHapticsBackend.h").is_file()
+		)
+		self.assertTrue(
+			(
+				internal_module
+				/ "Internal"
+				/ "OpenMobileHapticsBackendRegistry.h"
+			).is_file()
+		)
+		for public_header in (internal_module / "Public").glob("*.h"):
+			self.assertNotIn(
+				'#include "IOpenMobileHapticsBackend.h"',
+				public_header.read_text(encoding="utf-8"),
+				str(public_header),
+			)
+
+		module = (
+			internal_module / "Private" / "OpenMobileHapticsModule.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FOpenMobileHapticsBackendRegistry::Start()", module)
+		self.assertIn(
+			"FOpenMobileHapticsBackendRegistry::BeginShutdown()",
+			module,
+		)
 
 
 if __name__ == "__main__":
