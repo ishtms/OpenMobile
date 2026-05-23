@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceMonitoringService.h"
+#include "OpenMobileDeviceRefreshRateControlService.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
 
@@ -104,6 +105,17 @@ void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection
 void UOpenMobileDeviceSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	TArray<TObjectPtr<UOpenMobilePreferredRefreshRateHandle>> RefreshRateHandles =
+		PreferredRefreshRateHandles;
+	for (UOpenMobilePreferredRefreshRateHandle* Handle : RefreshRateHandles)
+	{
+		if (Handle)
+		{
+			Handle->Release();
+		}
+	}
+	PreferredRefreshRateHandles.Reset();
+
 	TArray<TObjectPtr<UOpenMobileDeviceMonitoringSubscription>> Subscriptions =
 		MonitoringSubscriptions;
 	for (UOpenMobileDeviceMonitoringSubscription* Subscription : Subscriptions)
@@ -213,6 +225,53 @@ UOpenMobileDeviceSubsystem::GetWindowDisplaySnapshot() const
 	return bDeinitialized
 		? FOpenMobileWindowDisplaySnapshot()
 		: FOpenMobileDeviceSnapshotService::GetWindowDisplaySnapshot();
+}
+
+UOpenMobilePreferredRefreshRateHandle*
+UOpenMobileDeviceSubsystem::RequestPreferredRefreshRate(
+	const FOpenMobilePreferredRefreshRateRequest& Request
+)
+{
+	UOpenMobilePreferredRefreshRateHandle* Handle =
+		NewObject<UOpenMobilePreferredRefreshRateHandle>(this);
+	Handle->Request = Request;
+	if (bDeinitialized)
+	{
+		Handle->Result.Request = Request;
+		Handle->Result.State =
+			EOpenMobilePreferredRefreshRateApplyState::Rejected;
+		Handle->Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Handle;
+	}
+	Handle->RequestId = FOpenMobileDeviceRefreshRateControlService::AddRequest(
+		Request,
+		Handle->Result
+	);
+	Handle->bActive = Handle->RequestId.IsValid();
+	if (Handle->bActive)
+	{
+		Handle->Subsystem = this;
+		PreferredRefreshRateHandles.Add(Handle);
+	}
+	return Handle;
+}
+
+void UOpenMobileDeviceSubsystem::ReleasePreferredRefreshRateHandle(
+	UOpenMobilePreferredRefreshRateHandle* Handle
+)
+{
+	if (!Handle || !Handle->bActive)
+	{
+		return;
+	}
+	FOpenMobileDeviceRefreshRateControlService::RemoveRequest(Handle->RequestId);
+	Handle->bActive = false;
+	Handle->RequestId.Invalidate();
+	Handle->Subsystem.Reset();
+	PreferredRefreshRateHandles.RemoveSingleSwap(Handle);
 }
 
 FOpenMobileAppearanceSnapshot UOpenMobileDeviceSubsystem::GetAppearanceSnapshot() const

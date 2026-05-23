@@ -39,6 +39,9 @@
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
+#include "OpenMobileDeviceRefreshRateControl.h"
+#include "OpenMobileDeviceRefreshRateControlPolicy.h"
+#include "OpenMobileDeviceRefreshRateControlService.h"
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceStorageInfo.h"
@@ -142,6 +145,23 @@ namespace OpenMobileDeviceTests
 			return Network;
 		}
 
+		virtual FOpenMobilePreferredRefreshRateResult
+		ApplyPreferredRefreshRate(
+			const FOpenMobilePreferredRefreshRateRequest& Request
+		) override
+		{
+			RefreshRateApplyRequests.Add(Request);
+			FOpenMobilePreferredRefreshRateResult Result;
+			Result.Request = Request;
+			Result.State = RefreshRateApplyState;
+			return Result;
+		}
+
+		virtual void ClearPreferredRefreshRate() override
+		{
+			++RefreshRateClearCount;
+		}
+
 		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override
 		{
 			++LocaleQueries;
@@ -216,6 +236,10 @@ namespace OpenMobileDeviceTests
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
 		FOpenMobileMemorySnapshot Memory;
 		FOpenMobileNetworkPathSnapshot Network;
+		EOpenMobilePreferredRefreshRateApplyState RefreshRateApplyState =
+			EOpenMobilePreferredRefreshRateApplyState::Accepted;
+		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
+		int32 RefreshRateClearCount = 0;
 		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TSet<EOpenMobileDeviceMonitoringGroup> FallbackMonitoringGroups;
@@ -1351,6 +1375,138 @@ bool FOpenMobileDeviceRefreshRateInfoTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Invalid maximum rate clears earlier data"), Snapshot.MaximumRefreshRateHz.bIsAvailable);
 	TestFalse(TEXT("Unavailable modes clear earlier data"), Snapshot.bSupportedRefreshModesAvailable);
 	TestTrue(TEXT("Unavailable mode list is empty"), Snapshot.SupportedRefreshModes.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceRefreshRateControlPolicyTest,
+	"OpenMobile.Device.Display.RefreshRateControlPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceRefreshRateControlPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileError Error;
+	FOpenMobilePreferredRefreshRateRequest Request;
+	TestFalse(TEXT("Empty refresh request is rejected"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+	TestEqual(TEXT("Empty request has typed invalid argument"), Error.Code, EOpenMobileErrorCode::InvalidArgument);
+
+	Request.bUsePreferredTargetHz = true;
+	Request.PreferredTargetHz = 240.0f;
+	TestTrue(TEXT("High-refresh target request is valid"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+	Request.PreferredTargetHz = 120.0f;
+	Request.bUsePreferredMinimumHz = true;
+	Request.PreferredMinimumHz = 60.0f;
+	Request.bUsePreferredMaximumHz = true;
+	Request.PreferredMaximumHz = 120.0f;
+	Request.PreferredTargetHz = 90.0f;
+	TestTrue(TEXT("Bounded target request is valid"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+	Request.PreferredMinimumHz = 144.0f;
+	TestFalse(TEXT("Inverted range is rejected"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+	Request.PreferredMinimumHz = 60.0f;
+	Request.PreferredTargetHz = 144.0f;
+	TestFalse(TEXT("Target outside range is rejected"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+	Request.PreferredTargetHz = std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("Non-finite target is rejected"), FOpenMobileDeviceRefreshRateControlPolicy::Validate(Request, Error));
+
+	FOpenMobileDeviceRefreshRateRequestStack Stack;
+	FOpenMobilePreferredRefreshRateRequest Sixty;
+	Sixty.bUsePreferredTargetHz = true;
+	Sixty.PreferredTargetHz = 60.0f;
+	FOpenMobilePreferredRefreshRateRequest OneTwenty = Sixty;
+	OneTwenty.PreferredTargetHz = 120.0f;
+	Stack.Add(10, Sixty);
+	Stack.Add(20, OneTwenty);
+	TestEqual(TEXT("Newest handle wins"), Stack.GetEffectiveRequest()->PreferredTargetHz, 120.0f);
+	Stack.Remove(10);
+	TestEqual(TEXT("Removing shadowed handle preserves newest"), Stack.GetEffectiveRequest()->PreferredTargetHz, 120.0f);
+	Stack.Add(10, Sixty);
+	TestEqual(TEXT("Re-added handle becomes newest"), Stack.GetEffectiveRequest()->PreferredTargetHz, 60.0f);
+	Stack.Remove(10);
+	TestEqual(TEXT("Releasing newest restores previous"), Stack.GetEffectiveRequest()->PreferredTargetHz, 120.0f);
+	Stack.Remove(20);
+	TestFalse(TEXT("Final release clears preference"), Stack.GetEffectiveRequest().IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceRefreshRateControlServiceTest,
+	"OpenMobile.Device.Display.RefreshRateControlService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceRefreshRateControlServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceRefreshRateControlService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("Display"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	FOpenMobilePreferredRefreshRateRequest Sixty;
+	Sixty.bUsePreferredTargetHz = true;
+	Sixty.PreferredTargetHz = 60.0f;
+	FOpenMobilePreferredRefreshRateRequest OneTwenty = Sixty;
+	OneTwenty.PreferredTargetHz = 120.0f;
+	FOpenMobilePreferredRefreshRateResult Result;
+	const FGuid First =
+		FOpenMobileDeviceRefreshRateControlService::AddRequest(Sixty, Result);
+	TestTrue(TEXT("Accepted request gets a handle"), First.IsValid());
+	TestEqual(TEXT("First request applies once"), Backend.RefreshRateApplyRequests.Num(), 1);
+	const FGuid Second =
+		FOpenMobileDeviceRefreshRateControlService::AddRequest(OneTwenty, Result);
+	TestTrue(TEXT("Second accepted request gets a handle"), Second.IsValid());
+	TestEqual(TEXT("Newest request applies"), Backend.RefreshRateApplyRequests.Last().PreferredTargetHz, 120.0f);
+	FOpenMobileDeviceRefreshRateControlService::RemoveRequest(Second);
+	TestEqual(TEXT("Releasing newest reapplies previous"), Backend.RefreshRateApplyRequests.Last().PreferredTargetHz, 60.0f);
+
+	const int32 AppliesBeforeSurfaceChange = Backend.RefreshRateApplyRequests.Num();
+	FOpenMobileDeviceRefreshRateControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Surface recreation reapplies active request"), Backend.RefreshRateApplyRequests.Num(), AppliesBeforeSurfaceChange + 1);
+	FOpenMobileDeviceRefreshRateControlService::NotifyBackgroundForTests();
+	TestEqual(TEXT("Background clears native preference"), Backend.RefreshRateClearCount, 1);
+	FOpenMobileDeviceRefreshRateControlService::NotifyForegroundForTests();
+	TestEqual(TEXT("Foreground reapplies active request"), Backend.RefreshRateApplyRequests.Num(), AppliesBeforeSurfaceChange + 2);
+	FOpenMobileDeviceRefreshRateControlService::RemoveRequest(First);
+	TestEqual(TEXT("Final release restores native preference"), Backend.RefreshRateClearCount, 2);
+
+	Backend.RefreshRateApplyState =
+		EOpenMobilePreferredRefreshRateApplyState::Unsupported;
+	const FGuid Unsupported =
+		FOpenMobileDeviceRefreshRateControlService::AddRequest(Sixty, Result);
+	TestFalse(TEXT("Unsupported request gets no active handle"), Unsupported.IsValid());
+	TestEqual(TEXT("Unsupported result stays typed"), Result.State, EOpenMobilePreferredRefreshRateApplyState::Unsupported);
+	TestNotNull(TEXT("Subsystem exposes refresh request node"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("RequestPreferredRefreshRate")));
+	TestNotNull(TEXT("Refresh handle exposes release"), UOpenMobilePreferredRefreshRateHandle::StaticClass()->FindFunctionByName(TEXT("Release")));
+	TestNotNull(TEXT("Refresh handle exposes typed result"), UOpenMobilePreferredRefreshRateHandle::StaticClass()->FindPropertyByName(TEXT("Result")));
+
+	Backend.RefreshRateApplyState =
+		EOpenMobilePreferredRefreshRateApplyState::Accepted;
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobilePreferredRefreshRateHandle* Handle =
+		Subsystem->RequestPreferredRefreshRate(Sixty);
+	TestTrue(TEXT("Accepted subsystem request returns active handle"), Handle && Handle->IsActive());
+	const int32 ClearsBeforeTeardown = Backend.RefreshRateClearCount;
+	Subsystem->Deinitialize();
+	TestFalse(TEXT("Subsystem teardown releases refresh handle"), Handle->IsActive());
+	TestEqual(TEXT("Subsystem teardown restores native preference"), Backend.RefreshRateClearCount, ClearsBeforeTeardown + 1);
+
+	FOpenMobileDeviceRefreshRateControlService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

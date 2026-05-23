@@ -362,3 +362,104 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, RefreshRateEvidence);
 	return Snapshot;
 }
+
+FOpenMobilePreferredRefreshRateResult
+ApplyOpenMobileDeviceAndroidPreferredRefreshRate(
+	const FOpenMobilePreferredRefreshRateRequest& Request
+)
+{
+	FOpenMobilePreferredRefreshRateResult Result;
+	Result.Request = Request;
+	if (Request.bUsePreferredMinimumHz || Request.bUsePreferredMaximumHz
+		|| !Request.bUsePreferredTargetHz)
+	{
+		Result.State = EOpenMobilePreferredRefreshRateApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Android supports an explicit preferred target, but not a preferred refresh-rate range through the public Window API."),
+			FString(),
+			TEXT("Android")
+		);
+		return Result;
+	}
+
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity)
+	{
+		Result.State = EOpenMobilePreferredRefreshRateApplyState::Rejected;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Android activity is unavailable for the refresh-rate request."),
+			FString(),
+			TEXT("Android")
+		);
+		return Result;
+	}
+
+	FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+	const jmethodID Method = ActivityClass
+		? Env->GetMethodID(
+			*ActivityClass,
+			"AndroidThunkJava_OpenMobileDeviceApplyPreferredRefreshRate",
+			"(F)Z"
+		)
+		: nullptr;
+	const bool bMethodError =
+		OpenMobileDeviceAndroidDisplayPrivate::ClearJavaException(Env);
+	if (!Method || bMethodError)
+	{
+		Result.State = EOpenMobilePreferredRefreshRateApplyState::Rejected;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("The Android refresh-rate request method is unavailable."),
+			FString(),
+			TEXT("Android")
+		);
+		return Result;
+	}
+	const bool bAccepted = Env->CallBooleanMethod(
+		Activity,
+		Method,
+		Request.PreferredTargetHz
+	) == JNI_TRUE;
+	const bool bCallError =
+		OpenMobileDeviceAndroidDisplayPrivate::ClearJavaException(Env);
+	Result.State = bAccepted && !bCallError
+		? EOpenMobilePreferredRefreshRateApplyState::Accepted
+		: EOpenMobilePreferredRefreshRateApplyState::Rejected;
+	if (!Result.IsAccepted())
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android rejected the preferred refresh-rate request."),
+			FString(),
+			TEXT("Android")
+		);
+	}
+	return Result;
+}
+
+void ClearOpenMobileDeviceAndroidPreferredRefreshRate()
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity)
+	{
+		return;
+	}
+	FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+	const jmethodID Method = ActivityClass
+		? Env->GetMethodID(
+			*ActivityClass,
+			"AndroidThunkJava_OpenMobileDeviceClearPreferredRefreshRate",
+			"()V"
+		)
+		: nullptr;
+	if (!Method || OpenMobileDeviceAndroidDisplayPrivate::ClearJavaException(Env))
+	{
+		return;
+	}
+	Env->CallVoidMethod(Activity, Method);
+	OpenMobileDeviceAndroidDisplayPrivate::ClearJavaException(Env);
+}

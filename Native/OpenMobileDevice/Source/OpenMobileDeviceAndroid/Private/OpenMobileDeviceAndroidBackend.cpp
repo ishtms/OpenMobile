@@ -60,6 +60,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android reports the active display rate and resolution-specific supported modes. API 31 or newer also reports discrete same-resolution alternatives; variable refresh support remains unknown.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::RefreshRateControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android accepts a preferred target through the active Window. Preferred minimum and maximum ranges are not exposed by the public Window API, and the OS may select another supported mode.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -211,6 +220,19 @@ FOpenMobileWindowDisplaySnapshot
 FOpenMobileDeviceAndroidBackend::GetWindowDisplaySnapshot() const
 {
 	return GetOpenMobileDeviceAndroidWindowDisplaySnapshot();
+}
+
+FOpenMobilePreferredRefreshRateResult
+FOpenMobileDeviceAndroidBackend::ApplyPreferredRefreshRate(
+	const FOpenMobilePreferredRefreshRateRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceAndroidPreferredRefreshRate(Request);
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearPreferredRefreshRate()
+{
+	ClearOpenMobileDeviceAndroidPreferredRefreshRate();
 }
 
 FOpenMobileDeviceInformationSnapshot
@@ -410,6 +432,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidPreferredRefreshRate();
 	StopOpenMobileDeviceAndroidLocaleMonitoring();
 	StopOpenMobileDeviceAndroidBatteryMonitoring();
 	StopOpenMobileDeviceAndroidMemoryMonitoring();

@@ -1,5 +1,6 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceMonitoringService.h"
+#include "OpenMobileDeviceRefreshRateControlService.h"
 
 #include "Modules/ModuleManager.h"
 
@@ -10,10 +11,12 @@ public:
 	{
 		FOpenMobileDeviceBackendRegistry::Start();
 		FOpenMobileDeviceMonitoringService::Start();
+		FOpenMobileDeviceRefreshRateControlService::Start();
 	}
 
 	virtual void ShutdownModule() override
 	{
+		FOpenMobileDeviceRefreshRateControlService::Shutdown();
 		FOpenMobileDeviceMonitoringService::Shutdown();
 		FOpenMobileDeviceBackendRegistry::BeginShutdown();
 	}

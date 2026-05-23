@@ -58,6 +58,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS exposes the attached screen's maximum frame rate. UIKit does not expose an instantaneous effective rate or a supported refresh-mode catalog.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::RefreshRateControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS refresh preferences are tied to the engine-owned display link. OpenMobile does not alter Unreal frame pacing, VSync, or game timing.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

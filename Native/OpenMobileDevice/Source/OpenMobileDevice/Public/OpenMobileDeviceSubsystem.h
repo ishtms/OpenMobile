@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceRefreshRateControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
@@ -186,6 +187,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Window and Display Snapshot", ToolTip = "Captures the current game window, display, safe-area, orientation, and posture state."))
 	FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot() const;
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Preferred Refresh Rate", ToolTip = "Requests preferred display refresh-rate bounds or a target until the returned handle is released."))
+	UOpenMobilePreferredRefreshRateHandle* RequestPreferredRefreshRate(
+		const FOpenMobilePreferredRefreshRateRequest& Request
+	);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Appearance Snapshot", ToolTip = "Captures the current system appearance preference."))
 	FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const;
 
@@ -327,12 +333,16 @@ private:
 	friend class UOpenMobileDeviceAsyncActionBase;
 	friend class UOpenMobileDeviceStorageQueryAsyncAction;
 	friend class UOpenMobileDeviceMonitoringSubscription;
+	friend class UOpenMobilePreferredRefreshRateHandle;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
 	friend class FOpenMobileDeviceLowStorageStateTest;
 
 	void StopMonitoringSubscription(
 		UOpenMobileDeviceMonitoringSubscription* Subscription
+	);
+	void ReleasePreferredRefreshRateHandle(
+		UOpenMobilePreferredRefreshRateHandle* Handle
 	);
 	void BindMonitoringService();
 	void UnbindMonitoringService();
@@ -359,6 +369,10 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileDeviceMonitoringSubscription>> MonitoringSubscriptions;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UOpenMobilePreferredRefreshRateHandle>>
+		PreferredRefreshRateHandles;
 
 	TMap<EOpenMobileDeviceMonitoringGroup, int32> LocalMonitoringCounts;
 	FDelegateHandle MonitoringChangedHandle;

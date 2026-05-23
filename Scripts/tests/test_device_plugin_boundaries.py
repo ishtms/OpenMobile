@@ -234,6 +234,48 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("SupportedRefreshModes", display_types)
 		self.assertIn("bVariableRefreshRateSupported", display_types)
 
+	def test_refresh_rate_control_is_explicit_and_does_not_change_frame_pacing(self) -> None:
+		android = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		control_sources = "\n".join(
+			path.read_text(encoding="utf-8")
+			for path in (DEVICE_PLUGIN / "Source").rglob("*RefreshRateControl*")
+			if path.is_file()
+		)
+
+		self.assertIn("ApplyOpenMobileDeviceAndroidPreferredRefreshRate", android)
+		self.assertIn("ClearOpenMobileDeviceAndroidPreferredRefreshRate", android)
+		self.assertIn("preferredRefreshRate", android_upl)
+		self.assertIn("runOnUiThread", android_upl)
+		self.assertIn("does not alter Unreal frame pacing", ios_backend)
+		for forbidden_token in (
+			"FPlatformRHIFramePacer",
+			"r.VSync",
+			"SetFrameRateLimit",
+			"t.MaxFPS",
+		):
+			self.assertNotIn(forbidden_token, control_sources)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN
@@ -262,6 +304,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"OpenMobileDeviceBlueprintLibrary.h",
 			"OpenMobileDeviceCapabilities.h",
 			"OpenMobileDeviceMonitoring.h",
+			"OpenMobileDeviceRefreshRateControl.h",
 			"OpenMobileDeviceSettings.h",
 			"OpenMobileDeviceStorageQueryAsyncAction.h",
 			"OpenMobileDeviceSubsystem.h",

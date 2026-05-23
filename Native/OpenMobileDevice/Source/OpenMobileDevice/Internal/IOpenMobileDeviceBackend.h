@@ -11,6 +11,7 @@
 #include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceRefreshRateControl.h"
 
 enum class EOpenMobileDeviceBackendDomain : uint8
 {
@@ -157,6 +158,22 @@ public:
 	{
 		return {};
 	}
+
+	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
+		const FOpenMobilePreferredRefreshRateRequest& Request
+	)
+	{
+		FOpenMobilePreferredRefreshRateResult Result;
+		Result.Request = Request;
+		Result.State = EOpenMobilePreferredRefreshRateApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support preferred refresh rates.")
+		);
+		return Result;
+	}
+
+	virtual void ClearPreferredRefreshRate() {}
 
 	virtual FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const
 	{

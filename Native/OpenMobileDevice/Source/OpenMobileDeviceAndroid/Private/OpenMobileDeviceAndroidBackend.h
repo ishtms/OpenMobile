@@ -25,6 +25,10 @@ public:
 	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const override;
 	virtual FOpenMobileWindowDisplaySnapshot
 	GetWindowDisplaySnapshot() const override;
+	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
+		const FOpenMobilePreferredRefreshRateRequest& Request
+	) override;
+	virtual void ClearPreferredRefreshRate() override;
 	virtual bool QueryStorageSnapshot(
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError

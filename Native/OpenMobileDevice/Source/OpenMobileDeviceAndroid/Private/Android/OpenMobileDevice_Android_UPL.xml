@@ -5,6 +5,70 @@
 	</androidManifestUpdates>
 	<gameActivityClassAdditions>
 		<insert><![CDATA[
+	private boolean OpenMobileDeviceHasSavedPreferredRefreshRate = false;
+	private float OpenMobileDeviceSavedPreferredRefreshRate = 0.0f;
+
+	public boolean AndroidThunkJava_OpenMobileDeviceApplyPreferredRefreshRate(
+		final float preferredRefreshRate
+	)
+	{
+		if (Float.isNaN(preferredRefreshRate)
+			|| Float.isInfinite(preferredRefreshRate)
+			|| preferredRefreshRate <= 0.0f)
+		{
+			return false;
+		}
+		final android.view.Window window = getWindow();
+		if (window == null)
+		{
+			return false;
+		}
+		runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				android.view.WindowManager.LayoutParams attributes =
+					window.getAttributes();
+				if (!OpenMobileDeviceHasSavedPreferredRefreshRate)
+				{
+					OpenMobileDeviceSavedPreferredRefreshRate =
+						attributes.preferredRefreshRate;
+					OpenMobileDeviceHasSavedPreferredRefreshRate = true;
+				}
+				attributes.preferredRefreshRate = preferredRefreshRate;
+				window.setAttributes(attributes);
+			}
+		});
+		return true;
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceClearPreferredRefreshRate()
+	{
+		final android.view.Window window = getWindow();
+		if (window == null)
+		{
+			return;
+		}
+		runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				if (!OpenMobileDeviceHasSavedPreferredRefreshRate)
+				{
+					return;
+				}
+				android.view.WindowManager.LayoutParams attributes =
+					window.getAttributes();
+				attributes.preferredRefreshRate =
+					OpenMobileDeviceSavedPreferredRefreshRate;
+				window.setAttributes(attributes);
+				OpenMobileDeviceHasSavedPreferredRefreshRate = false;
+			}
+		});
+	}
+
 	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
 	{
 		CharSequence label = getPackageManager().getApplicationLabel(getApplicationInfo());
