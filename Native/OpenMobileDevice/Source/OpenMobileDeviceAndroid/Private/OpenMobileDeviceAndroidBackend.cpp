@@ -69,6 +69,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android accepts a preferred target through the active Window. Preferred minimum and maximum ranges are not exposed by the public Window API, and the OS may select another supported mode.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::SafeAreaInsets)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports current safe-area, system-bar, and system-gesture insets from the active decor view in density-independent logical units. Home-indicator insets are not applicable.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

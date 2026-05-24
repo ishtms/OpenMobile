@@ -69,6 +69,118 @@
 		});
 	}
 
+	public float[] AndroidThunkJava_OpenMobileDeviceGetWindowInsets()
+	{
+		android.view.Window window = getWindow();
+		android.view.View decorView = window == null ? null : window.getDecorView();
+		android.view.WindowInsets windowInsets = decorView == null
+			? null
+			: decorView.getRootWindowInsets();
+		float density = getResources().getDisplayMetrics().density;
+		if (windowInsets == null || density <= 0.0f)
+		{
+			return new float[0];
+		}
+
+		int barLeft;
+		int barTop;
+		int barRight;
+		int barBottom;
+		int cutoutLeft = 0;
+		int cutoutTop = 0;
+		int cutoutRight = 0;
+		int cutoutBottom = 0;
+		int gestureLeft = 0;
+		int gestureTop = 0;
+		int gestureRight = 0;
+		int gestureBottom = 0;
+		boolean gesturesAvailable = false;
+		if (android.os.Build.VERSION.SDK_INT >= 30)
+		{
+			android.graphics.Insets bars = windowInsets.getInsets(
+				android.view.WindowInsets.Type.systemBars()
+			);
+			android.graphics.Insets cutout = windowInsets.getInsets(
+				android.view.WindowInsets.Type.displayCutout()
+			);
+			android.graphics.Insets gestures = windowInsets.getInsets(
+				android.view.WindowInsets.Type.systemGestures()
+			);
+			barLeft = bars.left;
+			barTop = bars.top;
+			barRight = bars.right;
+			barBottom = bars.bottom;
+			cutoutLeft = cutout.left;
+			cutoutTop = cutout.top;
+			cutoutRight = cutout.right;
+			cutoutBottom = cutout.bottom;
+			gestureLeft = gestures.left;
+			gestureTop = gestures.top;
+			gestureRight = gestures.right;
+			gestureBottom = gestures.bottom;
+			gesturesAvailable = true;
+		}
+		else
+		{
+			barLeft = Math.min(
+				windowInsets.getSystemWindowInsetLeft(),
+				windowInsets.getStableInsetLeft()
+			);
+			barTop = Math.min(
+				windowInsets.getSystemWindowInsetTop(),
+				windowInsets.getStableInsetTop()
+			);
+			barRight = Math.min(
+				windowInsets.getSystemWindowInsetRight(),
+				windowInsets.getStableInsetRight()
+			);
+			barBottom = Math.min(
+				windowInsets.getSystemWindowInsetBottom(),
+				windowInsets.getStableInsetBottom()
+			);
+			if (android.os.Build.VERSION.SDK_INT >= 28)
+			{
+				android.view.DisplayCutout cutout = windowInsets.getDisplayCutout();
+				if (cutout != null)
+				{
+					cutoutLeft = cutout.getSafeInsetLeft();
+					cutoutTop = cutout.getSafeInsetTop();
+					cutoutRight = cutout.getSafeInsetRight();
+					cutoutBottom = cutout.getSafeInsetBottom();
+				}
+			}
+			if (android.os.Build.VERSION.SDK_INT >= 29)
+			{
+				android.graphics.Insets gestures =
+					windowInsets.getSystemGestureInsets();
+				gestureLeft = gestures.left;
+				gestureTop = gestures.top;
+				gestureRight = gestures.right;
+				gestureBottom = gestures.bottom;
+				gesturesAvailable = true;
+			}
+		}
+
+		return new float[] {
+			density,
+			1.0f,
+			Math.max(barLeft, cutoutLeft),
+			Math.max(barTop, cutoutTop),
+			Math.max(barRight, cutoutRight),
+			Math.max(barBottom, cutoutBottom),
+			1.0f,
+			barLeft,
+			barTop,
+			barRight,
+			barBottom,
+			gesturesAvailable ? 1.0f : 0.0f,
+			gestureLeft,
+			gestureTop,
+			gestureRight,
+			gestureBottom
+		};
+	}
+
 	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
 	{
 		CharSequence label = getPackageManager().getApplicationLabel(getApplicationInfo());

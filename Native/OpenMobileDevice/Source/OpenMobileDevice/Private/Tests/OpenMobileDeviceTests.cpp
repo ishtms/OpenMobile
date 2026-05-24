@@ -50,6 +50,7 @@
 #include "OpenMobileDeviceTimeZoneInfo.h"
 #include "OpenMobileDeviceThermalHeadroom.h"
 #include "OpenMobileDeviceWindowMetrics.h"
+#include "OpenMobileDeviceWindowInsets.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "UObject/UnrealType.h"
@@ -1300,6 +1301,73 @@ bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
 		FOpenMobileDeviceWindowMetrics::Build({});
 	TestFalse(TEXT("Zero-size startup stays unavailable"), Startup.bLogicalWindowSizeAvailable);
 	TestFalse(TEXT("Unsupported editor drawable stays unavailable"), Startup.bDrawablePixelSizeAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceWindowInsetsTest,
+	"OpenMobile.Device.Display.WindowInsets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceWindowInsetsTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileWindowDisplaySnapshot Snapshot;
+	Snapshot.bLogicalWindowSizeAvailable = true;
+	Snapshot.LogicalWindowSize = FVector2D(390.0, 844.0);
+	FOpenMobileDeviceWindowInsetsEvidence Evidence;
+	Evidence.SafeArea = FOpenMobileDeviceInsetValues{10.0f, 47.0f, 10.0f, 34.0f};
+	Evidence.SystemBars = FOpenMobileDeviceInsetValues{0.0f, 47.0f, 0.0f, 0.0f};
+	Evidence.HomeIndicator = FOpenMobileDeviceInsetValues{0.0f, 0.0f, 0.0f, 34.0f};
+	Evidence.SystemGestures = FOpenMobileDeviceInsetValues{16.0f, 0.0f, 16.0f, 34.0f};
+	FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
+	TestTrue(TEXT("Notched safe area is available"), Snapshot.SafeAreaInsets.bIsAvailable);
+	TestEqual(TEXT("Safe top is directional"), Snapshot.SafeAreaInsets.Top, 47.0f);
+	TestEqual(TEXT("Rounded side is retained"), Snapshot.SafeAreaInsets.Left, 10.0f);
+	TestTrue(TEXT("System bars remain separate"), Snapshot.SystemBarInsets.bIsAvailable);
+	TestEqual(TEXT("Status bar stays in its class"), Snapshot.SystemBarInsets.Top, 47.0f);
+	TestTrue(TEXT("Home indicator remains separate"), Snapshot.HomeIndicatorInsets.bIsAvailable);
+	TestEqual(TEXT("Home indicator uses logical units"), Snapshot.HomeIndicatorInsets.Bottom, 34.0f);
+	TestTrue(TEXT("Gesture edges remain separate"), Snapshot.SystemGestureInsets.bIsAvailable);
+	TestEqual(TEXT("Gesture edge is directional"), Snapshot.SystemGestureInsets.Left, 16.0f);
+
+	FOpenMobileDeviceWindowInsetsEvidence ThreeButtonNavigation;
+	ThreeButtonNavigation.SafeArea = FOpenMobileDeviceInsetValues{0.0f, 24.0f, 0.0f, 48.0f};
+	ThreeButtonNavigation.SystemBars = FOpenMobileDeviceInsetValues{0.0f, 24.0f, 0.0f, 48.0f};
+	FOpenMobileDeviceWindowInsets::Apply(Snapshot, ThreeButtonNavigation);
+	TestEqual(TEXT("Three-button navigation stays a system bar"), Snapshot.SystemBarInsets.Bottom, 48.0f);
+	TestFalse(TEXT("Three-button navigation does not invent gestures"), Snapshot.SystemGestureInsets.bIsAvailable);
+	TestFalse(TEXT("Three-button navigation does not invent a home indicator"), Snapshot.HomeIndicatorInsets.bIsAvailable);
+
+	Snapshot.LogicalWindowSize = FVector2D(844.0, 390.0);
+	FOpenMobileDeviceWindowInsetsEvidence LandscapeImmersive;
+	LandscapeImmersive.SafeArea = FOpenMobileDeviceInsetValues{47.0f, 0.0f, 47.0f, 21.0f};
+	LandscapeImmersive.SystemBars = FOpenMobileDeviceInsetValues{};
+	LandscapeImmersive.HomeIndicator = FOpenMobileDeviceInsetValues{0.0f, 0.0f, 0.0f, 21.0f};
+	LandscapeImmersive.SystemGestures = FOpenMobileDeviceInsetValues{16.0f, 0.0f, 16.0f, 21.0f};
+	FOpenMobileDeviceWindowInsets::Apply(Snapshot, LandscapeImmersive);
+	TestEqual(TEXT("Rotation updates the leading safe inset"), Snapshot.SafeAreaInsets.Left, 47.0f);
+	TestTrue(TEXT("Hidden system bars remain available as zero"), Snapshot.SystemBarInsets.bIsAvailable);
+	TestEqual(TEXT("Immersive mode clears the visible bar inset"), Snapshot.SystemBarInsets.Top, 0.0f);
+
+	Snapshot.LogicalWindowSize = FVector2D(600.0, 800.0);
+	FOpenMobileDeviceWindowInsetsEvidence TabletSplit;
+	TabletSplit.SafeArea = FOpenMobileDeviceInsetValues{0.0f, 24.0f, 0.0f, 24.0f};
+	TabletSplit.SystemBars = FOpenMobileDeviceInsetValues{0.0f, 24.0f, 0.0f, 24.0f};
+	FOpenMobileDeviceWindowInsets::Apply(Snapshot, TabletSplit);
+	TestEqual(TEXT("Split tablet keeps logical top inset"), Snapshot.SafeAreaInsets.Top, 24.0f);
+	TestEqual(TEXT("Split tablet keeps logical bottom inset"), Snapshot.SafeAreaInsets.Bottom, 24.0f);
+	TestFalse(TEXT("Keyboard geometry is not merged into system classes"), Snapshot.SystemGestureInsets.bIsAvailable);
+
+	FOpenMobileDeviceWindowInsetsEvidence Invalid;
+	Invalid.SafeArea = FOpenMobileDeviceInsetValues{-1.0f, 0.0f, 0.0f, 0.0f};
+	Invalid.SystemBars = FOpenMobileDeviceInsetValues{0.0f, std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f};
+	Invalid.SystemGestures = FOpenMobileDeviceInsetValues{300.0f, 0.0f, 300.0f, 0.0f};
+	FOpenMobileDeviceWindowInsets::Apply(Snapshot, Invalid);
+	TestFalse(TEXT("Negative safe area is unavailable"), Snapshot.SafeAreaInsets.bIsAvailable);
+	TestFalse(TEXT("Non-finite bars are unavailable"), Snapshot.SystemBarInsets.bIsAvailable);
+	TestFalse(TEXT("Insets wider than a split window are unavailable"), Snapshot.SystemGestureInsets.bIsAvailable);
 	return true;
 }
 

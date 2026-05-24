@@ -276,6 +276,46 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertNotIn(forbidden_token, control_sources)
 
+	def test_window_insets_are_active_directional_and_classified(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"getRootWindowInsets",
+			"WindowInsets.Type.systemBars",
+			"WindowInsets.Type.systemGestures",
+			"getDisplayCutout",
+		):
+			self.assertIn(token, android_upl)
+		self.assertIn("ApplyOpenMobileDeviceAndroidWindowInsets", android_display)
+		for token in (
+			"safeAreaInsets",
+			"statusBarManager",
+			"HomeIndicator",
+			"FOpenMobileDeviceWindowInsets::Apply",
+		):
+			self.assertIn(token, ios_display)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

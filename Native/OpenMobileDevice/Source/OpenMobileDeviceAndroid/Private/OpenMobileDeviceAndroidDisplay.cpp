@@ -3,6 +3,7 @@
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidPlatformMisc.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
+#include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 
 namespace OpenMobileDeviceAndroidDisplayPrivate
@@ -325,6 +326,68 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 			Evidence.bIsWindowed = false;
 		}
 	}
+
+	void ApplyOpenMobileDeviceAndroidWindowInsets(
+		JNIEnv* Env,
+		jobject Activity,
+		FOpenMobileWindowDisplaySnapshot& Snapshot
+	)
+	{
+		FOpenMobileDeviceWindowInsetsEvidence Evidence;
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID GetWindowInsets = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceGetWindowInsets",
+				"()[F"
+			)
+			: nullptr;
+		if (!GetWindowInsets || ClearJavaException(Env))
+		{
+			FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
+			return;
+		}
+		FScopedJavaObject<jfloatArray> NativeValues(
+			static_cast<jfloatArray>(
+				Env->CallObjectMethod(Activity, GetWindowInsets)
+			)
+		);
+		if (!NativeValues || ClearJavaException(Env)
+			|| Env->GetArrayLength(*NativeValues) != 16)
+		{
+			FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
+			return;
+		}
+		TArray<jfloat> Values;
+		Values.SetNumUninitialized(16);
+		Env->GetFloatArrayRegion(*NativeValues, 0, 16, Values.GetData());
+		if (ClearJavaException(Env) || !FMath::IsFinite(Values[0])
+			|| Values[0] <= 0.0f)
+		{
+			FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
+			return;
+		}
+		const float Density = Values[0];
+		auto ReadInsets = [&Values, Density](int32 AvailabilityIndex)
+			-> TOptional<FOpenMobileDeviceInsetValues>
+		{
+			if (Values[AvailabilityIndex] < 0.5f)
+			{
+				return {};
+			}
+			const int32 FirstValueIndex = AvailabilityIndex + 1;
+			return FOpenMobileDeviceInsetValues{
+				Values[FirstValueIndex] / Density,
+				Values[FirstValueIndex + 1] / Density,
+				Values[FirstValueIndex + 2] / Density,
+				Values[FirstValueIndex + 3] / Density
+			};
+		};
+		Evidence.SafeArea = ReadInsets(1);
+		Evidence.SystemBars = ReadInsets(6);
+		Evidence.SystemGestures = ReadInsets(11);
+		FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
+	}
 }
 
 FOpenMobileWindowDisplaySnapshot
@@ -359,6 +422,15 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 	}
 	FOpenMobileWindowDisplaySnapshot Snapshot =
 		FOpenMobileDeviceWindowMetrics::Build(Evidence);
+	if (Env && Activity)
+	{
+		OpenMobileDeviceAndroidDisplayPrivate::
+			ApplyOpenMobileDeviceAndroidWindowInsets(
+				Env,
+				Activity,
+				Snapshot
+			);
+	}
 	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, RefreshRateEvidence);
 	return Snapshot;
 }

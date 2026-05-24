@@ -3,6 +3,7 @@
 #include "IOS/IOSAppDelegate.h"
 #include "IOS/IOSView.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
+#include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 
 #import <UIKit/UIKit.h>
@@ -13,6 +14,7 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 	{
 		__block FOpenMobileDeviceWindowMetricsEvidence Evidence;
 		__block FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
+		__block FOpenMobileDeviceWindowInsetsEvidence InsetEvidence;
 		void (^CaptureMetrics)(void) = ^{
 			FIOSView* View = [IOSAppDelegate GetDelegate].IOSView;
 			if (View == nil)
@@ -30,6 +32,22 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 				FMath::RoundToInt(DrawableSize.height)
 			);
 			Evidence.ScaleFactor = static_cast<float>(View.contentScaleFactor);
+			if (View.window != nil)
+			{
+				const UIEdgeInsets SafeArea = View.safeAreaInsets;
+				InsetEvidence.SafeArea = FOpenMobileDeviceInsetValues{
+					static_cast<float>(SafeArea.left),
+					static_cast<float>(SafeArea.top),
+					static_cast<float>(SafeArea.right),
+					static_cast<float>(SafeArea.bottom)
+				};
+				InsetEvidence.HomeIndicator = FOpenMobileDeviceInsetValues{
+					0.0f,
+					0.0f,
+					0.0f,
+					static_cast<float>(SafeArea.bottom)
+				};
+			}
 
 			UIScreen* Screen = View.window.screen;
 			if (Screen != nil)
@@ -37,6 +55,36 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 				RefreshRateEvidence.MaximumRefreshRateHz =
 					static_cast<float>(Screen.maximumFramesPerSecond);
 				UIWindowScene* WindowScene = View.window.windowScene;
+				UIStatusBarManager* StatusBarManager =
+					WindowScene.statusBarManager;
+				if (StatusBarManager != nil)
+				{
+					FOpenMobileDeviceInsetValues SystemBars;
+					if (!StatusBarManager.statusBarHidden)
+					{
+						const CGRect StatusFrame = [View convertRect:
+							StatusBarManager.statusBarFrame
+							fromCoordinateSpace:WindowScene.screen.coordinateSpace];
+						const CGRect Intersection = CGRectIntersection(
+							Bounds,
+							StatusFrame
+						);
+						if (!CGRectIsNull(Intersection)
+							&& !CGRectIsEmpty(Intersection))
+						{
+							const CGFloat Tolerance = 0.5;
+							if (CGRectGetMinY(Intersection)
+								<= CGRectGetMinY(Bounds) + Tolerance)
+							{
+								SystemBars.Top = static_cast<float>(
+									CGRectGetMaxY(Intersection)
+									- CGRectGetMinY(Bounds)
+								);
+							}
+						}
+					}
+					InsetEvidence.SystemBars = SystemBars;
+				}
 				const CGRect ScreenBounds = WindowScene != nil
 					? WindowScene.screen.coordinateSpace.bounds
 					: Screen.coordinateSpace.bounds;
@@ -61,6 +109,7 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 		}
 		FOpenMobileWindowDisplaySnapshot Snapshot =
 			FOpenMobileDeviceWindowMetrics::Build(Evidence);
+		FOpenMobileDeviceWindowInsets::Apply(Snapshot, InsetEvidence);
 		FOpenMobileDeviceRefreshRateInfo::Apply(
 			Snapshot,
 			RefreshRateEvidence

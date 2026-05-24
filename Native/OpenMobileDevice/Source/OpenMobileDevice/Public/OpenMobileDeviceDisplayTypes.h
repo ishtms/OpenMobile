@@ -187,6 +187,9 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 	FOpenMobileDeviceInsets SystemBarInsets;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceInsets HomeIndicatorInsets;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	FOpenMobileDeviceInsets SystemGestureInsets;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
@@ -248,6 +251,7 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 			&& SupportedRefreshModes == Other.SupportedRefreshModes
 			&& SafeAreaInsets == Other.SafeAreaInsets
 			&& SystemBarInsets == Other.SystemBarInsets
+			&& HomeIndicatorInsets == Other.HomeIndicatorInsets
 			&& SystemGestureInsets == Other.SystemGestureInsets
 			&& bDisplayCutoutsAvailable == Other.bDisplayCutoutsAvailable
 			&& DisplayCutouts == Other.DisplayCutouts

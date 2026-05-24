@@ -67,6 +67,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS refresh preferences are tied to the engine-owned display link. OpenMobile does not alter Unreal frame pacing, VSync, or game timing.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::SafeAreaInsets)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports active-view safe-area insets, the scene status-bar intersection, and the bottom home-indicator reservation in logical points. It does not expose separate numeric system-gesture insets.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
