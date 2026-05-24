@@ -21,6 +21,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	FOpenMobileHapticPattern Pattern;
 	FOpenMobileHapticPlaybackOptions Options;
 	FOpenMobileHapticPlaybackHandle Handle;
+	FOpenMobileHapticError Error;
 	FOpenMobileHapticPlaybackResult PlaybackResult;
 	FOpenMobileHapticPlaybackEvent PlaybackEvent;
 	FOpenMobileHapticUserPolicy Policy;
@@ -33,6 +34,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	static_cast<void>(Pattern);
 	static_cast<void>(Options);
 	static_cast<void>(Handle);
+	static_cast<void>(Error);
 	static_cast<void>(PlaybackResult);
 	static_cast<void>(PlaybackEvent);
 	static_cast<void>(Policy);

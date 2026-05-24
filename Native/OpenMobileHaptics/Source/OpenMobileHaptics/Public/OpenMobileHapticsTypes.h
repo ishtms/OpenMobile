@@ -133,6 +133,44 @@ enum class EOpenMobileHapticEventEvidence : uint8
 	NativeConfirmed
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileHapticErrorCode : uint8
+{
+	None,
+	UnsupportedHardware,
+	UnsupportedFeature,
+	DisabledByPolicy,
+	InvalidPattern,
+	RateLimited,
+	ChannelBusy,
+	LifecycleRestricted,
+	NotConfigured,
+	NativeEngineFailure,
+	Interrupted,
+	Cancelled,
+	InvalidRequest,
+	BackendUnavailable,
+	Internal
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileHapticFailureStage : uint8
+{
+	None,
+	Validation,
+	Policy,
+	Capability,
+	Channel,
+	RateLimit,
+	Lifecycle,
+	Preparation,
+	Compilation,
+	NativeSubmission,
+	Playback,
+	Interruption,
+	Shutdown
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackHandle
 {
@@ -161,6 +199,114 @@ FORCEINLINE uint32 GetTypeHash(const FOpenMobileHapticPlaybackHandle& Handle)
 {
 	return GetTypeHash(Handle.Id);
 }
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticError
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticErrorCode Code = EOpenMobileHapticErrorCode::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileErrorCode CommonCode = EOpenMobileErrorCode::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticFailureStage Stage =
+		EOpenMobileHapticFailureStage::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FString Message;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FString NativeDomain;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FString NativeCode;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName FailedItem;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName Channel;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticPlaybackHandle Handle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FName> FallbackAttempts;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FString Correction;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bRejectedBeforeSubmission = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bInterruptedAfterAcceptance = false;
+
+	bool IsSet() const
+	{
+		return Code != EOpenMobileHapticErrorCode::None;
+	}
+
+	static FOpenMobileHapticError Make(
+		EOpenMobileHapticErrorCode HapticCode,
+		EOpenMobileErrorCode InCommonCode,
+		EOpenMobileHapticFailureStage InStage,
+		FString InMessage
+	)
+	{
+		FOpenMobileHapticError Error;
+		Error.Code = HapticCode;
+		Error.CommonCode = InCommonCode;
+		Error.Stage = InStage;
+		Error.Message = MoveTemp(InMessage);
+		return Error;
+	}
+
+	static FOpenMobileHapticError FromCommon(
+		EOpenMobileErrorCode InCommonCode,
+		FString InMessage,
+		EOpenMobileHapticFailureStage InStage =
+			EOpenMobileHapticFailureStage::None
+	)
+	{
+		EOpenMobileHapticErrorCode HapticCode =
+			EOpenMobileHapticErrorCode::Internal;
+		switch (InCommonCode)
+		{
+		case EOpenMobileErrorCode::None:
+			HapticCode = EOpenMobileHapticErrorCode::None;
+			break;
+		case EOpenMobileErrorCode::NotSupported:
+			HapticCode = EOpenMobileHapticErrorCode::UnsupportedFeature;
+			break;
+		case EOpenMobileErrorCode::NotConfigured:
+			HapticCode = EOpenMobileHapticErrorCode::NotConfigured;
+			break;
+		case EOpenMobileErrorCode::Unavailable:
+			HapticCode = EOpenMobileHapticErrorCode::BackendUnavailable;
+			break;
+		case EOpenMobileErrorCode::Busy:
+			HapticCode = EOpenMobileHapticErrorCode::ChannelBusy;
+			break;
+		case EOpenMobileErrorCode::Cancelled:
+			HapticCode = EOpenMobileHapticErrorCode::Cancelled;
+			break;
+		case EOpenMobileErrorCode::InvalidArgument:
+			HapticCode = EOpenMobileHapticErrorCode::InvalidRequest;
+			break;
+		case EOpenMobileErrorCode::NativeFailure:
+			HapticCode = EOpenMobileHapticErrorCode::NativeEngineFailure;
+			break;
+		case EOpenMobileErrorCode::Internal:
+			HapticCode = EOpenMobileHapticErrorCode::Internal;
+			break;
+		}
+		return Make(HapticCode, InCommonCode, InStage, MoveTemp(InMessage));
+	}
+};
 
 USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
@@ -354,7 +500,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 	FOpenMobileHapticPlaybackHandle Handle;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
-	FOpenMobileError Error;
+	FOpenMobileHapticError Error;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FName Channel;
@@ -375,7 +521,20 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 	{
 		FOpenMobileHapticPlaybackResult Result;
 		Result.State = EOpenMobileHapticPlaybackState::Failed;
-		Result.Error = FOpenMobileError::Make(ErrorCode, MoveTemp(Message));
+		Result.Error = FOpenMobileHapticError::FromCommon(
+			ErrorCode,
+			MoveTemp(Message)
+		);
+		return Result;
+	}
+
+	static FOpenMobileHapticPlaybackResult MakeRejected(
+		FOpenMobileHapticError Error
+	)
+	{
+		FOpenMobileHapticPlaybackResult Result;
+		Result.State = EOpenMobileHapticPlaybackState::Failed;
+		Result.Error = MoveTemp(Error);
 		return Result;
 	}
 };
@@ -390,7 +549,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 		EOpenMobileHapticControlOutcome::Rejected;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
-	FOpenMobileError Error;
+	FOpenMobileHapticError Error;
 
 	static FOpenMobileHapticControlResult MakeRejected(
 		EOpenMobileErrorCode ErrorCode,
@@ -398,7 +557,19 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 	)
 	{
 		FOpenMobileHapticControlResult Result;
-		Result.Error = FOpenMobileError::Make(ErrorCode, MoveTemp(Message));
+		Result.Error = FOpenMobileHapticError::FromCommon(
+			ErrorCode,
+			MoveTemp(Message)
+		);
+		return Result;
+	}
+
+	static FOpenMobileHapticControlResult MakeRejected(
+		FOpenMobileHapticError Error
+	)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Error = MoveTemp(Error);
 		return Result;
 	}
 };
@@ -432,7 +603,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackEvent
 	FName ResolvedPath;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
-	FOpenMobileError Error;
+	FOpenMobileHapticError Error;
 };
 
 USTRUCT(BlueprintType)
@@ -468,5 +639,5 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 	int32 QueuedPlaybackCount = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
-	FOpenMobileError LastError;
+	FOpenMobileHapticError LastError;
 };

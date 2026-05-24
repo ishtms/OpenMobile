@@ -4,6 +4,7 @@
 #include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsErrorMapper.h"
 
 struct FOpenMobileHapticsSubsystemRequestState
 {
@@ -17,7 +18,7 @@ struct FOpenMobileHapticsSubsystemState
 	TMap<FOpenMobileHapticPlaybackHandle, uint64> RequestByHandle;
 	TMap<FOpenMobileHapticPlaybackHandle, EOpenMobileHapticPlaybackState>
 		PlaybackStates;
-	FOpenMobileError LastError;
+	FOpenMobileHapticError LastError;
 };
 
 void FOpenMobileHapticsSubsystemStateDeleter::operator()(
@@ -31,18 +32,24 @@ namespace OpenMobileHapticsSubsystemPrivate
 {
 	FOpenMobileHapticPlaybackResult MakeUnsupportedPlaybackResult()
 	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason =
+			EOpenMobileHapticsFailureReason::UnsupportedFeature;
+		Context.Stage = EOpenMobileHapticFailureStage::Capability;
 		return FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::NotSupported,
-			TEXT("Phone haptics are not supported on this platform.")
+			FOpenMobileHapticsErrorMapper::Map(Context)
 		);
 	}
 
 	FOpenMobileHapticControlResult MakeUnsupportedControlResult()
 	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason =
+			EOpenMobileHapticsFailureReason::UnsupportedFeature;
+		Context.Stage = EOpenMobileHapticFailureStage::Capability;
 		FOpenMobileHapticControlResult Result =
 			FOpenMobileHapticControlResult::MakeRejected(
-				EOpenMobileErrorCode::NotSupported,
-				TEXT("Phone haptic controls are not supported on this platform.")
+				FOpenMobileHapticsErrorMapper::Map(Context)
 			);
 		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
 		return Result;
@@ -107,10 +114,16 @@ namespace OpenMobileHapticsSubsystemPrivate
 		{
 			Result.Handle = {};
 			RemoveRequest(State, Token.RequestId);
-			if (Result.Error.IsSet())
-			{
-				State.LastError = Result.Error;
-			}
+			FOpenMobileHapticsErrorContext Context;
+			Context.Reason =
+				EOpenMobileHapticsFailureReason::NativeEngineFailure;
+			Context.Stage = EOpenMobileHapticFailureStage::NativeSubmission;
+			Context.Channel = Channel;
+			Result.Error = FOpenMobileHapticsErrorMapper::Complete(
+				MoveTemp(Result.Error),
+				Context
+			);
+			State.LastError = Result.Error;
 			return Result;
 		}
 
@@ -120,9 +133,13 @@ namespace OpenMobileHapticsSubsystemPrivate
 					|| !Submission.bExpectsCallbacks)))
 		{
 			RemoveRequest(State, Token.RequestId);
+			FOpenMobileHapticsErrorContext Context;
+			Context.Reason = EOpenMobileHapticsFailureReason::Internal;
+			Context.Stage = EOpenMobileHapticFailureStage::NativeSubmission;
+			Context.Channel = Channel;
+			Context.Handle = Token.PlaybackHandle;
 			Result = FOpenMobileHapticPlaybackResult::MakeRejected(
-				EOpenMobileErrorCode::Internal,
-				TEXT("The Haptics backend returned an inconsistent acceptance contract.")
+				FOpenMobileHapticsErrorMapper::Map(Context)
 			);
 			State.LastError = Result.Error;
 			return Result;
@@ -437,10 +454,14 @@ UOpenMobileHapticsSubsystem::StopPlaybackNative(
 		: nullptr;
 	if (!Request)
 	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = Handle.IsValid();
 		FOpenMobileHapticControlResult Result =
 			FOpenMobileHapticControlResult::MakeRejected(
-				EOpenMobileErrorCode::Unavailable,
-				TEXT("The Haptics playback handle is stale or unknown.")
+				FOpenMobileHapticsErrorMapper::Map(Context)
 			);
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
 		return Result;
@@ -459,18 +480,20 @@ UOpenMobileHapticsSubsystem::StopPlaybackNative(
 		);
 		FOpenMobileHapticControlResult Result;
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
-		Result.Error = FOpenMobileError::Make(
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The backend that owns this Haptics handle is no longer active.")
-		);
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = true;
+		Result.Error = FOpenMobileHapticsErrorMapper::Map(Context);
 		return Result;
 	}
 	if (!Backend->GetControlSupport().bStop)
 	{
 		FOpenMobileHapticControlResult Result =
 			OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
-		Result.Error.Message =
-			TEXT("The active Haptics backend cannot stop individual playback.");
+		Result.Error.Handle = Handle;
+		Result.Error.bRejectedBeforeSubmission = false;
 		return Result;
 	}
 	return Backend->StopPlayback(Request->Token);
@@ -539,9 +562,11 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 			Policy.EffectScales
 		))
 	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::InvalidRequest;
+		Context.Stage = EOpenMobileHapticFailureStage::Policy;
 		return FOpenMobileHapticControlResult::MakeRejected(
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("Haptics policy scales must be finite values from 0 to 1 with nonempty names.")
+			FOpenMobileHapticsErrorMapper::Map(Context)
 		);
 	}
 
@@ -645,6 +670,27 @@ void UOpenMobileHapticsSubsystem::HandleBackendCallback(
 
 	FOpenMobileHapticPlaybackEvent Event = Callback.Event;
 	Event.Handle = Callback.Token.PlaybackHandle;
+	if (Event.State == EOpenMobileHapticPlaybackState::Interrupted
+		|| Event.State == EOpenMobileHapticPlaybackState::Failed)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason =
+			Event.State == EOpenMobileHapticPlaybackState::Interrupted
+				? EOpenMobileHapticsFailureReason::Interrupted
+				: EOpenMobileHapticsFailureReason::NativeEngineFailure;
+		Context.Stage =
+			Event.State == EOpenMobileHapticPlaybackState::Interrupted
+				? EOpenMobileHapticFailureStage::Interruption
+				: EOpenMobileHapticFailureStage::Playback;
+		Context.FailedItem = Event.PatternOrEffect;
+		Context.Channel = Event.Channel;
+		Context.Handle = Event.Handle;
+		Context.bAfterAcceptance = true;
+		Event.Error = FOpenMobileHapticsErrorMapper::Complete(
+			MoveTemp(Event.Error),
+			Context
+		);
+	}
 	if (Event.Handle.IsValid())
 	{
 		LocalState.PlaybackStates.Add(Event.Handle, Event.State);

@@ -3,7 +3,28 @@
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsSubsystem.h"
+
+namespace OpenMobileHapticsAsyncActionPrivate
+{
+	FOpenMobileHapticError MakeError(
+		EOpenMobileHapticsFailureReason Reason,
+		EOpenMobileHapticFailureStage Stage,
+		FName FailedItem = NAME_None,
+		FOpenMobileHapticPlaybackHandle Handle = {},
+		bool bAfterAcceptance = false
+	)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = Reason;
+		Context.Stage = Stage;
+		Context.FailedItem = FailedItem;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = bAfterAcceptance;
+		return FOpenMobileHapticsErrorMapper::Map(Context);
+	}
+}
 
 UOpenMobileHapticPlaybackAsyncAction*
 UOpenMobileHapticPlaybackAsyncAction::PlayNamedHapticAsync(
@@ -32,8 +53,11 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 	if (!StoredWorldContextObject || !GEngine)
 	{
 		FinishFailed(FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("The Haptics async action requires a valid world context object.")
+			OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::InvalidRequest,
+				EOpenMobileHapticFailureStage::Validation,
+				RequestedPatternName
+			)
 		));
 		return;
 	}
@@ -46,8 +70,11 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 	if (!World || !GameInstance)
 	{
 		FinishFailed(FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The Haptics async action could not resolve a Game Instance.")
+			OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::LifecycleRestricted,
+				EOpenMobileHapticFailureStage::Lifecycle,
+				RequestedPatternName
+			)
 		));
 		return;
 	}
@@ -62,8 +89,11 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 	if (!Subsystem.IsValid())
 	{
 		FinishFailed(FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The Open Mobile Haptics subsystem is unavailable.")
+			OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::BackendUnavailable,
+				EOpenMobileHapticFailureStage::Lifecycle,
+				RequestedPatternName
+			)
 		));
 		return;
 	}
@@ -89,8 +119,13 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 	if (!PlaybackHandle.IsValid())
 	{
 		FinishFailed(FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::Internal,
-			TEXT("Accepted asynchronous Haptics playback returned no handle.")
+			OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::Internal,
+				EOpenMobileHapticFailureStage::NativeSubmission,
+				RequestedPatternName,
+				{},
+				true
+			)
 		));
 		return;
 	}
@@ -116,9 +151,12 @@ void UOpenMobileHapticPlaybackAsyncAction::Cancel()
 	FOpenMobileHapticPlaybackResult Result = ImmediateResult;
 	Result.Handle = PlaybackHandle;
 	Result.State = EOpenMobileHapticPlaybackState::Cancelled;
-	Result.Error = FOpenMobileError::Make(
-		EOpenMobileErrorCode::Cancelled,
-		TEXT("The Haptics async action was cancelled.")
+	Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+		EOpenMobileHapticsFailureReason::Cancelled,
+		EOpenMobileHapticFailureStage::Playback,
+		RequestedPatternName,
+		PlaybackHandle,
+		PlaybackHandle.IsValid()
 	);
 	FinishCancelled(MoveTemp(Result));
 }
@@ -211,9 +249,12 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 	case EOpenMobileHapticPlaybackState::Cancelled:
 		if (!Result.Error.IsSet())
 		{
-			Result.Error = FOpenMobileError::Make(
-				EOpenMobileErrorCode::Cancelled,
-				TEXT("Haptics playback ended before completion.")
+			Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::Cancelled,
+				EOpenMobileHapticFailureStage::Playback,
+				RequestedPatternName,
+				PlaybackHandle,
+				true
 			);
 		}
 		FinishCancelled(MoveTemp(Result));
@@ -222,9 +263,16 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 	case EOpenMobileHapticPlaybackState::Failed:
 		if (!Result.Error.IsSet())
 		{
-			Result.Error = FOpenMobileError::Make(
-				EOpenMobileErrorCode::NativeFailure,
-				TEXT("Haptics playback failed after acceptance.")
+			Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+				Event.State == EOpenMobileHapticPlaybackState::Interrupted
+					? EOpenMobileHapticsFailureReason::Interrupted
+					: EOpenMobileHapticsFailureReason::NativeEngineFailure,
+				Event.State == EOpenMobileHapticPlaybackState::Interrupted
+					? EOpenMobileHapticFailureStage::Interruption
+					: EOpenMobileHapticFailureStage::Playback,
+				RequestedPatternName,
+				PlaybackHandle,
+				true
 			);
 		}
 		FinishFailed(MoveTemp(Result));
@@ -250,9 +298,12 @@ void UOpenMobileHapticPlaybackAsyncAction::HandleWorldCleanup(
 	FOpenMobileHapticPlaybackResult Result = ImmediateResult;
 	Result.Handle = PlaybackHandle;
 	Result.State = EOpenMobileHapticPlaybackState::Cancelled;
-	Result.Error = FOpenMobileError::Make(
-		EOpenMobileErrorCode::Cancelled,
-		TEXT("The Haptics async action was cancelled because its world is shutting down.")
+	Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+		EOpenMobileHapticsFailureReason::Cancelled,
+		EOpenMobileHapticFailureStage::Shutdown,
+		RequestedPatternName,
+		PlaybackHandle,
+		PlaybackHandle.IsValid()
 	);
 	FinishCancelled(MoveTemp(Result));
 }
@@ -266,9 +317,12 @@ void UOpenMobileHapticPlaybackAsyncAction::HandleGameInstanceTeardown()
 	FOpenMobileHapticPlaybackResult Result = ImmediateResult;
 	Result.Handle = PlaybackHandle;
 	Result.State = EOpenMobileHapticPlaybackState::Cancelled;
-	Result.Error = FOpenMobileError::Make(
-		EOpenMobileErrorCode::Cancelled,
-		TEXT("The Haptics async action was cancelled because its Game Instance is shutting down.")
+	Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+		EOpenMobileHapticsFailureReason::Cancelled,
+		EOpenMobileHapticFailureStage::Shutdown,
+		RequestedPatternName,
+		PlaybackHandle,
+		PlaybackHandle.IsValid()
 	);
 	FinishCancelled(MoveTemp(Result));
 }

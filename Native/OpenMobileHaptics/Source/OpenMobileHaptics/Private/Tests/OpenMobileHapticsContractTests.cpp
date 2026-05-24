@@ -9,6 +9,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
@@ -119,6 +120,7 @@ namespace OpenMobileHapticsTests
 		FOpenMobileHapticsBackendControlSupport ControlSupport;
 		bool bAvailable = true;
 		bool bFailSubmissions = false;
+		bool bFailSubmissionsWithoutError = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
 		int32 OneShotSubmissionCount = 0;
@@ -141,6 +143,10 @@ namespace OpenMobileHapticsTests
 		)
 		{
 			FOpenMobileHapticsBackendSubmission Submission;
+			if (bFailSubmissionsWithoutError)
+			{
+				return Submission;
+			}
 			if (bFailSubmissions)
 			{
 				Submission.Result =
@@ -435,6 +441,11 @@ bool FOpenMobileHapticsUnsupportedEditorTest::RunTest(const FString& Parameters)
 		TestEqual(
 			TEXT("Unsupported play has a typed error"),
 			Result.Error.Code,
+			EOpenMobileHapticErrorCode::UnsupportedFeature
+		);
+		TestEqual(
+			TEXT("Unsupported play retains the common error"),
+			Result.Error.CommonCode,
 			EOpenMobileErrorCode::NotSupported
 		);
 		TestFalse(
@@ -448,7 +459,7 @@ bool FOpenMobileHapticsUnsupportedEditorTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Unsupported stop has a typed error"),
 		StopResult.Error.Code,
-		EOpenMobileErrorCode::NotSupported
+		EOpenMobileHapticErrorCode::UnsupportedFeature
 	);
 	TestEqual(
 		TEXT("Unknown handles remain invalid"),
@@ -463,7 +474,7 @@ bool FOpenMobileHapticsUnsupportedEditorTest::RunTest(const FString& Parameters)
 	TestEqual(
 		TEXT("Nonfinite policy is rejected"),
 		InvalidPolicy.Error.Code,
-		EOpenMobileErrorCode::InvalidArgument
+		EOpenMobileHapticErrorCode::InvalidRequest
 	);
 
 	Policy.MasterIntensity = 0.5f;
@@ -806,6 +817,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	TestEqual(
 		TEXT("Injected native failure remains typed"),
 		Failed.Error.Code,
+		EOpenMobileHapticErrorCode::NativeEngineFailure
+	);
+	TestEqual(
+		TEXT("Injected native failure retains the common code"),
+		Failed.Error.CommonCode,
 		EOpenMobileErrorCode::NativeFailure
 	);
 	TestFalse(TEXT("Failed submission has no handle"), Failed.Handle.IsValid());
@@ -814,6 +830,233 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Newest);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(High);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Low);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsErrorMappingTest,
+	"OpenMobile.Haptics.Errors.MappingAndRedaction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsErrorMappingTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	struct FExpectedMapping
+	{
+		EOpenMobileHapticsFailureReason Reason;
+		EOpenMobileHapticErrorCode HapticCode;
+		EOpenMobileErrorCode CommonCode;
+	};
+	const TArray<FExpectedMapping> Mappings = {
+		{EOpenMobileHapticsFailureReason::UnsupportedHardware,
+			EOpenMobileHapticErrorCode::UnsupportedHardware,
+			EOpenMobileErrorCode::NotSupported},
+		{EOpenMobileHapticsFailureReason::UnsupportedFeature,
+			EOpenMobileHapticErrorCode::UnsupportedFeature,
+			EOpenMobileErrorCode::NotSupported},
+		{EOpenMobileHapticsFailureReason::DisabledPolicy,
+			EOpenMobileHapticErrorCode::DisabledByPolicy,
+			EOpenMobileErrorCode::Unavailable},
+		{EOpenMobileHapticsFailureReason::InvalidPattern,
+			EOpenMobileHapticErrorCode::InvalidPattern,
+			EOpenMobileErrorCode::InvalidArgument},
+		{EOpenMobileHapticsFailureReason::RateLimited,
+			EOpenMobileHapticErrorCode::RateLimited,
+			EOpenMobileErrorCode::Busy},
+		{EOpenMobileHapticsFailureReason::BusyChannel,
+			EOpenMobileHapticErrorCode::ChannelBusy,
+			EOpenMobileErrorCode::Busy},
+		{EOpenMobileHapticsFailureReason::LifecycleRestricted,
+			EOpenMobileHapticErrorCode::LifecycleRestricted,
+			EOpenMobileErrorCode::Unavailable},
+		{EOpenMobileHapticsFailureReason::NativeEngineFailure,
+			EOpenMobileHapticErrorCode::NativeEngineFailure,
+			EOpenMobileErrorCode::NativeFailure},
+		{EOpenMobileHapticsFailureReason::Interrupted,
+			EOpenMobileHapticErrorCode::Interrupted,
+			EOpenMobileErrorCode::NativeFailure}
+	};
+	for (const FExpectedMapping& Mapping : Mappings)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = Mapping.Reason;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		const FOpenMobileHapticError Error =
+			FOpenMobileHapticsErrorMapper::Map(Context);
+		TestEqual(TEXT("Known reason maps to a Haptics code"), Error.Code, Mapping.HapticCode);
+		TestEqual(TEXT("Known reason maps to a common code"), Error.CommonCode, Mapping.CommonCode);
+		TestFalse(TEXT("Mapped error has a useful message"), Error.Message.IsEmpty());
+		TestFalse(TEXT("Mapped error has a correction"), Error.Correction.IsEmpty());
+		TestTrue(TEXT("Pre-submission mapping is marked rejected"), Error.bRejectedBeforeSubmission);
+	}
+
+	FOpenMobileHapticsErrorContext FutureNative;
+	FutureNative.Reason = EOpenMobileHapticsFailureReason::NativeEngineFailure;
+	FutureNative.Stage = EOpenMobileHapticFailureStage::NativeSubmission;
+	FutureNative.NativeDomain = TEXT("CoreHaptics.Engine");
+	FutureNative.NativeCode = TEXT("FutureEngine_4097");
+	FutureNative.bAfterAcceptance = true;
+	const FOpenMobileHapticError FutureError =
+		FOpenMobileHapticsErrorMapper::Map(FutureNative);
+	TestEqual(
+		TEXT("Future native domain is preserved"),
+		FutureError.NativeDomain,
+		FString(TEXT("CoreHaptics.Engine"))
+	);
+	TestEqual(
+		TEXT("Future native code is preserved"),
+		FutureError.NativeCode,
+		FString(TEXT("FutureEngine_4097"))
+	);
+	TestFalse(
+		TEXT("Post-acceptance failure is not a rejection"),
+		FutureError.bRejectedBeforeSubmission
+	);
+	TestFalse(
+		TEXT("Missing native messages use the mapped message"),
+		FutureError.Message.IsEmpty()
+	);
+
+	FOpenMobileHapticsErrorContext Malformed;
+	Malformed.Reason = EOpenMobileHapticsFailureReason::InvalidPattern;
+	Malformed.Stage = EOpenMobileHapticFailureStage::Compilation;
+	Malformed.FailedItem = TEXT("BrokenPattern");
+	Malformed.Channel = TEXT("Gameplay");
+	Malformed.FallbackAttempts = {TEXT("PortableRich"), TEXT("BasicVibration")};
+	const FOpenMobileHapticError MalformedError =
+		FOpenMobileHapticsErrorMapper::Map(Malformed);
+	TestEqual(
+		TEXT("Malformed asset keeps its failed stage"),
+		MalformedError.Stage,
+		EOpenMobileHapticFailureStage::Compilation
+	);
+	TestEqual(
+		TEXT("Malformed asset keeps its safe identity"),
+		MalformedError.FailedItem,
+		FName(TEXT("BrokenPattern"))
+	);
+	TestEqual(
+		TEXT("Fallback attempts remain available"),
+		MalformedError.FallbackAttempts.Num(),
+		2
+	);
+
+	FOpenMobileHapticsErrorContext Sensitive;
+	Sensitive.Reason = EOpenMobileHapticsFailureReason::NativeEngineFailure;
+	Sensitive.Stage = EOpenMobileHapticFailureStage::Playback;
+	Sensitive.NativeDomain = TEXT("/Users/player/private/CoreHaptics");
+	Sensitive.NativeCode = TEXT("token\nsecret");
+	const FOpenMobileHapticError Redacted =
+		FOpenMobileHapticsErrorMapper::Map(Sensitive);
+	TestEqual(
+		TEXT("Unsafe native domain is redacted"),
+		Redacted.NativeDomain,
+		FString(TEXT("redacted"))
+	);
+	TestEqual(
+		TEXT("Unsafe native code is redacted"),
+		Redacted.NativeCode,
+		FString(TEXT("redacted"))
+	);
+	TestFalse(
+		TEXT("Generated message does not contain a file path"),
+		Redacted.Message.Contains(TEXT("/Users/"))
+	);
+
+	FOpenMobileHapticsErrorContext Interrupted;
+	Interrupted.Reason = EOpenMobileHapticsFailureReason::Interrupted;
+	Interrupted.Stage = EOpenMobileHapticFailureStage::Interruption;
+	Interrupted.bAfterAcceptance = true;
+	const FOpenMobileHapticError InterruptedError =
+		FOpenMobileHapticsErrorMapper::Map(Interrupted);
+	TestTrue(
+		TEXT("Accepted interruption is distinguished"),
+		InterruptedError.bInterruptedAfterAcceptance
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsMissingBackendErrorTest,
+	"OpenMobile.Haptics.Errors.MissingBackendDetails",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("MissingDetails"));
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	Backend.bFailSubmissionsWithoutError = true;
+	const FOpenMobileHapticPlaybackResult Rejected =
+		Subsystem->PlayNamedPattern(TEXT("MissingSubmissionError"));
+	TestEqual(
+		TEXT("Missing submission errors become native failures"),
+		Rejected.Error.Code,
+		EOpenMobileHapticErrorCode::NativeEngineFailure
+	);
+	TestEqual(
+		TEXT("Missing submission errors identify their stage"),
+		Rejected.Error.Stage,
+		EOpenMobileHapticFailureStage::NativeSubmission
+	);
+	TestFalse(
+		TEXT("Missing submission messages receive a useful message"),
+		Rejected.Error.Message.IsEmpty()
+	);
+	TestTrue(
+		TEXT("Missing submission errors remain pre-acceptance"),
+		Rejected.Error.bRejectedBeforeSubmission
+	);
+
+	Backend.bFailSubmissionsWithoutError = false;
+	const FOpenMobileHapticPlaybackResult Accepted =
+		Subsystem->PlayNamedPattern(TEXT("MissingCallbackError"));
+	FOpenMobileHapticError TerminalError;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&TerminalError](const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			TerminalError = Event.Error;
+		}
+	);
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Failed, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestTrue(
+		TEXT("Accepted request has a valid handle"),
+		Accepted.Handle.IsValid()
+	);
+	TestEqual(
+		TEXT("Missing terminal errors become native failures"),
+		TerminalError.Code,
+		EOpenMobileHapticErrorCode::NativeEngineFailure
+	);
+	TestEqual(
+		TEXT("Missing terminal errors identify playback"),
+		TerminalError.Stage,
+		EOpenMobileHapticFailureStage::Playback
+	);
+	TestFalse(
+		TEXT("Missing terminal messages receive a useful message"),
+		TerminalError.Message.IsEmpty()
+	);
+	TestFalse(
+		TEXT("Terminal failures remain post-acceptance"),
+		TerminalError.bRejectedBeforeSubmission
+	);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }
