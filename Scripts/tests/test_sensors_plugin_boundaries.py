@@ -23,6 +23,7 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				"OpenMobileSensorsAndroid",
 				"OpenMobileSensorsIOS",
 				"OpenMobileSensorsConsumerTests",
+				"OpenMobileSensorsEditor",
 			},
 			set(modules),
 		)
@@ -40,6 +41,7 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 			"DeveloperTool",
 			modules["OpenMobileSensorsConsumerTests"]["Type"],
 		)
+		self.assertEqual("Editor", modules["OpenMobileSensorsEditor"]["Type"])
 
 		for module_name in modules:
 			module_root = SENSORS_PLUGIN / "Source" / module_name

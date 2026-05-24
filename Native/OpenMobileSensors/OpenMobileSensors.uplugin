@@ -32,6 +32,11 @@
 			"Name": "OpenMobileSensorsConsumerTests",
 			"Type": "DeveloperTool",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileSensorsEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

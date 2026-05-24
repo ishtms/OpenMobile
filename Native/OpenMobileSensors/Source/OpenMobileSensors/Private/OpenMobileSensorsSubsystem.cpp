@@ -2,6 +2,7 @@
 
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
+#include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorsModule.h"
 
 namespace OpenMobileSensorsSubsystemPrivate
@@ -84,6 +85,32 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 
 void UOpenMobileSensorsSubsystem::Deinitialize()
 {
+	TArray<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> PendingActions;
+	PendingActions.Reserve(AsyncActions.Num());
+	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& Action
+		: AsyncActions)
+	{
+		PendingActions.Add(Action);
+	}
+	AsyncActions.Reset();
+	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& Action
+		: PendingActions)
+	{
+		if (Action.IsValid())
+		{
+			Action->HandleGameInstanceTeardown();
+		}
+	}
+	OnCapabilitiesChanged.Clear();
+	OnSubscriptionStateChanged.Clear();
+	OnVectorSamples.Clear();
+	OnAttitudeSamples.Clear();
+	OnScalarSamples.Clear();
+	OnHeadingSamples.Clear();
+	OnStepsSamples.Clear();
+	OnActivitySamples.Clear();
+	OnOrientationSamples.Clear();
+	OnProximitySamples.Clear();
 	CapabilitiesChangedEvent.Clear();
 	SubscriptionStateChangedEvent.Clear();
 	VectorSamplesEvent.Clear();
@@ -309,6 +336,20 @@ FGuid UOpenMobileSensorsSubsystem::RecenterNative(
 	return RequestId;
 }
 
+FOpenMobileSensorRecenterResult
+UOpenMobileSensorsSubsystem::RecenterSubscription(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	EOpenMobileSensorRecenterMode Mode
+)
+{
+	FOpenMobileSensorRecenterResult Result;
+	Result.RequestId = FGuid::NewGuid();
+	Result.Handle = Handle;
+	Result.Mode = Mode;
+	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	return Result;
+}
+
 FOpenMobilePermissionResult
 UOpenMobileSensorsSubsystem::GetPermissionStatusNative(
 	EOpenMobileSensorPermission Permission
@@ -367,6 +408,96 @@ UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 		EOpenMobileErrorCode::NotSupported,
 		TEXT("True-heading location input is not supported by the active backend.")
 	);
+}
+
+FGuid UOpenMobileSensorsSubsystem::StartRecordingNative(
+	const FOpenMobileSensorRecordingOptions& Options,
+	FOnOpenMobileSensorRecordingComplete&& Completion
+)
+{
+	static_cast<void>(Options);
+	const FGuid RequestId = FGuid::NewGuid();
+	FOpenMobileSensorRecordingResult Result;
+	Result.Recording.RequestId = RequestId;
+	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+		EOpenMobileSensorResultCode::NotSupported,
+		EOpenMobileErrorCode::NotSupported,
+		TEXT("Sensor recording is not available without a recording service.")
+	);
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Result]() mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+	return RequestId;
+}
+
+FGuid UOpenMobileSensorsSubsystem::StopRecordingNative(
+	FGuid RequestId,
+	FOnOpenMobileSensorRecordingComplete&& Completion
+)
+{
+	FOpenMobileSensorRecordingResult Result;
+	Result.Recording.RequestId = RequestId;
+	if (!RequestId.IsValid())
+	{
+		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+			EOpenMobileSensorResultCode::InvalidArgument,
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("A valid recording request identifier is required.")
+		);
+	}
+	else
+	{
+		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+			EOpenMobileSensorResultCode::Unavailable,
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The sensor recording is no longer active.")
+		);
+	}
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Result]() mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+	return RequestId;
+}
+
+FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
+	const FString& FilePath,
+	const FOpenMobileSensorReplayOptions& Options,
+	FOnOpenMobileSensorReplayComplete&& Completion
+)
+{
+	static_cast<void>(Options);
+	const FGuid RequestId = FGuid::NewGuid();
+	FOpenMobileSensorReplayResult Result;
+	Result.RequestId = RequestId;
+	if (FilePath.IsEmpty())
+	{
+		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+			EOpenMobileSensorResultCode::InvalidArgument,
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("A sensor recording file path is required.")
+		);
+	}
+	else
+	{
+		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+			EOpenMobileSensorResultCode::NotSupported,
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Sensor replay is not available without a replay service.")
+		);
+	}
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Result]() mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+	return RequestId;
 }
 
 FOpenMobileSensorDiagnosticsSnapshot
@@ -440,4 +571,21 @@ FOnOpenMobileProximitySensorBatch&
 UOpenMobileSensorsSubsystem::OnProximitySamplesNative()
 {
 	return ProximitySamplesEvent;
+}
+
+void UOpenMobileSensorsSubsystem::RegisterAsyncAction(
+	UOpenMobileSensorAsyncActionBase* Action
+)
+{
+	if (Action)
+	{
+		AsyncActions.Add(Action);
+	}
+}
+
+void UOpenMobileSensorsSubsystem::UnregisterAsyncAction(
+	UOpenMobileSensorAsyncActionBase* Action
+)
+{
+	AsyncActions.Remove(Action);
 }

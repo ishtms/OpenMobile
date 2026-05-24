@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.h"
 #include "OpenMobileSensorResults.generated.h"
@@ -148,4 +149,31 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecenterResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorOperationResult Operation;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorOperationResult Operation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorRecordingSnapshot Recording;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorReplayResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorOperationResult Operation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FGuid RequestId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double PlaybackTimeSeconds = 0.0;
 };
