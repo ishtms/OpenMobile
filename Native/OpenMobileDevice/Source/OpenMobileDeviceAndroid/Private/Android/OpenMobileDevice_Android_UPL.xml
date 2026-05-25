@@ -181,6 +181,55 @@
 		};
 	}
 
+	public float[] AndroidThunkJava_OpenMobileDeviceGetDisplayCutouts()
+	{
+		if (android.os.Build.VERSION.SDK_INT < 28)
+		{
+			return new float[0];
+		}
+		android.view.Window window = getWindow();
+		android.view.View decorView = window == null ? null : window.getDecorView();
+		android.view.WindowInsets windowInsets = decorView == null
+			? null
+			: decorView.getRootWindowInsets();
+		float density = getResources().getDisplayMetrics().density;
+		if (windowInsets == null || density <= 0.0f)
+		{
+			return new float[0];
+		}
+		int[] windowLocation = new int[2];
+		decorView.getLocationOnScreen(windowLocation);
+		android.view.DisplayCutout displayCutout = windowInsets.getDisplayCutout();
+		java.util.List<android.graphics.Rect> boundingRects = displayCutout == null
+			? java.util.Collections.<android.graphics.Rect>emptyList()
+			: displayCutout.getBoundingRects();
+		float[] result = new float[10 + boundingRects.size() * 4];
+		result[0] = density;
+		result[1] = windowLocation[0];
+		result[2] = windowLocation[1];
+		result[3] = 1.0f;
+		result[4] = android.os.Build.VERSION.SDK_INT >= 30 ? 1.0f : 0.0f;
+		if (displayCutout != null && android.os.Build.VERSION.SDK_INT >= 30)
+		{
+			android.graphics.Insets waterfall = displayCutout.getWaterfallInsets();
+			result[5] = waterfall.left;
+			result[6] = waterfall.top;
+			result[7] = waterfall.right;
+			result[8] = waterfall.bottom;
+		}
+		result[9] = boundingRects.size();
+		for (int index = 0; index < boundingRects.size(); ++index)
+		{
+			android.graphics.Rect rect = boundingRects.get(index);
+			int firstValue = 10 + index * 4;
+			result[firstValue] = rect.left;
+			result[firstValue + 1] = rect.top;
+			result[firstValue + 2] = rect.right;
+			result[firstValue + 3] = rect.bottom;
+		}
+		return result;
+	}
+
 	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
 	{
 		CharSequence label = getPackageManager().getApplicationLabel(getApplicationInfo());

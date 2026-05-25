@@ -76,6 +76,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS reports active-view safe-area insets, the scene status-bar intersection, and the bottom home-indicator reservation in logical points. It does not expose separate numeric system-gesture insets.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::DisplayCutout)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS does not expose display-cutout rectangles or waterfall edge geometry. Use the active view's safe-area and home-indicator insets for layout.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

@@ -199,6 +199,15 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 	TArray<FOpenMobileDeviceRect> DisplayCutouts;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceInsets WaterfallInsets;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	bool bDisplayCutoutDataMalformed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	int32 MalformedDisplayCutoutCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	EOpenMobileWindowOrientation Orientation = EOpenMobileWindowOrientation::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
@@ -255,6 +264,10 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 			&& SystemGestureInsets == Other.SystemGestureInsets
 			&& bDisplayCutoutsAvailable == Other.bDisplayCutoutsAvailable
 			&& DisplayCutouts == Other.DisplayCutouts
+			&& WaterfallInsets == Other.WaterfallInsets
+			&& bDisplayCutoutDataMalformed == Other.bDisplayCutoutDataMalformed
+			&& MalformedDisplayCutoutCount
+				== Other.MalformedDisplayCutoutCount
 			&& Orientation == Other.Orientation
 			&& WindowMode == Other.WindowMode
 			&& FoldablePosture == Other.FoldablePosture

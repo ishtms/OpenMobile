@@ -21,6 +21,7 @@
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceDisplayCutoutInfo.h"
 #include "OpenMobileDeviceEmulatorDetection.h"
 #include "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
 #include "OpenMobileDeviceEndpointReachabilityPolicy.h"
@@ -1368,6 +1369,65 @@ bool FOpenMobileDeviceWindowInsetsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Negative safe area is unavailable"), Snapshot.SafeAreaInsets.bIsAvailable);
 	TestFalse(TEXT("Non-finite bars are unavailable"), Snapshot.SystemBarInsets.bIsAvailable);
 	TestFalse(TEXT("Insets wider than a split window are unavailable"), Snapshot.SystemGestureInsets.bIsAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceDisplayCutoutTest,
+	"OpenMobile.Device.Display.CutoutGeometry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceDisplayCutoutTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileWindowDisplaySnapshot Snapshot;
+	Snapshot.bLogicalWindowSizeAvailable = true;
+	Snapshot.LogicalWindowSize = FVector2D(200.0, 100.0);
+	FOpenMobileDeviceDisplayCutoutEvidence Evidence;
+	Evidence.bCutoutsAvailable = true;
+	Evidence.NativeWindowOrigin = FVector2D(100.0, 50.0);
+	Evidence.NativeUnitsPerLogicalUnit = 2.0f;
+	Evidence.NativeCutouts = {
+		{-20.0f + 100.0f, -10.0f + 50.0f, 80.0f + 100.0f, 60.0f + 50.0f},
+		{100.0f, 50.0f, 180.0f, 110.0f},
+		{420.0f, 50.0f, 460.0f, 90.0f},
+		{600.0f, 50.0f, 640.0f, 90.0f},
+		{200.0f, 120.0f, 180.0f, 140.0f}
+	};
+	Evidence.NativeWaterfallInsets =
+		FOpenMobileDeviceInsetValues{8.0f, 0.0f, 4.0f, 0.0f};
+	FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+	TestTrue(TEXT("Cutout source is available"), Snapshot.bDisplayCutoutsAvailable);
+	TestEqual(TEXT("Clipped duplicate and malformed rectangles normalize"), Snapshot.DisplayCutouts.Num(), 2);
+	TestEqual(TEXT("Screen origin is removed"), Snapshot.DisplayCutouts[0].Left, 0.0f);
+	TestEqual(TEXT("Native pixels become logical units"), Snapshot.DisplayCutouts[0].Right, 40.0f);
+	TestEqual(TEXT("Camera island remains bounded"), Snapshot.DisplayCutouts[1].Left, 160.0f);
+	TestTrue(TEXT("Malformed native geometry is visible"), Snapshot.bDisplayCutoutDataMalformed);
+	TestEqual(TEXT("Malformed source count is retained"), Snapshot.MalformedDisplayCutoutCount, 3);
+	TestTrue(TEXT("Waterfall inset is available"), Snapshot.WaterfallInsets.bIsAvailable);
+	TestEqual(TEXT("Waterfall inset uses logical units"), Snapshot.WaterfallInsets.Left, 4.0f);
+
+	FOpenMobileDeviceDisplayCutoutEvidence NoCutout;
+	NoCutout.bCutoutsAvailable = true;
+	FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, NoCutout);
+	TestTrue(TEXT("No cutout is an available empty result"), Snapshot.bDisplayCutoutsAvailable);
+	TestTrue(TEXT("No cutout clears stale rectangles"), Snapshot.DisplayCutouts.IsEmpty());
+	TestFalse(TEXT("No cutout is not malformed"), Snapshot.bDisplayCutoutDataMalformed);
+	TestFalse(TEXT("Unavailable waterfall data clears stale values"), Snapshot.WaterfallInsets.bIsAvailable);
+
+	Snapshot.LogicalWindowSize = FVector2D(100.0, 200.0);
+	FOpenMobileDeviceDisplayCutoutEvidence RotatedExternalDisplay;
+	RotatedExternalDisplay.bCutoutsAvailable = true;
+	RotatedExternalDisplay.NativeWindowOrigin = FVector2D(500.0, 200.0);
+	RotatedExternalDisplay.NativeUnitsPerLogicalUnit = 1.5f;
+	RotatedExternalDisplay.NativeCutouts = {
+		{500.0f, 200.0f, 530.0f, 230.0f},
+		{620.0f, 200.0f, 650.0f, 230.0f}
+	};
+	FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, RotatedExternalDisplay);
+	TestEqual(TEXT("Rotated display retains multiple cutouts"), Snapshot.DisplayCutouts.Num(), 2);
+	TestEqual(TEXT("External display offset transforms locally"), Snapshot.DisplayCutouts[1].Right, 100.0f);
 	return true;
 }
 

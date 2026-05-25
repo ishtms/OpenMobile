@@ -78,6 +78,27 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android reports current safe-area, system-bar, and system-gesture insets from the active decor view in density-independent logical units. Home-indicator insets are not applicable.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::DisplayCutout)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 28)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android reports active-window display-cutout bounding rectangles on API 28 or newer and waterfall edge insets on API 30 or newer.");
+		}
+		else
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 9 (API 28)")
+				);
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

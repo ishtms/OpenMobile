@@ -2,6 +2,7 @@
 
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidPlatformMisc.h"
+#include "OpenMobileDeviceDisplayCutoutInfo.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
@@ -388,6 +389,90 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 		Evidence.SystemGestures = ReadInsets(11);
 		FOpenMobileDeviceWindowInsets::Apply(Snapshot, Evidence);
 	}
+
+	void ApplyOpenMobileDeviceAndroidDisplayCutout(
+		JNIEnv* Env,
+		jobject Activity,
+		FOpenMobileWindowDisplaySnapshot& Snapshot
+	)
+	{
+		FOpenMobileDeviceDisplayCutoutEvidence Evidence;
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID GetDisplayCutouts = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceGetDisplayCutouts",
+				"()[F"
+			)
+			: nullptr;
+		if (!GetDisplayCutouts || ClearJavaException(Env))
+		{
+			FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		FScopedJavaObject<jfloatArray> NativeValues(
+			static_cast<jfloatArray>(
+				Env->CallObjectMethod(Activity, GetDisplayCutouts)
+			)
+		);
+		if (!NativeValues || ClearJavaException(Env))
+		{
+			FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		const jsize ValueCount = Env->GetArrayLength(*NativeValues);
+		if (ValueCount < 10)
+		{
+			FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		TArray<jfloat> Values;
+		Values.SetNumUninitialized(ValueCount);
+		Env->GetFloatArrayRegion(
+			*NativeValues,
+			0,
+			ValueCount,
+			Values.GetData()
+		);
+		if (ClearJavaException(Env)
+			|| !FMath::IsFinite(Values[0])
+			|| Values[0] <= 0.0f
+			|| !FMath::IsFinite(Values[9]))
+		{
+			FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		const int32 CutoutCount = FMath::RoundToInt(Values[9]);
+		if (CutoutCount < 0 || CutoutCount > (ValueCount - 10) / 4
+			|| ValueCount != 10 + CutoutCount * 4)
+		{
+			FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		Evidence.NativeUnitsPerLogicalUnit = Values[0];
+		Evidence.NativeWindowOrigin = FVector2D(Values[1], Values[2]);
+		Evidence.bCutoutsAvailable = Values[3] >= 0.5f;
+		if (Values[4] >= 0.5f)
+		{
+			Evidence.NativeWaterfallInsets = FOpenMobileDeviceInsetValues{
+				Values[5],
+				Values[6],
+				Values[7],
+				Values[8]
+			};
+		}
+		for (int32 Index = 0; Index < CutoutCount; ++Index)
+		{
+			const int32 FirstValue = 10 + Index * 4;
+			FOpenMobileDeviceRect Rect;
+			Rect.Left = Values[FirstValue];
+			Rect.Top = Values[FirstValue + 1];
+			Rect.Right = Values[FirstValue + 2];
+			Rect.Bottom = Values[FirstValue + 3];
+			Evidence.NativeCutouts.Add(Rect);
+		}
+		FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
+	}
 }
 
 FOpenMobileWindowDisplaySnapshot
@@ -426,6 +511,12 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 	{
 		OpenMobileDeviceAndroidDisplayPrivate::
 			ApplyOpenMobileDeviceAndroidWindowInsets(
+				Env,
+				Activity,
+				Snapshot
+			);
+		OpenMobileDeviceAndroidDisplayPrivate::
+			ApplyOpenMobileDeviceAndroidDisplayCutout(
 				Env,
 				Activity,
 				Snapshot

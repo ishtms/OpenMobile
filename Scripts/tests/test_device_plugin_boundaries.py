@@ -316,6 +316,47 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(token, ios_display)
 
+	def test_display_cutouts_use_native_geometry_without_ios_guessing(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		ios_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"getBoundingRects",
+			"getLocationOnScreen",
+			"getWaterfallInsets",
+		):
+			self.assertIn(token, android_upl)
+		self.assertIn("ApplyOpenMobileDeviceAndroidDisplayCutout", android_display)
+		self.assertIn("does not expose display-cutout rectangles", ios_backend)
+		self.assertNotIn("DisplayCutouts", ios_display)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN
