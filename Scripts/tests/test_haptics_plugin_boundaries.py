@@ -240,6 +240,49 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			module,
 		)
 
+	def test_native_availability_probes_are_side_effect_free(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		android_probe = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		android_bridge = (
+			android_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileHaptics_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("hasVibrator", android_bridge)
+		self.assertIn("arePrimitivesSupported", android_bridge)
+		self.assertNotIn(".vibrate(", android_bridge)
+		self.assertNotIn("requestPermissions", android_bridge)
+		self.assertIn(
+			"FOpenMobileHapticsBackendRegistry::RegisterBackend",
+			(android_probe + (
+				android_root
+				/ "Private"
+				/ "OpenMobileHapticsAndroidModule.cpp"
+			).read_text(encoding="utf-8")),
+		)
+
+		ios_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsIOS"
+		ios_probe = (
+			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("capabilitiesForHardware", ios_probe)
+		self.assertIn("supportsHaptics", ios_probe)
+		self.assertNotIn("CHHapticEngine alloc", ios_probe)
+		self.assertNotIn("startAndReturnError", ios_probe)
+		self.assertIn(
+			"FOpenMobileHapticsBackendRegistry::RegisterBackend",
+			(ios_probe + (
+				ios_root
+				/ "Private"
+				/ "OpenMobileHapticsIOSModule.cpp"
+			).read_text(encoding="utf-8")),
+		)
+
 
 if __name__ == "__main__":
 	unittest.main()

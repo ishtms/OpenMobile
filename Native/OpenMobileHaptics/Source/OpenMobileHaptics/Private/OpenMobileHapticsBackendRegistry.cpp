@@ -186,6 +186,23 @@ bool FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(
 		&& Token.RegistryGeneration == Generation.Load();
 }
 
+void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
+{
+	check(IsInGameThread());
+	using namespace OpenMobileHapticsBackendRegistryPrivate;
+	if (bShuttingDown.Load())
+	{
+		return;
+	}
+	for (IOpenMobileHapticsBackend* Backend : GetBackends())
+	{
+		if (Backend)
+		{
+			Backend->HandleLifecycleChange();
+		}
+	}
+}
+
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bShuttingDown.Load();

@@ -20,6 +20,7 @@ public:
 	static bool IsCallbackCurrent(
 		const FOpenMobileHapticsBackendRequestToken& Token
 	);
+	static void NotifyLifecycleChange();
 	static bool IsShuttingDown();
 	static void BeginShutdown();
 

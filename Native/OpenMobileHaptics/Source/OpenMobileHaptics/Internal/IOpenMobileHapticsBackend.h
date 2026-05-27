@@ -82,6 +82,7 @@ public:
 	GetPreparationState() const = 0;
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const = 0;
+	virtual void HandleLifecycleChange() {}
 
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,

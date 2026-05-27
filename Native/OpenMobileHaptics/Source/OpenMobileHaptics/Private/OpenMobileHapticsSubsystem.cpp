@@ -348,6 +348,13 @@ UOpenMobileHapticsSubsystem::GetCapabilitiesNative() const
 			{
 				Capabilities.BackendName = Backend->GetBackendName();
 			}
+			if (!UserPolicy.bEnabled)
+			{
+				Capabilities.Availability =
+					EOpenMobileHapticAvailability::DisabledByPolicy;
+				Capabilities.Detail =
+					TEXT("Haptics are disabled by the current player policy.");
+			}
 			return Capabilities;
 		}
 	}

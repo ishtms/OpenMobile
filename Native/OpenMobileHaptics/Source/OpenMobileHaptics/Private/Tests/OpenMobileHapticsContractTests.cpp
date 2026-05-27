@@ -35,6 +35,14 @@ namespace OpenMobileHapticsTests
 		{
 			return Capabilities;
 		}
+		virtual void HandleLifecycleChange() override
+		{
+			++LifecycleChangeCount;
+			if (bApplyCapabilitiesAfterLifecycle)
+			{
+				Capabilities = CapabilitiesAfterLifecycle;
+			}
+		}
 		virtual EOpenMobileHapticsBackendPreparationState
 		GetPreparationState() const override
 		{
@@ -115,17 +123,20 @@ namespace OpenMobileHapticsTests
 		}
 
 		FOpenMobileHapticCapabilities Capabilities;
+		FOpenMobileHapticCapabilities CapabilitiesAfterLifecycle;
 		EOpenMobileHapticsBackendPreparationState PreparationState =
 			EOpenMobileHapticsBackendPreparationState::Unprepared;
 		FOpenMobileHapticsBackendControlSupport ControlSupport;
 		bool bAvailable = true;
 		bool bFailSubmissions = false;
 		bool bFailSubmissionsWithoutError = false;
+		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
 		int32 OneShotSubmissionCount = 0;
 		int32 NamedSubmissionCount = 0;
 		int32 ShutdownCount = 0;
+		int32 LifecycleChangeCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
 
@@ -667,6 +678,100 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 	);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Alpha);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Beta);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAvailabilityTest,
+	"OpenMobile.Haptics.Capabilities.AvailabilityAndLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	TestEqual(
+		TEXT("No backend remains an unsupported platform"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::UnsupportedPlatform
+	);
+
+	FMockBackend Backend(TEXT("Availability"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::NoActuator;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	TestEqual(
+		TEXT("No actuator remains distinct"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::NoActuator
+	);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	TestEqual(
+		TEXT("Basic-only hardware remains distinct"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::BasicVibration
+	);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	TestEqual(
+		TEXT("Semantic hardware remains distinct"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::SemanticFeedback
+	);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	TestEqual(
+		TEXT("Rich hardware remains distinct"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::RichHaptics
+	);
+
+	FOpenMobileHapticUserPolicy Policy = Subsystem->GetUserPolicy();
+	Policy.bEnabled = false;
+	Subsystem->SetUserPolicy(Policy);
+	TestEqual(
+		TEXT("Player policy overrides hardware availability"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::DisabledByPolicy
+	);
+	Policy.bEnabled = true;
+	Subsystem->SetUserPolicy(Policy);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::TemporarilyUnavailable;
+	Backend.CapabilitiesAfterLifecycle.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.bApplyCapabilitiesAfterLifecycle = true;
+	TestEqual(
+		TEXT("Temporary engine state remains distinct"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::TemporarilyUnavailable
+	);
+	FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange();
+	TestEqual(
+		TEXT("Lifecycle refresh reaches the backend"),
+		Backend.LifecycleChangeCount,
+		1
+	);
+	TestEqual(
+		TEXT("Engine state refreshes after lifecycle change"),
+		Subsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::RichHaptics
+	);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }

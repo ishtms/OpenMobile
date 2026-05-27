@@ -11,5 +11,11 @@ public class OpenMobileHapticsIOS : ModuleRules
 			"Core",
 			"OpenMobileHaptics"
 		});
+
+		PublicFrameworks.AddRange(new[]
+		{
+			"CoreHaptics",
+			"Foundation"
+		});
 	}
 }

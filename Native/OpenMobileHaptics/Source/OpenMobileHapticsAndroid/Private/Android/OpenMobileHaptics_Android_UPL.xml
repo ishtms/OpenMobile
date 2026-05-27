@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+    <gameActivityImportAdditions>
+        <insert>
+import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
+        </insert>
+    </gameActivityImportAdditions>
+
+    <gameActivityClassAdditions>
+        <insert>
+    public int AndroidThunkJava_OpenMobileHapticsQueryCapabilities()
+    {
+        try
+        {
+            Vibrator vibrator;
+            if (Build.VERSION.SDK_INT &gt;= 31)
+            {
+                VibratorManager manager =
+                    (VibratorManager)getSystemService(VIBRATOR_MANAGER_SERVICE);
+                if (manager == null)
+                {
+                    return -1;
+                }
+                vibrator = manager.getDefaultVibrator();
+            }
+            else
+            {
+                vibrator = (Vibrator)getSystemService(VIBRATOR_SERVICE);
+            }
+            if (vibrator == null)
+            {
+                return -1;
+            }
+            if (!vibrator.hasVibrator())
+            {
+                return 0;
+            }
+
+            int flags = 1 | 2;
+            if (Build.VERSION.SDK_INT &gt;= 30)
+            {
+                boolean[] primitives = vibrator.arePrimitivesSupported(
+                    VibrationEffect.Composition.PRIMITIVE_CLICK,
+                    VibrationEffect.Composition.PRIMITIVE_TICK
+                );
+                if ((primitives.length &gt; 0 &amp;&amp; primitives[0])
+                    || (primitives.length &gt; 1 &amp;&amp; primitives[1]))
+                {
+                    flags |= 4;
+                }
+            }
+            return flags;
+        }
+        catch (RuntimeException exception)
+        {
+            return -1;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+</root>
