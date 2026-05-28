@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.h"
@@ -27,6 +28,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorOperationResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorResultCode Code = EOpenMobileSensorResultCode::Failed;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorFailureDetails Failure;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;

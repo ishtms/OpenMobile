@@ -47,6 +47,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	FOpenMobileSensorDiagnosticsSnapshot Diagnostics;
 	FOpenMobileSensorRecordingOptions Recording;
 	FOpenMobileSensorReplayOptions Replay;
+	FOpenMobileSensorFailureDetails Failure;
 	FOpenMobileSensorOperationResult Operation;
 	FOpenMobileSensorSubscriptionResult Subscription;
 	FOpenMobileSensorReadResult Read;
@@ -74,6 +75,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	static_cast<void>(Diagnostics);
 	static_cast<void>(Recording);
 	static_cast<void>(Replay);
+	static_cast<void>(Failure);
 	static_cast<void>(Operation);
 	static_cast<void>(Subscription);
 	static_cast<void>(Read);
@@ -141,6 +143,11 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 		TEXT("Streaming without a backend is explicit"),
 		UnsupportedSubscription.Operation.Code,
 		EOpenMobileSensorResultCode::NotSupported
+	);
+	TestEqual(
+		TEXT("No backend has a typed sensor reason"),
+		UnsupportedSubscription.Operation.Failure.Reason,
+		EOpenMobileSensorFailureReason::UnsupportedPlatform
 	);
 
 	FOpenMobileSensorReadResult UnsupportedRead;

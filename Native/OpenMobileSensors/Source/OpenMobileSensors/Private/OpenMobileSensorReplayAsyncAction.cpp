@@ -1,5 +1,6 @@
 #include "OpenMobileSensorReplayAsyncAction.h"
 
+#include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsSubsystem.h"
 
 UOpenMobileSensorReplayAsyncAction*
@@ -49,7 +50,11 @@ void UOpenMobileSensorReplayAsyncAction::OnActionFailed(
 	const FOpenMobileError& Error
 )
 {
-	if (!Result.Operation.Error.IsSet())
+	if (!Result.Operation.Failure.IsSet())
+	{
+		Result.Operation = FOpenMobileSensorsErrorMapper::FromCommon(Error);
+	}
+	else if (!Result.Operation.Error.IsSet())
 	{
 		Result.Operation.Error = Error;
 	}
@@ -60,7 +65,9 @@ void UOpenMobileSensorReplayAsyncAction::OnActionCancelled(
 	const FOpenMobileError& Error
 )
 {
-	Result.Operation.Code = EOpenMobileSensorResultCode::Cancelled;
+	Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+		EOpenMobileSensorFailureReason::Cancelled
+	);
 	Result.Operation.Error = Error;
 	Cancelled.Broadcast(Result);
 }

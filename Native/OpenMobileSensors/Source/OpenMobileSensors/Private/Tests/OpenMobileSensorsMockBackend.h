@@ -60,6 +60,7 @@ public:
 
 	virtual FOpenMobileCapability GetBackendCapability() const override
 	{
+		++CapabilityQueryCount;
 		return BackendCapability;
 	}
 
@@ -172,11 +173,17 @@ public:
 		return bShutdown;
 	}
 
+	int32 GetCapabilityQueryCount() const
+	{
+		return CapabilityQueryCount;
+	}
+
 private:
 	FName Name;
 	int32 Priority = 100;
 	bool bAvailable = true;
 	bool bShutdown = false;
+	mutable int32 CapabilityQueryCount = 0;
 	FOpenMobileCapability BackendCapability;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;

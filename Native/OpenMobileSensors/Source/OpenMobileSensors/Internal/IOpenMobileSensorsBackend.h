@@ -17,6 +17,7 @@ public:
 
 	virtual FName GetBackendName() const = 0;
 	virtual int32 GetPriority() const { return 0; }
+	// Availability queries must not start hardware, request permission, or initialize adapters.
 	virtual bool IsAvailable() const { return true; }
 
 	virtual FOpenMobileCapability GetBackendCapability() const

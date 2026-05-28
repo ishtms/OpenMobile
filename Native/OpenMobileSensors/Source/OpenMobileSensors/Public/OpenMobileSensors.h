@@ -2,6 +2,7 @@
 
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorDiagnostics.h"
+#include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorFlushAsyncAction.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorMetadata.h"

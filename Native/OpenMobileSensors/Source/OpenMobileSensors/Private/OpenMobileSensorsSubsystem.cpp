@@ -3,23 +3,12 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsModule.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
 namespace OpenMobileSensorsSubsystemPrivate
 {
-	FOpenMobileSensorOperationResult MakeOperationFailure(
-		EOpenMobileSensorResultCode ResultCode,
-		EOpenMobileErrorCode ErrorCode,
-		FString Message
-	)
-	{
-		FOpenMobileSensorOperationResult Result;
-		Result.Code = ResultCode;
-		Result.Error = FOpenMobileError::Make(ErrorCode, MoveTemp(Message));
-		return Result;
-	}
-
 	template <typename SampleType>
 	bool ReadUnavailable(
 		const FGuid& OwnerIdentifier,
@@ -56,10 +45,8 @@ namespace OpenMobileSensorsSubsystemPrivate
 		OutResult = {};
 		if (MaximumSamples <= 0)
 		{
-			OutResult.Operation = MakeOperationFailure(
-				EOpenMobileSensorResultCode::InvalidArgument,
-				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("MaximumSamples must be greater than zero.")
+			OutResult.Operation = FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidRequest
 			);
 			return false;
 		}
@@ -163,10 +150,8 @@ UOpenMobileSensorsSubsystem::StartSubscriptionNative(
 		FOpenMobileSensorSubscriptionResult Result;
 		Result.RequestedOptions = Request.Options;
 		Result.AppliedOptions = Request.Options;
-		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-			EOpenMobileSensorResultCode::Unavailable,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The Sensors subsystem has been deinitialized.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 		return Result;
 	}
@@ -332,12 +317,9 @@ FGuid UOpenMobileSensorsSubsystem::FlushNative(
 	);
 	if (Result.Operation.IsSuccess())
 	{
-		Result.Operation =
-			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-				EOpenMobileSensorResultCode::NotSupported,
-				EOpenMobileErrorCode::NotSupported,
-				TEXT("The active sensor backend does not support flushing yet.")
-			);
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
 	}
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
@@ -365,12 +347,9 @@ FGuid UOpenMobileSensorsSubsystem::RecenterNative(
 	);
 	if (Result.Operation.IsSuccess())
 	{
-		Result.Operation =
-			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-				EOpenMobileSensorResultCode::NotSupported,
-				EOpenMobileErrorCode::NotSupported,
-				TEXT("The active sensor backend does not support recentering yet.")
-			);
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
 	}
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
@@ -397,12 +376,9 @@ UOpenMobileSensorsSubsystem::RecenterSubscription(
 	);
 	if (Result.Operation.IsSuccess())
 	{
-		Result.Operation =
-			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-				EOpenMobileSensorResultCode::NotSupported,
-				EOpenMobileErrorCode::NotSupported,
-				TEXT("The active sensor backend does not support recentering yet.")
-			);
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
 	}
 	return Result;
 }
@@ -454,16 +430,12 @@ UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 		|| LocationInput.HorizontalAccuracyMeters < 0.0
 		|| LocationInput.TimestampSeconds < 0.0)
 	{
-		return MakeOperationFailure(
-			EOpenMobileSensorResultCode::InvalidArgument,
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("The true-heading location input is invalid.")
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
 		);
 	}
-	return MakeOperationFailure(
-		EOpenMobileSensorResultCode::NotSupported,
-		EOpenMobileErrorCode::NotSupported,
-		TEXT("True-heading location input is not supported by the active backend.")
+	return FOpenMobileSensorsErrorMapper::Map(
+		EOpenMobileSensorFailureReason::DerivedInputUnavailable
 	);
 }
 
@@ -476,10 +448,8 @@ FGuid UOpenMobileSensorsSubsystem::StartRecordingNative(
 	const FGuid RequestId = FGuid::NewGuid();
 	FOpenMobileSensorRecordingResult Result;
 	Result.Recording.RequestId = RequestId;
-	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-		EOpenMobileSensorResultCode::NotSupported,
-		EOpenMobileErrorCode::NotSupported,
-		TEXT("Sensor recording is not available without a recording service.")
+	Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+		EOpenMobileSensorFailureReason::UnsupportedOperation
 	);
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
@@ -499,18 +469,14 @@ FGuid UOpenMobileSensorsSubsystem::StopRecordingNative(
 	Result.Recording.RequestId = RequestId;
 	if (!RequestId.IsValid())
 	{
-		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-			EOpenMobileSensorResultCode::InvalidArgument,
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("A valid recording request identifier is required.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
 		);
 	}
 	else
 	{
-		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-			EOpenMobileSensorResultCode::Unavailable,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The sensor recording is no longer active.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 	}
 	OpenMobile::DispatchToGameThread(
@@ -534,18 +500,14 @@ FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
 	Result.RequestId = RequestId;
 	if (FilePath.IsEmpty())
 	{
-		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-			EOpenMobileSensorResultCode::InvalidArgument,
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("A sensor recording file path is required.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
 		);
 	}
 	else
 	{
-		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
-			EOpenMobileSensorResultCode::NotSupported,
-			EOpenMobileErrorCode::NotSupported,
-			TEXT("Sensor replay is not available without a replay service.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
 		);
 	}
 	OpenMobile::DispatchToGameThread(

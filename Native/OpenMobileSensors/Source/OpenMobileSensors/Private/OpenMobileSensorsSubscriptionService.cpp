@@ -1,6 +1,7 @@
 #include "OpenMobileSensorsSubscriptionService.h"
 
 #include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsErrorMapper.h"
 
 namespace OpenMobileSensorsSubscriptionServicePrivate
 {
@@ -19,18 +20,6 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	uint32 NextHandleGeneration = 1;
 	bool bShuttingDown = false;
 
-	FOpenMobileSensorOperationResult MakeFailure(
-		EOpenMobileSensorResultCode ResultCode,
-		EOpenMobileErrorCode ErrorCode,
-		FString Message
-	)
-	{
-		FOpenMobileSensorOperationResult Result;
-		Result.Code = ResultCode;
-		Result.Error = FOpenMobileError::Make(ErrorCode, MoveTemp(Message));
-		return Result;
-	}
-
 	FOpenMobileSensorOperationResult MakeSuccess(
 		EOpenMobileSensorResultCode ResultCode =
 			EOpenMobileSensorResultCode::Success
@@ -47,16 +36,12 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	{
 		if (!Handle.IsValid())
 		{
-			return MakeFailure(
-				EOpenMobileSensorResultCode::InvalidHandle,
-				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The sensor subscription handle is invalid.")
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidHandle
 			);
 		}
-		return MakeFailure(
-			EOpenMobileSensorResultCode::InvalidHandle,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The sensor subscription is stale or belongs to another owner.")
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::StaleHandle
 		);
 	}
 
@@ -130,28 +115,22 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	Result.AppliedOptions = Request.Options;
 	if (!OwnerIdentifier.IsValid())
 	{
-		Result.Operation = MakeFailure(
-			EOpenMobileSensorResultCode::Unavailable,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The sensor subscription owner is unavailable.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 		return Result;
 	}
 	if (!Request.Sensor.IsValid())
 	{
-		Result.Operation = MakeFailure(
-			EOpenMobileSensorResultCode::InvalidArgument,
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("A valid sensor identifier is required.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
 		);
 		return Result;
 	}
 	if (bShuttingDown)
 	{
-		Result.Operation = MakeFailure(
-			EOpenMobileSensorResultCode::Unavailable,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The Sensors service is shutting down.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 		return Result;
 	}
@@ -159,10 +138,8 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
 	if (BackendToken.Generation == 0)
 	{
-		Result.Operation = MakeFailure(
-			EOpenMobileSensorResultCode::NotSupported,
-			EOpenMobileErrorCode::NotSupported,
-			TEXT("Sensor streaming is not available without a streaming backend.")
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedPlatform
 		);
 		return Result;
 	}
