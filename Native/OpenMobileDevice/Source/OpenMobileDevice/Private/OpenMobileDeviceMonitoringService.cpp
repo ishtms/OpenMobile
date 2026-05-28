@@ -40,6 +40,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 	FTSTicker::FDelegateHandle TickerHandle;
 	FDelegateHandle BackgroundHandle;
 	FDelegateHandle ForegroundHandle;
+	FDelegateHandle SafeFrameChangedHandle;
 	bool bStarted = false;
 	bool bApplicationActive = true;
 	bool bInsideTicker = false;
@@ -403,6 +404,18 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		SetApplicationActive(true);
 	}
 
+	void HandleSafeFrameChanged()
+	{
+		check(IsInGameThread());
+		if (bApplicationActive
+			&& GroupStates.Contains(
+				EOpenMobileDeviceMonitoringGroup::WindowDisplay
+			))
+		{
+			RefreshGroup(EOpenMobileDeviceMonitoringGroup::WindowDisplay);
+		}
+	}
+
 	void ReleaseAllRequests()
 	{
 		for (TPair<EOpenMobileDeviceMonitoringGroup, FGroupState>& Pair : GroupStates)
@@ -432,6 +445,9 @@ void FOpenMobileDeviceMonitoringService::Start()
 	ForegroundHandle = FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddStatic(
 		&HandleApplicationHasEnteredForeground
 	);
+	SafeFrameChangedHandle = FCoreDelegates::OnSafeFrameChangedEvent.AddStatic(
+		&HandleSafeFrameChanged
+	);
 }
 
 void FOpenMobileDeviceMonitoringService::Shutdown()
@@ -448,6 +464,11 @@ void FOpenMobileDeviceMonitoringService::Shutdown()
 	{
 		FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Remove(ForegroundHandle);
 		ForegroundHandle.Reset();
+	}
+	if (SafeFrameChangedHandle.IsValid())
+	{
+		FCoreDelegates::OnSafeFrameChangedEvent.Remove(SafeFrameChangedHandle);
+		SafeFrameChangedHandle.Reset();
 	}
 	GroupChanged.Clear();
 	NetworkPathChanged.Clear();

@@ -85,6 +85,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS does not expose display-cutout rectangles or waterfall edge geometry. Use the active view's safe-area and home-indicator insets for layout.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::WindowOrientation
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::WindowChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports the active UIWindowScene interface orientation. Safe-frame changes and bounded Window Display monitoring refresh the complete snapshot after layout settles.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

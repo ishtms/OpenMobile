@@ -70,6 +70,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Snapshot
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileWindowOrientationChangedEvent,
+	const FOpenMobileWindowDisplaySnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAppearanceSnapshotChangedEvent,
 	const FOpenMobileAppearanceSnapshot&,
 	Snapshot
@@ -122,6 +127,10 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileWindowDisplaySnapshotChangedNativeEvent,
+	const FOpenMobileWindowDisplaySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileWindowOrientationChangedNativeEvent,
 	const FOpenMobileWindowDisplaySnapshot&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
@@ -278,6 +287,12 @@ public:
 		return NativeWindowDisplaySnapshotChanged;
 	}
 
+	FOpenMobileWindowOrientationChangedNativeEvent&
+	OnNativeWindowOrientationChanged()
+	{
+		return NativeWindowOrientationChanged;
+	}
+
 	FOpenMobileAppearanceSnapshotChangedNativeEvent&
 	OnNativeAppearanceSnapshotChanged()
 	{
@@ -322,6 +337,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Window and Display Snapshot Changed", ToolTip = "Broadcasts when a monitored window or display snapshot changes."))
 	FOpenMobileWindowDisplaySnapshotChangedEvent OnWindowDisplaySnapshotChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Window Orientation Changed", ToolTip = "Broadcasts a complete Window and Display snapshot after the active UI orientation changes."))
+	FOpenMobileWindowOrientationChangedEvent OnWindowOrientationChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Appearance Snapshot Changed", ToolTip = "Broadcasts when the monitored system appearance changes."))
 	FOpenMobileAppearanceSnapshotChangedEvent OnAppearanceSnapshotChanged;
@@ -403,6 +421,7 @@ private:
 	FOpenMobileStorageSnapshotChangedNativeEvent NativeStorageSnapshotChanged;
 	FOpenMobileNetworkPathSnapshotChangedNativeEvent NativeNetworkPathSnapshotChanged;
 	FOpenMobileWindowDisplaySnapshotChangedNativeEvent NativeWindowDisplaySnapshotChanged;
+	FOpenMobileWindowOrientationChangedNativeEvent NativeWindowOrientationChanged;
 	FOpenMobileAppearanceSnapshotChangedNativeEvent NativeAppearanceSnapshotChanged;
 	FOpenMobileAccessibilitySnapshotChangedNativeEvent
 		NativeAccessibilitySnapshotChanged;

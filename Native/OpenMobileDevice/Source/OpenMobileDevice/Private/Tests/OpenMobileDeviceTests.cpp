@@ -9,6 +9,7 @@
 #include "HAL/FileManager.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/CoreDelegates.h"
 #include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceApplicationInfo.h"
@@ -52,6 +53,7 @@
 #include "OpenMobileDeviceThermalHeadroom.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 #include "OpenMobileDeviceWindowInsets.h"
+#include "OpenMobileDeviceWindowOrientation.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "UObject/UnrealType.h"
@@ -147,6 +149,12 @@ namespace OpenMobileDeviceTests
 			return Network;
 		}
 
+		virtual FOpenMobileWindowDisplaySnapshot
+		GetWindowDisplaySnapshot() const override
+		{
+			return WindowDisplay;
+		}
+
 		virtual FOpenMobilePreferredRefreshRateResult
 		ApplyPreferredRefreshRate(
 			const FOpenMobilePreferredRefreshRateRequest& Request
@@ -238,6 +246,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobileMediaVolumeSnapshot MediaVolume;
 		FOpenMobileMemorySnapshot Memory;
 		FOpenMobileNetworkPathSnapshot Network;
+		FOpenMobileWindowDisplaySnapshot WindowDisplay;
 		EOpenMobilePreferredRefreshRateApplyState RefreshRateApplyState =
 			EOpenMobilePreferredRefreshRateApplyState::Accepted;
 		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
@@ -1428,6 +1437,97 @@ bool FOpenMobileDeviceDisplayCutoutTest::RunTest(const FString& Parameters)
 	FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, RotatedExternalDisplay);
 	TestEqual(TEXT("Rotated display retains multiple cutouts"), Snapshot.DisplayCutouts.Num(), 2);
 	TestEqual(TEXT("External display offset transforms locally"), Snapshot.DisplayCutouts[1].Right, 100.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceWindowOrientationTest,
+	"OpenMobile.Device.Display.WindowOrientation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceWindowOrientationTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	TestEqual(TEXT("Natural portrait rotation zero"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(0, false), EOpenMobileWindowOrientation::Portrait);
+	TestEqual(TEXT("Natural portrait quarter turn"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(1, false), EOpenMobileWindowOrientation::LandscapeLeft);
+	TestEqual(TEXT("Natural portrait half turn"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(2, false), EOpenMobileWindowOrientation::PortraitUpsideDown);
+	TestEqual(TEXT("Natural portrait reverse quarter turn"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(3, false), EOpenMobileWindowOrientation::LandscapeRight);
+	TestEqual(TEXT("Natural landscape rotation zero"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(0, true), EOpenMobileWindowOrientation::LandscapeLeft);
+	TestEqual(TEXT("iOS interface orientation maps directly"), FOpenMobileDeviceWindowOrientation::FromIOSInterfaceOrientation(4), EOpenMobileWindowOrientation::LandscapeRight);
+	TestEqual(TEXT("Startup orientation stays unknown"), FOpenMobileDeviceWindowOrientation::FromIOSInterfaceOrientation(0), EOpenMobileWindowOrientation::Unknown);
+	TestEqual(TEXT("Invalid rotation stays unknown"), FOpenMobileDeviceWindowOrientation::FromAndroidRotation(4, false), EOpenMobileWindowOrientation::Unknown);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("Orientation"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	Backend.WindowDisplay.bLogicalWindowSizeAvailable = true;
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(400.0, 800.0);
+	Backend.WindowDisplay.SafeAreaInsets.bIsAvailable = true;
+	Backend.WindowDisplay.SafeAreaInsets.Top = 47.0f;
+	Backend.WindowDisplay.Orientation = EOpenMobileWindowOrientation::Portrait;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{EOpenMobileDeviceMonitoringGroup::WindowDisplay},
+			0.1f
+		);
+	TArray<FString> EventOrder;
+	int32 OrientationEvents = 0;
+	Subsystem->OnNativeWindowOrientationChanged().AddLambda(
+		[&EventOrder, &OrientationEvents](
+			const FOpenMobileWindowDisplaySnapshot& Snapshot
+		)
+		{
+			++OrientationEvents;
+			EventOrder.Add(TEXT("Orientation"));
+			if (Snapshot.LogicalWindowSize != FVector2D(800.0, 400.0)
+				|| Snapshot.SafeAreaInsets.Left != 47.0f)
+			{
+				OrientationEvents = -100;
+			}
+		}
+	);
+	Subsystem->OnNativeWindowDisplaySnapshotChanged().AddLambda(
+		[&EventOrder](const FOpenMobileWindowDisplaySnapshot& Snapshot)
+		{
+			static_cast<void>(Snapshot);
+			EventOrder.Add(TEXT("Window"));
+		}
+	);
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(800.0, 400.0);
+	Backend.WindowDisplay.SafeAreaInsets.Top = 0.0f;
+	Backend.WindowDisplay.SafeAreaInsets.Left = 47.0f;
+	Backend.WindowDisplay.Orientation =
+		EOpenMobileWindowOrientation::LandscapeLeft;
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	TestEqual(TEXT("Orientation event receives coherent metrics and insets"), OrientationEvents, 1);
+	TestEqual(TEXT("Focused orientation event precedes combined event"), EventOrder, TArray<FString>({TEXT("Orientation"), TEXT("Window")}));
+
+	EventOrder.Reset();
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(700.0, 400.0);
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	TestEqual(TEXT("Resize without rotation has no orientation event"), OrientationEvents, 1);
+	TestEqual(TEXT("Resize still has one combined window event"), EventOrder, TArray<FString>({TEXT("Window")}));
+	TestNotNull(TEXT("Blueprint orientation event is exposed"), UOpenMobileDeviceSubsystem::StaticClass()->FindPropertyByName(TEXT("OnWindowOrientationChanged")));
+
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

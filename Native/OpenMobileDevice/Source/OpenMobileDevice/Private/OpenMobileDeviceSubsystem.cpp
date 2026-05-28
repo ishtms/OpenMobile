@@ -628,10 +628,17 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 	case EOpenMobileDeviceMonitoringGroup::WindowDisplay:
 	{
 		const FOpenMobileWindowDisplaySnapshot Snapshot = GetWindowDisplaySnapshot();
+		const bool bOrientationChanged = !LastWindowSnapshot.IsSet()
+			|| LastWindowSnapshot->Orientation != Snapshot.Orientation;
 		if (!LastWindowSnapshot.IsSet()
 			|| !EquivalentWithoutMetadata(LastWindowSnapshot.GetValue(), Snapshot))
 		{
 			LastWindowSnapshot = Snapshot;
+			if (bOrientationChanged)
+			{
+				OnWindowOrientationChanged.Broadcast(Snapshot);
+				NativeWindowOrientationChanged.Broadcast(Snapshot);
+			}
 			OnWindowDisplaySnapshotChanged.Broadcast(Snapshot);
 			NativeWindowDisplaySnapshotChanged.Broadcast(Snapshot);
 		}

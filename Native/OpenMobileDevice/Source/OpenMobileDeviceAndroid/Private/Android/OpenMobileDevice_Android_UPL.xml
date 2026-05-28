@@ -230,6 +230,31 @@
 		return result;
 	}
 
+	public int[] AndroidThunkJava_OpenMobileDeviceGetWindowOrientation()
+	{
+		android.view.Window window = getWindow();
+		android.view.View decorView = window == null ? null : window.getDecorView();
+		android.view.Display display = decorView == null
+			? null
+			: decorView.getDisplay();
+		if (display == null)
+		{
+			return new int[0];
+		}
+		int rotation = display.getRotation();
+		android.graphics.Point realSize = new android.graphics.Point();
+		display.getRealSize(realSize);
+		if (realSize.x <= 0 || realSize.y <= 0 || realSize.x == realSize.y)
+		{
+			return new int[0];
+		}
+		boolean naturalLandscape = rotation == android.view.Surface.ROTATION_0
+			|| rotation == android.view.Surface.ROTATION_180
+			? realSize.x > realSize.y
+			: realSize.y > realSize.x;
+		return new int[] { rotation, naturalLandscape ? 1 : 0 };
+	}
+
 	public String AndroidThunkJava_OpenMobileDeviceGetDisplayName()
 	{
 		CharSequence label = getPackageManager().getApplicationLabel(getApplicationInfo());

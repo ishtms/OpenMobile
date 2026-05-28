@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
+#include "OpenMobileDeviceWindowOrientation.h"
 
 namespace OpenMobileDeviceAndroidDisplayPrivate
 {
@@ -473,6 +474,47 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 		}
 		FOpenMobileDeviceDisplayCutoutInfo::Apply(Snapshot, Evidence);
 	}
+
+	void ApplyOpenMobileDeviceAndroidWindowOrientation(
+		JNIEnv* Env,
+		jobject Activity,
+		FOpenMobileWindowDisplaySnapshot& Snapshot
+	)
+	{
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID GetWindowOrientation = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceGetWindowOrientation",
+				"()[I"
+			)
+			: nullptr;
+		if (!GetWindowOrientation || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jintArray> NativeValues(
+			static_cast<jintArray>(
+				Env->CallObjectMethod(Activity, GetWindowOrientation)
+			)
+		);
+		if (!NativeValues || ClearJavaException(Env)
+			|| Env->GetArrayLength(*NativeValues) != 2)
+		{
+			return;
+		}
+		jint Values[2] = {};
+		Env->GetIntArrayRegion(*NativeValues, 0, 2, Values);
+		if (ClearJavaException(Env) || (Values[1] != 0 && Values[1] != 1))
+		{
+			return;
+		}
+		Snapshot.Orientation =
+			FOpenMobileDeviceWindowOrientation::FromAndroidRotation(
+				Values[0],
+				Values[1] == 1
+			);
+	}
 }
 
 FOpenMobileWindowDisplaySnapshot
@@ -517,6 +559,12 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 			);
 		OpenMobileDeviceAndroidDisplayPrivate::
 			ApplyOpenMobileDeviceAndroidDisplayCutout(
+				Env,
+				Activity,
+				Snapshot
+			);
+		OpenMobileDeviceAndroidDisplayPrivate::
+			ApplyOpenMobileDeviceAndroidWindowOrientation(
 				Env,
 				Activity,
 				Snapshot

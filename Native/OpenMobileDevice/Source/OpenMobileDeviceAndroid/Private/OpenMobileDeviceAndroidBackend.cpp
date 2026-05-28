@@ -99,6 +99,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::WindowOrientation
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::WindowChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android derives UI orientation from the active display's rotation and natural orientation. Safe-frame changes and bounded Window Display monitoring refresh the complete snapshot after layout settles.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

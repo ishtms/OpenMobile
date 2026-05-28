@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
+#include "OpenMobileDeviceWindowOrientation.h"
 
 #import <UIKit/UIKit.h>
 
@@ -15,6 +16,7 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 		__block FOpenMobileDeviceWindowMetricsEvidence Evidence;
 		__block FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
 		__block FOpenMobileDeviceWindowInsetsEvidence InsetEvidence;
+		__block int32 InterfaceOrientation = 0;
 		void (^CaptureMetrics)(void) = ^{
 			FIOSView* View = [IOSAppDelegate GetDelegate].IOSView;
 			if (View == nil)
@@ -55,6 +57,9 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 				RefreshRateEvidence.MaximumRefreshRateHz =
 					static_cast<float>(Screen.maximumFramesPerSecond);
 				UIWindowScene* WindowScene = View.window.windowScene;
+				InterfaceOrientation = static_cast<int32>(
+					WindowScene.interfaceOrientation
+				);
 				UIStatusBarManager* StatusBarManager =
 					WindowScene.statusBarManager;
 				if (StatusBarManager != nil)
@@ -110,6 +115,10 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 		FOpenMobileWindowDisplaySnapshot Snapshot =
 			FOpenMobileDeviceWindowMetrics::Build(Evidence);
 		FOpenMobileDeviceWindowInsets::Apply(Snapshot, InsetEvidence);
+		Snapshot.Orientation =
+			FOpenMobileDeviceWindowOrientation::FromIOSInterfaceOrientation(
+				InterfaceOrientation
+			);
 		FOpenMobileDeviceRefreshRateInfo::Apply(
 			Snapshot,
 			RefreshRateEvidence

@@ -357,6 +357,44 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("does not expose display-cutout rectangles", ios_backend)
 		self.assertNotIn("DisplayCutouts", ios_display)
 
+	def test_window_orientation_uses_ui_state_and_safe_frame_events(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+		monitoring = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in ("getRotation", "getRealSize"):
+			self.assertIn(token, android_upl)
+		self.assertIn("ApplyOpenMobileDeviceAndroidWindowOrientation", android_display)
+		self.assertIn("WindowScene.interfaceOrientation", ios_display)
+		self.assertNotIn("UIDeviceOrientation", ios_display)
+		self.assertIn("OnSafeFrameChangedEvent", monitoring)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN
