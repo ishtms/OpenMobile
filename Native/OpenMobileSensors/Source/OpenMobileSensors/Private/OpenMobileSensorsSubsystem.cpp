@@ -4,6 +4,7 @@
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorsModule.h"
+#include "OpenMobileSensorsSubscriptionService.h"
 
 namespace OpenMobileSensorsSubsystemPrivate
 {
@@ -19,27 +20,9 @@ namespace OpenMobileSensorsSubsystemPrivate
 		return Result;
 	}
 
-	FOpenMobileSensorOperationResult MakeHandleFailure(
-		const FOpenMobileSensorSubscriptionHandle& Handle
-	)
-	{
-		if (!Handle.IsValid())
-		{
-			return MakeOperationFailure(
-				EOpenMobileSensorResultCode::InvalidHandle,
-				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The sensor subscription handle is invalid.")
-			);
-		}
-		return MakeOperationFailure(
-			EOpenMobileSensorResultCode::InvalidHandle,
-			EOpenMobileErrorCode::Unavailable,
-			TEXT("The sensor subscription is no longer active.")
-		);
-	}
-
 	template <typename SampleType>
 	bool ReadUnavailable(
+		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOpenMobileSensorReadResult& OutResult,
 		SampleType& OutSample
@@ -47,15 +30,22 @@ namespace OpenMobileSensorsSubsystemPrivate
 	{
 		OutSample = {};
 		OutResult = {};
-		OutResult.Status = Handle.IsValid()
-			? EOpenMobileSensorReadStatus::Stopped
-			: EOpenMobileSensorReadStatus::InvalidHandle;
-		OutResult.Error = MakeHandleFailure(Handle).Error;
+		const FOpenMobileSensorOperationResult HandleStatus =
+			FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+				OwnerIdentifier,
+				Handle
+			);
+		if (!HandleStatus.IsSuccess())
+		{
+			OutResult.Status = EOpenMobileSensorReadStatus::InvalidHandle;
+			OutResult.Error = HandleStatus.Error;
+		}
 		return false;
 	}
 
 	template <typename BatchType>
 	bool DrainUnavailable(
+		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int32 MaximumSamples,
 		FOpenMobileSensorBufferReadResult& OutResult,
@@ -73,18 +63,42 @@ namespace OpenMobileSensorsSubsystemPrivate
 			);
 			return false;
 		}
-		OutResult.Operation = MakeHandleFailure(Handle);
-		return false;
+		OutResult.Operation =
+			FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+				OwnerIdentifier,
+				Handle
+			);
+		return OutResult.Operation.IsSuccess();
 	}
 }
 
 void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	if (SubscriptionOwnerIdentifier.IsValid())
+	{
+		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
+			SubscriptionOwnerIdentifier
+		);
+	}
+	bDeinitialized = false;
+	SubscriptionOwnerIdentifier = FGuid::NewGuid();
 }
 
 void UOpenMobileSensorsSubsystem::Deinitialize()
 {
+	if (bDeinitialized)
+	{
+		return;
+	}
+	if (SubscriptionOwnerIdentifier.IsValid())
+	{
+		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
+			SubscriptionOwnerIdentifier
+		);
+		SubscriptionOwnerIdentifier.Invalidate();
+	}
+	bDeinitialized = true;
 	TArray<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> PendingActions;
 	PendingActions.Reserve(AsyncActions.Num());
 	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& Action
@@ -144,25 +158,22 @@ UOpenMobileSensorsSubsystem::StartSubscriptionNative(
 	const FOpenMobileSensorSubscriptionRequest& Request
 )
 {
-	using namespace OpenMobileSensorsSubsystemPrivate;
-	FOpenMobileSensorSubscriptionResult Result;
-	Result.RequestedOptions = Request.Options;
-	Result.AppliedOptions = Request.Options;
-	if (!Request.Sensor.IsValid())
+	if (bDeinitialized)
 	{
-		Result.Operation = MakeOperationFailure(
-			EOpenMobileSensorResultCode::InvalidArgument,
-			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("A valid sensor identifier is required.")
+		FOpenMobileSensorSubscriptionResult Result;
+		Result.RequestedOptions = Request.Options;
+		Result.AppliedOptions = Request.Options;
+		Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+			EOpenMobileSensorResultCode::Unavailable,
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Sensors subsystem has been deinitialized.")
 		);
 		return Result;
 	}
-	Result.Operation = MakeOperationFailure(
-		EOpenMobileSensorResultCode::NotSupported,
-		EOpenMobileErrorCode::NotSupported,
-		TEXT("Sensor streaming is not available without a streaming backend.")
+	return FOpenMobileSensorsSubscriptionService::StartSubscription(
+		GetOrCreateSubscriptionOwnerIdentifier(),
+		Request
 	);
-	return Result;
 }
 
 FOpenMobileSensorOperationResult
@@ -171,8 +182,11 @@ UOpenMobileSensorsSubsystem::UpdateSubscriptionNative(
 	const FOpenMobileSensorStreamOptions& Options
 )
 {
-	static_cast<void>(Options);
-	return OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	return FOpenMobileSensorsSubscriptionService::UpdateSubscription(
+		SubscriptionOwnerIdentifier,
+		Handle,
+		Options
+	);
 }
 
 FOpenMobileSensorOperationResult
@@ -180,12 +194,17 @@ UOpenMobileSensorsSubsystem::StopSubscriptionNative(
 	const FOpenMobileSensorSubscriptionHandle& Handle
 )
 {
-	return OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	return FOpenMobileSensorsSubscriptionService::StopSubscription(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
 }
 
 int32 UOpenMobileSensorsSubsystem::StopAllSubscriptionsNative()
 {
-	return 0;
+	return FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
+		SubscriptionOwnerIdentifier
+	);
 }
 
 bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
@@ -193,10 +212,11 @@ bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
 	FOpenMobileSensorSubscriptionStateSnapshot& OutState
 ) const
 {
-	OutState = {};
-	OutState.Handle = Handle;
-	OutState.Error = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle).Error;
-	return false;
+	return FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		SubscriptionOwnerIdentifier,
+		Handle,
+		OutState
+	);
 }
 
 #define OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(MethodName, SampleType) \
@@ -209,7 +229,7 @@ bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
 	{ \
 		static_cast<void>(LastSeenSequence); \
 		return OpenMobileSensorsSubsystemPrivate::ReadUnavailable( \
-			Handle, OutResult, OutSample \
+			SubscriptionOwnerIdentifier, Handle, OutResult, OutSample \
 		); \
 	}
 
@@ -257,7 +277,8 @@ OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	) \
 	{ \
 		return OpenMobileSensorsSubsystemPrivate::DrainUnavailable( \
-			Handle, MaximumSamples, OutResult, OutBatch \
+			SubscriptionOwnerIdentifier, Handle, MaximumSamples, \
+			OutResult, OutBatch \
 		); \
 	}
 
@@ -305,7 +326,19 @@ FGuid UOpenMobileSensorsSubsystem::FlushNative(
 	FOpenMobileSensorFlushResult Result;
 	Result.RequestId = RequestId;
 	Result.Handle = Handle;
-	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
+	if (Result.Operation.IsSuccess())
+	{
+		Result.Operation =
+			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+				EOpenMobileSensorResultCode::NotSupported,
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("The active sensor backend does not support flushing yet.")
+			);
+	}
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
 		{
@@ -326,7 +359,19 @@ FGuid UOpenMobileSensorsSubsystem::RecenterNative(
 	Result.RequestId = RequestId;
 	Result.Handle = Handle;
 	Result.Mode = Mode;
-	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
+	if (Result.Operation.IsSuccess())
+	{
+		Result.Operation =
+			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+				EOpenMobileSensorResultCode::NotSupported,
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("The active sensor backend does not support recentering yet.")
+			);
+	}
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
 		{
@@ -346,7 +391,19 @@ UOpenMobileSensorsSubsystem::RecenterSubscription(
 	Result.RequestId = FGuid::NewGuid();
 	Result.Handle = Handle;
 	Result.Mode = Mode;
-	Result.Operation = OpenMobileSensorsSubsystemPrivate::MakeHandleFailure(Handle);
+	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
+	if (Result.Operation.IsSuccess())
+	{
+		Result.Operation =
+			OpenMobileSensorsSubsystemPrivate::MakeOperationFailure(
+				EOpenMobileSensorResultCode::NotSupported,
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("The active sensor backend does not support recentering yet.")
+			);
+	}
 	return Result;
 }
 
@@ -571,6 +628,15 @@ FOnOpenMobileProximitySensorBatch&
 UOpenMobileSensorsSubsystem::OnProximitySamplesNative()
 {
 	return ProximitySamplesEvent;
+}
+
+FGuid UOpenMobileSensorsSubsystem::GetOrCreateSubscriptionOwnerIdentifier()
+{
+	if (!SubscriptionOwnerIdentifier.IsValid())
+	{
+		SubscriptionOwnerIdentifier = FGuid::NewGuid();
+	}
+	return SubscriptionOwnerIdentifier;
 }
 
 void UOpenMobileSensorsSubsystem::RegisterAsyncAction(

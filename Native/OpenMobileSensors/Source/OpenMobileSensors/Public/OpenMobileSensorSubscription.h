@@ -7,6 +7,7 @@
 #include "OpenMobileSensorSubscription.generated.h"
 
 class UOpenMobileSensorsSubsystem;
+class FOpenMobileSensorsSubscriptionService;
 
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionHandle
@@ -59,6 +60,7 @@ private:
 	uint32 Generation = 0;
 
 	friend class UOpenMobileSensorsSubsystem;
+	friend class FOpenMobileSensorsSubscriptionService;
 };
 
 UENUM(BlueprintType)
