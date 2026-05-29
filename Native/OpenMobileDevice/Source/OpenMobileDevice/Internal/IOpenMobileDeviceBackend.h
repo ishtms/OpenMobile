@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceOrientationControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
 
@@ -174,6 +175,22 @@ public:
 	}
 
 	virtual void ClearPreferredRefreshRate() {}
+
+	virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
+		const FOpenMobileOrientationPolicyRequest& Request
+	)
+	{
+		FOpenMobileOrientationPolicyResult Result;
+		Result.Request = Request;
+		Result.State = EOpenMobileOrientationPolicyApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support orientation control.")
+		);
+		return Result;
+	}
+
+	virtual void ClearOrientationPolicy() {}
 
 	virtual FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const
 	{

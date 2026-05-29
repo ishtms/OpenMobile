@@ -5,6 +5,86 @@
 	</androidManifestUpdates>
 	<gameActivityClassAdditions>
 		<insert><![CDATA[
+	private boolean OpenMobileDeviceHasSavedOrientationPolicy = false;
+	private int OpenMobileDeviceSavedOrientationPolicy =
+		android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+
+	public boolean AndroidThunkJava_OpenMobileDeviceApplyOrientationPolicy(
+		final int policy
+	)
+	{
+		final int requestedOrientation;
+		switch (policy)
+		{
+			case 0:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+				break;
+			case 1:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+				break;
+			case 2:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+				break;
+			case 3:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+				break;
+			case 4:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+				break;
+			case 5:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+				break;
+			case 6:
+				requestedOrientation =
+					android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+				break;
+			default:
+				return false;
+		}
+
+		runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				if (!OpenMobileDeviceHasSavedOrientationPolicy)
+				{
+					OpenMobileDeviceSavedOrientationPolicy =
+						getRequestedOrientation();
+					OpenMobileDeviceHasSavedOrientationPolicy = true;
+				}
+				int effectiveOrientation = policy == 0
+					? OpenMobileDeviceSavedOrientationPolicy
+					: requestedOrientation;
+				setRequestedOrientation(effectiveOrientation);
+			}
+		});
+		return true;
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceClearOrientationPolicy()
+	{
+		runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				if (!OpenMobileDeviceHasSavedOrientationPolicy)
+				{
+					return;
+				}
+				setRequestedOrientation(OpenMobileDeviceSavedOrientationPolicy);
+				OpenMobileDeviceHasSavedOrientationPolicy = false;
+			}
+		});
+	}
+
 	private boolean OpenMobileDeviceHasSavedPreferredRefreshRate = false;
 	private float OpenMobileDeviceSavedPreferredRefreshRate = 0.0f;
 

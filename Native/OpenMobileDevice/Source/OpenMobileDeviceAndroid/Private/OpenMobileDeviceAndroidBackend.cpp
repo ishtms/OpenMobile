@@ -13,6 +13,7 @@
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
 #include "OpenMobileDeviceAndroidNetwork.h"
 #include "OpenMobileDeviceAndroidNetworkMonitor.h"
+#include "OpenMobileDeviceAndroidOrientationControl.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
@@ -108,6 +109,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android derives UI orientation from the active display's rotation and natural orientation. Safe-frame changes and bounded Window Display monitoring refresh the complete snapshot after layout settles.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::OrientationControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android queues reversible activity orientation requests. The OS may ignore restrictions on some large-screen devices or when an activity is not eligible to rotate.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
@@ -274,6 +284,19 @@ FOpenMobileDeviceAndroidBackend::ApplyPreferredRefreshRate(
 void FOpenMobileDeviceAndroidBackend::ClearPreferredRefreshRate()
 {
 	ClearOpenMobileDeviceAndroidPreferredRefreshRate();
+}
+
+FOpenMobileOrientationPolicyResult
+FOpenMobileDeviceAndroidBackend::ApplyOrientationPolicy(
+	const FOpenMobileOrientationPolicyRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceAndroidOrientationPolicy(Request);
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearOrientationPolicy()
+{
+	ClearOpenMobileDeviceAndroidOrientationPolicy();
 }
 
 FOpenMobileDeviceInformationSnapshot
@@ -473,6 +496,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidOrientationPolicy();
 	ClearOpenMobileDeviceAndroidPreferredRefreshRate();
 	StopOpenMobileDeviceAndroidLocaleMonitoring();
 	StopOpenMobileDeviceAndroidBatteryMonitoring();

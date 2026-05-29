@@ -12,6 +12,7 @@
 #include "OpenMobileDeviceIOSMemoryMonitor.h"
 #include "OpenMobileDeviceIOSNetwork.h"
 #include "OpenMobileDeviceIOSNetworkMonitor.h"
+#include "OpenMobileDeviceIOSOrientationControl.h"
 #include "OpenMobileDeviceIOSStorage.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -94,6 +95,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("iOS reports the active UIWindowScene interface orientation. Safe-frame changes and bounded Window Display monitoring refresh the complete snapshot after layout settles.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::OrientationControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS updates Unreal's active view-controller orientation mask and submits a scene geometry request. Project and presented-controller restrictions remain authoritative.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
@@ -247,6 +257,19 @@ FOpenMobileDeviceIOSBackend::GetWindowDisplaySnapshot() const
 	return GetOpenMobileDeviceIOSWindowDisplaySnapshot();
 }
 
+FOpenMobileOrientationPolicyResult
+FOpenMobileDeviceIOSBackend::ApplyOrientationPolicy(
+	const FOpenMobileOrientationPolicyRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceIOSOrientationPolicy(Request);
+}
+
+void FOpenMobileDeviceIOSBackend::ClearOrientationPolicy()
+{
+	ClearOpenMobileDeviceIOSOrientationPolicy();
+}
+
 FOpenMobileDeviceInformationSnapshot
 FOpenMobileDeviceIOSBackend::GetDeviceInformationSnapshot() const
 {
@@ -396,6 +419,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceIOSOrientationPolicy();
 	StopOpenMobileDeviceIOSLocaleMonitoring();
 	StopOpenMobileDeviceIOSBatteryMonitoring();
 	StopOpenMobileDeviceIOSMemoryMonitoring();

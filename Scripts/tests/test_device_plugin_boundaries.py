@@ -395,6 +395,55 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("UIDeviceOrientation", ios_display)
 		self.assertIn("OnSafeFrameChangedEvent", monitoring)
 
+	def test_orientation_control_uses_reversible_platform_policy(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidOrientationControl.cpp"
+		).read_text(encoding="utf-8")
+		ios_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSOrientationControl.mm"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"getRequestedOrientation",
+			"setRequestedOrientation",
+			"SCREEN_ORIENTATION_SENSOR_PORTRAIT",
+			"SCREEN_ORIENTATION_SENSOR_LANDSCAPE",
+			"SCREEN_ORIENTATION_REVERSE_PORTRAIT",
+			"SCREEN_ORIENTATION_REVERSE_LANDSCAPE",
+		):
+			self.assertIn(token, android_upl)
+		self.assertIn("AndroidThunkJava_OpenMobileDeviceApplyOrientationPolicy", android_control)
+		self.assertIn("AndroidThunkJava_OpenMobileDeviceClearOrientationPolicy", android_control)
+		for token in (
+			"supportedInterfaceOrientations",
+			"setNeedsUpdateOfSupportedInterfaceOrientations",
+			"requestGeometryUpdateWithPreferences",
+			"UIWindowSceneGeometryPreferencesIOS",
+			"UIInterfaceOrientationMaskPortraitUpsideDown",
+			"UIInterfaceOrientationMaskLandscapeLeft",
+			"UIInterfaceOrientationMaskLandscapeRight",
+			"presentedViewController",
+			"UISceneActivationStateBackground",
+		):
+			self.assertIn(token, ios_control)
+		self.assertNotIn("setValue:forKey", ios_control)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

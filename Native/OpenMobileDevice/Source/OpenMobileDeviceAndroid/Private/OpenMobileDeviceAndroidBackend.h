@@ -29,6 +29,10 @@ public:
 		const FOpenMobilePreferredRefreshRateRequest& Request
 	) override;
 	virtual void ClearPreferredRefreshRate() override;
+	virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
+		const FOpenMobileOrientationPolicyRequest& Request
+	) override;
+	virtual void ClearOrientationPolicy() override;
 	virtual bool QueryStorageSnapshot(
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError

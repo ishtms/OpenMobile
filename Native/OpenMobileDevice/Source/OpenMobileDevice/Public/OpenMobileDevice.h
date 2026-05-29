@@ -13,6 +13,7 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceOrientationControl.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSettings.h"

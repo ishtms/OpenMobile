@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceNetworkTypes.h"
+#include "OpenMobileDeviceOrientationControl.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceTypes.h"
@@ -201,6 +202,11 @@ public:
 		const FOpenMobilePreferredRefreshRateRequest& Request
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Orientation Policy", ToolTip = "Applies an orientation policy until the returned handle is released."))
+	UOpenMobileOrientationPolicyHandle* RequestOrientationPolicy(
+		const FOpenMobileOrientationPolicyRequest& Request
+	);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Appearance Snapshot", ToolTip = "Captures the current system appearance preference."))
 	FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const;
 
@@ -352,6 +358,7 @@ private:
 	friend class UOpenMobileDeviceStorageQueryAsyncAction;
 	friend class UOpenMobileDeviceMonitoringSubscription;
 	friend class UOpenMobilePreferredRefreshRateHandle;
+	friend class UOpenMobileOrientationPolicyHandle;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
 	friend class FOpenMobileDeviceLowStorageStateTest;
@@ -361,6 +368,9 @@ private:
 	);
 	void ReleasePreferredRefreshRateHandle(
 		UOpenMobilePreferredRefreshRateHandle* Handle
+	);
+	void ReleaseOrientationPolicyHandle(
+		UOpenMobileOrientationPolicyHandle* Handle
 	);
 	void BindMonitoringService();
 	void UnbindMonitoringService();
@@ -391,6 +401,10 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobilePreferredRefreshRateHandle>>
 		PreferredRefreshRateHandles;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>>
+		OrientationPolicyHandles;
 
 	TMap<EOpenMobileDeviceMonitoringGroup, int32> LocalMonitoringCounts;
 	FDelegateHandle MonitoringChangedHandle;

@@ -37,6 +37,9 @@
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceNetworkPathInfo.h"
+#include "OpenMobileDeviceOrientationControl.h"
+#include "OpenMobileDeviceOrientationControlPolicy.h"
+#include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
@@ -172,6 +175,22 @@ namespace OpenMobileDeviceTests
 			++RefreshRateClearCount;
 		}
 
+		virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
+			const FOpenMobileOrientationPolicyRequest& Request
+		) override
+		{
+			OrientationPolicyApplyRequests.Add(Request);
+			FOpenMobileOrientationPolicyResult Result;
+			Result.Request = Request;
+			Result.State = OrientationPolicyApplyState;
+			return Result;
+		}
+
+		virtual void ClearOrientationPolicy() override
+		{
+			++OrientationPolicyClearCount;
+		}
+
 		virtual FOpenMobileLocaleSnapshot GetLocaleSnapshot() const override
 		{
 			++LocaleQueries;
@@ -251,6 +270,11 @@ namespace OpenMobileDeviceTests
 			EOpenMobilePreferredRefreshRateApplyState::Accepted;
 		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
 		int32 RefreshRateClearCount = 0;
+		EOpenMobileOrientationPolicyApplyState OrientationPolicyApplyState =
+			EOpenMobileOrientationPolicyApplyState::Accepted;
+		TArray<FOpenMobileOrientationPolicyRequest>
+			OrientationPolicyApplyRequests;
+		int32 OrientationPolicyClearCount = 0;
 		FOpenMobileLocaleSnapshot Locale;
 		TSet<EOpenMobileDeviceMonitoringGroup> NativeMonitoringGroups;
 		TSet<EOpenMobileDeviceMonitoringGroup> FallbackMonitoringGroups;
@@ -1527,6 +1551,134 @@ bool FOpenMobileDeviceWindowOrientationTest::RunTest(
 	Subsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceOrientationControlPolicyTest,
+	"OpenMobile.Device.Display.OrientationControlPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceOrientationControlPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileError Error;
+	for (EOpenMobileOrientationPolicy Policy : {
+		EOpenMobileOrientationPolicy::Automatic,
+		EOpenMobileOrientationPolicy::Portrait,
+		EOpenMobileOrientationPolicy::Landscape,
+		EOpenMobileOrientationPolicy::PortraitOnly,
+		EOpenMobileOrientationPolicy::PortraitUpsideDownOnly,
+		EOpenMobileOrientationPolicy::LandscapeLeftOnly,
+		EOpenMobileOrientationPolicy::LandscapeRightOnly
+	})
+	{
+		FOpenMobileOrientationPolicyRequest Request;
+		Request.Policy = Policy;
+		TestTrue(TEXT("Declared orientation policy is valid"), FOpenMobileDeviceOrientationControlPolicy::Validate(Request, Error));
+	}
+	FOpenMobileOrientationPolicyRequest Invalid;
+	Invalid.Policy = static_cast<EOpenMobileOrientationPolicy>(255);
+	TestFalse(TEXT("Unknown orientation policy is rejected"), FOpenMobileDeviceOrientationControlPolicy::Validate(Invalid, Error));
+	TestEqual(TEXT("Unknown policy has typed error"), Error.Code, EOpenMobileErrorCode::InvalidArgument);
+
+	FOpenMobileDeviceOrientationRequestStack Stack;
+	FOpenMobileOrientationPolicyRequest Portrait;
+	Portrait.Policy = EOpenMobileOrientationPolicy::Portrait;
+	FOpenMobileOrientationPolicyRequest Landscape;
+	Landscape.Policy = EOpenMobileOrientationPolicy::Landscape;
+	Stack.Add(10, Portrait);
+	Stack.Add(20, Landscape);
+	TestEqual(TEXT("Newest orientation handle wins"), Stack.GetEffectiveRequest()->Policy, EOpenMobileOrientationPolicy::Landscape);
+	Stack.Remove(20);
+	TestEqual(TEXT("Releasing newest restores prior orientation"), Stack.GetEffectiveRequest()->Policy, EOpenMobileOrientationPolicy::Portrait);
+	Stack.Remove(10);
+	TestFalse(TEXT("Final release restores platform policy"), Stack.GetEffectiveRequest().IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceOrientationControlServiceTest,
+	"OpenMobile.Device.Display.OrientationControlService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceOrientationControlServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceOrientationControlService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("OrientationControl"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	FOpenMobileOrientationPolicyRequest Portrait;
+	Portrait.Policy = EOpenMobileOrientationPolicy::PortraitOnly;
+	FOpenMobileOrientationPolicyRequest Landscape;
+	Landscape.Policy = EOpenMobileOrientationPolicy::Landscape;
+	FOpenMobileOrientationPolicyResult Result;
+	const FGuid First = FOpenMobileDeviceOrientationControlService::AddRequest(
+		Portrait,
+		Result
+	);
+	const FGuid Second = FOpenMobileDeviceOrientationControlService::AddRequest(
+		Landscape,
+		Result
+	);
+	TestTrue(TEXT("Nested orientation handles are active"), First.IsValid() && Second.IsValid());
+	TestEqual(TEXT("Newest orientation policy applies"), Backend.OrientationPolicyApplyRequests.Last().Policy, EOpenMobileOrientationPolicy::Landscape);
+	FOpenMobileDeviceOrientationControlService::RemoveRequest(Second);
+	TestEqual(TEXT("Nested release reapplies prior policy"), Backend.OrientationPolicyApplyRequests.Last().Policy, EOpenMobileOrientationPolicy::PortraitOnly);
+
+	const int32 AppliesBeforeBackground =
+		Backend.OrientationPolicyApplyRequests.Num();
+	FOpenMobileDeviceOrientationControlService::NotifyBackgroundForTests();
+	FOpenMobileDeviceOrientationControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Background surface changes do not reapply"), Backend.OrientationPolicyApplyRequests.Num(), AppliesBeforeBackground);
+	TestEqual(TEXT("Backgrounding does not unlock orientation"), Backend.OrientationPolicyClearCount, 0);
+	FOpenMobileDeviceOrientationControlService::NotifyForegroundForTests();
+	TestEqual(TEXT("Foreground reapplies to the active surface"), Backend.OrientationPolicyApplyRequests.Num(), AppliesBeforeBackground + 1);
+	FOpenMobileDeviceOrientationControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Surface recreation reapplies orientation"), Backend.OrientationPolicyApplyRequests.Num(), AppliesBeforeBackground + 2);
+
+	Backend.OrientationPolicyApplyState =
+		EOpenMobileOrientationPolicyApplyState::Restricted;
+	const FGuid Restricted =
+		FOpenMobileDeviceOrientationControlService::AddRequest(
+			Landscape,
+			Result
+		);
+	TestFalse(TEXT("Restricted presentation creates no handle"), Restricted.IsValid());
+	TestEqual(TEXT("Restriction remains typed"), Result.State, EOpenMobileOrientationPolicyApplyState::Restricted);
+	Backend.OrientationPolicyApplyState =
+		EOpenMobileOrientationPolicyApplyState::Accepted;
+
+	TestNotNull(TEXT("Subsystem exposes orientation request"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("RequestOrientationPolicy")));
+	TestNotNull(TEXT("Orientation handle exposes release"), UOpenMobileOrientationPolicyHandle::StaticClass()->FindFunctionByName(TEXT("Release")));
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileOrientationPolicyHandle* Handle =
+		Subsystem->RequestOrientationPolicy(Landscape);
+	TestTrue(TEXT("Subsystem orientation handle is active"), Handle && Handle->IsActive());
+	FOpenMobileDeviceOrientationControlService::RemoveRequest(First);
+	const int32 ClearsBeforeTeardown = Backend.OrientationPolicyClearCount;
+	Subsystem->Deinitialize();
+	TestFalse(TEXT("Subsystem teardown releases orientation"), Handle->IsActive());
+	TestEqual(TEXT("Subsystem teardown restores platform policy"), Backend.OrientationPolicyClearCount, ClearsBeforeTeardown + 1);
+
+	FOpenMobileDeviceOrientationControlService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

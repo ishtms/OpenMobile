@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceMonitoringService.h"
+#include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
@@ -105,6 +106,17 @@ void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection
 void UOpenMobileDeviceSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>> OrientationHandles =
+		OrientationPolicyHandles;
+	for (UOpenMobileOrientationPolicyHandle* Handle : OrientationHandles)
+	{
+		if (Handle)
+		{
+			Handle->Release();
+		}
+	}
+	OrientationPolicyHandles.Reset();
+
 	TArray<TObjectPtr<UOpenMobilePreferredRefreshRateHandle>> RefreshRateHandles =
 		PreferredRefreshRateHandles;
 	for (UOpenMobilePreferredRefreshRateHandle* Handle : RefreshRateHandles)
@@ -272,6 +284,55 @@ void UOpenMobileDeviceSubsystem::ReleasePreferredRefreshRateHandle(
 	Handle->RequestId.Invalidate();
 	Handle->Subsystem.Reset();
 	PreferredRefreshRateHandles.RemoveSingleSwap(Handle);
+}
+
+UOpenMobileOrientationPolicyHandle*
+UOpenMobileDeviceSubsystem::RequestOrientationPolicy(
+	const FOpenMobileOrientationPolicyRequest& Request
+)
+{
+	UOpenMobileOrientationPolicyHandle* Handle =
+		NewObject<UOpenMobileOrientationPolicyHandle>(this);
+	Handle->Request = Request;
+	if (bDeinitialized)
+	{
+		Handle->Result.Request = Request;
+		Handle->Result.State =
+			EOpenMobileOrientationPolicyApplyState::Rejected;
+		Handle->Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Handle;
+	}
+	Handle->RequestId = FOpenMobileDeviceOrientationControlService::AddRequest(
+		Request,
+		Handle->Result
+	);
+	Handle->bActive = Handle->RequestId.IsValid();
+	if (Handle->bActive)
+	{
+		Handle->Subsystem = this;
+		OrientationPolicyHandles.Add(Handle);
+	}
+	return Handle;
+}
+
+void UOpenMobileDeviceSubsystem::ReleaseOrientationPolicyHandle(
+	UOpenMobileOrientationPolicyHandle* Handle
+)
+{
+	if (!Handle || !Handle->bActive)
+	{
+		return;
+	}
+	FOpenMobileDeviceOrientationControlService::RemoveRequest(
+		Handle->RequestId
+	);
+	Handle->bActive = false;
+	Handle->RequestId.Invalidate();
+	Handle->Subsystem.Reset();
+	OrientationPolicyHandles.RemoveSingleSwap(Handle);
 }
 
 FOpenMobileAppearanceSnapshot UOpenMobileDeviceSubsystem::GetAppearanceSnapshot() const
