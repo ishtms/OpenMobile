@@ -254,7 +254,10 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileHaptics_Android_UPL.xml"
 		).read_text(encoding="utf-8")
 		self.assertIn("hasVibrator", android_bridge)
+		self.assertIn("hasAmplitudeControl", android_bridge)
+		self.assertIn("areEffectsSupported", android_bridge)
 		self.assertIn("arePrimitivesSupported", android_bridge)
+		self.assertIn("getEnvelopeEffectInfo", android_bridge)
 		self.assertNotIn(".vibrate(", android_bridge)
 		self.assertNotIn("requestPermissions", android_bridge)
 		self.assertIn(
@@ -272,6 +275,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("capabilitiesForHardware", ios_probe)
 		self.assertIn("supportsHaptics", ios_probe)
+		self.assertIn("supportsAudio", ios_probe)
 		self.assertNotIn("CHHapticEngine alloc", ios_probe)
 		self.assertNotIn("startAndReturnError", ios_probe)
 		self.assertIn(

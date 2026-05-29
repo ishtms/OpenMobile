@@ -176,6 +176,7 @@ void UOpenMobileHapticsSubsystem::Initialize(
 	Super::Initialize(Collection);
 	bDeinitialized = false;
 	UserPolicy = {};
+	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
 }
 
@@ -336,31 +337,17 @@ FOpenMobileHapticsDiagnostics UOpenMobileHapticsSubsystem::GetDiagnostics() cons
 FOpenMobileHapticCapabilities
 UOpenMobileHapticsSubsystem::GetCapabilitiesNative() const
 {
-	check(IsInGameThread());
-	if (!bDeinitialized)
+	FOpenMobileHapticCapabilities Capabilities =
+		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	if (!bUserPolicyEnabled.Load()
+		&& Capabilities.Availability
+			!= EOpenMobileHapticAvailability::UnsupportedPlatform)
 	{
-		if (IOpenMobileHapticsBackend* Backend =
-			FOpenMobileHapticsBackendRegistry::FindBackend())
-		{
-			FOpenMobileHapticCapabilities Capabilities =
-				Backend->GetCapabilities();
-			if (Capabilities.BackendName.IsNone())
-			{
-				Capabilities.BackendName = Backend->GetBackendName();
-			}
-			if (!UserPolicy.bEnabled)
-			{
-				Capabilities.Availability =
-					EOpenMobileHapticAvailability::DisabledByPolicy;
-				Capabilities.Detail =
-					TEXT("Haptics are disabled by the current player policy.");
-			}
-			return Capabilities;
-		}
+		Capabilities.Availability =
+			EOpenMobileHapticAvailability::DisabledByPolicy;
+		Capabilities.Detail =
+			TEXT("Haptics are disabled by the current player policy.");
 	}
-
-	FOpenMobileHapticCapabilities Capabilities;
-	Capabilities.Detail = TEXT("No mobile Haptics backend is available.");
 	return Capabilities;
 }
 
@@ -578,6 +565,7 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 	}
 
 	UserPolicy = Policy;
+	bUserPolicyEnabled.Store(Policy.bEnabled);
 	FOpenMobileHapticControlResult Result;
 	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 	return Result;

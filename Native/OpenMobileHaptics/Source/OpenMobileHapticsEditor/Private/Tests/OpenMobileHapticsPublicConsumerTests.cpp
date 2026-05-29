@@ -15,6 +15,9 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	static_cast<void>(Parameters);
 
 	FOpenMobileHapticCapabilities Capabilities;
+	FOpenMobileHapticNamedSupport NamedSupport;
+	FOpenMobileHapticIntegerLimit IntegerLimit;
+	FOpenMobileHapticDurationLimit DurationLimit;
 	FOpenMobileHapticSemanticRequest SemanticRequest;
 	FOpenMobileHapticOneShotRequest OneShotRequest;
 	FOpenMobileHapticNamedPatternRequest NamedRequest;
@@ -28,6 +31,9 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	FOpenMobileHapticsDiagnostics Diagnostics;
 	UOpenMobileHapticsSettings* Settings = nullptr;
 	static_cast<void>(Capabilities);
+	static_cast<void>(NamedSupport);
+	static_cast<void>(IntegerLimit);
+	static_cast<void>(DurationLimit);
 	static_cast<void>(SemanticRequest);
 	static_cast<void>(OneShotRequest);
 	static_cast<void>(NamedRequest);

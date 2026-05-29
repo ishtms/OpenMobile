@@ -309,6 +309,67 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticError
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedSupport
+{
+	GENERATED_BODY()
+
+	FOpenMobileHapticNamedSupport() = default;
+	FOpenMobileHapticNamedSupport(
+		FName InName,
+		EOpenMobileHapticSupportState InSupport
+	)
+		: Name(InName)
+		, Support(InSupport)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName Name;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Support =
+		EOpenMobileHapticSupportState::Unknown;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticIntegerLimit
+{
+	GENERATED_BODY()
+
+	FOpenMobileHapticIntegerLimit() = default;
+	FOpenMobileHapticIntegerLimit(bool bInKnown, int32 InValue)
+		: bKnown(bInKnown)
+		, Value(InValue)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 Value = 0;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationLimit
+{
+	GENERATED_BODY()
+
+	FOpenMobileHapticDurationLimit() = default;
+	FOpenMobileHapticDurationLimit(bool bInKnown, double InSeconds)
+		: bKnown(bInKnown)
+		, Seconds(InSeconds)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double Seconds = 0.0;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 {
 	GENERATED_BODY()
@@ -328,6 +389,95 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticSupportState RichHaptics =
 		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState AmplitudeControl =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState SemanticEffects =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState PredefinedEffects =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState WaveformTiming =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Looping =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Primitives =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Envelopes =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState FrequencyControl =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState TransientEvents =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState ContinuousEvents =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState DynamicParameters =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState AudioEvents =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState AHAP =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Scheduling =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Pause =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Resume =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Seek =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticNamedSupport> PrimitiveSupport;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticNamedSupport> PresetSupport;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticIntegerLimit MaximumEventCount;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticIntegerLimit MaximumControlPointCount;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticDurationLimit MaximumDurationSeconds;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticIntegerLimit MaximumQueueDepth;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticDurationLimit MinimumTimingGranularitySeconds;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FName BackendName;

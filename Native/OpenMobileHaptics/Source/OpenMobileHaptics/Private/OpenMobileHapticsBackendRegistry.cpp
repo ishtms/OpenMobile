@@ -1,7 +1,9 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 
 #include "Features/IModularFeatures.h"
+#include "HAL/CriticalSection.h"
 #include "IOpenMobileHapticsBackend.h"
+#include "Misc/ScopeLock.h"
 
 namespace OpenMobileHapticsBackendRegistryPrivate
 {
@@ -9,6 +11,8 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 	TAtomic<bool> bShuttingDown(false);
 	uint64 NextRequestId = 1;
 	TSet<IOpenMobileHapticsBackend*> ShutdownBackends;
+	FCriticalSection CapabilityMutex;
+	FOpenMobileHapticCapabilities CapabilitySnapshot;
 
 	void AdvanceGeneration()
 	{
@@ -37,6 +41,57 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 			);
 	}
 
+	IOpenMobileHapticsBackend* SelectBackend()
+	{
+		if (bShuttingDown.Load())
+		{
+			return nullptr;
+		}
+
+		IOpenMobileHapticsBackend* Best = nullptr;
+		for (IOpenMobileHapticsBackend* Candidate : GetBackends())
+		{
+			if (!Candidate || !Candidate->IsAvailable())
+			{
+				continue;
+			}
+
+			const bool bHigherPriority = !Best
+				|| Candidate->GetPriority() > Best->GetPriority();
+			const bool bStableTieBreak = Best
+				&& Candidate->GetPriority() == Best->GetPriority()
+				&& Candidate->GetBackendName().LexicalLess(
+					Best->GetBackendName()
+				);
+			if (bHigherPriority || bStableTieBreak)
+			{
+				Best = Candidate;
+			}
+		}
+		return Best;
+	}
+
+	void PublishCapabilities()
+	{
+		FOpenMobileHapticCapabilities Capabilities;
+		if (IOpenMobileHapticsBackend* Backend = SelectBackend())
+		{
+			Capabilities = Backend->GetCapabilities();
+			if (Capabilities.BackendName.IsNone())
+			{
+				Capabilities.BackendName = Backend->GetBackendName();
+			}
+		}
+		else
+		{
+			Capabilities.Detail =
+				TEXT("No mobile Haptics backend is available.");
+		}
+
+		FScopeLock Lock(&CapabilityMutex);
+		CapabilitySnapshot = MoveTemp(Capabilities);
+	}
+
 	void StopBackend(IOpenMobileHapticsBackend& Backend)
 	{
 		if (!ShutdownBackends.Contains(&Backend))
@@ -56,6 +111,7 @@ void FOpenMobileHapticsBackendRegistry::Start()
 		ShutdownBackends.Reset();
 		AdvanceGeneration();
 	}
+	PublishCapabilities();
 }
 
 bool FOpenMobileHapticsBackendRegistry::RegisterBackend(
@@ -85,6 +141,7 @@ bool FOpenMobileHapticsBackendRegistry::RegisterBackend(
 		&Backend
 	);
 	AdvanceGeneration();
+	PublishCapabilities();
 	return true;
 }
 
@@ -106,6 +163,7 @@ bool FOpenMobileHapticsBackendRegistry::UnregisterBackend(
 	);
 	ShutdownBackends.Remove(&Backend);
 	AdvanceGeneration();
+	PublishCapabilities();
 	return true;
 }
 
@@ -124,32 +182,21 @@ IOpenMobileHapticsBackend* FOpenMobileHapticsBackendRegistry::FindBackend()
 {
 	check(IsInGameThread());
 	using namespace OpenMobileHapticsBackendRegistryPrivate;
-	if (bShuttingDown.Load())
-	{
-		return nullptr;
-	}
+	return SelectBackend();
+}
 
-	IOpenMobileHapticsBackend* Best = nullptr;
-	for (IOpenMobileHapticsBackend* Candidate : GetBackends())
-	{
-		if (!Candidate || !Candidate->IsAvailable())
-		{
-			continue;
-		}
+void FOpenMobileHapticsBackendRegistry::RefreshCapabilities()
+{
+	check(IsInGameThread());
+	OpenMobileHapticsBackendRegistryPrivate::PublishCapabilities();
+}
 
-		const bool bHigherPriority = !Best
-			|| Candidate->GetPriority() > Best->GetPriority();
-		const bool bStableTieBreak = Best
-			&& Candidate->GetPriority() == Best->GetPriority()
-			&& Candidate->GetBackendName().LexicalLess(
-				Best->GetBackendName()
-			);
-		if (bHigherPriority || bStableTieBreak)
-		{
-			Best = Candidate;
-		}
-	}
-	return Best;
+FOpenMobileHapticCapabilities
+FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot()
+{
+	using namespace OpenMobileHapticsBackendRegistryPrivate;
+	FScopeLock Lock(&CapabilityMutex);
+	return CapabilitySnapshot;
 }
 
 FOpenMobileHapticsBackendRequestToken
@@ -201,6 +248,7 @@ void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
 			Backend->HandleLifecycleChange();
 		}
 	}
+	PublishCapabilities();
 }
 
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
@@ -225,6 +273,7 @@ void FOpenMobileHapticsBackendRegistry::BeginShutdown()
 			StopBackend(*Backend);
 		}
 	}
+	PublishCapabilities();
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -235,5 +284,6 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	bShuttingDown.Store(false);
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
+	PublishCapabilities();
 }
 #endif

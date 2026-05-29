@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Engine/GameInstance.h"
 #include "HAL/FileManager.h"
@@ -715,6 +716,7 @@ bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
 
 	Backend.Capabilities.Availability =
 		EOpenMobileHapticAvailability::BasicVibration;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 	TestEqual(
 		TEXT("Basic-only hardware remains distinct"),
 		Subsystem->GetHapticCapabilities().Availability,
@@ -723,6 +725,7 @@ bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
 
 	Backend.Capabilities.Availability =
 		EOpenMobileHapticAvailability::SemanticFeedback;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 	TestEqual(
 		TEXT("Semantic hardware remains distinct"),
 		Subsystem->GetHapticCapabilities().Availability,
@@ -731,6 +734,7 @@ bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
 
 	Backend.Capabilities.Availability =
 		EOpenMobileHapticAvailability::RichHaptics;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 	TestEqual(
 		TEXT("Rich hardware remains distinct"),
 		Subsystem->GetHapticCapabilities().Availability,
@@ -750,6 +754,7 @@ bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
 
 	Backend.Capabilities.Availability =
 		EOpenMobileHapticAvailability::TemporarilyUnavailable;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 	Backend.CapabilitiesAfterLifecycle.Availability =
 		EOpenMobileHapticAvailability::RichHaptics;
 	Backend.bApplyCapabilitiesAfterLifecycle = true;
@@ -768,6 +773,138 @@ bool FOpenMobileHapticsAvailabilityTest::RunTest(const FString& Parameters)
 		TEXT("Engine state refreshes after lifecycle change"),
 		Subsystem->GetHapticCapabilities().Availability,
 		EOpenMobileHapticAvailability::RichHaptics
+	);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsDetailedCapabilityTest,
+	"OpenMobile.Haptics.Capabilities.DetailedProfile",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsDetailedCapabilityTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileHapticCapabilities Unknown;
+	TestEqual(
+		TEXT("Amplitude support defaults to unknown"),
+		Unknown.AmplitudeControl,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestEqual(
+		TEXT("Envelope support defaults to unknown"),
+		Unknown.Envelopes,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestEqual(
+		TEXT("Frequency support defaults to unknown"),
+		Unknown.FrequencyControl,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestEqual(
+		TEXT("Audio event support defaults to unknown"),
+		Unknown.AudioEvents,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestEqual(
+		TEXT("Seek support defaults to unknown"),
+		Unknown.Seek,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestFalse(
+		TEXT("Maximum event count defaults to unknown"),
+		Unknown.MaximumEventCount.bKnown
+	);
+	TestFalse(
+		TEXT("Minimum timing granularity defaults to unknown"),
+		Unknown.MinimumTimingGranularitySeconds.bKnown
+	);
+
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("Detailed"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Primitives =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Envelopes =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.PrimitiveSupport = {
+		{TEXT("Click"), EOpenMobileHapticSupportState::Supported},
+		{TEXT("Spin"), EOpenMobileHapticSupportState::Unsupported}
+	};
+	Backend.Capabilities.PresetSupport = {
+		{TEXT("Tick"), EOpenMobileHapticSupportState::Supported},
+		{TEXT("HeavyClick"), EOpenMobileHapticSupportState::Unknown}
+	};
+	Backend.Capabilities.MaximumEventCount = {true, 128};
+	Backend.Capabilities.MaximumControlPointCount = {true, 16};
+	Backend.Capabilities.MaximumDurationSeconds = {true, 30.0};
+	Backend.Capabilities.MaximumQueueDepth = {true, 8};
+	Backend.Capabilities.MinimumTimingGranularitySeconds = {true, 0.001};
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const FOpenMobileHapticCapabilities First =
+		Subsystem->GetCapabilitiesNative();
+	TestEqual(
+		TEXT("Per-primitive support is retained"),
+		First.PrimitiveSupport.Num(),
+		2
+	);
+	TestEqual(
+		TEXT("Per-preset unknown state is retained"),
+		First.PresetSupport[1].Support,
+		EOpenMobileHapticSupportState::Unknown
+	);
+	TestEqual(
+		TEXT("Known event limit is retained"),
+		First.MaximumEventCount.Value,
+		128
+	);
+	TestEqual(
+		TEXT("Known duration limit is retained"),
+		First.MaximumDurationSeconds.Seconds,
+		30.0
+	);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::NoActuator;
+	TestEqual(
+		TEXT("Published snapshot is immutable between refreshes"),
+		Subsystem->GetCapabilitiesNative().Availability,
+		EOpenMobileHapticAvailability::RichHaptics
+	);
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	TestEqual(
+		TEXT("Explicit refresh publishes the new profile"),
+		Subsystem->GetCapabilitiesNative().Availability,
+		EOpenMobileHapticAvailability::NoActuator
+	);
+
+	TFuture<FOpenMobileHapticCapabilities> Future = Async(
+		EAsyncExecution::ThreadPool,
+		[Subsystem]()
+		{
+			return Subsystem->GetCapabilitiesNative();
+		}
+	);
+	const FOpenMobileHapticCapabilities BackgroundSnapshot = Future.Get();
+	TestEqual(
+		TEXT("Background readers receive the immutable snapshot"),
+		BackgroundSnapshot.BackendName,
+		FName(TEXT("Detailed"))
 	);
 
 	Subsystem->Deinitialize();

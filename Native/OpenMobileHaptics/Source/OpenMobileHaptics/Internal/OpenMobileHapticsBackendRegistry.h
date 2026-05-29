@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileHapticsTypes.h"
 
 class IOpenMobileHapticsBackend;
 struct FOpenMobileHapticsBackendRequestToken;
@@ -13,6 +14,8 @@ public:
 	static bool UnregisterBackend(IOpenMobileHapticsBackend& Backend);
 	static bool IsBackendRegistered(const IOpenMobileHapticsBackend* Backend);
 	static IOpenMobileHapticsBackend* FindBackend();
+	static void RefreshCapabilities();
+	static FOpenMobileHapticCapabilities GetCapabilitySnapshot();
 	static FOpenMobileHapticsBackendRequestToken CreateRequestToken(
 		IOpenMobileHapticsBackend& Backend,
 		bool bCreatePlaybackHandle

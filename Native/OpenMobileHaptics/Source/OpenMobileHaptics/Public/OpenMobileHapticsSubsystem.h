@@ -153,6 +153,7 @@ private:
 	);
 
 	FOpenMobileHapticUserPolicy UserPolicy;
+	TAtomic<bool> bUserPolicyEnabled = true;
 	FOpenMobileHapticNativePlaybackEvent NativePlaybackEvent;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> ActiveAsyncActions;
 	mutable TUniquePtr<
