@@ -10,6 +10,7 @@ struct FOpenMobileDeviceWindowMetricsEvidence
 	TOptional<float> DensityDpi;
 	TOptional<FString> ScreenIdentifier;
 	TOptional<bool> bIsWindowed;
+	TOptional<EOpenMobileWindowMode> WindowMode;
 };
 
 class FOpenMobileDeviceWindowMetrics final

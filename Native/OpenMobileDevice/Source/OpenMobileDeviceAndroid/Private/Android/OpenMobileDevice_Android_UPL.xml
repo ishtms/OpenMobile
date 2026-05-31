@@ -8,6 +8,42 @@
 	private boolean OpenMobileDeviceHasSavedOrientationPolicy = false;
 	private int OpenMobileDeviceSavedOrientationPolicy =
 		android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+	private boolean OpenMobileDeviceWindowMonitoring = false;
+
+	public native void nativeOpenMobileDeviceWindowChanged();
+
+	private void OpenMobileDeviceNotifyWindowChanged()
+	{
+		if (OpenMobileDeviceWindowMonitoring)
+		{
+			nativeOpenMobileDeviceWindowChanged();
+		}
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartWindowMonitoring()
+	{
+		OpenMobileDeviceWindowMonitoring = true;
+		return true;
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopWindowMonitoring()
+	{
+		OpenMobileDeviceWindowMonitoring = false;
+	}
+
+	@Override
+	public void onMultiWindowModeChanged(boolean isInMultiWindowMode)
+	{
+		super.onMultiWindowModeChanged(isInMultiWindowMode);
+		OpenMobileDeviceNotifyWindowChanged();
+	}
+
+	@Override
+	public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode)
+	{
+		super.onPictureInPictureModeChanged(isInPictureInPictureMode);
+		OpenMobileDeviceNotifyWindowChanged();
+	}
 
 	public boolean AndroidThunkJava_OpenMobileDeviceApplyOrientationPolicy(
 		final int policy
@@ -1107,4 +1143,9 @@
 	}
 ]]></insert>
 	</gameActivityClassAdditions>
+	<gameActivityonConfigurationChangedAdditions>
+		<insert><![CDATA[
+		OpenMobileDeviceNotifyWindowChanged();
+]]></insert>
+	</gameActivityonConfigurationChangedAdditions>
 </root>

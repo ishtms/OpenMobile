@@ -16,6 +16,7 @@
 #include "OpenMobileDeviceAndroidOrientationControl.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
+#include "OpenMobileDeviceAndroidWindowMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
@@ -118,6 +119,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android queues reversible activity orientation requests. The OS may ignore restrictions on some large-screen devices or when an activity is not eligible to rotate.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MultiWindowEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports full-screen and picture-in-picture modes directly. Other public multi-window states remain Unknown because Android does not reliably distinguish split-screen from freeform windows.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
@@ -454,6 +464,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceAndroidNetworkMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay)
+	{
+		return StartOpenMobileDeviceAndroidWindowMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -481,6 +495,10 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidNetworkMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay)
+	{
+		StopOpenMobileDeviceAndroidWindowMonitoring();
+	}
 }
 
 bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
@@ -503,4 +521,5 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidMemoryMonitoring();
 	StopOpenMobileDeviceAndroidStorageMonitoring();
 	StopOpenMobileDeviceAndroidNetworkMonitoring();
+	StopOpenMobileDeviceAndroidWindowMonitoring();
 }

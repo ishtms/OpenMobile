@@ -49,4 +49,17 @@ void FOpenMobileDeviceWindowInsets::Apply(
 	Snapshot.SystemBarInsets = Normalize(Evidence.SystemBars, Snapshot);
 	Snapshot.HomeIndicatorInsets = Normalize(Evidence.HomeIndicator, Snapshot);
 	Snapshot.SystemGestureInsets = Normalize(Evidence.SystemGestures, Snapshot);
+	Snapshot.bUsableWindowBoundsAvailable = false;
+	Snapshot.UsableWindowBounds = {};
+	if (Snapshot.bLogicalWindowSizeAvailable
+		&& Snapshot.SafeAreaInsets.bIsAvailable)
+	{
+		Snapshot.bUsableWindowBoundsAvailable = true;
+		Snapshot.UsableWindowBounds.Left = Snapshot.SafeAreaInsets.Left;
+		Snapshot.UsableWindowBounds.Top = Snapshot.SafeAreaInsets.Top;
+		Snapshot.UsableWindowBounds.Right =
+			Snapshot.LogicalWindowSize.X - Snapshot.SafeAreaInsets.Right;
+		Snapshot.UsableWindowBounds.Bottom =
+			Snapshot.LogicalWindowSize.Y - Snapshot.SafeAreaInsets.Bottom;
+	}
 }

@@ -444,6 +444,69 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn(token, ios_control)
 		self.assertNotIn("setValue:forKey", ios_control)
 
+	def test_multi_window_events_use_public_platform_signals(self) -> None:
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		android_monitor = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidWindowMonitor.cpp"
+		).read_text(encoding="utf-8")
+		ios_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+		monitoring = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"onMultiWindowModeChanged",
+			"onPictureInPictureModeChanged",
+			"AndroidThunkJava_OpenMobileDeviceStartWindowMonitoring",
+			"AndroidThunkJava_OpenMobileDeviceStopWindowMonitoring",
+			"nativeOpenMobileDeviceWindowChanged",
+		):
+			self.assertIn(token, android_upl)
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceStartWindowMonitoring",
+			"AndroidThunkJava_OpenMobileDeviceStopWindowMonitoring",
+			"nativeOpenMobileDeviceWindowChanged",
+		):
+			self.assertIn(token, android_monitor)
+		for token in (
+			"isInMultiWindowMode",
+			"isInPictureInPictureMode",
+			"FOpenMobileDeviceWindowMode::FromAndroid",
+		):
+			self.assertIn(token, android_display)
+		self.assertIn("FOpenMobileDeviceWindowMode::FromIOS", ios_display)
+		self.assertIn("WindowDebounceSeconds", monitoring)
+		self.assertNotIn("windowConfiguration", android_display)
+		self.assertNotIn("getWindowingMode", android_display)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

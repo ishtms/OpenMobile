@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
+#include "OpenMobileDeviceWindowMode.h"
 #include "OpenMobileDeviceWindowOrientation.h"
 
 #import <UIKit/UIKit.h>
@@ -99,9 +100,13 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 					ScreenBounds.size.height,
 					Screen.scale
 				);
-				Evidence.bIsWindowed =
+				const bool bIsWindowed =
 					FMath::Abs(Bounds.size.width - ScreenBounds.size.width) > 1.0
 					|| FMath::Abs(Bounds.size.height - ScreenBounds.size.height) > 1.0;
+				Evidence.bIsWindowed = bIsWindowed;
+				Evidence.WindowMode = FOpenMobileDeviceWindowMode::FromIOS(
+					!bIsWindowed
+				);
 			}
 		};
 		if ([NSThread isMainThread])

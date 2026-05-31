@@ -12,6 +12,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 {
 	constexpr float MaintenanceIntervalSeconds = 0.1f;
 	constexpr float NetworkDebounceSeconds = 0.25f;
+	constexpr float WindowDebounceSeconds = 0.1f;
 
 	struct FRequest
 	{
@@ -48,6 +49,8 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 	TOptional<FOpenMobileNetworkPathSnapshot> LastNetworkSnapshot;
 	TOptional<FOpenMobileNetworkPathSnapshot> PendingNetworkSnapshot;
 	float NetworkDebounceElapsedSeconds = 0.0f;
+	bool bWindowRefreshPending = false;
+	float WindowDebounceElapsedSeconds = 0.0f;
 
 	bool EquivalentNetworkWithoutMetadata(
 		FOpenMobileNetworkPathSnapshot Left,
@@ -69,6 +72,18 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		LastNetworkSnapshot.Reset();
 		PendingNetworkSnapshot.Reset();
 		NetworkDebounceElapsedSeconds = 0.0f;
+	}
+
+	void ResetWindowState()
+	{
+		bWindowRefreshPending = false;
+		WindowDebounceElapsedSeconds = 0.0f;
+	}
+
+	void ScheduleWindowRefresh()
+	{
+		bWindowRefreshPending = true;
+		WindowDebounceElapsedSeconds = 0.0f;
 	}
 
 	void PrimeNetworkState()
@@ -117,15 +132,39 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		NetworkDebounceElapsedSeconds = 0.0f;
 	}
 
-	void RefreshGroup(EOpenMobileDeviceMonitoringGroup Group)
+	void RefreshGroup(
+		EOpenMobileDeviceMonitoringGroup Group,
+		bool bDebounceWindow = false
+	)
 	{
 		if (Group == EOpenMobileDeviceMonitoringGroup::Network)
 		{
 			RefreshNetworkPath();
 		}
+		else if (Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay
+			&& bDebounceWindow)
+		{
+			ScheduleWindowRefresh();
+		}
 		else
 		{
 			GroupChanged.Broadcast(Group);
+		}
+	}
+
+	void ProcessWindowDebounce(float DeltaTime)
+	{
+		if (!bWindowRefreshPending)
+		{
+			return;
+		}
+		WindowDebounceElapsedSeconds += FMath::Max(0.0f, DeltaTime);
+		if (WindowDebounceElapsedSeconds >= WindowDebounceSeconds)
+		{
+			ResetWindowState();
+			GroupChanged.Broadcast(
+				EOpenMobileDeviceMonitoringGroup::WindowDisplay
+			);
 		}
 	}
 
@@ -308,6 +347,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			return;
 		}
 		ProcessNetworkDebounce(DeltaTime);
+		ProcessWindowDebounce(DeltaTime);
 
 		TArray<EOpenMobileDeviceMonitoringGroup> Groups;
 		GroupStates.GenerateKeyArray(Groups);
@@ -379,6 +419,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		bApplicationActive = bActive;
 		if (!bApplicationActive)
 		{
+			ResetWindowState();
 			return;
 		}
 
@@ -412,7 +453,10 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 				EOpenMobileDeviceMonitoringGroup::WindowDisplay
 			))
 		{
-			RefreshGroup(EOpenMobileDeviceMonitoringGroup::WindowDisplay);
+			RefreshGroup(
+				EOpenMobileDeviceMonitoringGroup::WindowDisplay,
+				true
+			);
 		}
 	}
 
@@ -425,6 +469,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		Requests.Reset();
 		GroupStates.Reset();
 		ResetNetworkState();
+		ResetWindowState();
 		StopTicker();
 	}
 }
@@ -556,6 +601,10 @@ void FOpenMobileDeviceMonitoringService::RemoveSubscription(const FGuid& Request
 			{
 				ResetNetworkState();
 			}
+			else if (Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay)
+			{
+				ResetWindowState();
+			}
 		}
 		else
 		{
@@ -601,7 +650,10 @@ void FOpenMobileDeviceMonitoringService::NotifyNativeChange(
 		return;
 	}
 	State->LastNativeSequence = SourceSequence;
-	RefreshGroup(CallbackToken.Group);
+	RefreshGroup(
+		CallbackToken.Group,
+		CallbackToken.Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay
+	);
 }
 
 FOpenMobileDeviceMonitoringGroupChanged&

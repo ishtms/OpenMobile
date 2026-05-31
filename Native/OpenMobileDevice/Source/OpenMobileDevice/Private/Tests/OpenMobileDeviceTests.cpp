@@ -56,6 +56,7 @@
 #include "OpenMobileDeviceThermalHeadroom.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 #include "OpenMobileDeviceWindowInsets.h"
+#include "OpenMobileDeviceWindowMode.h"
 #include "OpenMobileDeviceWindowOrientation.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
@@ -1294,6 +1295,7 @@ bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
 	Evidence.DensityDpi = 440.0f;
 	Evidence.ScreenIdentifier = TEXT(" display-1 ");
 	Evidence.bIsWindowed = true;
+	Evidence.WindowMode = EOpenMobileWindowMode::Floating;
 	const FOpenMobileWindowDisplaySnapshot Snapshot =
 		FOpenMobileDeviceWindowMetrics::Build(Evidence);
 	TestTrue(TEXT("Logical window size is available"), Snapshot.bLogicalWindowSizeAvailable);
@@ -1309,6 +1311,7 @@ bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Screen identifier is trimmed"), Snapshot.CurrentScreenIdentifier.Value, FString(TEXT("display-1")));
 	TestTrue(TEXT("Windowed state is available"), Snapshot.bIsWindowed.bIsAvailable);
 	TestTrue(TEXT("Windowed state is retained"), Snapshot.bIsWindowed.Value);
+	TestEqual(TEXT("Reliable window mode is retained"), Snapshot.WindowMode, EOpenMobileWindowMode::Floating);
 	Evidence.LogicalWindowSize = FVector2D(1024.0, 600.0);
 	Evidence.ScreenIdentifier = TEXT("external-2");
 	Evidence.bIsWindowed = false;
@@ -1335,6 +1338,27 @@ bool FOpenMobileDeviceWindowMetricsTest::RunTest(const FString& Parameters)
 		FOpenMobileDeviceWindowMetrics::Build({});
 	TestFalse(TEXT("Zero-size startup stays unavailable"), Startup.bLogicalWindowSizeAvailable);
 	TestFalse(TEXT("Unsupported editor drawable stays unavailable"), Startup.bDrawablePixelSizeAvailable);
+	TestEqual(TEXT("Missing window mode stays unknown"), Startup.WindowMode, EOpenMobileWindowMode::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceWindowModeTest,
+	"OpenMobile.Device.Display.WindowMode",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceWindowModeTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	TestEqual(TEXT("Android full screen is explicit"), FOpenMobileDeviceWindowMode::FromAndroid(false, false), EOpenMobileWindowMode::FullScreen);
+	TestEqual(TEXT("Android picture in picture is floating"), FOpenMobileDeviceWindowMode::FromAndroid(true, true), EOpenMobileWindowMode::Floating);
+	TestEqual(TEXT("Ambiguous Android multi-window stays unknown"), FOpenMobileDeviceWindowMode::FromAndroid(true, false), EOpenMobileWindowMode::Unknown);
+	TestEqual(TEXT("Full-screen iOS geometry is explicit"), FOpenMobileDeviceWindowMode::FromIOS(true), EOpenMobileWindowMode::FullScreen);
+	TestEqual(TEXT("Ambiguous iOS multitasking stays unknown"), FOpenMobileDeviceWindowMode::FromIOS(false), EOpenMobileWindowMode::Unknown);
+	TestEqual(TEXT("Reliable split evidence is retained"), FOpenMobileDeviceWindowMode::Normalize(EOpenMobileWindowMode::Split), EOpenMobileWindowMode::Split);
+	TestEqual(TEXT("Reliable freeform evidence is retained"), FOpenMobileDeviceWindowMode::Normalize(EOpenMobileWindowMode::Freeform), EOpenMobileWindowMode::Freeform);
+	TestEqual(TEXT("Future native mode stays unknown"), FOpenMobileDeviceWindowMode::Normalize(static_cast<EOpenMobileWindowMode>(255)), EOpenMobileWindowMode::Unknown);
 	return true;
 }
 
@@ -1365,6 +1389,11 @@ bool FOpenMobileDeviceWindowInsetsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Home indicator uses logical units"), Snapshot.HomeIndicatorInsets.Bottom, 34.0f);
 	TestTrue(TEXT("Gesture edges remain separate"), Snapshot.SystemGestureInsets.bIsAvailable);
 	TestEqual(TEXT("Gesture edge is directional"), Snapshot.SystemGestureInsets.Left, 16.0f);
+	TestTrue(TEXT("Usable window bounds are available"), Snapshot.bUsableWindowBoundsAvailable);
+	TestEqual(TEXT("Usable left edge includes safe area"), Snapshot.UsableWindowBounds.Left, 10.0f);
+	TestEqual(TEXT("Usable top edge includes safe area"), Snapshot.UsableWindowBounds.Top, 47.0f);
+	TestEqual(TEXT("Usable right edge excludes safe area"), Snapshot.UsableWindowBounds.Right, 380.0f);
+	TestEqual(TEXT("Usable bottom edge excludes safe area"), Snapshot.UsableWindowBounds.Bottom, 810.0f);
 
 	FOpenMobileDeviceWindowInsetsEvidence ThreeButtonNavigation;
 	ThreeButtonNavigation.SafeArea = FOpenMobileDeviceInsetValues{0.0f, 24.0f, 0.0f, 48.0f};
@@ -1400,6 +1429,7 @@ bool FOpenMobileDeviceWindowInsetsTest::RunTest(const FString& Parameters)
 	Invalid.SystemGestures = FOpenMobileDeviceInsetValues{300.0f, 0.0f, 300.0f, 0.0f};
 	FOpenMobileDeviceWindowInsets::Apply(Snapshot, Invalid);
 	TestFalse(TEXT("Negative safe area is unavailable"), Snapshot.SafeAreaInsets.bIsAvailable);
+	TestFalse(TEXT("Invalid safe area makes usable bounds unavailable"), Snapshot.bUsableWindowBoundsAvailable);
 	TestFalse(TEXT("Non-finite bars are unavailable"), Snapshot.SystemBarInsets.bIsAvailable);
 	TestFalse(TEXT("Insets wider than a split window are unavailable"), Snapshot.SystemGestureInsets.bIsAvailable);
 	return true;
@@ -1537,15 +1567,107 @@ bool FOpenMobileDeviceWindowOrientationTest::RunTest(
 	Backend.WindowDisplay.Orientation =
 		EOpenMobileWindowOrientation::LandscapeLeft;
 	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.11f);
 	TestEqual(TEXT("Orientation event receives coherent metrics and insets"), OrientationEvents, 1);
 	TestEqual(TEXT("Focused orientation event precedes combined event"), EventOrder, TArray<FString>({TEXT("Orientation"), TEXT("Window")}));
 
 	EventOrder.Reset();
 	Backend.WindowDisplay.LogicalWindowSize = FVector2D(700.0, 400.0);
 	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.11f);
 	TestEqual(TEXT("Resize without rotation has no orientation event"), OrientationEvents, 1);
 	TestEqual(TEXT("Resize still has one combined window event"), EventOrder, TArray<FString>({TEXT("Window")}));
 	TestNotNull(TEXT("Blueprint orientation event is exposed"), UOpenMobileDeviceSubsystem::StaticClass()->FindPropertyByName(TEXT("OnWindowOrientationChanged")));
+
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceWindowResizeEventsTest,
+	"OpenMobile.Device.Display.WindowResizeEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceWindowResizeEventsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("ResizeEvents"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	Backend.WindowDisplay.bLogicalWindowSizeAvailable = true;
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(1024.0, 768.0);
+	Backend.WindowDisplay.ScaleFactor =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(2.0f);
+	Backend.WindowDisplay.SafeAreaInsets.bIsAvailable = true;
+	Backend.WindowDisplay.SafeAreaInsets.Top = 24.0f;
+	Backend.WindowDisplay.CurrentScreenIdentifier =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("internal"));
+	Backend.WindowDisplay.WindowMode = EOpenMobileWindowMode::FullScreen;
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{EOpenMobileDeviceMonitoringGroup::WindowDisplay},
+			1.0f
+		);
+	int32 ResizeEvents = 0;
+	FOpenMobileWindowDisplaySnapshot Published;
+	Subsystem->OnNativeWindowDisplaySnapshotChanged().AddLambda(
+		[&ResizeEvents, &Published](
+			const FOpenMobileWindowDisplaySnapshot& Snapshot
+		)
+		{
+			++ResizeEvents;
+			Published = Snapshot;
+		}
+	);
+
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(800.0, 768.0);
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.05f);
+	TestEqual(TEXT("Intermediate drag resize is deferred"), ResizeEvents, 0);
+
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(600.0, 768.0);
+	Backend.WindowDisplay.ScaleFactor.Value = 1.5f;
+	Backend.WindowDisplay.SafeAreaInsets.Left = 20.0f;
+	Backend.WindowDisplay.CurrentScreenIdentifier.Value = TEXT("external");
+	Backend.WindowDisplay.WindowMode = EOpenMobileWindowMode::Unknown;
+	Backend.WindowDisplay.bUsableWindowBoundsAvailable = true;
+	Backend.WindowDisplay.UsableWindowBounds = {20.0f, 24.0f, 600.0f, 768.0f};
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.09f);
+	TestEqual(TEXT("Trailing resize waits for a settled layout"), ResizeEvents, 0);
+	FOpenMobileDeviceMonitoringService::TickForTests(0.02f);
+	TestEqual(TEXT("Rapid resize emits one final event"), ResizeEvents, 1);
+	TestEqual(TEXT("Final event has settled size"), Published.LogicalWindowSize, FVector2D(600.0, 768.0));
+	TestEqual(TEXT("Final event has settled scale"), Published.ScaleFactor.Value, 1.5f);
+	TestEqual(TEXT("Final event has settled safe area"), Published.SafeAreaInsets.Left, 20.0f);
+	TestEqual(TEXT("Final event has settled usable bounds"), Published.UsableWindowBounds.Left, 20.0f);
+	TestEqual(TEXT("Final event has settled display identity"), Published.CurrentScreenIdentifier.Value, FString(TEXT("external")));
+	TestEqual(TEXT("Ambiguous desktop-style mode stays unknown"), Published.WindowMode, EOpenMobileWindowMode::Unknown);
+
+	Backend.WindowDisplay.LogicalWindowSize = FVector2D(1024.0, 768.0);
+	Backend.WindowDisplay.WindowMode = EOpenMobileWindowMode::FullScreen;
+	FCoreDelegates::OnSafeFrameChangedEvent.Broadcast();
+	FOpenMobileDeviceMonitoringService::TickForTests(0.11f);
+	TestEqual(TEXT("Exit to full screen emits final state"), ResizeEvents, 2);
+	TestEqual(TEXT("Full-screen mode is published"), Published.WindowMode, EOpenMobileWindowMode::FullScreen);
 
 	Subscription->Stop();
 	Subsystem->Deinitialize();

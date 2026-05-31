@@ -106,6 +106,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS updates Unreal's active view-controller orientation mask and submits a scene geometry request. Project and presented-controller restrictions remain authoritative.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MultiWindowEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports full-screen geometry directly. Public UIKit geometry does not reliably distinguish Split View, Slide Over, Stage Manager, or other windowed arrangements, so those modes remain Unknown.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

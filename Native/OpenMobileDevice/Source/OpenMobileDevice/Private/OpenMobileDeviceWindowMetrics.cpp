@@ -1,5 +1,7 @@
 #include "OpenMobileDeviceWindowMetrics.h"
 
+#include "OpenMobileDeviceWindowMode.h"
+
 FOpenMobileWindowDisplaySnapshot FOpenMobileDeviceWindowMetrics::Build(
 	const FOpenMobileDeviceWindowMetricsEvidence& Evidence
 )
@@ -56,6 +58,12 @@ FOpenMobileWindowDisplaySnapshot FOpenMobileDeviceWindowMetrics::Build(
 	{
 		Snapshot.bIsWindowed = FOpenMobileDeviceOptionalBool::MakeAvailable(
 			Evidence.bIsWindowed.GetValue()
+		);
+	}
+	if (Evidence.WindowMode.IsSet())
+	{
+		Snapshot.WindowMode = FOpenMobileDeviceWindowMode::Normalize(
+			Evidence.WindowMode.GetValue()
 		);
 	}
 	return Snapshot;

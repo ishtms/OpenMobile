@@ -193,6 +193,12 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 	FOpenMobileDeviceInsets SystemGestureInsets;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	bool bUsableWindowBoundsAvailable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceRect UsableWindowBounds;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	bool bDisplayCutoutsAvailable = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
@@ -262,6 +268,9 @@ struct OPENMOBILEDEVICE_API FOpenMobileWindowDisplaySnapshot
 			&& SystemBarInsets == Other.SystemBarInsets
 			&& HomeIndicatorInsets == Other.HomeIndicatorInsets
 			&& SystemGestureInsets == Other.SystemGestureInsets
+			&& bUsableWindowBoundsAvailable
+				== Other.bUsableWindowBoundsAvailable
+			&& UsableWindowBounds == Other.UsableWindowBounds
 			&& bDisplayCutoutsAvailable == Other.bDisplayCutoutsAvailable
 			&& DisplayCutouts == Other.DisplayCutouts
 			&& WaterfallInsets == Other.WaterfallInsets

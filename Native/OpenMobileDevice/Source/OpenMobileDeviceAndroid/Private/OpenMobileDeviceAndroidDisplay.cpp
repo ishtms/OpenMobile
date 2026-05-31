@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
+#include "OpenMobileDeviceWindowMode.h"
 #include "OpenMobileDeviceWindowOrientation.h"
 
 namespace OpenMobileDeviceAndroidDisplayPrivate
@@ -305,6 +306,8 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 			}
 		}
 
+		bool bIsInMultiWindowMode = false;
+		bool bMultiWindowStateAvailable = false;
 		if (FAndroidMisc::GetAndroidBuildVersion() >= 24)
 		{
 			const jmethodID IsInMultiWindowMode = ActivityClass
@@ -316,16 +319,47 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 				: nullptr;
 			if (IsInMultiWindowMode && !ClearJavaException(Env))
 			{
-				Evidence.bIsWindowed = Env->CallBooleanMethod(
+				bIsInMultiWindowMode = Env->CallBooleanMethod(
 					Activity,
 					IsInMultiWindowMode
 				) == JNI_TRUE;
-				ClearJavaException(Env);
+				bMultiWindowStateAvailable = !ClearJavaException(Env);
 			}
 		}
 		else
 		{
-			Evidence.bIsWindowed = false;
+			bMultiWindowStateAvailable = true;
+		}
+
+		bool bIsInPictureInPictureMode = false;
+		bool bPictureInPictureStateAvailable =
+			FAndroidMisc::GetAndroidBuildVersion() < 26;
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 26)
+		{
+			const jmethodID IsInPictureInPictureMode = ActivityClass
+				? Env->GetMethodID(
+					*ActivityClass,
+					"isInPictureInPictureMode",
+					"()Z"
+				)
+				: nullptr;
+			if (IsInPictureInPictureMode && !ClearJavaException(Env))
+			{
+				bIsInPictureInPictureMode = Env->CallBooleanMethod(
+					Activity,
+					IsInPictureInPictureMode
+				) == JNI_TRUE;
+				bPictureInPictureStateAvailable = !ClearJavaException(Env);
+			}
+		}
+		if (bMultiWindowStateAvailable && bPictureInPictureStateAvailable)
+		{
+			Evidence.bIsWindowed = bIsInMultiWindowMode
+				|| bIsInPictureInPictureMode;
+			Evidence.WindowMode = FOpenMobileDeviceWindowMode::FromAndroid(
+				bIsInMultiWindowMode,
+				bIsInPictureInPictureMode
+			);
 		}
 	}
 
