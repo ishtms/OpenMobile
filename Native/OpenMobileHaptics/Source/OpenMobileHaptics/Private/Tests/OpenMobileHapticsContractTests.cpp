@@ -12,6 +12,8 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsAsyncAction.h"
+#include "OpenMobileHapticsRateLimiter.h"
+#include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "OpenMobileHapticsTypes.h"
@@ -57,11 +59,13 @@ namespace OpenMobileHapticsTests
 
 		virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 			const FOpenMobileHapticSemanticRequest& Request,
+			const FOpenMobileHapticsSemanticResolution& Resolution,
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
-			static_cast<void>(Request);
+			LastSemanticRequest = Request;
+			LastSemanticResolution = Resolution;
 			++SemanticSubmissionCount;
 			LastToken = Token;
 			return MakeSubmission(false, false, MoveTemp(Callback));
@@ -140,6 +144,8 @@ namespace OpenMobileHapticsTests
 		int32 LifecycleChangeCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
+		FOpenMobileHapticSemanticRequest LastSemanticRequest;
+		FOpenMobileHapticsSemanticResolution LastSemanticResolution;
 
 	private:
 		struct FPendingCallback
@@ -185,6 +191,349 @@ namespace OpenMobileHapticsTests
 		int32 Priority = 0;
 		TArray<FPendingCallback> PendingCallbacks;
 	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsSemanticPolicyTest,
+	"OpenMobile.Haptics.Semantic.PolicyAndMappings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsSemanticPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	struct FExpectedMapping
+	{
+		EOpenMobileHapticSemanticEffect Effect;
+		EOpenMobileHapticsSemanticBehavior Behavior;
+		FName Name;
+		FName Category;
+	};
+	const FExpectedMapping Mappings[] = {
+		{EOpenMobileHapticSemanticEffect::Selection,
+			EOpenMobileHapticsSemanticBehavior::Selection,
+			TEXT("Selection"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::ImpactLight,
+			EOpenMobileHapticsSemanticBehavior::ImpactLight,
+			TEXT("ImpactLight"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::ImpactMedium,
+			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
+			TEXT("ImpactMedium"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::ImpactHeavy,
+			EOpenMobileHapticsSemanticBehavior::ImpactHeavy,
+			TEXT("ImpactHeavy"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::ImpactSoft,
+			EOpenMobileHapticsSemanticBehavior::ImpactSoft,
+			TEXT("ImpactSoft"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::ImpactRigid,
+			EOpenMobileHapticsSemanticBehavior::ImpactRigid,
+			TEXT("ImpactRigid"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::NotificationSuccess,
+			EOpenMobileHapticsSemanticBehavior::NotificationSuccess,
+			TEXT("NotificationSuccess"), TEXT("Alerts")},
+		{EOpenMobileHapticSemanticEffect::NotificationWarning,
+			EOpenMobileHapticsSemanticBehavior::NotificationWarning,
+			TEXT("NotificationWarning"), TEXT("Alerts")},
+		{EOpenMobileHapticSemanticEffect::NotificationError,
+			EOpenMobileHapticsSemanticBehavior::NotificationError,
+			TEXT("NotificationError"), TEXT("Alerts")},
+		{EOpenMobileHapticSemanticEffect::Confirm,
+			EOpenMobileHapticsSemanticBehavior::NotificationSuccess,
+			TEXT("Confirm"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::Reject,
+			EOpenMobileHapticsSemanticBehavior::NotificationError,
+			TEXT("Reject"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::Tick,
+			EOpenMobileHapticsSemanticBehavior::Selection,
+			TEXT("Tick"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::Click,
+			EOpenMobileHapticsSemanticBehavior::ImpactLight,
+			TEXT("Click"), TEXT("UI")},
+		{EOpenMobileHapticSemanticEffect::Bump,
+			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
+			TEXT("Bump"), TEXT("Gameplay")},
+		{EOpenMobileHapticSemanticEffect::Damage,
+			EOpenMobileHapticsSemanticBehavior::ImpactHeavy,
+			TEXT("Damage"), TEXT("Gameplay")},
+		{EOpenMobileHapticSemanticEffect::Pickup,
+			EOpenMobileHapticsSemanticBehavior::ImpactSoft,
+			TEXT("Pickup"), TEXT("Gameplay")},
+		{EOpenMobileHapticSemanticEffect::Achievement,
+			EOpenMobileHapticsSemanticBehavior::NotificationSuccess,
+			TEXT("Achievement"), TEXT("Alerts")}
+	};
+	for (const FExpectedMapping& Mapping : Mappings)
+	{
+		const FOpenMobileHapticsSemanticDescriptor Descriptor =
+			FOpenMobileHapticsSemanticPolicy::Describe(Mapping.Effect);
+		TestEqual(TEXT("Semantic behavior is stable"), Descriptor.Behavior,
+			Mapping.Behavior);
+		TestEqual(TEXT("Semantic name is stable"), Descriptor.Name,
+			Mapping.Name);
+		TestEqual(TEXT("Semantic category is stable"), Descriptor.Category,
+			Mapping.Category);
+	}
+
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	TestEqual(
+		TEXT("System semantic behavior is preferred"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Path,
+		EOpenMobileHapticsSemanticPath::SystemSemantic
+	);
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Supported;
+	const FOpenMobileHapticsSemanticResolution Predefined =
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Predefined fallback is selected"), Predefined.Path,
+		EOpenMobileHapticsSemanticPath::PredefinedEffect);
+	TestTrue(TEXT("Predefined path is reported as fallback"),
+		Predefined.bFallback);
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	TestEqual(
+		TEXT("Basic vibration is the last active fallback"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Path,
+		EOpenMobileHapticsSemanticPath::BasicVibration
+	);
+	TestEqual(
+		TEXT("No-basic policy rejects the basic fallback"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::NoBasicVibration
+		).Path,
+		EOpenMobileHapticsSemanticPath::Unsupported
+	);
+	TestEqual(
+		TEXT("Exact-only policy rejects portable fallbacks"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::ExactOnly
+		).Path,
+		EOpenMobileHapticsSemanticPath::Unsupported
+	);
+	TestTrue(
+		TEXT("No-effect policy suppresses unavailable feedback"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+		).bSuppressWhenUnavailable
+	);
+	FOpenMobileHapticCapabilities AndroidProfile;
+	AndroidProfile.BackendName = TEXT("AndroidMock");
+	AndroidProfile.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	AndroidProfile.PredefinedEffects = EOpenMobileHapticSupportState::Supported;
+	TestEqual(TEXT("Android profile prefers view semantics"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			AndroidProfile,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Path,
+		EOpenMobileHapticsSemanticPath::SystemSemantic);
+	FOpenMobileHapticCapabilities AppleProfile;
+	AppleProfile.BackendName = TEXT("AppleMock");
+	AppleProfile.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	AppleProfile.RichHaptics = EOpenMobileHapticSupportState::Supported;
+	TestEqual(TEXT("Apple profile prefers UIKit semantics"),
+		FOpenMobileHapticsSemanticPolicy::Resolve(
+			AppleProfile,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Path,
+		EOpenMobileHapticsSemanticPath::SystemSemantic);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsSemanticSubmissionPolicyTest,
+	"OpenMobile.Haptics.Semantic.SubmissionPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+
+	FMockBackend Backend(TEXT("SemanticMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	FOpenMobileHapticUserPolicy Policy;
+	Policy.MasterIntensity = 0.8f;
+	Policy.CategoryScales.Add(TEXT("Alerts"), 0.5f);
+	Policy.EffectScales.Add(TEXT("NotificationWarning"), 0.25f);
+	Subsystem->SetUserPolicy(Policy);
+	FOpenMobileHapticPlaybackOptions Options;
+	Options.Channel = TEXT("AlertsPolicyTest");
+	Options.Category = TEXT("Alerts");
+	const FOpenMobileHapticPlaybackResult Scaled = Subsystem->SubmitSemantic({
+		EOpenMobileHapticSemanticEffect::NotificationWarning,
+		0.5f,
+		Options
+	});
+	TestEqual(TEXT("Supported semantic request is accepted"), Scaled.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Accepted);
+	TestEqual(TEXT("System semantic path is reported"), Scaled.ResolvedPath,
+		FName(TEXT("SystemSemantic")));
+	TestTrue(TEXT("Player scales are applied before submission"),
+		FMath::IsNearlyEqual(Backend.LastSemanticRequest.Intensity, 0.05f));
+
+	const int32 SubmittedBeforeRejections = Backend.SemanticSubmissionCount;
+	FOpenMobileHapticSemanticRequest InvalidRequest;
+	InvalidRequest.Intensity = std::numeric_limits<float>::quiet_NaN();
+	const FOpenMobileHapticPlaybackResult Invalid =
+		Subsystem->SubmitSemantic(InvalidRequest);
+	TestEqual(TEXT("Nonfinite semantic intensity is rejected"),
+		Invalid.Error.Code, EOpenMobileHapticErrorCode::InvalidRequest);
+
+	Policy.bEnabled = false;
+	Subsystem->SetUserPolicy(Policy);
+	const FOpenMobileHapticPlaybackResult Disabled =
+		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Click);
+	TestEqual(TEXT("Disabled player policy suppresses feedback"),
+		Disabled.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Policy.bEnabled = true;
+	Policy.CategoryScales.Add(TEXT("UI"), 0.0f);
+	Subsystem->SetUserPolicy(Policy);
+	const FOpenMobileHapticPlaybackResult ZeroScale =
+		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Click);
+	TestEqual(TEXT("Zero effective intensity suppresses feedback"),
+		ZeroScale.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Policy.CategoryScales.Remove(TEXT("UI"));
+	Subsystem->SetUserPolicy(Policy);
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
+	const FOpenMobileHapticPlaybackResult Background =
+		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Confirm);
+	TestEqual(TEXT("Background semantic feedback is suppressed"),
+		Background.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+	TestEqual(TEXT("Suppressed and invalid work never reaches the backend"),
+		Backend.SemanticSubmissionCount, SubmittedBeforeRejections);
+
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	Options.Channel = TEXT("FallbackPolicyTest");
+	Options.Category = TEXT("Gameplay");
+	const FOpenMobileHapticPlaybackResult Fallback = Subsystem->SubmitSemantic({
+		EOpenMobileHapticSemanticEffect::Damage,
+		1.0f,
+		Options
+	});
+	TestEqual(TEXT("Portable fallback is reported"), Fallback.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Portable fallback path is reported"), Fallback.ResolvedPath,
+		FName(TEXT("PredefinedEffect")));
+	TestEqual(TEXT("Resolved fallback reaches the backend"),
+		Backend.LastSemanticResolution.Path,
+		EOpenMobileHapticsSemanticPath::PredefinedEffect);
+
+	Options.Channel = TEXT("ExactPolicyTest");
+	Options.FallbackPolicy = EOpenMobileHapticFallbackPolicy::ExactOnly;
+	const FOpenMobileHapticPlaybackResult Unsupported =
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::Damage,
+			1.0f,
+			Options
+		});
+	TestEqual(TEXT("Unavailable exact feedback is typed as unsupported"),
+		Unsupported.Error.Code,
+		EOpenMobileHapticErrorCode::UnsupportedFeature);
+
+	UOpenMobileHapticsSubsystem* DebounceSubsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	const FOpenMobileHapticPlaybackResult FirstSelection =
+		DebounceSubsystem->PlaySemanticFeedback(
+			EOpenMobileHapticSemanticEffect::Selection
+		);
+	const FOpenMobileHapticPlaybackResult SecondSelection =
+		DebounceSubsystem->PlaySemanticFeedback(
+			EOpenMobileHapticSemanticEffect::Selection
+		);
+	TestTrue(TEXT("First selection reaches the backend"),
+		FirstSelection.IsAccepted());
+	TestEqual(TEXT("Repeated selection is debounced"),
+		SecondSelection.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	DebounceSubsystem->Deinitialize();
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsSemanticRateLimitTest,
+	"OpenMobile.Haptics.Semantic.RateLimitBoundaries",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsSemanticRateLimitTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsRateLimiter SelectionLimiter;
+	TestFalse(TEXT("First selection is allowed"),
+		SelectionLimiter.ShouldSuppress(TEXT("UI"), true, 10.0,
+			0.0, 0.04, 30));
+	TestTrue(TEXT("Selection inside the debounce window is suppressed"),
+		SelectionLimiter.ShouldSuppress(TEXT("UI"), true, 10.039,
+			0.0, 0.04, 30));
+	TestFalse(TEXT("Selection at the debounce boundary is allowed"),
+		SelectionLimiter.ShouldSuppress(TEXT("UI"), true, 10.04,
+			0.0, 0.04, 30));
+
+	FOpenMobileHapticsRateLimiter ChannelLimiter;
+	TestFalse(TEXT("First channel submission is allowed"),
+		ChannelLimiter.ShouldSuppress(TEXT("Gameplay"), false, 20.0,
+			0.02, 0.04, 30));
+	TestTrue(TEXT("Channel submission inside its interval is suppressed"),
+		ChannelLimiter.ShouldSuppress(TEXT("Gameplay"), false, 20.019,
+			0.02, 0.04, 30));
+	TestFalse(TEXT("Channel submission at its interval is allowed"),
+		ChannelLimiter.ShouldSuppress(TEXT("Gameplay"), false, 20.02,
+			0.02, 0.04, 30));
+
+	FOpenMobileHapticsRateLimiter BurstLimiter;
+	TestFalse(TEXT("First burst event is allowed"),
+		BurstLimiter.ShouldSuppress(TEXT("A"), false, 30.0,
+			0.0, 0.0, 2));
+	TestFalse(TEXT("Second burst event is allowed"),
+		BurstLimiter.ShouldSuppress(TEXT("B"), false, 30.1,
+			0.0, 0.0, 2));
+	TestTrue(TEXT("Submission cap suppresses the next event"),
+		BurstLimiter.ShouldSuppress(TEXT("C"), false, 30.2,
+			0.0, 0.0, 2));
+	TestFalse(TEXT("Old burst events expire at one second"),
+		BurstLimiter.ShouldSuppress(TEXT("D"), false, 31.0,
+			0.0, 0.0, 2));
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -930,11 +1279,15 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FMockBackend Low(TEXT("Low"), 1);
 	Low.Capabilities.Availability =
 		EOpenMobileHapticAvailability::BasicVibration;
+	Low.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
 	Low.PreparationState =
 		EOpenMobileHapticsBackendPreparationState::Preparing;
 	FMockBackend High(TEXT("High"), 10);
 	High.Capabilities.Availability =
 		EOpenMobileHapticAvailability::RichHaptics;
+	High.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
 	High.PreparationState =
 		EOpenMobileHapticsBackendPreparationState::Prepared;
 	High.ControlSupport.bStop = true;
@@ -964,7 +1317,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	);
 
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(High);
-	Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Click);
+	Subsystem->PlaySemanticFeedback(
+		EOpenMobileHapticSemanticEffect::Click,
+		1.0f,
+		TEXT("Replacement")
+	);
 	TestEqual(
 		TEXT("Next operation resolves the replacement backend"),
 		High.SemanticSubmissionCount,

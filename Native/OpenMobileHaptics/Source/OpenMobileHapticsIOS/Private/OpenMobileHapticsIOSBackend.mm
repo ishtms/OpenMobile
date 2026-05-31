@@ -2,8 +2,88 @@
 
 #include "Misc/ScopeLock.h"
 
+#import <AudioToolbox/AudioToolbox.h>
 #import <CoreHaptics/CoreHaptics.h>
 #import <TargetConditionals.h>
+#import <UIKit/UIKit.h>
+
+namespace OpenMobileHapticsIOSBackendPrivate
+{
+	void PlaySystemSemantic(
+		EOpenMobileHapticsSemanticBehavior Behavior,
+		float Intensity
+	)
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			switch (Behavior)
+			{
+			case EOpenMobileHapticsSemanticBehavior::Selection:
+			{
+				UISelectionFeedbackGenerator* Generator =
+					[[UISelectionFeedbackGenerator alloc] init];
+				[Generator prepare];
+				[Generator selectionChanged];
+				[Generator release];
+				break;
+			}
+			case EOpenMobileHapticsSemanticBehavior::ImpactLight:
+			case EOpenMobileHapticsSemanticBehavior::ImpactMedium:
+			case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
+			case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
+			case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
+			{
+				UIImpactFeedbackStyle Style = UIImpactFeedbackStyleMedium;
+				switch (Behavior)
+				{
+				case EOpenMobileHapticsSemanticBehavior::ImpactLight:
+					Style = UIImpactFeedbackStyleLight;
+					break;
+				case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
+					Style = UIImpactFeedbackStyleHeavy;
+					break;
+				case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
+					Style = UIImpactFeedbackStyleSoft;
+					break;
+				case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
+					Style = UIImpactFeedbackStyleRigid;
+					break;
+				default:
+					break;
+				}
+				UIImpactFeedbackGenerator* Generator =
+					[[UIImpactFeedbackGenerator alloc] initWithStyle:Style];
+				[Generator prepare];
+				[Generator impactOccurredWithIntensity:Intensity];
+				[Generator release];
+				break;
+			}
+			case EOpenMobileHapticsSemanticBehavior::NotificationSuccess:
+			case EOpenMobileHapticsSemanticBehavior::NotificationWarning:
+			case EOpenMobileHapticsSemanticBehavior::NotificationError:
+			{
+				UINotificationFeedbackType Type =
+					UINotificationFeedbackTypeSuccess;
+				if (Behavior
+					== EOpenMobileHapticsSemanticBehavior::NotificationWarning)
+				{
+					Type = UINotificationFeedbackTypeWarning;
+				}
+				else if (Behavior
+					== EOpenMobileHapticsSemanticBehavior::NotificationError)
+				{
+					Type = UINotificationFeedbackTypeError;
+				}
+				UINotificationFeedbackGenerator* Generator =
+					[[UINotificationFeedbackGenerator alloc] init];
+				[Generator prepare];
+				[Generator notificationOccurred:Type];
+				[Generator release];
+				break;
+			}
+			}
+		});
+	}
+}
 
 FOpenMobileHapticCapabilities
 FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
@@ -162,4 +242,47 @@ FOpenMobileHapticCapabilities FOpenMobileHapticsIOSBackend::GetCapabilities() co
 		StableCapabilities = Capabilities;
 	}
 	return Capabilities;
+}
+
+FOpenMobileHapticsBackendSubmission
+FOpenMobileHapticsIOSBackend::SubmitSemantic(
+	const FOpenMobileHapticSemanticRequest& Request,
+	const FOpenMobileHapticsSemanticResolution& Resolution,
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	FOpenMobileHapticsBackendEventCallback Callback
+)
+{
+	static_cast<void>(Token);
+	static_cast<void>(Callback);
+	FOpenMobileHapticsBackendSubmission Submission;
+	if (Resolution.Path == EOpenMobileHapticsSemanticPath::Unsupported)
+	{
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Apple device has no available semantic Haptics path.")
+		);
+		return Submission;
+	}
+	if (Resolution.Path == EOpenMobileHapticsSemanticPath::BasicVibration)
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
+		});
+	}
+	else
+	{
+		const FOpenMobileHapticsSemanticDescriptor Descriptor =
+			FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
+		OpenMobileHapticsIOSBackendPrivate::PlaySystemSemantic(
+			Descriptor.Behavior,
+			Request.Intensity
+		);
+	}
+	Submission.Result.Outcome = Resolution.bFallback
+		? EOpenMobileHapticPlaybackOutcome::Fallback
+		: EOpenMobileHapticPlaybackOutcome::Accepted;
+	Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+	Submission.Result.ResolvedPath =
+		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
+	return Submission;
 }

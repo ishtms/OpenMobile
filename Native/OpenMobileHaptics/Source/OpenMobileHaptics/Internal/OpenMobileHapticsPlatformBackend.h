@@ -19,11 +19,13 @@ public:
 	}
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
+		const FOpenMobileHapticsSemanticResolution& Resolution,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override
 	{
 		static_cast<void>(Request);
+		static_cast<void>(Resolution);
 		static_cast<void>(Token);
 		static_cast<void>(Callback);
 		return MakeUnsupportedSubmission();

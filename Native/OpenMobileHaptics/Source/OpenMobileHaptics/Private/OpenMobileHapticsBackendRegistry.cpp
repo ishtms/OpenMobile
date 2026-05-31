@@ -9,6 +9,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 {
 	TAtomic<uint64> Generation(1);
 	TAtomic<bool> bShuttingDown(false);
+	TAtomic<bool> bApplicationActive(true);
 	uint64 NextRequestId = 1;
 	TSet<IOpenMobileHapticsBackend*> ShutdownBackends;
 	FCriticalSection CapabilityMutex;
@@ -251,6 +252,17 @@ void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
 	PublishCapabilities();
 }
 
+void FOpenMobileHapticsBackendRegistry::SetApplicationActive(bool bActive)
+{
+	OpenMobileHapticsBackendRegistryPrivate::bApplicationActive.Store(bActive);
+	NotifyLifecycleChange();
+}
+
+bool FOpenMobileHapticsBackendRegistry::IsApplicationActive()
+{
+	return OpenMobileHapticsBackendRegistryPrivate::bApplicationActive.Load();
+}
+
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bShuttingDown.Load();
@@ -282,6 +294,7 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	check(IsInGameThread());
 	using namespace OpenMobileHapticsBackendRegistryPrivate;
 	bShuttingDown.Store(false);
+	bApplicationActive.Store(true);
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
 	PublishCapabilities();

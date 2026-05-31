@@ -258,7 +258,10 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("areEffectsSupported", android_bridge)
 		self.assertIn("arePrimitivesSupported", android_bridge)
 		self.assertIn("getEnvelopeEffectInfo", android_bridge)
-		self.assertNotIn(".vibrate(", android_bridge)
+		android_query = android_bridge.split(
+			"AndroidThunkJava_OpenMobileHapticsQueryCapabilities", 1
+		)[1].split("AndroidThunkJava_OpenMobileHapticsPlaySemantic", 1)[0]
+		self.assertNotIn(".vibrate(", android_query)
 		self.assertNotIn("requestPermissions", android_bridge)
 		self.assertIn(
 			"FOpenMobileHapticsBackendRegistry::RegisterBackend",
@@ -287,6 +290,30 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			).read_text(encoding="utf-8")),
 		)
 
+	def test_semantic_playback_stays_in_platform_backends(self) -> None:
+		android_bridge = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileHaptics_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("performHapticFeedback", android_bridge)
+		self.assertIn("HapticFeedbackConstants", android_bridge)
+		self.assertIn("android.permission.VIBRATE", android_bridge)
+
+		ios_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("UISelectionFeedbackGenerator", ios_backend)
+		self.assertIn("UIImpactFeedbackGenerator", ios_backend)
+		self.assertIn("UINotificationFeedbackGenerator", ios_backend)
+		self.assertNotIn("CHHapticEngine alloc", ios_backend)
 
 if __name__ == "__main__":
 	unittest.main()

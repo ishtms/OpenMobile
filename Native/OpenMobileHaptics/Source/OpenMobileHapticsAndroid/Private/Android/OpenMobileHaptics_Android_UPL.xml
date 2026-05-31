@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root xmlns:android="http://schemas.android.com/apk/res/android">
+    <androidManifestUpdates>
+        <addPermission android:name="android.permission.VIBRATE" />
+    </androidManifestUpdates>
+
     <gameActivityImportAdditions>
         <insert>
+import android.media.AudioAttributes;
 import android.os.Build;
+import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
 import java.lang.reflect.Method;
         </insert>
     </gameActivityImportAdditions>
@@ -141,6 +149,170 @@ import java.lang.reflect.Method;
         catch (Exception exception)
         {
             return new long[] {-1L};
+        }
+    }
+
+    public int AndroidThunkJava_OpenMobileHapticsPlaySemantic(
+        int behavior,
+        float intensity,
+        int path
+    )
+    {
+        try
+        {
+            if (path == 1)
+            {
+                final View view = getWindow() != null
+                    ? getWindow().getDecorView()
+                    : null;
+                if (view == null || !view.isShown() || !view.hasWindowFocus())
+                {
+                    return 2;
+                }
+                final int feedback = OpenMobileHapticsFeedbackConstant(behavior);
+                if (Looper.myLooper() == Looper.getMainLooper())
+                {
+                    return view.performHapticFeedback(feedback) ? 1 : 2;
+                }
+                return view.post(new Runnable()
+                {
+                    @Override
+                    public void run()
+                    {
+                        view.performHapticFeedback(feedback);
+                    }
+                }) ? 1 : 2;
+            }
+
+            Vibrator vibrator = OpenMobileHapticsVibrator();
+            if (vibrator == null || !vibrator.hasVibrator())
+            {
+                return 4;
+            }
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .build();
+            if (path == 2 &amp;&amp; Build.VERSION.SDK_INT &gt;= 29)
+            {
+                vibrator.vibrate(
+                    VibrationEffect.createPredefined(
+                        OpenMobileHapticsPredefinedEffect(behavior)
+                    ),
+                    attributes
+                );
+                return 3;
+            }
+            long durationMillis = OpenMobileHapticsDurationMillis(behavior);
+            if (Build.VERSION.SDK_INT &gt;= 26)
+            {
+                int amplitude = vibrator.hasAmplitudeControl()
+                    ? Math.max(1, Math.min(255, Math.round(intensity * 255.0f)))
+                    : VibrationEffect.DEFAULT_AMPLITUDE;
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(durationMillis, amplitude),
+                    attributes
+                );
+            }
+            else
+            {
+                vibrator.vibrate(durationMillis);
+            }
+            return 3;
+        }
+        catch (SecurityException exception)
+        {
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return 0;
+        }
+    }
+
+    private Vibrator OpenMobileHapticsVibrator()
+    {
+        if (Build.VERSION.SDK_INT &gt;= 31)
+        {
+            VibratorManager manager =
+                (VibratorManager)getSystemService(VIBRATOR_MANAGER_SERVICE);
+            return manager != null ? manager.getDefaultVibrator() : null;
+        }
+        return (Vibrator)getSystemService(VIBRATOR_SERVICE);
+    }
+
+    private int OpenMobileHapticsFeedbackConstant(int behavior)
+    {
+        switch (behavior)
+        {
+            case 0:
+                return Build.VERSION.SDK_INT &gt;= 34
+                    ? HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
+                    : HapticFeedbackConstants.CLOCK_TICK;
+            case 1:
+                return HapticFeedbackConstants.VIRTUAL_KEY;
+            case 2:
+                return Build.VERSION.SDK_INT &gt;= 23
+                    ? HapticFeedbackConstants.CONTEXT_CLICK
+                    : HapticFeedbackConstants.LONG_PRESS;
+            case 3:
+                return HapticFeedbackConstants.LONG_PRESS;
+            case 4:
+                return HapticFeedbackConstants.CLOCK_TICK;
+            case 5:
+                return Build.VERSION.SDK_INT &gt;= 23
+                    ? HapticFeedbackConstants.CONTEXT_CLICK
+                    : HapticFeedbackConstants.LONG_PRESS;
+            case 6:
+                return Build.VERSION.SDK_INT &gt;= 30
+                    ? HapticFeedbackConstants.CONFIRM
+                    : HapticFeedbackConstants.VIRTUAL_KEY;
+            case 7:
+                return Build.VERSION.SDK_INT &gt;= 30
+                    ? HapticFeedbackConstants.GESTURE_END
+                    : HapticFeedbackConstants.LONG_PRESS;
+            case 8:
+            default:
+                return Build.VERSION.SDK_INT &gt;= 30
+                    ? HapticFeedbackConstants.REJECT
+                    : HapticFeedbackConstants.LONG_PRESS;
+        }
+    }
+
+    private int OpenMobileHapticsPredefinedEffect(int behavior)
+    {
+        switch (behavior)
+        {
+            case 0:
+            case 4:
+                return VibrationEffect.EFFECT_TICK;
+            case 1:
+            case 5:
+                return VibrationEffect.EFFECT_CLICK;
+            case 6:
+                return VibrationEffect.EFFECT_DOUBLE_CLICK;
+            default:
+                return VibrationEffect.EFFECT_HEAVY_CLICK;
+        }
+    }
+
+    private long OpenMobileHapticsDurationMillis(int behavior)
+    {
+        switch (behavior)
+        {
+            case 0:
+            case 1:
+            case 4:
+                return 15L;
+            case 2:
+            case 5:
+                return 25L;
+            case 3:
+            case 7:
+            case 8:
+                return 40L;
+            case 6:
+            default:
+                return 30L;
         }
     }
         </insert>

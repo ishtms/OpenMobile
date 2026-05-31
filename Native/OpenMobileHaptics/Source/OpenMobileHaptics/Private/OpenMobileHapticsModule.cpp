@@ -10,16 +10,25 @@ public:
 	{
 		FOpenMobileHapticsBackendRegistry::Start();
 		BackgroundHandle =
-			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddStatic(
-				&FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange
+			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddLambda(
+				[]()
+				{
+					FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
+				}
 			);
 		ForegroundHandle =
-			FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddStatic(
-				&FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange
+			FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddLambda(
+				[]()
+				{
+					FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+				}
 			);
 		ReactivatedHandle =
-			FCoreDelegates::ApplicationHasReactivatedDelegate.AddStatic(
-				&FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange
+			FCoreDelegates::ApplicationHasReactivatedDelegate.AddLambda(
+				[]()
+				{
+					FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+				}
 			);
 	}
 

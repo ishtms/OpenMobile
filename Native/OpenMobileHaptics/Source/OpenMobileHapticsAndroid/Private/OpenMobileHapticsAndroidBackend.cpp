@@ -96,6 +96,50 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return Probe;
 	}
 
+	int32 PlaySemantic(
+		EOpenMobileHapticsSemanticBehavior Behavior,
+		float Intensity,
+		EOpenMobileHapticsSemanticPath Path
+	)
+	{
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return 0;
+		}
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID Method = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileHapticsPlaySemantic",
+				"(IFI)I"
+			)
+			: nullptr;
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return 0;
+		}
+		if (!Method)
+		{
+			return 0;
+		}
+		const jint Result = Env->CallIntMethod(
+			Activity,
+			Method,
+			static_cast<jint>(Behavior),
+			static_cast<jfloat>(Intensity),
+			static_cast<jint>(Path)
+		);
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return 0;
+		}
+		return static_cast<int32>(Result);
+	}
+
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
 		int64 SupportedFlag,
@@ -327,4 +371,54 @@ FOpenMobileHapticsAndroidBackend::GetCapabilities() const
 		StableCapabilities = Capabilities;
 	}
 	return Capabilities;
+}
+
+FOpenMobileHapticsBackendSubmission
+FOpenMobileHapticsAndroidBackend::SubmitSemantic(
+	const FOpenMobileHapticSemanticRequest& Request,
+	const FOpenMobileHapticsSemanticResolution& Resolution,
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	FOpenMobileHapticsBackendEventCallback Callback
+)
+{
+	static_cast<void>(Token);
+	static_cast<void>(Callback);
+	FOpenMobileHapticsBackendSubmission Submission;
+	const FOpenMobileHapticsSemanticDescriptor Descriptor =
+		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
+	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlaySemantic(
+		Descriptor.Behavior,
+		Request.Intensity,
+		Resolution.Path
+	);
+	Submission.Result.ResolvedPath =
+		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
+	switch (NativeResult)
+	{
+	case 1:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		break;
+	case 2:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Suppressed;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
+		break;
+	case 3:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		break;
+	case 4:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Android device has no available vibration path.")
+		);
+		break;
+	default:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android could not submit semantic Haptics feedback.")
+		);
+		break;
+	}
+	return Submission;
 }

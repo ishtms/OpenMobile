@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
+#include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsTypes.h"
 
 enum class EOpenMobileHapticsBackendPreparationState : uint8
@@ -86,6 +87,7 @@ public:
 
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
+		const FOpenMobileHapticsSemanticResolution& Resolution,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) = 0;
