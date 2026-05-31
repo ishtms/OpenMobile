@@ -118,6 +118,10 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 		TEXT("Sensors subsystem is reflected"),
 		UOpenMobileSensorsSubsystem::StaticClass()
 	);
+	TestNotNull(
+		TEXT("Sensors settings are reflected"),
+		UOpenMobileSensorsSettings::StaticClass()
+	);
 
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileSensorsSubsystem* Subsystem =

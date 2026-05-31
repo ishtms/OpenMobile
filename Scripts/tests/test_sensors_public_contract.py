@@ -24,6 +24,7 @@ class SensorsPublicContractTests(unittest.TestCase):
 			"OpenMobileSensorErrors.h",
 			"OpenMobileSensorRecording.h",
 			"OpenMobileSensorResults.h",
+			"OpenMobileSensorsSettings.h",
 			"OpenMobileSensorsSubsystem.h",
 			"OpenMobileSensors.h",
 		):

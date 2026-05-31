@@ -16,4 +16,5 @@
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.h"
 #include "OpenMobileSensorsModule.h"
+#include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsSubsystem.h"

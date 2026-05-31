@@ -10,6 +10,7 @@ public class OpenMobileSensors : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"OpenMobileCore",
 			"OpenMobilePermissions"
