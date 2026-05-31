@@ -31,6 +31,13 @@ enum class EOpenMobileSensorType : uint8
 	PhysicalOrientation
 };
 
+class OPENMOBILESENSORS_API FOpenMobileSensorTypes final
+{
+public:
+	static const TArray<EOpenMobileSensorType>& GetAll();
+	static FName GetStableName(EOpenMobileSensorType Type);
+};
+
 UENUM(BlueprintType)
 enum class EOpenMobileSensorSampleFamily : uint8
 {

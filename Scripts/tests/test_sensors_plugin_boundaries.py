@@ -110,16 +110,22 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("GetModuleChecked", registry)
 
 	def test_common_module_defines_no_backend_result(self) -> None:
-		module = (
+		capability_service = (
 			SENSORS_PLUGIN
 			/ "Source"
 			/ "OpenMobileSensors"
 			/ "Private"
-			/ "OpenMobileSensorsModule.cpp"
+			/ "OpenMobileSensorsCapabilityService.cpp"
 		).read_text(encoding="utf-8")
 
-		self.assertIn("EOpenMobileCapabilityState::NotSupported", module)
-		self.assertIn("No OpenMobile Sensors backend is registered.", module)
+		self.assertIn(
+			"EOpenMobileCapabilityState::NotSupported",
+			capability_service,
+		)
+		self.assertIn(
+			"No OpenMobile Sensors backend is registered.",
+			capability_service,
+		)
 
 	def test_scripted_mock_is_development_only_and_covers_backend_events(self) -> None:
 		mock = (

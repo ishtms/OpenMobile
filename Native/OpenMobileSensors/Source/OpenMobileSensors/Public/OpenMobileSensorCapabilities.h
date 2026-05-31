@@ -19,6 +19,7 @@ UENUM(BlueprintType)
 enum class EOpenMobileSensorRestriction : uint8
 {
 	None,
+	MissingHardware,
 	Permission,
 	RateLimited,
 	Background,
@@ -73,6 +74,26 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorBackgroundSupport BackgroundSupport =
 		EOpenMobileSensorBackgroundSupport::Unknown;
+
+	bool operator==(const FOpenMobileSensorCapability& Other) const
+	{
+		return Sensor == Other.Sensor
+			&& Availability.Name == Other.Availability.Name
+			&& Availability.State == Other.Availability.State
+			&& Availability.Detail == Other.Availability.Detail
+			&& Source == Other.Source
+			&& RequiredPermission == Other.RequiredPermission
+			&& ActiveRestriction == Other.ActiveRestriction
+			&& MinimumFrequencyHz == Other.MinimumFrequencyHz
+			&& MaximumFrequencyHz == Other.MaximumFrequencyHz
+			&& bSupportsNativeBatching == Other.bSupportsNativeBatching
+			&& BackgroundSupport == Other.BackgroundSupport;
+	}
+
+	bool operator!=(const FOpenMobileSensorCapability& Other) const
+	{
+		return !(*this == Other);
+	}
 };
 
 USTRUCT(BlueprintType)
@@ -91,4 +112,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapabilitySnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileSensorCapability> Sensors;
+
+	bool operator==(const FOpenMobileSensorCapabilitySnapshot& Other) const
+	{
+		return BackendName == Other.BackendName
+			&& BackendAvailability.Name == Other.BackendAvailability.Name
+			&& BackendAvailability.State == Other.BackendAvailability.State
+			&& BackendAvailability.Detail == Other.BackendAvailability.Detail
+			&& BackendGeneration == Other.BackendGeneration
+			&& Sensors == Other.Sensors;
+	}
+
+	bool operator!=(const FOpenMobileSensorCapabilitySnapshot& Other) const
+	{
+		return !(*this == Other);
+	}
 };

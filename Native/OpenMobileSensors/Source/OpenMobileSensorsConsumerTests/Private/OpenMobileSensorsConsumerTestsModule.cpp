@@ -139,6 +139,11 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 		UnsupportedCapabilities.BackendAvailability.State,
 		EOpenMobileCapabilityState::NotSupported
 	);
+	TestEqual(
+		TEXT("Editor host returns the complete capability matrix"),
+		UnsupportedCapabilities.Sensors.Num(),
+		FOpenMobileSensorTypes::GetAll().Num()
+	);
 
 	Request.Sensor.Type = EOpenMobileSensorType::Accelerometer;
 	const FOpenMobileSensorSubscriptionResult UnsupportedSubscription =

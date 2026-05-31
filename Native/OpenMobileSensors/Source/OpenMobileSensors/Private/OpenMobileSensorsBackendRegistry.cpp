@@ -2,6 +2,7 @@
 
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
 namespace OpenMobileSensorsBackendRegistryPrivate
@@ -18,6 +19,8 @@ namespace OpenMobileSensorsBackendRegistryPrivate
 			Generation++;
 		}
 		FOpenMobileSensorsSubscriptionService::
+			HandleBackendGenerationChanged();
+		FOpenMobileSensorsCapabilityService::
 			HandleBackendGenerationChanged();
 	}
 

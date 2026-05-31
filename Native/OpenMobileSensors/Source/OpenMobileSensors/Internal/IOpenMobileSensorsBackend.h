@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileSensorCapabilities.h"
 
 class IOpenMobileSensorsBackend : public IModularFeature
 {
@@ -26,6 +27,11 @@ public:
 		Capability.Name = GetModularFeatureName();
 		Capability.State = EOpenMobileCapabilityState::Available;
 		return Capability;
+	}
+
+	virtual TArray<FOpenMobileSensorCapability> GetSensorCapabilities() const
+	{
+		return {};
 	}
 
 	virtual void BeginShutdown() {}

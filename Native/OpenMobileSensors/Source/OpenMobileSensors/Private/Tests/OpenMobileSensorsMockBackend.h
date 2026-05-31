@@ -64,6 +64,13 @@ public:
 		return BackendCapability;
 	}
 
+	virtual TArray<FOpenMobileSensorCapability>
+	GetSensorCapabilities() const override
+	{
+		++SensorCapabilityQueryCount;
+		return SensorCapabilities;
+	}
+
 	virtual void BeginShutdown() override
 	{
 		bShutdown = true;
@@ -75,6 +82,13 @@ public:
 	void SetAvailable(bool bInAvailable)
 	{
 		bAvailable = bInAvailable;
+	}
+
+	void SetSensorCapabilities(
+		TArray<FOpenMobileSensorCapability> InCapabilities
+	)
+	{
+		SensorCapabilities = MoveTemp(InCapabilities);
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -178,6 +192,11 @@ public:
 		return CapabilityQueryCount;
 	}
 
+	int32 GetSensorCapabilityQueryCount() const
+	{
+		return SensorCapabilityQueryCount;
+	}
+
 private:
 	FName Name;
 	int32 Priority = 100;
@@ -185,6 +204,8 @@ private:
 	bool bShutdown = false;
 	mutable int32 CapabilityQueryCount = 0;
 	FOpenMobileCapability BackendCapability;
+	TArray<FOpenMobileSensorCapability> SensorCapabilities;
+	mutable int32 SensorCapabilityQueryCount = 0;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;
 	double RemainingDelaySeconds = 0.0;

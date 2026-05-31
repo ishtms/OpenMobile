@@ -409,6 +409,10 @@ private:
 	friend class UOpenMobileSensorAsyncActionBase;
 
 	FGuid GetOrCreateSubscriptionOwnerIdentifier();
+	void EnsureCapabilityListener() const;
+	void HandleCapabilitySnapshotChanged(
+		const FOpenMobileSensorCapabilitySnapshot& Snapshot
+	);
 	void RegisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
 	void UnregisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
 
@@ -423,6 +427,7 @@ private:
 	FOnOpenMobileOrientationSensorBatch OrientationSamplesEvent;
 	FOnOpenMobileProximitySensorBatch ProximitySamplesEvent;
 	TSet<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> AsyncActions;
+	mutable FDelegateHandle CapabilityServiceChangedHandle;
 	FGuid SubscriptionOwnerIdentifier;
 	bool bDeinitialized = false;
 };

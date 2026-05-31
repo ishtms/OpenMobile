@@ -3,6 +3,7 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsModule.h"
 #include "OpenMobileSensorsSubscriptionService.h"
@@ -70,6 +71,7 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	}
 	bDeinitialized = false;
 	SubscriptionOwnerIdentifier = FGuid::NewGuid();
+	EnsureCapabilityListener();
 }
 
 void UOpenMobileSensorsSubsystem::Deinitialize()
@@ -86,6 +88,13 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 		SubscriptionOwnerIdentifier.Invalidate();
 	}
 	bDeinitialized = true;
+	if (CapabilityServiceChangedHandle.IsValid())
+	{
+		FOpenMobileSensorsCapabilityService::OnChanged().Remove(
+			CapabilityServiceChangedHandle
+		);
+		CapabilityServiceChangedHandle.Reset();
+	}
 	TArray<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> PendingActions;
 	PendingActions.Reserve(AsyncActions.Num());
 	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& Action
@@ -128,10 +137,8 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 FOpenMobileSensorCapabilitySnapshot
 UOpenMobileSensorsSubsystem::GetCapabilitySnapshotNative() const
 {
-	FOpenMobileSensorCapabilitySnapshot Snapshot;
-	Snapshot.BackendAvailability =
-		FOpenMobileSensorsModule::GetBackendCapability();
-	return Snapshot;
+	EnsureCapabilityListener();
+	return FOpenMobileSensorsCapabilityService::GetSnapshot();
 }
 
 TArray<FOpenMobileSensorMetadata>
@@ -388,9 +395,18 @@ UOpenMobileSensorsSubsystem::GetPermissionStatusNative(
 	EOpenMobileSensorPermission Permission
 ) const
 {
-	return FOpenMobilePermissions::GetStatus(
-		FOpenMobileSensorPermissions::GetPermissionName(Permission)
-	);
+	const FName PermissionName =
+		FOpenMobileSensorPermissions::GetPermissionName(Permission);
+	const FOpenMobilePermissionResult Result =
+		FOpenMobilePermissions::GetStatus(PermissionName);
+	if (!Result.Error.IsSet())
+	{
+		FOpenMobileSensorsCapabilityService::NotifyPermissionStatusChanged(
+			PermissionName,
+			Result.Status
+		);
+	}
+	return Result;
 }
 
 FOpenMobilePermissionRequestHandle
@@ -399,9 +415,30 @@ UOpenMobileSensorsSubsystem::RequestPermissionNative(
 	FOnOpenMobilePermissionRequestComplete&& Completion
 )
 {
+	if (!Completion.IsBound())
+	{
+		return {};
+	}
+	const FName PermissionName =
+		FOpenMobileSensorPermissions::GetPermissionName(Permission);
 	return FOpenMobilePermissions::RequestPermission(
-		FOpenMobileSensorPermissions::GetPermissionName(Permission),
-		MoveTemp(Completion)
+		PermissionName,
+		FOnOpenMobilePermissionRequestComplete::CreateLambda(
+			[PermissionName, Completion = MoveTemp(Completion)](
+				const FOpenMobilePermissionResult& Result
+			) mutable
+			{
+				if (!Result.Error.IsSet())
+				{
+					FOpenMobileSensorsCapabilityService::
+						NotifyPermissionStatusChanged(
+							PermissionName,
+							Result.Status
+						);
+				}
+				Completion.ExecuteIfBound(Result);
+			}
+		)
 	);
 }
 
@@ -434,6 +471,7 @@ UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 			EOpenMobileSensorFailureReason::InvalidRequest
 		);
 	}
+	FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(true);
 	return FOpenMobileSensorsErrorMapper::Map(
 		EOpenMobileSensorFailureReason::DerivedInputUnavailable
 	);
@@ -535,6 +573,7 @@ UOpenMobileSensorsSubsystem::GetDiagnosticsSnapshotNative() const
 FOnOpenMobileSensorCapabilitiesChanged&
 UOpenMobileSensorsSubsystem::OnCapabilitiesChangedNative()
 {
+	EnsureCapabilityListener();
 	return CapabilitiesChangedEvent;
 }
 
@@ -599,6 +638,29 @@ FGuid UOpenMobileSensorsSubsystem::GetOrCreateSubscriptionOwnerIdentifier()
 		SubscriptionOwnerIdentifier = FGuid::NewGuid();
 	}
 	return SubscriptionOwnerIdentifier;
+}
+
+void UOpenMobileSensorsSubsystem::EnsureCapabilityListener() const
+{
+	if (bDeinitialized || CapabilityServiceChangedHandle.IsValid())
+	{
+		return;
+	}
+	UOpenMobileSensorsSubsystem* MutableThis =
+		const_cast<UOpenMobileSensorsSubsystem*>(this);
+	CapabilityServiceChangedHandle =
+		FOpenMobileSensorsCapabilityService::OnChanged().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleCapabilitySnapshotChanged
+		);
+}
+
+void UOpenMobileSensorsSubsystem::HandleCapabilitySnapshotChanged(
+	const FOpenMobileSensorCapabilitySnapshot& Snapshot
+)
+{
+	OnCapabilitiesChanged.Broadcast(Snapshot);
+	CapabilitiesChangedEvent.Broadcast(Snapshot);
 }
 
 void UOpenMobileSensorsSubsystem::RegisterAsyncAction(
