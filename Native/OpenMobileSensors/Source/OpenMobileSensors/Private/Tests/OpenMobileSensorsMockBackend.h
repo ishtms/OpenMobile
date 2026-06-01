@@ -71,6 +71,25 @@ public:
 		return SensorCapabilities;
 	}
 
+	virtual TArray<FOpenMobileSensorBackendMetadata>
+	GetSensorMetadata() const override
+	{
+		++SensorMetadataQueryCount;
+		return SensorMetadata;
+	}
+
+	virtual void RefreshMutableSensorMetadata(
+		TArray<FOpenMobileSensorBackendMetadata>& InOutMetadata
+	) const override
+	{
+		++MutableSensorMetadataRefreshCount;
+		LastMutableSensorMetadataRefreshCount = InOutMetadata.Num();
+		if (bHasRefreshedMutableSensorMetadata)
+		{
+			InOutMetadata = RefreshedMutableSensorMetadata;
+		}
+	}
+
 	virtual void BeginShutdown() override
 	{
 		bShutdown = true;
@@ -89,6 +108,21 @@ public:
 	)
 	{
 		SensorCapabilities = MoveTemp(InCapabilities);
+	}
+
+	void SetSensorMetadata(
+		TArray<FOpenMobileSensorBackendMetadata> InMetadata
+	)
+	{
+		SensorMetadata = MoveTemp(InMetadata);
+	}
+
+	void SetRefreshedMutableSensorMetadata(
+		TArray<FOpenMobileSensorBackendMetadata> InMetadata
+	)
+	{
+		RefreshedMutableSensorMetadata = MoveTemp(InMetadata);
+		bHasRefreshedMutableSensorMetadata = true;
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -197,6 +231,21 @@ public:
 		return SensorCapabilityQueryCount;
 	}
 
+	int32 GetSensorMetadataQueryCount() const
+	{
+		return SensorMetadataQueryCount;
+	}
+
+	int32 GetMutableSensorMetadataRefreshCount() const
+	{
+		return MutableSensorMetadataRefreshCount;
+	}
+
+	int32 GetLastMutableSensorMetadataRefreshCount() const
+	{
+		return LastMutableSensorMetadataRefreshCount;
+	}
+
 private:
 	FName Name;
 	int32 Priority = 100;
@@ -206,6 +255,12 @@ private:
 	FOpenMobileCapability BackendCapability;
 	TArray<FOpenMobileSensorCapability> SensorCapabilities;
 	mutable int32 SensorCapabilityQueryCount = 0;
+	TArray<FOpenMobileSensorBackendMetadata> SensorMetadata;
+	TArray<FOpenMobileSensorBackendMetadata> RefreshedMutableSensorMetadata;
+	bool bHasRefreshedMutableSensorMetadata = false;
+	mutable int32 SensorMetadataQueryCount = 0;
+	mutable int32 MutableSensorMetadataRefreshCount = 0;
+	mutable int32 LastMutableSensorMetadataRefreshCount = 0;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;
 	double RemainingDelaySeconds = 0.0;

@@ -4,6 +4,7 @@
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorsBackendTypes.h"
 
 class IOpenMobileSensorsBackend : public IModularFeature
 {
@@ -32,6 +33,17 @@ public:
 	virtual TArray<FOpenMobileSensorCapability> GetSensorCapabilities() const
 	{
 		return {};
+	}
+
+	virtual TArray<FOpenMobileSensorBackendMetadata> GetSensorMetadata() const
+	{
+		return {};
+	}
+
+	virtual void RefreshMutableSensorMetadata(
+		TArray<FOpenMobileSensorBackendMetadata>& InOutMetadata
+	) const
+	{
 	}
 
 	virtual void BeginShutdown() {}

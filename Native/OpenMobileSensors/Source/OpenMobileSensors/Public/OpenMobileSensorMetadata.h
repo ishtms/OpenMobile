@@ -71,6 +71,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorMetadata
 	FOpenMobileSensorIdentifier Sensor;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bPreferred = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorOptionalText Vendor;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

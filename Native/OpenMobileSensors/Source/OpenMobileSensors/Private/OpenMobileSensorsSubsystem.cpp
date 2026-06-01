@@ -5,6 +5,7 @@
 #include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorsMetadataService.h"
 #include "OpenMobileSensorsModule.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
@@ -144,7 +145,7 @@ UOpenMobileSensorsSubsystem::GetCapabilitySnapshotNative() const
 TArray<FOpenMobileSensorMetadata>
 UOpenMobileSensorsSubsystem::GetMetadataNative() const
 {
-	return {};
+	return FOpenMobileSensorsMetadataService::GetMetadata();
 }
 
 FOpenMobileSensorSubscriptionResult

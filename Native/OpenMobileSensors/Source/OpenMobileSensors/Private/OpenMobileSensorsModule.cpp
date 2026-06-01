@@ -3,11 +3,13 @@
 #include "Modules/ModuleManager.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
+#include "OpenMobileSensorsMetadataService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
 void FOpenMobileSensorsModule::StartupModule()
 {
 	FOpenMobileSensorsCapabilityService::Start();
+	FOpenMobileSensorsMetadataService::Start();
 	FOpenMobileSensorsSubscriptionService::Start();
 	FOpenMobileSensorsBackendRegistry::Start();
 }
@@ -15,6 +17,7 @@ void FOpenMobileSensorsModule::StartupModule()
 void FOpenMobileSensorsModule::ShutdownModule()
 {
 	FOpenMobileSensorsCapabilityService::BeginShutdown();
+	FOpenMobileSensorsMetadataService::BeginShutdown();
 	FOpenMobileSensorsSubscriptionService::BeginShutdown();
 	FOpenMobileSensorsBackendRegistry::BeginShutdown();
 }
