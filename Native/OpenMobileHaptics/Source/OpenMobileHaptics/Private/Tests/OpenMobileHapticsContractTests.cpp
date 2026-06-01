@@ -68,6 +68,16 @@ namespace OpenMobileHapticsTests
 			LastSemanticResolution = Resolution;
 			++SemanticSubmissionCount;
 			LastToken = Token;
+			if (bSuppressSemanticSubmissions)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result.Outcome =
+					EOpenMobileHapticPlaybackOutcome::Suppressed;
+				Submission.Result.State =
+					EOpenMobileHapticPlaybackState::Completed;
+				Submission.Result.ResolvedPath = TEXT("SystemSemantic");
+				return Submission;
+			}
 			return MakeSubmission(false, false, MoveTemp(Callback));
 		}
 
@@ -135,6 +145,7 @@ namespace OpenMobileHapticsTests
 		bool bAvailable = true;
 		bool bFailSubmissions = false;
 		bool bFailSubmissionsWithoutError = false;
+		bool bSuppressSemanticSubmissions = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
@@ -375,6 +386,22 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileHapticsSubsystem* Subsystem =
 		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const UFunction* SelectionFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("PlaySelectionFeedback")
+		);
+	TestNotNull(TEXT("Selection feedback has a Blueprint node"),
+		SelectionFunction);
+	TestTrue(TEXT("Selection feedback node is Blueprint callable"),
+		SelectionFunction
+			&& SelectionFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+	const FOpenMobileHapticPlaybackResult DedicatedSelection =
+		Subsystem->PlaySelectionFeedback();
+	TestTrue(TEXT("Dedicated selection entry point reaches the backend"),
+		DedicatedSelection.IsAccepted());
+	TestEqual(TEXT("Dedicated selection entry point uses selection semantics"),
+		Backend.LastSemanticRequest.Effect,
+		EOpenMobileHapticSemanticEffect::Selection);
 
 	FOpenMobileHapticUserPolicy Policy;
 	Policy.MasterIntensity = 0.8f;
@@ -407,7 +434,7 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	Policy.bEnabled = false;
 	Subsystem->SetUserPolicy(Policy);
 	const FOpenMobileHapticPlaybackResult Disabled =
-		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Click);
+		Subsystem->PlaySelectionFeedback();
 	TestEqual(TEXT("Disabled player policy suppresses feedback"),
 		Disabled.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
 
@@ -429,6 +456,21 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
 	TestEqual(TEXT("Suppressed and invalid work never reaches the backend"),
 		Backend.SemanticSubmissionCount, SubmittedBeforeRejections);
+	Backend.bSuppressSemanticSubmissions = true;
+	Options.Channel = TEXT("MissingPresenterTest");
+	Options.Category = TEXT("UI");
+	const FOpenMobileHapticPlaybackResult MissingPresenter =
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::Selection,
+			1.0f,
+			Options
+		});
+	TestEqual(TEXT("Missing native presenter is reported as suppression"),
+		MissingPresenter.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestFalse(TEXT("Presenter suppression does not invent an error"),
+		MissingPresenter.Error.IsSet());
+	Backend.bSuppressSemanticSubmissions = false;
 
 	Backend.Capabilities.SemanticEffects =
 		EOpenMobileHapticSupportState::Unsupported;
@@ -533,6 +575,20 @@ bool FOpenMobileHapticsSemanticRateLimitTest::RunTest(
 	TestFalse(TEXT("Old burst events expire at one second"),
 		BurstLimiter.ShouldSuppress(TEXT("D"), false, 31.0,
 			0.0, 0.0, 2));
+
+	FOpenMobileHapticsRateLimiter PerChannelLimiter;
+	TestFalse(TEXT("Fast selection channel accepts its first event"),
+		PerChannelLimiter.ShouldSuppress(TEXT("Fast"), true, 40.0,
+			0.02, 0.02, 30));
+	TestFalse(TEXT("Fast selection channel uses its shorter interval"),
+		PerChannelLimiter.ShouldSuppress(TEXT("Fast"), true, 40.025,
+			0.02, 0.02, 30));
+	TestFalse(TEXT("Slow selection channel accepts its first event"),
+		PerChannelLimiter.ShouldSuppress(TEXT("Slow"), true, 40.0,
+			0.04, 0.02, 30));
+	TestTrue(TEXT("Slow selection channel keeps its longer interval"),
+		PerChannelLimiter.ShouldSuppress(TEXT("Slow"), true, 40.025,
+			0.04, 0.02, 30));
 	return true;
 }
 

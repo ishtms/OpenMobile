@@ -267,6 +267,19 @@ UOpenMobileHapticsSubsystem::GetHapticCapabilities() const
 }
 
 FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::PlaySelectionFeedback(
+	float Intensity,
+	FName Channel
+)
+{
+	return PlaySemanticFeedback(
+		EOpenMobileHapticSemanticEffect::Selection,
+		Intensity,
+		Channel
+	);
+}
+
+FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::PlaySemanticFeedback(
 	EOpenMobileHapticSemanticEffect Effect,
 	float Intensity,

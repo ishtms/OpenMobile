@@ -40,6 +40,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptic Capabilities", ToolTip = "Returns a side-effect-free snapshot of current Haptics support."))
 	FOpenMobileHapticCapabilities GetHapticCapabilities() const;
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Selection Feedback", ToolTip = "Plays low-latency feedback for selection changes, picker steps, and slider detents."))
+	FOpenMobileHapticPlaybackResult PlaySelectionFeedback(
+		float Intensity = 1.0f,
+		FName Channel = NAME_None
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Semantic Feedback", ToolTip = "Requests portable semantic feedback with useful UI defaults."))
 	FOpenMobileHapticPlaybackResult PlaySemanticFeedback(
 		EOpenMobileHapticSemanticEffect Effect,
