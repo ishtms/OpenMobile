@@ -130,6 +130,28 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android reports full-screen and picture-in-picture modes directly. Other public multi-window states remain Unknown because Android does not reliably distinguish split-screen from freeform windows.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::FoldablePosture)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 23)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("AndroidX WindowManager 1.5.1 reports active fold posture, window-relative fold bounds, and separating state when the device supplies a folding feature. The snapshot remains Unknown when no feature is reported.");
+		}
+		else
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit =
+				EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 6.0 (API 23)")
+				);
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;

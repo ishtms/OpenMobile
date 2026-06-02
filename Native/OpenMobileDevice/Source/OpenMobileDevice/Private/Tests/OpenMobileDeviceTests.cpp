@@ -28,6 +28,7 @@
 #include "OpenMobileDeviceEndpointReachabilityPolicy.h"
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFormFactor.h"
+#include "OpenMobileDeviceFoldableInfo.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceLocaleInfo.h"
@@ -1359,6 +1360,75 @@ bool FOpenMobileDeviceWindowModeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Reliable split evidence is retained"), FOpenMobileDeviceWindowMode::Normalize(EOpenMobileWindowMode::Split), EOpenMobileWindowMode::Split);
 	TestEqual(TEXT("Reliable freeform evidence is retained"), FOpenMobileDeviceWindowMode::Normalize(EOpenMobileWindowMode::Freeform), EOpenMobileWindowMode::Freeform);
 	TestEqual(TEXT("Future native mode stays unknown"), FOpenMobileDeviceWindowMode::Normalize(static_cast<EOpenMobileWindowMode>(255)), EOpenMobileWindowMode::Unknown);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceFoldableInfoTest,
+	"OpenMobile.Device.Display.FoldableInfo",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceFoldableInfoTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileWindowDisplaySnapshot Snapshot;
+	Snapshot.bLogicalWindowSizeAvailable = true;
+	Snapshot.LogicalWindowSize = FVector2D(800.0, 600.0);
+	FOpenMobileDeviceFoldableEvidence Evidence;
+	Evidence.bFeatureAvailable = true;
+	Evidence.State = EOpenMobileDeviceNativeFoldState::Flat;
+	Evidence.Orientation = EOpenMobileDeviceNativeFoldOrientation::Vertical;
+	Evidence.NativeBounds = FOpenMobileDeviceRect{790.0f, 0.0f, 810.0f, 1200.0f};
+	Evidence.NativeUnitsPerLogicalUnit = 2.0f;
+	Evidence.bSeparating = false;
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Flat state stays flat"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Flat);
+	TestTrue(TEXT("Hinge bounds are available"), Snapshot.bHingeBoundsAvailable);
+	TestEqual(TEXT("Hinge pixels convert to logical units"), Snapshot.HingeBounds.Left, 395.0f);
+	TestEqual(TEXT("Hinge bounds are clipped to the window"), Snapshot.HingeBounds.Bottom, 600.0f);
+	TestTrue(TEXT("Separating state is available"), Snapshot.bFoldSeparatesContent.bIsAvailable);
+	TestFalse(TEXT("Nonseparating state is retained"), Snapshot.bFoldSeparatesContent.Value);
+
+	Evidence.State = EOpenMobileDeviceNativeFoldState::HalfOpened;
+	Evidence.Orientation = EOpenMobileDeviceNativeFoldOrientation::Horizontal;
+	Evidence.NativeBounds = FOpenMobileDeviceRect{0.0f, 590.0f, 1600.0f, 610.0f};
+	Evidence.bSeparating = true;
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Half-open horizontal fixture is tabletop"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Tabletop);
+	TestEqual(TEXT("Tabletop hinge uses logical y coordinate"), Snapshot.HingeBounds.Top, 295.0f);
+	TestTrue(TEXT("Separating hinge state is retained"), Snapshot.bFoldSeparatesContent.Value);
+
+	Evidence.Orientation = EOpenMobileDeviceNativeFoldOrientation::Vertical;
+	Evidence.NativeBounds = FOpenMobileDeviceRect{800.0f, 0.0f, 800.0f, 1200.0f};
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Half-open vertical fixture is book"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Book);
+	TestTrue(TEXT("Zero-width fold line remains available"), Snapshot.bHingeBoundsAvailable);
+
+	Evidence.Orientation = EOpenMobileDeviceNativeFoldOrientation::Unknown;
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Unknown half-open axis stays generic"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::HalfOpened);
+
+	Snapshot.LogicalWindowSize = FVector2D(400.0, 600.0);
+	Evidence.Orientation = EOpenMobileDeviceNativeFoldOrientation::Vertical;
+	Evidence.NativeBounds = FOpenMobileDeviceRect{790.0f, 0.0f, 810.0f, 1200.0f};
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Resize clips the hinge to new bounds"), Snapshot.HingeBounds.Right, 400.0f);
+
+	Evidence.NativeUnitsPerLogicalUnit = 0.0f;
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Malformed geometry retains posture"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Book);
+	TestFalse(TEXT("Malformed geometry is unavailable"), Snapshot.bHingeBoundsAvailable);
+
+	Evidence.State = EOpenMobileDeviceNativeFoldState::Unknown;
+	Evidence.NativeUnitsPerLogicalUnit = 2.0f;
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	TestEqual(TEXT("Unknown native state stays unknown"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Unknown);
+
+	FOpenMobileDeviceFoldableInfo::Apply(Snapshot, {});
+	TestEqual(TEXT("No fold feature stays unknown"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Unknown);
+	TestFalse(TEXT("No fold feature has no hinge"), Snapshot.bHingeBoundsAvailable);
+	TestFalse(TEXT("No fold feature has no separation value"), Snapshot.bFoldSeparatesContent.bIsAvailable);
 	return true;
 }
 

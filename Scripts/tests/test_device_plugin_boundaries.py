@@ -507,6 +507,73 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("windowConfiguration", android_display)
 		self.assertNotIn("getWindowingMode", android_display)
 
+	def test_foldable_support_is_pinned_and_android_only(self) -> None:
+		android_upl_path = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("androidx.window:window-java:1.5.1", android_upl)
+		for token in (
+			"WindowInfoTrackerCallbackAdapter",
+			"WindowLayoutInfo",
+			"FoldingFeature.State.FLAT",
+			"FoldingFeature.State.HALF_OPENED",
+			"FoldingFeature.Orientation.HORIZONTAL",
+			"FoldingFeature.Orientation.VERTICAL",
+			"isSeparating",
+			"getLocationInWindow",
+			"AndroidThunkJava_OpenMobileDeviceGetFoldableInfo",
+		):
+			self.assertIn(token, android_upl)
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceGetFoldableInfo",
+			"FOpenMobileDeviceFoldableInfo::Apply",
+		):
+			self.assertIn(token, android_display)
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("GetAndroidBuildVersion() >= 23", android_backend)
+		self.assertIn("Android 6.0 (API 23)", android_backend)
+		self.assertIn("FoldablePosture", ios_backend)
+		self.assertIn("NotSupported", ios_backend)
+
+		for module_root in (
+			DEVICE_PLUGIN / "Source" / "OpenMobileDevice",
+			DEVICE_PLUGIN / "Source" / "OpenMobileDeviceIOS",
+		):
+			for path in module_root.rglob("*"):
+				if path.is_file() and path.suffix in {".cs", ".cpp", ".h", ".mm", ".xml"}:
+					self.assertNotIn(
+						"androidx.window",
+						path.read_text(encoding="utf-8"),
+						str(path),
+					)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

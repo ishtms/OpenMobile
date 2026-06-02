@@ -3,6 +3,7 @@
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidPlatformMisc.h"
 #include "OpenMobileDeviceDisplayCutoutInfo.h"
+#include "OpenMobileDeviceFoldableInfo.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
@@ -549,6 +550,102 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 				Values[1] == 1
 			);
 	}
+
+	void ApplyOpenMobileDeviceAndroidFoldableInfo(
+		JNIEnv* Env,
+		jobject Activity,
+		FOpenMobileWindowDisplaySnapshot& Snapshot
+	)
+	{
+		FOpenMobileDeviceFoldableEvidence Evidence;
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID GetFoldableInfo = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceGetFoldableInfo",
+				"()[F"
+			)
+			: nullptr;
+		if (!GetFoldableInfo || ClearJavaException(Env))
+		{
+			FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		FScopedJavaObject<jfloatArray> NativeValues(
+			static_cast<jfloatArray>(
+				Env->CallObjectMethod(Activity, GetFoldableInfo)
+			)
+		);
+		if (!NativeValues || ClearJavaException(Env))
+		{
+			FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		const jsize ValueCount = Env->GetArrayLength(*NativeValues);
+		if (ValueCount == 1)
+		{
+			FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		if (ValueCount != 9)
+		{
+			FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		jfloat Values[9] = {};
+		Env->GetFloatArrayRegion(*NativeValues, 0, 9, Values);
+		bool bValuesAreFinite = true;
+		for (const jfloat Value : Values)
+		{
+			bValuesAreFinite = bValuesAreFinite && FMath::IsFinite(Value);
+		}
+		if (ClearJavaException(Env) || !bValuesAreFinite
+			|| Values[0] != 1.0f
+			|| (Values[1] != 0.0f && Values[1] != 1.0f
+				&& Values[1] != 2.0f)
+			|| (Values[2] != 0.0f && Values[2] != 1.0f
+				&& Values[2] != 2.0f)
+			|| Values[8] <= 0.0f
+			|| (Values[3] != 0.0f && Values[3] != 1.0f))
+		{
+			FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+			return;
+		}
+		Evidence.bFeatureAvailable = true;
+		switch (static_cast<int32>(Values[1]))
+		{
+		case 1:
+			Evidence.State = EOpenMobileDeviceNativeFoldState::Flat;
+			break;
+		case 2:
+			Evidence.State = EOpenMobileDeviceNativeFoldState::HalfOpened;
+			break;
+		default:
+			break;
+		}
+		switch (static_cast<int32>(Values[2]))
+		{
+		case 1:
+			Evidence.Orientation =
+				EOpenMobileDeviceNativeFoldOrientation::Horizontal;
+			break;
+		case 2:
+			Evidence.Orientation =
+				EOpenMobileDeviceNativeFoldOrientation::Vertical;
+			break;
+		default:
+			break;
+		}
+		Evidence.bSeparating = Values[3] == 1.0f;
+		Evidence.NativeBounds = FOpenMobileDeviceRect{
+			Values[4],
+			Values[5],
+			Values[6],
+			Values[7]
+		};
+		Evidence.NativeUnitsPerLogicalUnit = Values[8];
+		FOpenMobileDeviceFoldableInfo::Apply(Snapshot, Evidence);
+	}
 }
 
 FOpenMobileWindowDisplaySnapshot
@@ -599,6 +696,12 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 			);
 		OpenMobileDeviceAndroidDisplayPrivate::
 			ApplyOpenMobileDeviceAndroidWindowOrientation(
+				Env,
+				Activity,
+				Snapshot
+			);
+		OpenMobileDeviceAndroidDisplayPrivate::
+			ApplyOpenMobileDeviceAndroidFoldableInfo(
 				Env,
 				Activity,
 				Snapshot
