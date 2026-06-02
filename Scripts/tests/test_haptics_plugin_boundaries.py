@@ -313,6 +313,11 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("UISelectionFeedbackGenerator", ios_backend)
 		self.assertIn("UIImpactFeedbackGenerator", ios_backend)
 		self.assertIn("UINotificationFeedbackGenerator", ios_backend)
+		self.assertIn("ImpactGenerators", ios_backend)
+		self.assertIn("[ImpactGenerators[Index] prepare]", ios_backend)
+		self.assertIn("dispatch_after", ios_backend)
+		self.assertIn("releaseGenerators", ios_backend)
+		self.assertIn("BeginShutdown", ios_backend)
 		self.assertNotIn("CHHapticEngine alloc", ios_backend)
 
 if __name__ == "__main__":

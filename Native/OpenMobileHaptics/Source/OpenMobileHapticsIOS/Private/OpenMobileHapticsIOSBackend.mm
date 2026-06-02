@@ -7,80 +7,134 @@
 #import <TargetConditionals.h>
 #import <UIKit/UIKit.h>
 
+@interface OpenMobileHapticsSemanticGeneratorCache : NSObject
+{
+	UISelectionFeedbackGenerator* SelectionGenerator;
+	UIImpactFeedbackGenerator* ImpactGenerators[5];
+	UINotificationFeedbackGenerator* NotificationGenerator;
+	NSUInteger ActivityGeneration;
+}
+
+- (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
+	intensity:(CGFloat)Intensity;
+- (void)releaseGenerators;
+
+@end
+
+@implementation OpenMobileHapticsSemanticGeneratorCache
+
+- (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
+	intensity:(CGFloat)Intensity
+{
+	switch (Behavior)
+	{
+	case EOpenMobileHapticsSemanticBehavior::Selection:
+		if (!SelectionGenerator)
+		{
+			SelectionGenerator = [[UISelectionFeedbackGenerator alloc] init];
+		}
+		[SelectionGenerator prepare];
+		[SelectionGenerator selectionChanged];
+		[SelectionGenerator prepare];
+		break;
+	case EOpenMobileHapticsSemanticBehavior::ImpactLight:
+	case EOpenMobileHapticsSemanticBehavior::ImpactMedium:
+	case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
+	case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
+	case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
+	{
+		const int32 Index = static_cast<int32>(Behavior)
+			- static_cast<int32>(EOpenMobileHapticsSemanticBehavior::ImpactLight);
+		if (!ImpactGenerators[Index])
+		{
+			const UIImpactFeedbackStyle Styles[] = {
+				UIImpactFeedbackStyleLight,
+				UIImpactFeedbackStyleMedium,
+				UIImpactFeedbackStyleHeavy,
+				UIImpactFeedbackStyleSoft,
+				UIImpactFeedbackStyleRigid
+			};
+			ImpactGenerators[Index] =
+				[[UIImpactFeedbackGenerator alloc] initWithStyle:Styles[Index]];
+		}
+		[ImpactGenerators[Index] prepare];
+		[ImpactGenerators[Index] impactOccurredWithIntensity:Intensity];
+		[ImpactGenerators[Index] prepare];
+		break;
+	}
+	case EOpenMobileHapticsSemanticBehavior::NotificationSuccess:
+	case EOpenMobileHapticsSemanticBehavior::NotificationWarning:
+	case EOpenMobileHapticsSemanticBehavior::NotificationError:
+	{
+		if (!NotificationGenerator)
+		{
+			NotificationGenerator =
+				[[UINotificationFeedbackGenerator alloc] init];
+		}
+		UINotificationFeedbackType Type = UINotificationFeedbackTypeSuccess;
+		if (Behavior
+			== EOpenMobileHapticsSemanticBehavior::NotificationWarning)
+		{
+			Type = UINotificationFeedbackTypeWarning;
+		}
+		else if (Behavior
+			== EOpenMobileHapticsSemanticBehavior::NotificationError)
+		{
+			Type = UINotificationFeedbackTypeError;
+		}
+		[NotificationGenerator prepare];
+		[NotificationGenerator notificationOccurred:Type];
+		[NotificationGenerator prepare];
+		break;
+	}
+	}
+
+	const NSUInteger ExpectedGeneration = ++ActivityGeneration;
+	dispatch_after(
+		dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
+		dispatch_get_main_queue(),
+		^{
+			if (ActivityGeneration == ExpectedGeneration)
+			{
+				[self releaseGenerators];
+			}
+		}
+	);
+}
+
+- (void)releaseGenerators
+{
+	[SelectionGenerator release];
+	SelectionGenerator = nil;
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ImpactGenerators); ++Index)
+	{
+		[ImpactGenerators[Index] release];
+		ImpactGenerators[Index] = nil;
+	}
+	[NotificationGenerator release];
+	NotificationGenerator = nil;
+}
+
+- (void)dealloc
+{
+	[self releaseGenerators];
+	[super dealloc];
+}
+
+@end
+
 namespace OpenMobileHapticsIOSBackendPrivate
 {
 	void PlaySystemSemantic(
+		OpenMobileHapticsSemanticGeneratorCache* Cache,
 		EOpenMobileHapticsSemanticBehavior Behavior,
 		float Intensity
 	)
 	{
+		[Cache retain];
 		dispatch_async(dispatch_get_main_queue(), ^{
-			switch (Behavior)
-			{
-			case EOpenMobileHapticsSemanticBehavior::Selection:
-			{
-				UISelectionFeedbackGenerator* Generator =
-					[[UISelectionFeedbackGenerator alloc] init];
-				[Generator prepare];
-				[Generator selectionChanged];
-				[Generator release];
-				break;
-			}
-			case EOpenMobileHapticsSemanticBehavior::ImpactLight:
-			case EOpenMobileHapticsSemanticBehavior::ImpactMedium:
-			case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
-			case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
-			case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
-			{
-				UIImpactFeedbackStyle Style = UIImpactFeedbackStyleMedium;
-				switch (Behavior)
-				{
-				case EOpenMobileHapticsSemanticBehavior::ImpactLight:
-					Style = UIImpactFeedbackStyleLight;
-					break;
-				case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
-					Style = UIImpactFeedbackStyleHeavy;
-					break;
-				case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
-					Style = UIImpactFeedbackStyleSoft;
-					break;
-				case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
-					Style = UIImpactFeedbackStyleRigid;
-					break;
-				default:
-					break;
-				}
-				UIImpactFeedbackGenerator* Generator =
-					[[UIImpactFeedbackGenerator alloc] initWithStyle:Style];
-				[Generator prepare];
-				[Generator impactOccurredWithIntensity:Intensity];
-				[Generator release];
-				break;
-			}
-			case EOpenMobileHapticsSemanticBehavior::NotificationSuccess:
-			case EOpenMobileHapticsSemanticBehavior::NotificationWarning:
-			case EOpenMobileHapticsSemanticBehavior::NotificationError:
-			{
-				UINotificationFeedbackType Type =
-					UINotificationFeedbackTypeSuccess;
-				if (Behavior
-					== EOpenMobileHapticsSemanticBehavior::NotificationWarning)
-				{
-					Type = UINotificationFeedbackTypeWarning;
-				}
-				else if (Behavior
-					== EOpenMobileHapticsSemanticBehavior::NotificationError)
-				{
-					Type = UINotificationFeedbackTypeError;
-				}
-				UINotificationFeedbackGenerator* Generator =
-					[[UINotificationFeedbackGenerator alloc] init];
-				[Generator prepare];
-				[Generator notificationOccurred:Type];
-				[Generator release];
-				break;
-			}
-			}
+			[Cache playBehavior:Behavior intensity:Intensity];
+			[Cache release];
 		});
 	}
 }
@@ -271,9 +325,17 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	}
 	else
 	{
+		if (!SemanticGeneratorCache)
+		{
+			SemanticGeneratorCache =
+				[[OpenMobileHapticsSemanticGeneratorCache alloc] init];
+		}
 		const FOpenMobileHapticsSemanticDescriptor Descriptor =
 			FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
 		OpenMobileHapticsIOSBackendPrivate::PlaySystemSemantic(
+			static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
+				SemanticGeneratorCache
+			),
 			Descriptor.Behavior,
 			Request.Intensity
 		);
@@ -285,4 +347,20 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	Submission.Result.ResolvedPath =
 		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
 	return Submission;
+}
+
+void FOpenMobileHapticsIOSBackend::BeginShutdown()
+{
+	OpenMobileHapticsSemanticGeneratorCache* Cache =
+		static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
+			SemanticGeneratorCache
+		);
+	SemanticGeneratorCache = nullptr;
+	if (Cache)
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[Cache releaseGenerators];
+			[Cache release];
+		});
+	}
 }

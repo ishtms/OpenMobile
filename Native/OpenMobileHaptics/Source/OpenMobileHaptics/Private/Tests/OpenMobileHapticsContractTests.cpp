@@ -530,6 +530,125 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsImpactPresetTest,
+	"OpenMobile.Haptics.Semantic.ImpactPresets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsImpactPresetTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("ImpactMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const UFunction* ImpactFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("PlayImpactFeedback")
+		);
+	TestTrue(TEXT("Impact preset has a Blueprint-callable node"),
+		ImpactFunction
+			&& ImpactFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+
+	struct FExpectedImpact
+	{
+		EOpenMobileHapticImpactStyle Style;
+		EOpenMobileHapticSemanticEffect Effect;
+	};
+	const FExpectedImpact Styles[] = {
+		{EOpenMobileHapticImpactStyle::Light,
+			EOpenMobileHapticSemanticEffect::ImpactLight},
+		{EOpenMobileHapticImpactStyle::Medium,
+			EOpenMobileHapticSemanticEffect::ImpactMedium},
+		{EOpenMobileHapticImpactStyle::Heavy,
+			EOpenMobileHapticSemanticEffect::ImpactHeavy},
+		{EOpenMobileHapticImpactStyle::Soft,
+			EOpenMobileHapticSemanticEffect::ImpactSoft},
+		{EOpenMobileHapticImpactStyle::Rigid,
+			EOpenMobileHapticSemanticEffect::ImpactRigid}
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Styles); ++Index)
+	{
+		const FName Channel(*FString::Printf(TEXT("Impact%d"), Index));
+		const FOpenMobileHapticPlaybackResult Result =
+			Subsystem->PlayImpactFeedback(Styles[Index].Style, 0.5f, Channel);
+		TestTrue(TEXT("Impact style is accepted"), Result.IsAccepted());
+		TestEqual(TEXT("Impact style maps to its stable semantic effect"),
+			Backend.LastSemanticRequest.Effect, Styles[Index].Effect);
+		TestEqual(TEXT("Normalized impact intensity reaches the backend"),
+			Backend.LastSemanticRequest.Intensity, 0.5f);
+	}
+
+	const int32 BeforeZeroIntensity = Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult ZeroIntensity =
+		Subsystem->PlayImpactFeedback(
+			EOpenMobileHapticImpactStyle::Light,
+			0.0f,
+			TEXT("ZeroImpact")
+		);
+	TestEqual(TEXT("Zero impact intensity is explicitly suppressed"),
+		ZeroIntensity.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Zero impact intensity never reaches the backend"),
+		Backend.SemanticSubmissionCount, BeforeZeroIntensity);
+
+	const int32 SubmissionCount = Backend.SemanticSubmissionCount;
+	for (const float InvalidIntensity : {
+		-0.01f,
+		1.01f,
+		std::numeric_limits<float>::quiet_NaN()
+	})
+	{
+		const FOpenMobileHapticPlaybackResult Invalid =
+			Subsystem->PlayImpactFeedback(
+				EOpenMobileHapticImpactStyle::Heavy,
+				InvalidIntensity,
+				TEXT("InvalidImpact")
+			);
+		TestEqual(TEXT("Invalid impact intensity is rejected"),
+			Invalid.Error.Code, EOpenMobileHapticErrorCode::InvalidRequest);
+	}
+	const FOpenMobileHapticPlaybackResult InvalidStyle =
+		Subsystem->PlayImpactFeedback(
+			static_cast<EOpenMobileHapticImpactStyle>(MAX_uint8),
+			1.0f,
+			TEXT("InvalidImpactStyle")
+		);
+	TestEqual(TEXT("Unknown impact style is rejected"),
+		InvalidStyle.Error.Code, EOpenMobileHapticErrorCode::InvalidRequest);
+	TestEqual(TEXT("Invalid impacts never reach the backend"),
+		Backend.SemanticSubmissionCount, SubmissionCount);
+
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	const FOpenMobileHapticPlaybackResult SoftFallback =
+		Subsystem->PlayImpactFeedback(
+			EOpenMobileHapticImpactStyle::Soft,
+			1.0f,
+			TEXT("ImpactFallback")
+		);
+	TestEqual(TEXT("Unavailable impact style uses a predefined fallback"),
+		SoftFallback.Outcome, EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Impact fallback order is stable"),
+		Backend.LastSemanticResolution.Path,
+		EOpenMobileHapticsSemanticPath::PredefinedEffect);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsSemanticRateLimitTest,
 	"OpenMobile.Haptics.Semantic.RateLimitBoundaries",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

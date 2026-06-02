@@ -47,6 +47,16 @@ enum class EOpenMobileHapticSemanticEffect : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticImpactStyle : uint8
+{
+	Light,
+	Medium,
+	Heavy,
+	Soft,
+	Rigid
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticPatternEventType : uint8
 {
 	Transient,

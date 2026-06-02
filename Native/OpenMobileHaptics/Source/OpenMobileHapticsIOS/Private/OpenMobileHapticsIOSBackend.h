@@ -15,10 +15,12 @@ public:
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
+	virtual void BeginShutdown() override;
 
 private:
 	FOpenMobileHapticCapabilities ProbeHardwareCapabilities() const;
 
 	mutable FCriticalSection CacheMutex;
 	mutable TOptional<FOpenMobileHapticCapabilities> StableCapabilities;
+	void* SemanticGeneratorCache = nullptr;
 };

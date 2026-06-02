@@ -46,6 +46,13 @@ public:
 		FName Channel = NAME_None
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Impact Feedback", ToolTip = "Plays a portable light, medium, heavy, soft, or rigid impact with normalized intensity."))
+	FOpenMobileHapticPlaybackResult PlayImpactFeedback(
+		EOpenMobileHapticImpactStyle Style,
+		float Intensity = 1.0f,
+		FName Channel = NAME_None
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Semantic Feedback", ToolTip = "Requests portable semantic feedback with useful UI defaults."))
 	FOpenMobileHapticPlaybackResult PlaySemanticFeedback(
 		EOpenMobileHapticSemanticEffect Effect,

@@ -280,6 +280,38 @@ UOpenMobileHapticsSubsystem::PlaySelectionFeedback(
 }
 
 FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::PlayImpactFeedback(
+	EOpenMobileHapticImpactStyle Style,
+	float Intensity,
+	FName Channel
+)
+{
+	EOpenMobileHapticSemanticEffect Effect =
+		static_cast<EOpenMobileHapticSemanticEffect>(MAX_uint8);
+	switch (Style)
+	{
+	case EOpenMobileHapticImpactStyle::Light:
+		Effect = EOpenMobileHapticSemanticEffect::ImpactLight;
+		break;
+	case EOpenMobileHapticImpactStyle::Medium:
+		Effect = EOpenMobileHapticSemanticEffect::ImpactMedium;
+		break;
+	case EOpenMobileHapticImpactStyle::Heavy:
+		Effect = EOpenMobileHapticSemanticEffect::ImpactHeavy;
+		break;
+	case EOpenMobileHapticImpactStyle::Soft:
+		Effect = EOpenMobileHapticSemanticEffect::ImpactSoft;
+		break;
+	case EOpenMobileHapticImpactStyle::Rigid:
+		Effect = EOpenMobileHapticSemanticEffect::ImpactRigid;
+		break;
+	default:
+		break;
+	}
+	return PlaySemanticFeedback(Effect, Intensity, Channel);
+}
+
+FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::PlaySemanticFeedback(
 	EOpenMobileHapticSemanticEffect Effect,
 	float Intensity,
