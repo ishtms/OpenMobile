@@ -57,6 +57,14 @@ enum class EOpenMobileHapticImpactStyle : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticNotificationType : uint8
+{
+	Success,
+	Warning,
+	Error
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticPatternEventType : uint8
 {
 	Transient,

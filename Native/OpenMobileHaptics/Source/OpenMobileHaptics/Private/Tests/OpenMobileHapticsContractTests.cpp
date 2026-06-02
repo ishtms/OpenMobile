@@ -649,6 +649,122 @@ bool FOpenMobileHapticsImpactPresetTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsNotificationPresetTest,
+	"OpenMobile.Haptics.Semantic.NotificationPresets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsNotificationPresetTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("NotificationMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const UFunction* NotificationFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("PlayNotificationFeedback")
+		);
+	TestTrue(TEXT("Notification preset has a Blueprint-callable node"),
+		NotificationFunction
+			&& NotificationFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+
+	struct FExpectedNotification
+	{
+		EOpenMobileHapticNotificationType Type;
+		EOpenMobileHapticSemanticEffect Effect;
+	};
+	const FExpectedNotification Notifications[] = {
+		{EOpenMobileHapticNotificationType::Success,
+			EOpenMobileHapticSemanticEffect::NotificationSuccess},
+		{EOpenMobileHapticNotificationType::Warning,
+			EOpenMobileHapticSemanticEffect::NotificationWarning},
+		{EOpenMobileHapticNotificationType::Error,
+			EOpenMobileHapticSemanticEffect::NotificationError}
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Notifications); ++Index)
+	{
+		const FName Channel(*FString::Printf(TEXT("Notification%d"), Index));
+		const FOpenMobileHapticPlaybackResult Result =
+			Subsystem->PlayNotificationFeedback(
+				Notifications[Index].Type,
+				1.0f,
+				Channel
+			);
+		TestTrue(TEXT("Notification preset is accepted"), Result.IsAccepted());
+		TestEqual(TEXT("Notification meaning maps to its stable effect"),
+			Backend.LastSemanticRequest.Effect, Notifications[Index].Effect);
+		TestEqual(TEXT("Notification defaults to the Alerts category"),
+			Backend.LastSemanticRequest.Options.Category,
+			FName(TEXT("Alerts")));
+	}
+
+	FOpenMobileHapticUserPolicy Policy;
+	Policy.CategoryScales.Add(TEXT("Alerts"), 0.0f);
+	Subsystem->SetUserPolicy(Policy);
+	const int32 BeforePolicySuppression = Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult Suppressed =
+		Subsystem->PlayNotificationFeedback(
+			EOpenMobileHapticNotificationType::Warning
+		);
+	TestEqual(TEXT("Alerts category can suppress notifications"),
+		Suppressed.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Alerts suppression happens before native submission"),
+		Backend.SemanticSubmissionCount, BeforePolicySuppression);
+
+	UOpenMobileHapticsSubsystem* RapidSubsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const FOpenMobileHapticPlaybackResult FirstRapid =
+		RapidSubsystem->PlayNotificationFeedback(
+			EOpenMobileHapticNotificationType::Success
+		);
+	const FOpenMobileHapticPlaybackResult SecondRapid =
+		RapidSubsystem->PlayNotificationFeedback(
+			EOpenMobileHapticNotificationType::Error
+		);
+	TestTrue(TEXT("First rapid notification is accepted"),
+		FirstRapid.IsAccepted());
+	TestEqual(TEXT("Notification default channel is Alerts"),
+		FirstRapid.Channel, FName(TEXT("Alerts")));
+	TestEqual(TEXT("Rapid notification repeat is rate limited"),
+		SecondRapid.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	const FOpenMobileHapticPlaybackResult BasicFallback =
+		RapidSubsystem->PlayNotificationFeedback(
+			EOpenMobileHapticNotificationType::Error,
+			1.0f,
+			TEXT("BasicNotificationFallback")
+		);
+	TestEqual(TEXT("Notification can use its basic-vibration fallback"),
+		BasicFallback.Outcome, EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Notification basic fallback path is reported"),
+		Backend.LastSemanticResolution.Path,
+		EOpenMobileHapticsSemanticPath::BasicVibration);
+
+	RapidSubsystem->Deinitialize();
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsSemanticRateLimitTest,
 	"OpenMobile.Haptics.Semantic.RateLimitBoundaries",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

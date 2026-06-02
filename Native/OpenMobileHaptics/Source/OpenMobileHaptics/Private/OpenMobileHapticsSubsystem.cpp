@@ -312,6 +312,35 @@ UOpenMobileHapticsSubsystem::PlayImpactFeedback(
 }
 
 FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::PlayNotificationFeedback(
+	EOpenMobileHapticNotificationType Type,
+	float Intensity,
+	FName Channel
+)
+{
+	EOpenMobileHapticSemanticEffect Effect =
+		static_cast<EOpenMobileHapticSemanticEffect>(MAX_uint8);
+	switch (Type)
+	{
+	case EOpenMobileHapticNotificationType::Success:
+		Effect = EOpenMobileHapticSemanticEffect::NotificationSuccess;
+		break;
+	case EOpenMobileHapticNotificationType::Warning:
+		Effect = EOpenMobileHapticSemanticEffect::NotificationWarning;
+		break;
+	case EOpenMobileHapticNotificationType::Error:
+		Effect = EOpenMobileHapticSemanticEffect::NotificationError;
+		break;
+	default:
+		break;
+	}
+	FOpenMobileHapticPlaybackOptions Options;
+	Options.Channel = Channel.IsNone() ? FName(TEXT("Alerts")) : Channel;
+	Options.Category = TEXT("Alerts");
+	return PlaySemanticFeedbackAdvanced(Effect, Intensity, Options);
+}
+
+FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::PlaySemanticFeedback(
 	EOpenMobileHapticSemanticEffect Effect,
 	float Intensity,

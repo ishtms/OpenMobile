@@ -53,6 +53,13 @@ public:
 		FName Channel = NAME_None
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Notification Feedback", ToolTip = "Plays portable success, warning, or error feedback without delivering an operating-system notification."))
+	FOpenMobileHapticPlaybackResult PlayNotificationFeedback(
+		EOpenMobileHapticNotificationType Type,
+		float Intensity = 1.0f,
+		FName Channel = NAME_None
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Semantic Feedback", ToolTip = "Requests portable semantic feedback with useful UI defaults."))
 	FOpenMobileHapticPlaybackResult PlaySemanticFeedback(
 		EOpenMobileHapticSemanticEffect Effect,
