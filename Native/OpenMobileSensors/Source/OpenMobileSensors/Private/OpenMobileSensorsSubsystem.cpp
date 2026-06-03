@@ -73,6 +73,7 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	bDeinitialized = false;
 	SubscriptionOwnerIdentifier = FGuid::NewGuid();
 	EnsureCapabilityListener();
+	EnsureSubscriptionListener();
 }
 
 void UOpenMobileSensorsSubsystem::Deinitialize()
@@ -95,6 +96,13 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 			CapabilityServiceChangedHandle
 		);
 		CapabilityServiceChangedHandle.Reset();
+	}
+	if (SubscriptionServiceChangedHandle.IsValid())
+	{
+		FOpenMobileSensorsSubscriptionService::OnStateChanged().Remove(
+			SubscriptionServiceChangedHandle
+		);
+		SubscriptionServiceChangedHandle.Reset();
 	}
 	TArray<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> PendingActions;
 	PendingActions.Reserve(AsyncActions.Num());
@@ -153,6 +161,7 @@ UOpenMobileSensorsSubsystem::StartSubscriptionNative(
 	const FOpenMobileSensorSubscriptionRequest& Request
 )
 {
+	EnsureSubscriptionListener();
 	if (bDeinitialized)
 	{
 		FOpenMobileSensorSubscriptionResult Result;
@@ -656,12 +665,40 @@ void UOpenMobileSensorsSubsystem::EnsureCapabilityListener() const
 		);
 }
 
+void UOpenMobileSensorsSubsystem::EnsureSubscriptionListener() const
+{
+	if (bDeinitialized || SubscriptionServiceChangedHandle.IsValid())
+	{
+		return;
+	}
+	UOpenMobileSensorsSubsystem* MutableThis =
+		const_cast<UOpenMobileSensorsSubsystem*>(this);
+	SubscriptionServiceChangedHandle =
+		FOpenMobileSensorsSubscriptionService::OnStateChanged().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleSubscriptionStateChanged
+		);
+}
+
 void UOpenMobileSensorsSubsystem::HandleCapabilitySnapshotChanged(
 	const FOpenMobileSensorCapabilitySnapshot& Snapshot
 )
 {
 	OnCapabilitiesChanged.Broadcast(Snapshot);
 	CapabilitiesChangedEvent.Broadcast(Snapshot);
+}
+
+void UOpenMobileSensorsSubsystem::HandleSubscriptionStateChanged(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
+)
+{
+	if (bDeinitialized || OwnerIdentifier != SubscriptionOwnerIdentifier)
+	{
+		return;
+	}
+	OnSubscriptionStateChanged.Broadcast(Snapshot);
+	SubscriptionStateChangedEvent.Broadcast(Snapshot);
 }
 
 void UOpenMobileSensorsSubsystem::RegisterAsyncAction(

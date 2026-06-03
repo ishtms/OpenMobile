@@ -410,8 +410,13 @@ private:
 
 	FGuid GetOrCreateSubscriptionOwnerIdentifier();
 	void EnsureCapabilityListener() const;
+	void EnsureSubscriptionListener() const;
 	void HandleCapabilitySnapshotChanged(
 		const FOpenMobileSensorCapabilitySnapshot& Snapshot
+	);
+	void HandleSubscriptionStateChanged(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
 	);
 	void RegisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
 	void UnregisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
@@ -428,6 +433,7 @@ private:
 	FOnOpenMobileProximitySensorBatch ProximitySamplesEvent;
 	TSet<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> AsyncActions;
 	mutable FDelegateHandle CapabilityServiceChangedHandle;
+	mutable FDelegateHandle SubscriptionServiceChangedHandle;
 	FGuid SubscriptionOwnerIdentifier;
 	bool bDeinitialized = false;
 };

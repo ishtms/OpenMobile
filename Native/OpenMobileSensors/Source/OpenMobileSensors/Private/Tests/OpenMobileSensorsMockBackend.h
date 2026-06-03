@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileSensorsErrorMapper.h"
 
 enum class EOpenMobileSensorsMockEventType : uint8
 {
@@ -41,6 +42,9 @@ public:
 	{
 		BackendCapability.Name = GetModularFeatureName();
 		BackendCapability.State = EOpenMobileCapabilityState::Available;
+		StartSensorStreamResult.Code = EOpenMobileSensorResultCode::Success;
+		ReconfigureSensorStreamResult.Code =
+			EOpenMobileSensorResultCode::Success;
 	}
 
 	virtual FName GetBackendName() const override
@@ -90,9 +94,48 @@ public:
 		}
 	}
 
+	virtual FOpenMobileSensorOperationResult StartSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	) override
+	{
+		++StartSensorStreamCount;
+		LastStartedPhysicalRequest = InOutRequest;
+		if (StartSensorStreamResult.IsSuccess())
+		{
+			ActiveSensorStreams.Add(Handle);
+		}
+		return StartSensorStreamResult;
+	}
+
+	virtual FOpenMobileSensorOperationResult ReconfigureSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	) override
+	{
+		++ReconfigureSensorStreamCount;
+		LastReconfiguredPhysicalRequest = InOutRequest;
+		if (!ActiveSensorStreams.Contains(Handle))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidHandle
+			);
+		}
+		return ReconfigureSensorStreamResult;
+	}
+
+	virtual void StopSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle
+	) override
+	{
+		++StopSensorStreamCount;
+		ActiveSensorStreams.Remove(Handle);
+	}
+
 	virtual void BeginShutdown() override
 	{
 		bShutdown = true;
+		ActiveSensorStreams.Reset();
 		Script.Reset();
 		NextEventIndex = 0;
 		RemainingDelaySeconds = 0.0;
@@ -123,6 +166,20 @@ public:
 	{
 		RefreshedMutableSensorMetadata = MoveTemp(InMetadata);
 		bHasRefreshedMutableSensorMetadata = true;
+	}
+
+	void SetStartSensorStreamResult(
+		FOpenMobileSensorOperationResult InResult
+	)
+	{
+		StartSensorStreamResult = MoveTemp(InResult);
+	}
+
+	void SetReconfigureSensorStreamResult(
+		FOpenMobileSensorOperationResult InResult
+	)
+	{
+		ReconfigureSensorStreamResult = MoveTemp(InResult);
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -246,6 +303,33 @@ public:
 		return LastMutableSensorMetadataRefreshCount;
 	}
 
+	int32 GetStartSensorStreamCount() const
+	{
+		return StartSensorStreamCount;
+	}
+
+	int32 GetReconfigureSensorStreamCount() const
+	{
+		return ReconfigureSensorStreamCount;
+	}
+
+	int32 GetStopSensorStreamCount() const
+	{
+		return StopSensorStreamCount;
+	}
+
+	const FOpenMobileSensorPhysicalStreamRequest&
+	GetLastStartedPhysicalRequest() const
+	{
+		return LastStartedPhysicalRequest;
+	}
+
+	const FOpenMobileSensorPhysicalStreamRequest&
+	GetLastReconfiguredPhysicalRequest() const
+	{
+		return LastReconfiguredPhysicalRequest;
+	}
+
 private:
 	FName Name;
 	int32 Priority = 100;
@@ -261,6 +345,14 @@ private:
 	mutable int32 SensorMetadataQueryCount = 0;
 	mutable int32 MutableSensorMetadataRefreshCount = 0;
 	mutable int32 LastMutableSensorMetadataRefreshCount = 0;
+	FOpenMobileSensorOperationResult StartSensorStreamResult;
+	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
+	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
+	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;
+	TSet<FOpenMobileSensorBackendStreamHandle> ActiveSensorStreams;
+	int32 StartSensorStreamCount = 0;
+	int32 ReconfigureSensorStreamCount = 0;
+	int32 StopSensorStreamCount = 0;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;
 	double RemainingDelaySeconds = 0.0;

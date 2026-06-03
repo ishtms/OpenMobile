@@ -3,6 +3,12 @@
 #include "CoreMinimal.h"
 #include "OpenMobileSensorResults.h"
 
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOnOpenMobileSensorSubscriptionServiceStateChanged,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionStateSnapshot&
+);
+
 class OPENMOBILESENSORS_API FOpenMobileSensorsSubscriptionService final
 {
 public:
@@ -40,15 +46,24 @@ public:
 	static bool IsHandleCurrent(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+	static TArray<FOpenMobileSensorSubscriptionHandle>
+	SelectSubscribersForSample(
+		const FOpenMobileSensorIdentifier& Sensor,
+		double TimestampSeconds
+	);
 	static void InvalidateForUnrecoverablePermissionLoss(
 		EOpenMobileSensorType SensorType
 	);
+	static FOnOpenMobileSensorSubscriptionServiceStateChanged&
+	OnStateChanged();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static int32 GetActiveSubscriptionCountForTests();
 	static int32 GetActiveSubscriptionCountForTests(
 		const FOpenMobileSensorIdentifier& Sensor
 	);
+	static int32 GetPhysicalStreamCountForTests();
+	static void ProcessPendingBackendOperationsForTests();
 	static void ResetForTests();
 #endif
 };
