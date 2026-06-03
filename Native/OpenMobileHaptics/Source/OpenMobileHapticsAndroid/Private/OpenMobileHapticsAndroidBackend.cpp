@@ -99,7 +99,8 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	int32 PlaySemantic(
 		EOpenMobileHapticsSemanticBehavior Behavior,
 		float Intensity,
-		EOpenMobileHapticsSemanticPath Path
+		EOpenMobileHapticsSemanticPath Path,
+		int32 Purpose
 	)
 	{
 		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
@@ -113,7 +114,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			? Env->GetMethodID(
 				*ActivityClass,
 				"AndroidThunkJava_OpenMobileHapticsPlaySemantic",
-				"(IFI)I"
+				"(IFII)I"
 			)
 			: nullptr;
 		if (Env->ExceptionCheck())
@@ -130,7 +131,8 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			Method,
 			static_cast<jint>(Behavior),
 			static_cast<jfloat>(Intensity),
-			static_cast<jint>(Path)
+			static_cast<jint>(Path),
+			static_cast<jint>(Purpose)
 		);
 		if (Env->ExceptionCheck())
 		{
@@ -386,10 +388,16 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 	FOpenMobileHapticsBackendSubmission Submission;
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
+	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
+		? 2
+		: Request.Options.Category == TEXT("Gameplay")
+			? 1
+			: 0;
 	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlaySemantic(
 		Descriptor.Behavior,
 		Request.Intensity,
-		Resolution.Path
+		Resolution.Path,
+		Purpose
 	);
 	Submission.Result.ResolvedPath =
 		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);

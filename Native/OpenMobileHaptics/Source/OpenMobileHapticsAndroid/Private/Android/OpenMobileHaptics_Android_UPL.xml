@@ -10,8 +10,10 @@ import android.media.AudioAttributes;
 import android.os.Build;
 import android.os.Looper;
 import android.os.VibrationEffect;
+import android.os.VibrationAttributes;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import java.lang.reflect.Method;
@@ -155,7 +157,8 @@ import java.lang.reflect.Method;
     public int AndroidThunkJava_OpenMobileHapticsPlaySemantic(
         int behavior,
         float intensity,
-        int path
+        int path,
+        int purpose
     )
     {
         try
@@ -189,33 +192,48 @@ import java.lang.reflect.Method;
             {
                 return 4;
             }
-            AudioAttributes attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .build();
+            if (Settings.System.getInt(
+                    getContentResolver(),
+                    Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                    1
+                ) == 0)
+            {
+                return 2;
+            }
+            VibrationEffect effect = null;
             if (path == 2 &amp;&amp; Build.VERSION.SDK_INT &gt;= 29)
             {
-                vibrator.vibrate(
-                    VibrationEffect.createPredefined(
-                        OpenMobileHapticsPredefinedEffect(behavior)
-                    ),
-                    attributes
+                effect = VibrationEffect.createPredefined(
+                    OpenMobileHapticsPredefinedEffect(behavior)
                 );
-                return 3;
             }
             long durationMillis = OpenMobileHapticsDurationMillis(behavior);
-            if (Build.VERSION.SDK_INT &gt;= 26)
+            if (effect == null &amp;&amp; Build.VERSION.SDK_INT &gt;= 26)
             {
                 int amplitude = vibrator.hasAmplitudeControl()
                     ? Math.max(1, Math.min(255, Math.round(intensity * 255.0f)))
                     : VibrationEffect.DEFAULT_AMPLITUDE;
+                effect = VibrationEffect.createOneShot(durationMillis, amplitude);
+            }
+            if (Build.VERSION.SDK_INT &gt;= 33)
+            {
                 vibrator.vibrate(
-                    VibrationEffect.createOneShot(durationMillis, amplitude),
-                    attributes
+                    effect,
+                    VibrationAttributes.createForUsage(
+                        OpenMobileHapticsVibrationUsage(purpose)
+                    )
                 );
+            }
+            else if (Build.VERSION.SDK_INT &gt;= 26)
+            {
+                vibrator.vibrate(effect, OpenMobileHapticsAudioAttributes(purpose));
             }
             else
             {
-                vibrator.vibrate(durationMillis);
+                vibrator.vibrate(
+                    durationMillis,
+                    OpenMobileHapticsAudioAttributes(purpose)
+                );
             }
             return 3;
         }
@@ -238,6 +256,36 @@ import java.lang.reflect.Method;
             return manager != null ? manager.getDefaultVibrator() : null;
         }
         return (Vibrator)getSystemService(VIBRATOR_SERVICE);
+    }
+
+    private int OpenMobileHapticsVibrationUsage(int purpose)
+    {
+        switch (purpose)
+        {
+            case 1:
+                return VibrationAttributes.USAGE_MEDIA;
+            case 2:
+                return VibrationAttributes.USAGE_NOTIFICATION;
+            default:
+                return VibrationAttributes.USAGE_TOUCH;
+        }
+    }
+
+    private AudioAttributes OpenMobileHapticsAudioAttributes(int purpose)
+    {
+        int usage = AudioAttributes.USAGE_ASSISTANCE_SONIFICATION;
+        if (purpose == 1)
+        {
+            usage = AudioAttributes.USAGE_GAME;
+        }
+        else if (purpose == 2)
+        {
+            usage = AudioAttributes.USAGE_NOTIFICATION_EVENT;
+        }
+        return new AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(usage)
+            .build();
     }
 
     private int OpenMobileHapticsFeedbackConstant(int behavior)

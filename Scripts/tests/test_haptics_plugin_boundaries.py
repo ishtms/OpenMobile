@@ -302,7 +302,25 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("performHapticFeedback", android_bridge)
 		self.assertIn("HapticFeedbackConstants", android_bridge)
+		self.assertIn("HAPTIC_FEEDBACK_ENABLED", android_bridge)
+		self.assertIn("VibrationAttributes.USAGE_TOUCH", android_bridge)
+		self.assertIn("VibrationAttributes.USAGE_MEDIA", android_bridge)
+		self.assertIn("VibrationAttributes.USAGE_NOTIFICATION", android_bridge)
 		self.assertIn("android.permission.VIBRATE", android_bridge)
+		for bypass_token in (
+			"FLAG_IGNORE_GLOBAL_SETTING",
+			"FLAG_IGNORE_VIEW_SETTING",
+			"FLAG_BYPASS_INTERRUPTION_POLICY",
+		):
+			self.assertNotIn(bypass_token, android_bridge)
+			for public_header in (
+				HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics" / "Public"
+			).glob("*.h"):
+				self.assertNotIn(
+					bypass_token,
+					public_header.read_text(encoding="utf-8"),
+					str(public_header),
+				)
 
 		ios_backend = (
 			HAPTICS_PLUGIN

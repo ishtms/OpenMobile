@@ -69,7 +69,7 @@ namespace OpenMobileHapticsTests
 			LastSemanticResolution = Resolution;
 			++SemanticSubmissionCount;
 			LastToken = Token;
-			if (bSuppressSemanticSubmissions)
+			if (bNativePolicySuppressesSemantic)
 			{
 				FOpenMobileHapticsBackendSubmission Submission;
 				Submission.Result.Outcome =
@@ -156,7 +156,7 @@ namespace OpenMobileHapticsTests
 		bool bAvailable = true;
 		bool bFailSubmissions = false;
 		bool bFailSubmissionsWithoutError = false;
-		bool bSuppressSemanticSubmissions = false;
+		bool bNativePolicySuppressesSemantic = false;
 		bool bFailNamedSubmissions = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
@@ -461,29 +461,48 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 
 	Policy.CategoryScales.Remove(TEXT("UI"));
 	Subsystem->SetUserPolicy(Policy);
+	UOpenMobileHapticsSettings* MutableSettings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const EOpenMobileHapticBackgroundPolicy SavedBackgroundPolicy =
+		MutableSettings->BackgroundPolicy;
+	MutableSettings->BackgroundPolicy =
+		EOpenMobileHapticBackgroundPolicy::CriticalOnly;
 	FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
 	const FOpenMobileHapticPlaybackResult Background =
 		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Confirm);
 	TestEqual(TEXT("Background semantic feedback is suppressed"),
 		Background.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
-	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
-	TestEqual(TEXT("Suppressed and invalid work never reaches the backend"),
+	TestEqual(TEXT("Noncritical background work never reaches the backend"),
 		Backend.SemanticSubmissionCount, SubmittedBeforeRejections);
-	Backend.bSuppressSemanticSubmissions = true;
+	Options.Channel = TEXT("CriticalBackgroundTest");
+	Options.Category = TEXT("Alerts");
+	Options.Priority = EOpenMobileHapticChannelPriority::Critical;
+	const FOpenMobileHapticPlaybackResult CriticalBackground =
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::NotificationWarning,
+			1.0f,
+			Options
+		});
+	TestTrue(TEXT("Explicit critical policy permits critical background work"),
+		CriticalBackground.IsAccepted());
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+	MutableSettings->BackgroundPolicy = SavedBackgroundPolicy;
+	Backend.bNativePolicySuppressesSemantic = true;
 	Options.Channel = TEXT("MissingPresenterTest");
 	Options.Category = TEXT("UI");
+	Options.Priority = EOpenMobileHapticChannelPriority::Normal;
 	const FOpenMobileHapticPlaybackResult MissingPresenter =
 		Subsystem->SubmitSemantic({
 			EOpenMobileHapticSemanticEffect::Selection,
 			1.0f,
 			Options
 		});
-	TestEqual(TEXT("Missing native presenter is reported as suppression"),
+	TestEqual(TEXT("Known native policy suppression is a nonfailure"),
 		MissingPresenter.Outcome,
 		EOpenMobileHapticPlaybackOutcome::Suppressed);
-	TestFalse(TEXT("Presenter suppression does not invent an error"),
+	TestFalse(TEXT("Native policy suppression does not invent an error"),
 		MissingPresenter.Error.IsSet());
-	Backend.bSuppressSemanticSubmissions = false;
+	Backend.bNativePolicySuppressesSemantic = false;
 
 	Backend.Capabilities.SemanticEffects =
 		EOpenMobileHapticSupportState::Unsupported;
