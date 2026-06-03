@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsErrorMapper.h"
+#include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -99,9 +100,19 @@ namespace OpenMobileHapticsTests
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
-			static_cast<void>(Request);
+			LastNamedRequest = Request;
 			++NamedSubmissionCount;
 			LastToken = Token;
+			if (bFailNamedSubmissions)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						EOpenMobileErrorCode::NotSupported,
+						TEXT("Injected named-pattern failure.")
+					);
+				return Submission;
+			}
 			return MakeSubmission(true, true, MoveTemp(Callback));
 		}
 
@@ -146,6 +157,7 @@ namespace OpenMobileHapticsTests
 		bool bFailSubmissions = false;
 		bool bFailSubmissionsWithoutError = false;
 		bool bSuppressSemanticSubmissions = false;
+		bool bFailNamedSubmissions = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
@@ -156,6 +168,7 @@ namespace OpenMobileHapticsTests
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
+		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
 		FOpenMobileHapticsSemanticResolution LastSemanticResolution;
 
 	private:
@@ -758,6 +771,157 @@ bool FOpenMobileHapticsNotificationPresetTest::RunTest(
 		EOpenMobileHapticsSemanticPath::BasicVibration);
 
 	RapidSubsystem->Deinitialize();
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsGamePresetTest,
+	"OpenMobile.Haptics.Semantic.GamePresets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsGamePresetTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("GamePresetMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	const UFunction* GamePresetFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("PlayGameFeedback")
+		);
+	TestTrue(TEXT("Game preset has a Blueprint-callable node"),
+		GamePresetFunction
+			&& GamePresetFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+	struct FExpectedPreset
+	{
+		EOpenMobileHapticGamePreset Preset;
+		EOpenMobileHapticSemanticEffect Effect;
+		FName Category;
+	};
+	const FExpectedPreset Presets[] = {
+		{EOpenMobileHapticGamePreset::Confirm,
+			EOpenMobileHapticSemanticEffect::Confirm, TEXT("UI")},
+		{EOpenMobileHapticGamePreset::Reject,
+			EOpenMobileHapticSemanticEffect::Reject, TEXT("UI")},
+		{EOpenMobileHapticGamePreset::Tick,
+			EOpenMobileHapticSemanticEffect::Tick, TEXT("UI")},
+		{EOpenMobileHapticGamePreset::Click,
+			EOpenMobileHapticSemanticEffect::Click, TEXT("UI")},
+		{EOpenMobileHapticGamePreset::Bump,
+			EOpenMobileHapticSemanticEffect::Bump, TEXT("Gameplay")},
+		{EOpenMobileHapticGamePreset::Damage,
+			EOpenMobileHapticSemanticEffect::Damage, TEXT("Gameplay")},
+		{EOpenMobileHapticGamePreset::Pickup,
+			EOpenMobileHapticSemanticEffect::Pickup, TEXT("Gameplay")},
+		{EOpenMobileHapticGamePreset::Achievement,
+			EOpenMobileHapticSemanticEffect::Achievement, TEXT("Alerts")}
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Presets); ++Index)
+	{
+		const FName Channel(*FString::Printf(TEXT("GamePreset%d"), Index));
+		const FOpenMobileHapticPlaybackResult Result =
+			Subsystem->PlayGameFeedback(Presets[Index].Preset, 1.0f, Channel);
+		TestTrue(TEXT("Built-in game preset is accepted"), Result.IsAccepted());
+		TestEqual(TEXT("Game preset keeps its stable semantic mapping"),
+			Backend.LastSemanticRequest.Effect, Presets[Index].Effect);
+		TestEqual(TEXT("Game preset uses its stable category"),
+			Backend.LastSemanticRequest.Options.Category,
+			Presets[Index].Category);
+	}
+
+	FOpenMobileHapticUserPolicy Policy;
+	Policy.CategoryScales.Add(TEXT("Gameplay"), 0.0f);
+	Subsystem->SetUserPolicy(Policy);
+	const int32 BeforeCategorySuppression = Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult CategorySuppressed =
+		Subsystem->PlayGameFeedback(
+			EOpenMobileHapticGamePreset::Damage,
+			1.0f,
+			TEXT("ScaledDamage")
+		);
+	TestEqual(TEXT("Game preset category scaling is applied"),
+		CategorySuppressed.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Suppressed game preset never reaches the backend"),
+		Backend.SemanticSubmissionCount, BeforeCategorySuppression);
+	Subsystem->SetUserPolicy({});
+
+	UOpenMobileHapticLibrary* Library =
+		NewObject<UOpenMobileHapticLibrary>(
+			GetTransientPackage(),
+			TEXT("GamePresetTestLibrary")
+		);
+	Library->GamePresetOverrides = {
+		{EOpenMobileHapticGamePreset::Confirm, TEXT("CustomConfirm")},
+		{EOpenMobileHapticGamePreset::Reject, TEXT("CustomReject")}
+	};
+	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
+	LibrarySettings.Name = TEXT("GamePresets");
+	LibrarySettings.Asset = FSoftObjectPath(Library);
+	Settings->NamedLibraries = {LibrarySettings};
+	const FOpenMobileHapticPlaybackResult Override =
+		Subsystem->PlayGameFeedback(
+			EOpenMobileHapticGamePreset::Confirm,
+			1.0f,
+			TEXT("GameOverride")
+		);
+	TestTrue(TEXT("Loaded named-library override is accepted"),
+		Override.IsAccepted());
+	TestEqual(TEXT("Named-library override reaches named playback"),
+		Backend.LastNamedRequest.PatternName, FName(TEXT("CustomConfirm")));
+
+	Backend.bFailNamedSubmissions = true;
+	const FOpenMobileHapticPlaybackResult UnsupportedOverride =
+		Subsystem->PlayGameFeedback(
+			EOpenMobileHapticGamePreset::Reject,
+			1.0f,
+			TEXT("UnsupportedGameOverride")
+		);
+	TestEqual(TEXT("Unsupported override uses the built-in fallback"),
+		UnsupportedOverride.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Built-in fallback preserves the preset meaning"),
+		Backend.LastSemanticRequest.Effect,
+		EOpenMobileHapticSemanticEffect::Reject);
+	Backend.bFailNamedSubmissions = false;
+
+	LibrarySettings.Asset =
+		FSoftObjectPath(TEXT("/Game/Haptics/Missing.Missing"));
+	Settings->NamedLibraries = {LibrarySettings};
+	const int32 NamedBeforeMissingAsset = Backend.NamedSubmissionCount;
+	const FOpenMobileHapticPlaybackResult MissingAsset =
+		Subsystem->PlayGameFeedback(
+			EOpenMobileHapticGamePreset::Tick,
+			1.0f,
+			TEXT("MissingGameOverride")
+		);
+	TestTrue(TEXT("Missing override asset keeps the built-in preset"),
+		MissingAsset.IsAccepted());
+	TestEqual(TEXT("Missing override asset is not synchronously loaded"),
+		Backend.NamedSubmissionCount, NamedBeforeMissingAsset);
+	TestEqual(TEXT("Missing override keeps the stable semantic mapping"),
+		Backend.LastSemanticRequest.Effect,
+		EOpenMobileHapticSemanticEffect::Tick);
+
+	Settings->NamedLibraries = SavedLibraries;
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();

@@ -60,6 +60,20 @@ public:
 		FName Channel = NAME_None
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Game Feedback", ToolTip = "Plays a stable confirm, reject, tick, click, bump, damage, pickup, or achievement preset."))
+	FOpenMobileHapticPlaybackResult PlayGameFeedback(
+		EOpenMobileHapticGamePreset Preset,
+		float Intensity = 1.0f,
+		FName Channel = NAME_None
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (AdvancedDisplay = "Options", DisplayName = "Play Game Feedback (Advanced)", ToolTip = "Plays a game preset with explicit scheduling, channel, overlap, loop, priority, and fallback options."))
+	FOpenMobileHapticPlaybackResult PlayGameFeedbackAdvanced(
+		EOpenMobileHapticGamePreset Preset,
+		float Intensity,
+		const FOpenMobileHapticPlaybackOptions& Options
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Play Semantic Feedback", ToolTip = "Requests portable semantic feedback with useful UI defaults."))
 	FOpenMobileHapticPlaybackResult PlaySemanticFeedback(
 		EOpenMobileHapticSemanticEffect Effect,
@@ -170,6 +184,10 @@ private:
 	MakeBackendCallback();
 	void HandleBackendCallback(
 		const FOpenMobileHapticsBackendCallback& Callback
+	);
+	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
+		const FOpenMobileHapticSemanticRequest& Request,
+		FName PatternOverride
 	);
 
 	FOpenMobileHapticUserPolicy UserPolicy;

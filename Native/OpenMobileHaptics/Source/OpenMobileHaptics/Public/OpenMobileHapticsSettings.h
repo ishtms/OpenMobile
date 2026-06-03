@@ -58,7 +58,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedLibrarySettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Library")
 	FName Name;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Library", meta = (AllowedClasses = "/Script/Engine.DataAsset"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Library", meta = (AllowedClasses = "/Script/OpenMobileHaptics.OpenMobileHapticLibrary"))
 	FSoftObjectPath Asset;
 };
 

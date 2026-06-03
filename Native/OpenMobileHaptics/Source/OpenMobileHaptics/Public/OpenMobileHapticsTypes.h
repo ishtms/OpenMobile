@@ -65,6 +65,19 @@ enum class EOpenMobileHapticNotificationType : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticGamePreset : uint8
+{
+	Confirm,
+	Reject,
+	Tick,
+	Click,
+	Bump,
+	Damage,
+	Pickup,
+	Achievement
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticPatternEventType : uint8
 {
 	Transient,

@@ -3,6 +3,7 @@
 #include "Async/Async.h"
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileHapticsBackend.h"
+#include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsErrorMapper.h"
@@ -80,6 +81,55 @@ namespace OpenMobileHapticsSubsystemPrivate
 	{
 		const float* Scale = Scales.Find(Name);
 		return Scale ? *Scale : 1.0f;
+	}
+
+	EOpenMobileHapticSemanticEffect GamePresetEffect(
+		EOpenMobileHapticGamePreset Preset
+	)
+	{
+		switch (Preset)
+		{
+		case EOpenMobileHapticGamePreset::Confirm:
+			return EOpenMobileHapticSemanticEffect::Confirm;
+		case EOpenMobileHapticGamePreset::Reject:
+			return EOpenMobileHapticSemanticEffect::Reject;
+		case EOpenMobileHapticGamePreset::Tick:
+			return EOpenMobileHapticSemanticEffect::Tick;
+		case EOpenMobileHapticGamePreset::Click:
+			return EOpenMobileHapticSemanticEffect::Click;
+		case EOpenMobileHapticGamePreset::Bump:
+			return EOpenMobileHapticSemanticEffect::Bump;
+		case EOpenMobileHapticGamePreset::Damage:
+			return EOpenMobileHapticSemanticEffect::Damage;
+		case EOpenMobileHapticGamePreset::Pickup:
+			return EOpenMobileHapticSemanticEffect::Pickup;
+		case EOpenMobileHapticGamePreset::Achievement:
+			return EOpenMobileHapticSemanticEffect::Achievement;
+		default:
+			return static_cast<EOpenMobileHapticSemanticEffect>(MAX_uint8);
+		}
+	}
+
+	FName FindLoadedGamePresetOverride(
+		const UOpenMobileHapticsSettings& Settings,
+		EOpenMobileHapticGamePreset Preset
+	)
+	{
+		for (const FOpenMobileHapticNamedLibrarySettings& LibrarySettings :
+			Settings.NamedLibraries)
+		{
+			const UOpenMobileHapticLibrary* Library =
+				Cast<UOpenMobileHapticLibrary>(
+					LibrarySettings.Asset.ResolveObject()
+				);
+			FName PatternName;
+			if (Library
+				&& Library->FindGamePresetOverride(Preset, PatternName))
+			{
+				return PatternName;
+			}
+		}
+		return NAME_None;
 	}
 
 	FOpenMobileHapticControlResult MakeUnsupportedControlResult()
@@ -341,6 +391,46 @@ UOpenMobileHapticsSubsystem::PlayNotificationFeedback(
 }
 
 FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::PlayGameFeedback(
+	EOpenMobileHapticGamePreset Preset,
+	float Intensity,
+	FName Channel
+)
+{
+	const EOpenMobileHapticSemanticEffect Effect =
+		OpenMobileHapticsSubsystemPrivate::GamePresetEffect(Preset);
+	const FOpenMobileHapticsSemanticDescriptor Descriptor =
+		FOpenMobileHapticsSemanticPolicy::Describe(Effect);
+	FOpenMobileHapticPlaybackOptions Options;
+	Options.Channel = Channel.IsNone() ? Descriptor.Category : Channel;
+	Options.Category = Descriptor.Category;
+	return PlayGameFeedbackAdvanced(Preset, Intensity, Options);
+}
+
+FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::PlayGameFeedbackAdvanced(
+	EOpenMobileHapticGamePreset Preset,
+	float Intensity,
+	const FOpenMobileHapticPlaybackOptions& Options
+)
+{
+	FOpenMobileHapticSemanticRequest Request;
+	Request.Effect =
+		OpenMobileHapticsSubsystemPrivate::GamePresetEffect(Preset);
+	Request.Intensity = Intensity;
+	Request.Options = Options;
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	return SubmitSemanticOrOverride(
+		Request,
+		OpenMobileHapticsSubsystemPrivate::FindLoadedGamePresetOverride(
+			*Settings,
+			Preset
+		)
+	);
+}
+
+FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::PlaySemanticFeedback(
 	EOpenMobileHapticSemanticEffect Effect,
 	float Intensity,
@@ -481,6 +571,15 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request
 )
 {
+	return SubmitSemanticOrOverride(Request, NAME_None);
+}
+
+FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
+	const FOpenMobileHapticSemanticRequest& Request,
+	FName PatternOverride
+)
+{
 	check(IsInGameThread());
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
@@ -585,22 +684,6 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 			FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot(),
 			Request.Options.FallbackPolicy
 		);
-	if (Resolution.Path == EOpenMobileHapticsSemanticPath::Unsupported)
-	{
-		if (Resolution.bSuppressWhenUnavailable)
-		{
-			return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
-				Request.Options.Channel,
-				TEXT("Unavailable")
-			);
-		}
-		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
-			EOpenMobileHapticsFailureReason::UnsupportedFeature,
-			EOpenMobileHapticFailureStage::Capability,
-			Descriptor.Name,
-			Request.Options.Channel
-		);
-	}
 	const bool bSelection = Descriptor.Behavior
 		== EOpenMobileHapticsSemanticBehavior::Selection;
 	if (LocalState.RateLimiter.ShouldSuppress(
@@ -616,6 +699,68 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 			Request.Options.Channel,
 			TEXT("RateLimited")
 		);
+	}
+
+	bool bOverrideFailed = false;
+	if (!PatternOverride.IsNone())
+	{
+		FOpenMobileHapticNamedPatternRequest NamedRequest;
+		NamedRequest.PatternName = PatternOverride;
+		NamedRequest.Intensity = AdjustedRequest.Intensity;
+		NamedRequest.Options = AdjustedRequest.Options;
+		const FOpenMobileHapticsBackendRequestToken OverrideToken =
+			FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+		LocalState.Requests.Add(
+			OverrideToken.RequestId,
+			{OverrideToken, 0}
+		);
+		FOpenMobileHapticPlaybackResult OverrideResult =
+			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
+				LocalState,
+				OverrideToken,
+				Request.Options.Channel,
+				Backend->SubmitNamedPattern(
+					NamedRequest,
+					OverrideToken,
+					MakeBackendCallback()
+				)
+			);
+		if (OverrideResult.IsAccepted()
+			|| OverrideResult.Outcome
+				== EOpenMobileHapticPlaybackOutcome::Suppressed)
+		{
+			OverrideResult.ResolvedPath = TEXT("NamedLibrary");
+			return OverrideResult;
+		}
+		if (Request.Options.FallbackPolicy
+			== EOpenMobileHapticFallbackPolicy::ExactOnly)
+		{
+			return OverrideResult;
+		}
+		bOverrideFailed = true;
+	}
+
+	if (Resolution.Path == EOpenMobileHapticsSemanticPath::Unsupported)
+	{
+		if (Resolution.bSuppressWhenUnavailable)
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+				Request.Options.Channel,
+				TEXT("Unavailable")
+			);
+		}
+		FOpenMobileHapticPlaybackResult Unsupported =
+			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::UnsupportedFeature,
+				EOpenMobileHapticFailureStage::Capability,
+				Descriptor.Name,
+				Request.Options.Channel
+			);
+		if (bOverrideFailed)
+		{
+			Unsupported.Error.FallbackAttempts.Add(PatternOverride);
+		}
+		return Unsupported;
 	}
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, false);
@@ -639,10 +784,18 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 			Result.ResolvedPath =
 				FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
 		}
-		if (Resolution.bFallback)
+		if (Resolution.bFallback || bOverrideFailed)
 		{
 			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
 		}
+		if (bOverrideFailed)
+		{
+			LocalState.LastError = {};
+		}
+	}
+	else if (bOverrideFailed)
+	{
+		Result.Error.FallbackAttempts.Add(PatternOverride);
 	}
 	return Result;
 }

@@ -204,6 +204,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileHaptics.h"
 		).read_text(encoding="utf-8")
 		for public_contract in (
+			"OpenMobileHapticLibrary.h",
 			"OpenMobileHapticsAsyncAction.h",
 			"OpenMobileHapticsNative.h",
 			"OpenMobileHapticsSettings.h",

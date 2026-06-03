@@ -29,6 +29,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	FOpenMobileHapticPlaybackEvent PlaybackEvent;
 	FOpenMobileHapticUserPolicy Policy;
 	FOpenMobileHapticsDiagnostics Diagnostics;
+	UOpenMobileHapticLibrary* Library = nullptr;
 	UOpenMobileHapticsSettings* Settings = nullptr;
 	static_cast<void>(Capabilities);
 	static_cast<void>(NamedSupport);
@@ -45,6 +46,7 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 	static_cast<void>(PlaybackEvent);
 	static_cast<void>(Policy);
 	static_cast<void>(Diagnostics);
+	static_cast<void>(Library);
 	static_cast<void>(Settings);
 
 	using FNativeSemanticSubmit = FOpenMobileHapticPlaybackResult (
@@ -61,6 +63,22 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 		GET_FUNCTION_NAME_CHECKED(
 			UOpenMobileHapticsSubsystem,
 			GetHapticCapabilities
+		),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileHapticsSubsystem,
+			PlaySelectionFeedback
+		),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileHapticsSubsystem,
+			PlayImpactFeedback
+		),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileHapticsSubsystem,
+			PlayNotificationFeedback
+		),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileHapticsSubsystem,
+			PlayGameFeedback
 		),
 		GET_FUNCTION_NAME_CHECKED(
 			UOpenMobileHapticsSubsystem,
