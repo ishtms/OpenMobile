@@ -1,13 +1,17 @@
 #include "OpenMobileDeviceIOSDisplay.h"
 
+#include "DynamicRHI.h"
 #include "IOS/IOSAppDelegate.h"
 #include "IOS/IOSView.h"
+#include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 #include "OpenMobileDeviceWindowMode.h"
 #include "OpenMobileDeviceWindowOrientation.h"
+#include "RHIGlobals.h"
 
+#include <TargetConditionals.h>
 #import <UIKit/UIKit.h>
 
 FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
@@ -16,8 +20,15 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 	{
 		__block FOpenMobileDeviceWindowMetricsEvidence Evidence;
 		__block FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
+		__block FOpenMobileDeviceHdrEvidence HdrEvidence;
 		__block FOpenMobileDeviceWindowInsetsEvidence InsetEvidence;
 		__block int32 InterfaceOrientation = 0;
+#if !TARGET_OS_SIMULATOR
+		if (GDynamicRHI)
+		{
+			HdrEvidence.bHdrOutputActive = GRHIIsHDREnabled;
+		}
+#endif
 		void (^CaptureMetrics)(void) = ^{
 			FIOSView* View = [IOSAppDelegate GetDelegate].IOSView;
 			if (View == nil)
@@ -57,6 +68,34 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 			{
 				RefreshRateEvidence.MaximumRefreshRateHz =
 					static_cast<float>(Screen.maximumFramesPerSecond);
+#if !TARGET_OS_SIMULATOR
+				if (@available(iOS 10.0, *))
+				{
+					switch (View.traitCollection.displayGamut)
+					{
+					case UIDisplayGamutP3:
+						HdrEvidence.bWideColorAvailable = true;
+						break;
+					case UIDisplayGamutSRGB:
+						HdrEvidence.bWideColorAvailable = false;
+						break;
+					case UIDisplayGamutUnspecified:
+					default:
+						break;
+					}
+				}
+				if (@available(iOS 16.0, *))
+				{
+					const CGFloat PotentialHeadroom =
+						Screen.potentialEDRHeadroom;
+					if (FMath::IsFinite(PotentialHeadroom)
+						&& PotentialHeadroom >= 1.0)
+					{
+						HdrEvidence.bHdrAvailable =
+							PotentialHeadroom > 1.0;
+					}
+				}
+#endif
 				UIWindowScene* WindowScene = View.window.windowScene;
 				InterfaceOrientation = static_cast<int32>(
 					WindowScene.interfaceOrientation
@@ -128,6 +167,7 @@ FOpenMobileWindowDisplaySnapshot GetOpenMobileDeviceIOSWindowDisplaySnapshot()
 			Snapshot,
 			RefreshRateEvidence
 		);
+		FOpenMobileDeviceHdrInfo::Apply(Snapshot, HdrEvidence);
 		return Snapshot;
 	}
 }

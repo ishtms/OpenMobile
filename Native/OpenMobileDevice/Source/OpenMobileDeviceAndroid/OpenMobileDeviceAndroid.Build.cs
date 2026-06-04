@@ -12,7 +12,8 @@ public class OpenMobileDeviceAndroid : ModuleRules
 			"ApplicationCore",
 			"Core",
 			"Launch",
-			"OpenMobileDevice"
+			"OpenMobileDevice",
+			"RHI"
 		});
 
 		PrivateIncludePathModuleNames.Add("Launch");

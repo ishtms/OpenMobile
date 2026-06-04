@@ -10,7 +10,8 @@ public class OpenMobileDeviceIOS : ModuleRules
 		{
 			"ApplicationCore",
 			"Core",
-			"OpenMobileDevice"
+			"OpenMobileDevice",
+			"RHI"
 		});
 
 		PublicFrameworks.AddRange(new[]

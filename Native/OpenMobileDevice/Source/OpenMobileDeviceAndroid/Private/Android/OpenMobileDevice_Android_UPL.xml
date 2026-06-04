@@ -28,6 +28,8 @@ import androidx.window.layout.WindowLayoutInfo;
 	private boolean OpenMobileDeviceWindowMonitoring = false;
 	private WindowInfoTrackerCallbackAdapter OpenMobileDeviceWindowInfoTracker;
 	private Consumer<WindowLayoutInfo> OpenMobileDeviceWindowLayoutConsumer;
+	private android.hardware.display.DisplayManager.DisplayListener
+		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
 
 	public native void nativeOpenMobileDeviceWindowChanged();
@@ -142,14 +144,43 @@ import androidx.window.layout.WindowLayoutInfo;
 				executor,
 				OpenMobileDeviceWindowLayoutConsumer
 			);
+			android.hardware.display.DisplayManager displayManager =
+				(android.hardware.display.DisplayManager)getSystemService(
+					android.content.Context.DISPLAY_SERVICE
+				);
+			if (displayManager != null)
+			{
+				OpenMobileDeviceDisplayListener =
+					new android.hardware.display.DisplayManager.DisplayListener()
+					{
+						@Override
+						public void onDisplayAdded(int displayId)
+						{
+							OpenMobileDeviceNotifyWindowChanged();
+						}
+
+						@Override
+						public void onDisplayChanged(int displayId)
+						{
+							OpenMobileDeviceNotifyWindowChanged();
+						}
+
+						@Override
+						public void onDisplayRemoved(int displayId)
+						{
+							OpenMobileDeviceNotifyWindowChanged();
+						}
+					};
+				displayManager.registerDisplayListener(
+					OpenMobileDeviceDisplayListener,
+					new android.os.Handler(android.os.Looper.getMainLooper())
+				);
+			}
 			return true;
 		}
 		catch (RuntimeException ignored)
 		{
-			OpenMobileDeviceWindowMonitoring = false;
-			OpenMobileDeviceWindowInfoTracker = null;
-			OpenMobileDeviceWindowLayoutConsumer = null;
-			OpenMobileDeviceFoldableInfo = new float[0];
+			AndroidThunkJava_OpenMobileDeviceStopWindowMonitoring();
 			return false;
 		}
 	}
@@ -157,6 +188,26 @@ import androidx.window.layout.WindowLayoutInfo;
 	public void AndroidThunkJava_OpenMobileDeviceStopWindowMonitoring()
 	{
 		OpenMobileDeviceWindowMonitoring = false;
+		if (OpenMobileDeviceDisplayListener != null)
+		{
+			android.hardware.display.DisplayManager displayManager =
+				(android.hardware.display.DisplayManager)getSystemService(
+					android.content.Context.DISPLAY_SERVICE
+				);
+			if (displayManager != null)
+			{
+				try
+				{
+					displayManager.unregisterDisplayListener(
+						OpenMobileDeviceDisplayListener
+					);
+				}
+				catch (RuntimeException ignored)
+				{
+				}
+			}
+		}
+		OpenMobileDeviceDisplayListener = null;
 		if (OpenMobileDeviceWindowInfoTracker != null
 			&& OpenMobileDeviceWindowLayoutConsumer != null)
 		{

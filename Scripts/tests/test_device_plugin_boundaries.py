@@ -574,6 +574,92 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 						str(path),
 					)
 
+	def test_hdr_capability_uses_active_display_and_separate_output_state(self) -> None:
+		android_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidDisplay.cpp"
+		).read_text(encoding="utf-8")
+		ios_display = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSDisplay.mm"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"getHdrCapabilities",
+			"getSupportedHdrTypes",
+			"isWideColorGamut",
+			"isScreenWideColorGamut",
+			"FOpenMobileDeviceHdrInfo::Apply",
+			"GRHIIsHDREnabled",
+		):
+			self.assertIn(token, android_display)
+		for token in (
+			"potentialEDRHeadroom",
+			"UIDisplayGamutP3",
+			"FOpenMobileDeviceHdrInfo::Apply",
+			"GRHIIsHDREnabled",
+			"TARGET_OS_SIMULATOR",
+		):
+			self.assertIn(token, ios_display)
+		for token in (
+			"DisplayManager.DisplayListener",
+			"registerDisplayListener",
+			"unregisterDisplayListener",
+			"onDisplayChanged",
+		):
+			self.assertIn(token, android_upl)
+		self.assertIn("HdrWideColor", android_backend)
+		self.assertIn("GetAndroidBuildVersion() >= 24", android_backend)
+		self.assertIn("HdrWideColor", ios_backend)
+		self.assertIn("TARGET_OS_SIMULATOR", ios_backend)
+
+		common_build = (
+			DEVICE_PLUGIN / "Source" / "OpenMobileDevice" / "OpenMobileDevice.Build.cs"
+		).read_text(encoding="utf-8")
+		android_build = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "OpenMobileDeviceAndroid.Build.cs"
+		).read_text(encoding="utf-8")
+		ios_build = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "OpenMobileDeviceIOS.Build.cs"
+		).read_text(encoding="utf-8")
+		self.assertNotIn('"RHI"', common_build)
+		self.assertIn('"RHI"', android_build)
+		self.assertIn('"RHI"', ios_build)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

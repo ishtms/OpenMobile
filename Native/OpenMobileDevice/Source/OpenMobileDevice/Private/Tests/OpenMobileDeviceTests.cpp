@@ -29,6 +29,7 @@
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceFoldableInfo.h"
+#include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceLocaleInfo.h"
@@ -1429,6 +1430,92 @@ bool FOpenMobileDeviceFoldableInfoTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("No fold feature stays unknown"), Snapshot.FoldablePosture, EOpenMobileFoldablePosture::Unknown);
 	TestFalse(TEXT("No fold feature has no hinge"), Snapshot.bHingeBoundsAvailable);
 	TestFalse(TEXT("No fold feature has no separation value"), Snapshot.bFoldSeparatesContent.bIsAvailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceHdrInfoTest,
+	"OpenMobile.Device.Display.HdrInfo",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceHdrInfoTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	TestEqual(TEXT("Android Dolby Vision maps"), FOpenMobileDeviceHdrInfo::FromAndroidType(1), EOpenMobileHdrType::DolbyVision);
+	TestEqual(TEXT("Android HDR10 maps"), FOpenMobileDeviceHdrInfo::FromAndroidType(2), EOpenMobileHdrType::HDR10);
+	TestEqual(TEXT("Android HLG maps"), FOpenMobileDeviceHdrInfo::FromAndroidType(3), EOpenMobileHdrType::HLG);
+	TestEqual(TEXT("Android HDR10 Plus maps"), FOpenMobileDeviceHdrInfo::FromAndroidType(4), EOpenMobileHdrType::HDR10Plus);
+	TestEqual(TEXT("Future Android HDR type stays Other"), FOpenMobileDeviceHdrInfo::FromAndroidType(99), EOpenMobileHdrType::Other);
+
+	FOpenMobileWindowDisplaySnapshot Snapshot;
+	FOpenMobileDeviceHdrEvidence Sdr;
+	Sdr.bHdrAvailable = false;
+	Sdr.bSupportedHdrTypesAvailable = true;
+	Sdr.bWideColorAvailable = false;
+	Sdr.bHdrOutputActive = false;
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, Sdr);
+	TestTrue(TEXT("SDR capability is available"), Snapshot.bHdrAvailable.bIsAvailable);
+	TestFalse(TEXT("SDR display is not HDR capable"), Snapshot.bHdrAvailable.Value);
+	TestTrue(TEXT("Empty HDR type list is available"), Snapshot.bSupportedHdrTypesAvailable);
+	TestEqual(TEXT("SDR display has no HDR types"), Snapshot.SupportedHdrTypes.Num(), 0);
+	TestFalse(TEXT("SDR display is not wide color"), Snapshot.bWideColorAvailable.Value);
+	TestFalse(TEXT("SDR output state is independent"), Snapshot.bHdrOutputActive.Value);
+
+	FOpenMobileDeviceHdrEvidence Hdr;
+	Hdr.bHdrAvailable = true;
+	Hdr.bSupportedHdrTypesAvailable = true;
+	Hdr.SupportedHdrTypes = {
+		EOpenMobileHdrType::DolbyVision,
+		EOpenMobileHdrType::HDR10,
+		EOpenMobileHdrType::HLG,
+		EOpenMobileHdrType::HDR10Plus,
+		EOpenMobileHdrType::HDR10,
+		EOpenMobileHdrType::Unknown
+	};
+	Hdr.bWideColorAvailable = true;
+	Hdr.bHdrOutputActive = false;
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, Hdr);
+	TestTrue(TEXT("HDR display is capable"), Snapshot.bHdrAvailable.Value);
+	TestEqual(TEXT("HDR types are deduplicated"), Snapshot.SupportedHdrTypes.Num(), 5);
+	TestEqual(TEXT("HDR10 sorts first"), Snapshot.SupportedHdrTypes[0], EOpenMobileHdrType::HDR10);
+	TestEqual(TEXT("HDR10 Plus is retained"), Snapshot.SupportedHdrTypes[1], EOpenMobileHdrType::HDR10Plus);
+	TestEqual(TEXT("HLG is retained"), Snapshot.SupportedHdrTypes[2], EOpenMobileHdrType::HLG);
+	TestEqual(TEXT("Dolby Vision is retained"), Snapshot.SupportedHdrTypes[3], EOpenMobileHdrType::DolbyVision);
+	TestEqual(TEXT("Future native HDR type maps to Other"), Snapshot.SupportedHdrTypes[4], EOpenMobileHdrType::Other);
+	TestTrue(TEXT("Wide color capability is separate"), Snapshot.bWideColorAvailable.Value);
+	TestFalse(TEXT("HDR capability does not enable output"), Snapshot.bHdrOutputActive.Value);
+
+	FOpenMobileDeviceHdrEvidence AppleEdr;
+	AppleEdr.bHdrAvailable = true;
+	AppleEdr.bWideColorAvailable = true;
+	AppleEdr.bHdrOutputActive = false;
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, AppleEdr);
+	TestTrue(TEXT("EDR display reports HDR capability"), Snapshot.bHdrAvailable.Value);
+	TestFalse(TEXT("EDR does not invent an HDR type catalog"), Snapshot.bSupportedHdrTypesAvailable);
+
+	FOpenMobileDeviceHdrEvidence ExternalSdr;
+	ExternalSdr.bHdrAvailable = false;
+	ExternalSdr.bSupportedHdrTypesAvailable = true;
+	ExternalSdr.bWideColorAvailable = true;
+	ExternalSdr.bHdrOutputActive = false;
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, ExternalSdr);
+	TestFalse(TEXT("External display migration replaces HDR capability"), Snapshot.bHdrAvailable.Value);
+	TestEqual(TEXT("External display migration clears old HDR types"), Snapshot.SupportedHdrTypes.Num(), 0);
+	TestTrue(TEXT("Wide color can exist without HDR"), Snapshot.bWideColorAvailable.Value);
+
+	FOpenMobileDeviceHdrEvidence OutputOnly;
+	OutputOnly.bHdrOutputActive = true;
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, OutputOnly);
+	TestFalse(TEXT("Unavailable display capability stays unavailable"), Snapshot.bHdrAvailable.bIsAvailable);
+	TestTrue(TEXT("Renderer output state stays separately available"), Snapshot.bHdrOutputActive.bIsAvailable);
+	TestTrue(TEXT("Renderer output state is retained"), Snapshot.bHdrOutputActive.Value);
+	TestFalse(TEXT("Unavailable type detail stays unavailable"), Snapshot.bSupportedHdrTypesAvailable);
+	TestFalse(TEXT("Unavailable wide color stays unavailable"), Snapshot.bWideColorAvailable.bIsAvailable);
+
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, {});
+	TestFalse(TEXT("Simulator fixture leaves HDR unavailable"), Snapshot.bHdrAvailable.bIsAvailable);
+	TestFalse(TEXT("Simulator fixture clears output state"), Snapshot.bHdrOutputActive.bIsAvailable);
 	return true;
 }
 

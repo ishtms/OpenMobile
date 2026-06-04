@@ -2,13 +2,16 @@
 
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidPlatformMisc.h"
+#include "DynamicRHI.h"
 #include "OpenMobileDeviceDisplayCutoutInfo.h"
 #include "OpenMobileDeviceFoldableInfo.h"
+#include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceWindowInsets.h"
 #include "OpenMobileDeviceWindowMetrics.h"
 #include "OpenMobileDeviceWindowMode.h"
 #include "OpenMobileDeviceWindowOrientation.h"
+#include "RHIGlobals.h"
 
 namespace OpenMobileDeviceAndroidDisplayPrivate
 {
@@ -235,11 +238,177 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 		}
 	}
 
+	void ReadHdrTypes(
+		JNIEnv* Env,
+		jobject Display,
+		jclass DisplayClass,
+		FOpenMobileDeviceHdrEvidence& Evidence
+	)
+	{
+		if (FAndroidMisc::GetAndroidBuildVersion() < 24)
+		{
+			return;
+		}
+		const jmethodID GetHdrCapabilities = Env->GetMethodID(
+			DisplayClass,
+			"getHdrCapabilities",
+			"()Landroid/view/Display$HdrCapabilities;"
+		);
+		if (!GetHdrCapabilities || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jobject> HdrCapabilities(
+			Env->CallObjectMethod(Display, GetHdrCapabilities)
+		);
+		if (!HdrCapabilities || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jclass> HdrCapabilitiesClass(
+			Env->GetObjectClass(*HdrCapabilities)
+		);
+		const jmethodID GetSupportedHdrTypes = HdrCapabilitiesClass
+			? Env->GetMethodID(
+				*HdrCapabilitiesClass,
+				"getSupportedHdrTypes",
+				"()[I"
+			)
+			: nullptr;
+		if (!GetSupportedHdrTypes || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jintArray> NativeTypes(
+			static_cast<jintArray>(Env->CallObjectMethod(
+				*HdrCapabilities,
+				GetSupportedHdrTypes
+			))
+		);
+		if (!NativeTypes || ClearJavaException(Env))
+		{
+			return;
+		}
+		const jsize TypeCount = Env->GetArrayLength(*NativeTypes);
+		TArray<jint> Types;
+		Types.SetNumUninitialized(TypeCount);
+		if (TypeCount > 0)
+		{
+			Env->GetIntArrayRegion(
+				*NativeTypes,
+				0,
+				TypeCount,
+				Types.GetData()
+			);
+		}
+		if (ClearJavaException(Env))
+		{
+			return;
+		}
+		Evidence.bHdrAvailable = TypeCount > 0;
+		Evidence.bSupportedHdrTypesAvailable = true;
+		for (const jint Type : Types)
+		{
+			Evidence.SupportedHdrTypes.Add(
+				FOpenMobileDeviceHdrInfo::FromAndroidType(Type)
+			);
+		}
+	}
+
+	void ReadWideColorSupport(
+		JNIEnv* Env,
+		jobject Activity,
+		jobject Display,
+		jclass DisplayClass,
+		FOpenMobileDeviceHdrEvidence& Evidence
+	)
+	{
+		if (FAndroidMisc::GetAndroidBuildVersion() < 26)
+		{
+			return;
+		}
+		const jmethodID IsWideColorGamut = Env->GetMethodID(
+			DisplayClass,
+			"isWideColorGamut",
+			"()Z"
+		);
+		if (!IsWideColorGamut || ClearJavaException(Env))
+		{
+			return;
+		}
+		const bool bDisplayWideColor = Env->CallBooleanMethod(
+			Display,
+			IsWideColorGamut
+		) == JNI_TRUE;
+		if (ClearJavaException(Env))
+		{
+			return;
+		}
+
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID GetResources = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"getResources",
+				"()Landroid/content/res/Resources;"
+			)
+			: nullptr;
+		if (!GetResources || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jobject> Resources(
+			Env->CallObjectMethod(Activity, GetResources)
+		);
+		FScopedJavaObject<jclass> ResourcesClass(
+			Resources ? Env->GetObjectClass(*Resources) : nullptr
+		);
+		const jmethodID GetConfiguration = ResourcesClass
+			? Env->GetMethodID(
+				*ResourcesClass,
+				"getConfiguration",
+				"()Landroid/content/res/Configuration;"
+			)
+			: nullptr;
+		if (!Resources || !GetConfiguration || ClearJavaException(Env))
+		{
+			return;
+		}
+		FScopedJavaObject<jobject> Configuration(
+			Env->CallObjectMethod(*Resources, GetConfiguration)
+		);
+		FScopedJavaObject<jclass> ConfigurationClass(
+			Configuration ? Env->GetObjectClass(*Configuration) : nullptr
+		);
+		const jmethodID IsScreenWideColorGamut = ConfigurationClass
+			? Env->GetMethodID(
+				*ConfigurationClass,
+				"isScreenWideColorGamut",
+				"()Z"
+			)
+			: nullptr;
+		if (!Configuration || !IsScreenWideColorGamut
+			|| ClearJavaException(Env))
+		{
+			return;
+		}
+		const bool bRendererWideColor = Env->CallBooleanMethod(
+			*Configuration,
+			IsScreenWideColorGamut
+		) == JNI_TRUE;
+		if (!ClearJavaException(Env))
+		{
+			Evidence.bWideColorAvailable =
+				bDisplayWideColor && bRendererWideColor;
+		}
+	}
+
 	void ReadDisplayAndWindowMode(
 		JNIEnv* Env,
 		jobject Activity,
 		FOpenMobileDeviceWindowMetricsEvidence& Evidence,
-		FOpenMobileDeviceRefreshRateEvidence& RefreshRateEvidence
+		FOpenMobileDeviceRefreshRateEvidence& RefreshRateEvidence,
+		FOpenMobileDeviceHdrEvidence& HdrEvidence
 	)
 	{
 		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
@@ -303,6 +472,19 @@ namespace OpenMobileDeviceAndroidDisplayPrivate
 					*Display,
 					*DisplayClass,
 					RefreshRateEvidence
+				);
+				ReadHdrTypes(
+					Env,
+					*Display,
+					*DisplayClass,
+					HdrEvidence
+				);
+				ReadWideColorSupport(
+					Env,
+					Activity,
+					*Display,
+					*DisplayClass,
+					HdrEvidence
 				);
 			}
 		}
@@ -653,6 +835,11 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 {
 	FOpenMobileDeviceWindowMetricsEvidence Evidence;
 	FOpenMobileDeviceRefreshRateEvidence RefreshRateEvidence;
+	FOpenMobileDeviceHdrEvidence HdrEvidence;
+	if (GDynamicRHI)
+	{
+		HdrEvidence.bHdrOutputActive = GRHIIsHDREnabled;
+	}
 	if (FAndroidApplication* Application = FAndroidApplication::Get())
 	{
 		int32 Width = 0;
@@ -675,7 +862,8 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 			Env,
 			Activity,
 			Evidence,
-			RefreshRateEvidence
+			RefreshRateEvidence,
+			HdrEvidence
 		);
 	}
 	FOpenMobileWindowDisplaySnapshot Snapshot =
@@ -708,6 +896,7 @@ GetOpenMobileDeviceAndroidWindowDisplaySnapshot()
 			);
 	}
 	FOpenMobileDeviceRefreshRateInfo::Apply(Snapshot, RefreshRateEvidence);
+	FOpenMobileDeviceHdrInfo::Apply(Snapshot, HdrEvidence);
 	return Snapshot;
 }
 
