@@ -4,6 +4,7 @@
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSettings.h"
 
 namespace OpenMobileSensorsSubscriptionServicePrivate
@@ -298,6 +299,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		Entry->State = State;
 		Entry->Error = Error;
+		FOpenMobileSensorsSampleService::SetSubscriptionState(
+			Entry->Handle,
+			State
+		);
 		BroadcastState(*Entry);
 	}
 
@@ -601,6 +606,7 @@ void FOpenMobileSensorsSubscriptionService::Start()
 	bShuttingDown = false;
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
+	FOpenMobileSensorsSampleService::UnregisterAll();
 }
 
 void FOpenMobileSensorsSubscriptionService::BeginShutdown()
@@ -615,6 +621,7 @@ void FOpenMobileSensorsSubscriptionService::BeginShutdown()
 	CancelPendingOperationsTick();
 	StopPhysicalStreams();
 	Subscriptions.Reset();
+	FOpenMobileSensorsSampleService::UnregisterAll();
 	StateChangedEvent.Clear();
 }
 
@@ -625,6 +632,7 @@ void FOpenMobileSensorsSubscriptionService::HandleBackendGenerationChanged()
 	CancelPendingOperationsTick();
 	StopPhysicalStreams();
 	Subscriptions.Reset();
+	FOpenMobileSensorsSampleService::UnregisterAll();
 }
 
 FOpenMobileSensorSubscriptionResult
@@ -693,6 +701,12 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	Entry.PhysicalKey = MakePhysicalKey(Request.Sensor, AppliedOptions);
 	Entry.BackendToken = BackendToken;
 	Subscriptions.Add(Handle.Identifier, MoveTemp(Entry));
+	FOpenMobileSensorsSampleService::RegisterSubscription(
+		OwnerIdentifier,
+		Handle,
+		Request.Sensor,
+		AppliedOptions
+	);
 	SchedulePendingBackendOperations();
 
 	Result.Handle = Handle;
@@ -754,6 +768,10 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	Entry->PhysicalKey = NewKey;
 	if (Entry->State != EOpenMobileSensorSubscriptionState::Active)
 	{
+		FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
+			Handle,
+			AppliedOptions
+		);
 		return MakeSuccess();
 	}
 
@@ -770,6 +788,10 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	}
 	if (DesiredRequest == Physical->Request)
 	{
+		FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
+			Handle,
+			AppliedOptions
+		);
 		return MakeSuccess();
 	}
 	FOpenMobileSensorPhysicalStreamRequest BackendRequest = DesiredRequest;
@@ -786,6 +808,10 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 		return ReconfigureResult;
 	}
 	Physical->Request = MoveTemp(BackendRequest);
+	FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
+		Handle,
+		AppliedOptions
+	);
 	return MakeSuccess();
 }
 
@@ -818,6 +844,7 @@ FOpenMobileSensorsSubscriptionService::StopSubscription(
 	}
 	const FPhysicalStreamKey Key = Entry->PhysicalKey;
 	Subscriptions.Remove(Handle.GetIdentifier());
+	FOpenMobileSensorsSampleService::UnregisterSubscription(Handle);
 	ReconcilePhysicalStream(Key);
 	FSubscriptionEntry FinalEntry = StoppedEntry;
 	FinalEntry.State = EOpenMobileSensorSubscriptionState::Stopped;
@@ -1025,6 +1052,7 @@ void FOpenMobileSensorsSubscriptionService::ResetForTests()
 	CancelPendingOperationsTick();
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
+	FOpenMobileSensorsSampleService::UnregisterAll();
 	StateChangedEvent.Clear();
 	NextHandleGeneration = 1;
 	bShuttingDown = false;

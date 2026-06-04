@@ -4,6 +4,7 @@
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorRecording.h"
+#include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.h"
 #include "OpenMobileSensorResults.generated.h"
@@ -87,6 +88,15 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReadResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	int64 Sequence = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bSampleValid = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorAccuracy Accuracy = EOpenMobileSensorAccuracy::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags"))
+	int32 SourceFlags = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;

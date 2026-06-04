@@ -3,37 +3,16 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "HAL/PlatformTime.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsMetadataService.h"
 #include "OpenMobileSensorsModule.h"
+#include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
 namespace OpenMobileSensorsSubsystemPrivate
 {
-	template <typename SampleType>
-	bool ReadUnavailable(
-		const FGuid& OwnerIdentifier,
-		const FOpenMobileSensorSubscriptionHandle& Handle,
-		FOpenMobileSensorReadResult& OutResult,
-		SampleType& OutSample
-	)
-	{
-		OutSample = {};
-		OutResult = {};
-		const FOpenMobileSensorOperationResult HandleStatus =
-			FOpenMobileSensorsSubscriptionService::GetHandleStatus(
-				OwnerIdentifier,
-				Handle
-			);
-		if (!HandleStatus.IsSuccess())
-		{
-			OutResult.Status = EOpenMobileSensorReadStatus::InvalidHandle;
-			OutResult.Error = HandleStatus.Error;
-		}
-		return false;
-	}
-
 	template <typename BatchType>
 	bool DrainUnavailable(
 		const FGuid& OwnerIdentifier,
@@ -221,7 +200,9 @@ bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
 	);
 }
 
-#define OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(MethodName, SampleType) \
+#define OPENMOBILE_IMPLEMENT_LATEST_SAMPLE( \
+	MethodName, ServiceMethod, SampleType \
+) \
 	bool UOpenMobileSensorsSubsystem::MethodName( \
 		const FOpenMobileSensorSubscriptionHandle& Handle, \
 		int64 LastSeenSequence, \
@@ -229,42 +210,50 @@ bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
 		SampleType& OutSample \
 	) const \
 	{ \
-		static_cast<void>(LastSeenSequence); \
-		return OpenMobileSensorsSubsystemPrivate::ReadUnavailable( \
-			SubscriptionOwnerIdentifier, Handle, OutResult, OutSample \
+		return FOpenMobileSensorsSampleService::ServiceMethod( \
+			SubscriptionOwnerIdentifier, Handle, LastSeenSequence, \
+			FPlatformTime::Seconds(), OutResult, OutSample \
 		); \
 	}
 
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestVectorSampleNative,
+	ReadLatestVector,
 	FOpenMobileVectorSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestAttitudeSampleNative,
+	ReadLatestAttitude,
 	FOpenMobileAttitudeSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestScalarSampleNative,
+	ReadLatestScalar,
 	FOpenMobileScalarSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestHeadingSampleNative,
+	ReadLatestHeading,
 	FOpenMobileHeadingSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestStepsSampleNative,
+	ReadLatestSteps,
 	FOpenMobileStepsSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestActivitySampleNative,
+	ReadLatestActivity,
 	FOpenMobileActivitySensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestOrientationSampleNative,
+	ReadLatestOrientation,
 	FOpenMobileOrientationSensorSample
 )
 OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 	GetLatestProximitySampleNative,
+	ReadLatestProximity,
 	FOpenMobileProximitySensorSample
 )
 

@@ -69,7 +69,19 @@ class SensorsErrorModelTests(unittest.TestCase):
 			"RegisterBackend",
 		):
 			self.assertNotIn(side_effect, capability_body)
-		self.assertIn("ReadUnavailable", subsystem)
+		latest_body = subsystem.split(
+			"#define OPENMOBILE_IMPLEMENT_LATEST_SAMPLE",
+			1,
+		)[1].split("#undef OPENMOBILE_IMPLEMENT_LATEST_SAMPLE", 1)[0]
+		self.assertIn("FOpenMobileSensorsSampleService::ServiceMethod", latest_body)
+		for side_effect in (
+			"RequestPermission",
+			"StartSubscription",
+			"Initialize",
+			"LoadModule",
+			"RegisterBackend",
+		):
+			self.assertNotIn(side_effect, latest_body)
 
 	def test_unreal_tests_cover_mapping_and_query_contracts(self) -> None:
 		tests = (
