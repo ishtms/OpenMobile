@@ -15,6 +15,12 @@ public:
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
+	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
+		const FOpenMobileHapticOneShotRequest& Request,
+		const FOpenMobileHapticsOneShotResolution& Resolution,
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		FOpenMobileHapticsBackendEventCallback Callback
+	) override;
 	virtual void BeginShutdown() override;
 
 private:

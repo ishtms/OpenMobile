@@ -349,6 +349,53 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	return Submission;
 }
 
+FOpenMobileHapticsBackendSubmission
+FOpenMobileHapticsIOSBackend::SubmitOneShot(
+	const FOpenMobileHapticOneShotRequest& Request,
+	const FOpenMobileHapticsOneShotResolution& Resolution,
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	FOpenMobileHapticsBackendEventCallback Callback
+)
+{
+	static_cast<void>(Token);
+	static_cast<void>(Callback);
+	FOpenMobileHapticsBackendSubmission Submission;
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::Unsupported)
+	{
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Apple device has no available one-shot vibration path.")
+		);
+		return Submission;
+	}
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration)
+	{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
+		});
+	}
+	else
+	{
+		if (!SemanticGeneratorCache)
+		{
+			SemanticGeneratorCache =
+				[[OpenMobileHapticsSemanticGeneratorCache alloc] init];
+		}
+		OpenMobileHapticsIOSBackendPrivate::PlaySystemSemantic(
+			static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
+				SemanticGeneratorCache
+			),
+			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
+			Request.Intensity
+		);
+	}
+	Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+	Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+	Submission.Result.ResolvedPath =
+		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	return Submission;
+}
+
 void FOpenMobileHapticsIOSBackend::BeginShutdown()
 {
 	OpenMobileHapticsSemanticGeneratorCache* Cache =

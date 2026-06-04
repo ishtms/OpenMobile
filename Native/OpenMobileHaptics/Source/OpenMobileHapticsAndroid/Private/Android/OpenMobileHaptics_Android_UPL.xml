@@ -247,6 +247,117 @@ import java.lang.reflect.Method;
         }
     }
 
+    public int AndroidThunkJava_OpenMobileHapticsPlayOneShot(
+        long durationMillis,
+        float intensity,
+        int path,
+        int purpose
+    )
+    {
+        try
+        {
+            if (path == 1)
+            {
+                final View view = getWindow() != null
+                    ? getWindow().getDecorView()
+                    : null;
+                if (view == null || !view.isShown() || !view.hasWindowFocus())
+                {
+                    return 2;
+                }
+                if (Looper.myLooper() == Looper.getMainLooper())
+                {
+                    return view.performHapticFeedback(
+                        Build.VERSION.SDK_INT &gt;= 23
+                            ? HapticFeedbackConstants.CONTEXT_CLICK
+                            : HapticFeedbackConstants.VIRTUAL_KEY
+                    ) ? 1 : 2;
+                }
+                return view.post(new Runnable()
+                {
+                    @Override
+                    public void run()
+                    {
+                        view.performHapticFeedback(
+                            Build.VERSION.SDK_INT &gt;= 23
+                                ? HapticFeedbackConstants.CONTEXT_CLICK
+                                : HapticFeedbackConstants.VIRTUAL_KEY
+                        );
+                    }
+                }) ? 1 : 2;
+            }
+
+            Vibrator vibrator = OpenMobileHapticsVibrator();
+            if (vibrator == null || !vibrator.hasVibrator())
+            {
+                return 4;
+            }
+            if (Settings.System.getInt(
+                    getContentResolver(),
+                    Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                    1
+                ) == 0)
+            {
+                return 2;
+            }
+            VibrationEffect effect = null;
+            boolean usedFallback = false;
+            if (path == 2)
+            {
+                if (Build.VERSION.SDK_INT &gt;= 29)
+                {
+                    effect = VibrationEffect.createPredefined(
+                        VibrationEffect.EFFECT_CLICK
+                    );
+                }
+                else
+                {
+                    usedFallback = true;
+                }
+            }
+            else if (path != 3)
+            {
+                return 4;
+            }
+            if (effect == null &amp;&amp; Build.VERSION.SDK_INT &gt;= 26)
+            {
+                int amplitude = vibrator.hasAmplitudeControl()
+                    ? Math.max(1, Math.min(255, Math.round(intensity * 255.0f)))
+                    : VibrationEffect.DEFAULT_AMPLITUDE;
+                effect = VibrationEffect.createOneShot(durationMillis, amplitude);
+            }
+            if (Build.VERSION.SDK_INT &gt;= 33)
+            {
+                vibrator.vibrate(
+                    effect,
+                    VibrationAttributes.createForUsage(
+                        OpenMobileHapticsVibrationUsage(purpose)
+                    )
+                );
+            }
+            else if (Build.VERSION.SDK_INT &gt;= 26)
+            {
+                vibrator.vibrate(effect, OpenMobileHapticsAudioAttributes(purpose));
+            }
+            else
+            {
+                vibrator.vibrate(
+                    durationMillis,
+                    OpenMobileHapticsAudioAttributes(purpose)
+                );
+            }
+            return usedFallback ? 3 : 1;
+        }
+        catch (SecurityException exception)
+        {
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return 0;
+        }
+    }
+
     private Vibrator OpenMobileHapticsVibrator()
     {
         if (Build.VERSION.SDK_INT &gt;= 31)

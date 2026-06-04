@@ -291,6 +291,44 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			).read_text(encoding="utf-8")),
 		)
 
+	def test_one_shot_native_paths_are_platform_owned(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		android_backend = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		android_bridge = (
+			android_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileHaptics_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			"AndroidThunkJava_OpenMobileHapticsPlayOneShot",
+			android_backend,
+		)
+		one_shot_bridge = android_bridge.split(
+			"AndroidThunkJava_OpenMobileHapticsPlayOneShot", 1
+		)[1].split("private Vibrator OpenMobileHapticsVibrator", 1)[0]
+		self.assertIn("VibrationEffect.createOneShot", one_shot_bridge)
+		self.assertIn("VibrationEffect.createPredefined", one_shot_bridge)
+		self.assertIn("HAPTIC_FEEDBACK_ENABLED", one_shot_bridge)
+		self.assertIn("OpenMobileHapticsVibrationUsage", one_shot_bridge)
+		self.assertNotIn("FLAG_IGNORE", one_shot_bridge)
+
+		ios_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("FOpenMobileHapticsIOSBackend::SubmitOneShot", ios_backend)
+		self.assertIn("kSystemSoundID_Vibrate", ios_backend)
+		self.assertIn(
+			"EOpenMobileHapticsSemanticBehavior::ImpactMedium",
+			ios_backend,
+		)
+
 	def test_semantic_playback_stays_in_platform_backends(self) -> None:
 		android_bridge = (
 			HAPTICS_PLUGIN

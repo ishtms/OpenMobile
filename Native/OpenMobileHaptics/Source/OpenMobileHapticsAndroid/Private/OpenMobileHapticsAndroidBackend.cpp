@@ -142,6 +142,56 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return static_cast<int32>(Result);
 	}
 
+	int32 PlayOneShot(
+		double DurationSeconds,
+		float Intensity,
+		EOpenMobileHapticsOneShotPath Path,
+		int32 Purpose
+	)
+	{
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return 0;
+		}
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID Method = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileHapticsPlayOneShot",
+				"(JFII)I"
+			)
+			: nullptr;
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return 0;
+		}
+		if (!Method)
+		{
+			return 0;
+		}
+		const jlong DurationMillis = static_cast<jlong>(FMath::Max(
+			1.0,
+			FMath::RoundToDouble(DurationSeconds * 1000.0)
+		));
+		const jint Result = Env->CallIntMethod(
+			Activity,
+			Method,
+			DurationMillis,
+			static_cast<jfloat>(Intensity),
+			static_cast<jint>(Path),
+			static_cast<jint>(Purpose)
+		);
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return 0;
+		}
+		return static_cast<int32>(Result);
+	}
+
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
 		int64 SupportedFlag,
@@ -425,6 +475,61 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::NativeFailure,
 			TEXT("Android could not submit semantic Haptics feedback.")
+		);
+		break;
+	}
+	return Submission;
+}
+
+FOpenMobileHapticsBackendSubmission
+FOpenMobileHapticsAndroidBackend::SubmitOneShot(
+	const FOpenMobileHapticOneShotRequest& Request,
+	const FOpenMobileHapticsOneShotResolution& Resolution,
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	FOpenMobileHapticsBackendEventCallback Callback
+)
+{
+	static_cast<void>(Token);
+	static_cast<void>(Callback);
+	FOpenMobileHapticsBackendSubmission Submission;
+	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
+		? 2
+		: Request.Options.Category == TEXT("Gameplay")
+			? 1
+			: 0;
+	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlayOneShot(
+		Request.DurationSeconds,
+		Request.Intensity,
+		Resolution.Path,
+		Purpose
+	);
+	Submission.Result.ResolvedPath =
+		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	switch (NativeResult)
+	{
+	case 1:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		break;
+	case 2:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Suppressed;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
+		break;
+	case 3:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		Submission.Result.ResolvedPath = TEXT("BasicVibration");
+		break;
+	case 4:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Android device has no available one-shot vibration path.")
+		);
+		break;
+	default:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android could not submit one-shot Haptics feedback.")
 		);
 		break;
 	}

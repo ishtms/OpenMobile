@@ -12,6 +12,7 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticLibrary.h"
+#include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -84,14 +85,30 @@ namespace OpenMobileHapticsTests
 
 		virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 			const FOpenMobileHapticOneShotRequest& Request,
+			const FOpenMobileHapticsOneShotResolution& Resolution,
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
-			static_cast<void>(Request);
+			LastOneShotRequest = Request;
+			LastOneShotResolution = Resolution;
 			++OneShotSubmissionCount;
 			LastToken = Token;
-			return MakeSubmission(true, true, MoveTemp(Callback));
+			if (bBusyOneShot)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						EOpenMobileErrorCode::Busy,
+						TEXT("Injected busy channel.")
+					);
+				return Submission;
+			}
+			return MakeSubmission(
+				bOneShotControllable,
+				bOneShotControllable,
+				MoveTemp(Callback)
+			);
 		}
 
 		virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
@@ -158,6 +175,8 @@ namespace OpenMobileHapticsTests
 		bool bFailSubmissionsWithoutError = false;
 		bool bNativePolicySuppressesSemantic = false;
 		bool bFailNamedSubmissions = false;
+		bool bBusyOneShot = false;
+		bool bOneShotControllable = true;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
@@ -168,8 +187,10 @@ namespace OpenMobileHapticsTests
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
+		FOpenMobileHapticOneShotRequest LastOneShotRequest;
 		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
 		FOpenMobileHapticsSemanticResolution LastSemanticResolution;
+		FOpenMobileHapticsOneShotResolution LastOneShotResolution;
 
 	private:
 		struct FPendingCallback
@@ -215,6 +236,169 @@ namespace OpenMobileHapticsTests
 		int32 Priority = 0;
 		TArray<FPendingCallback> PendingCallbacks;
 	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsOneShotPolicyTest,
+	"OpenMobile.Haptics.OneShot.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsOneShotPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	TestEqual(TEXT("Short pulse prefers semantic impact feedback"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
+		EOpenMobileHapticsOneShotPath::SystemSemantic);
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
+	TestEqual(TEXT("Short pulse falls back to a predefined effect"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
+		EOpenMobileHapticsOneShotPath::PredefinedEffect);
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Unsupported;
+	TestEqual(TEXT("Basic vibration is the final pulse path"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.2).Path,
+		EOpenMobileHapticsOneShotPath::BasicVibration);
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Unsupported;
+	TestEqual(TEXT("Missing pulse support is explicit"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.2).Path,
+		EOpenMobileHapticsOneShotPath::Unsupported);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsOneShotSubmissionTest,
+	"OpenMobile.Haptics.OneShot.Submission",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("OneShotMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	TestEqual(TEXT("One-shot minimum is conservative"),
+		Settings->MinimumOneShotDurationSeconds, 0.001f);
+	TestEqual(TEXT("One-shot maximum requires longer-pattern APIs"),
+		Settings->MaximumOneShotDurationSeconds, 1.0f);
+
+	const int32 InitialSubmissionCount = Backend.OneShotSubmissionCount;
+	TestEqual(TEXT("Zero duration is silent"),
+		Subsystem->Vibrate(0.0f, 1.0f, TEXT("ZeroDuration")).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Zero intensity is silent"),
+		Subsystem->Vibrate(0.05f, 0.0f, TEXT("ZeroIntensity")).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	for (const float InvalidDuration : {
+		-0.01f,
+		0.0005f,
+		1.01f,
+		std::numeric_limits<float>::quiet_NaN()
+	})
+	{
+		const FOpenMobileHapticPlaybackResult Invalid =
+			Subsystem->Vibrate(
+				InvalidDuration,
+				1.0f,
+				TEXT("InvalidDuration")
+			);
+		TestEqual(TEXT("Invalid one-shot duration is rejected"),
+			Invalid.Error.Code, EOpenMobileHapticErrorCode::InvalidRequest);
+	}
+	TestEqual(TEXT("Silent and invalid pulses do not reach the backend"),
+		Backend.OneShotSubmissionCount, InitialSubmissionCount);
+
+	FOpenMobileHapticUserPolicy Policy;
+	Policy.bEnabled = false;
+	Subsystem->SetUserPolicy(Policy);
+	TestEqual(TEXT("Disabled policy suppresses one-shot vibration"),
+		Subsystem->Vibrate(0.05f, 1.0f, TEXT("DisabledPulse")).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	Policy.bEnabled = true;
+	Subsystem->SetUserPolicy(Policy);
+
+	const FOpenMobileHapticPlaybackResult Minimum = Subsystem->Vibrate(
+		Settings->MinimumOneShotDurationSeconds,
+		0.25f,
+		TEXT("MinimumPulse")
+	);
+	const FOpenMobileHapticPlaybackResult Maximum = Subsystem->Vibrate(
+		Settings->MaximumOneShotDurationSeconds,
+		1.0f,
+		TEXT("MaximumPulse")
+	);
+	TestTrue(TEXT("Minimum one-shot duration is accepted"),
+		Minimum.IsAccepted());
+	TestTrue(TEXT("Maximum one-shot duration is accepted"),
+		Maximum.IsAccepted());
+	TestTrue(TEXT("Controllable mock playback receives a handle"),
+		Maximum.Handle.IsValid());
+	TestEqual(TEXT("One-shot resolution reaches the backend"),
+		Backend.LastOneShotResolution.Path,
+		EOpenMobileHapticsOneShotPath::BasicVibration);
+
+	Backend.bOneShotControllable = false;
+	const FOpenMobileHapticPlaybackResult FireAndForget = Subsystem->Vibrate(
+		0.1f,
+		0.75f,
+		TEXT("FireAndForgetPulse")
+	);
+	TestTrue(TEXT("Fire-and-forget one-shot is accepted"),
+		FireAndForget.IsAccepted());
+	TestFalse(TEXT("Fire-and-forget one-shot has no handle"),
+		FireAndForget.Handle.IsValid());
+	Backend.bOneShotControllable = true;
+
+	Backend.bBusyOneShot = true;
+	const FOpenMobileHapticPlaybackResult Busy = Subsystem->Vibrate(
+		0.1f,
+		1.0f,
+		TEXT("BusyPulse")
+	);
+	TestEqual(TEXT("Busy one-shot has a typed error"),
+		Busy.Error.Code, EOpenMobileHapticErrorCode::ChannelBusy);
+	TestFalse(TEXT("Busy one-shot has no handle"), Busy.Handle.IsValid());
+	Backend.bBusyOneShot = false;
+
+	const FOpenMobileHapticPlaybackResult FirstRateLimited =
+		Subsystem->Vibrate(0.05f, 1.0f, TEXT("PulseRate"));
+	const FOpenMobileHapticPlaybackResult SecondRateLimited =
+		Subsystem->Vibrate(0.05f, 1.0f, TEXT("PulseRate"));
+	TestTrue(TEXT("First pulse on a channel is accepted"),
+		FirstRateLimited.IsAccepted());
+	TestEqual(TEXT("Repeated pulse is suppressed before native submission"),
+		SecondRateLimited.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Unsupported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	const FOpenMobileHapticPlaybackResult Unsupported =
+		Subsystem->Vibrate(0.2f, 1.0f, TEXT("UnsupportedPulse"));
+	TestEqual(TEXT("Unsupported pulse has a typed error"),
+		Unsupported.Error.Code,
+		EOpenMobileHapticErrorCode::UnsupportedFeature);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

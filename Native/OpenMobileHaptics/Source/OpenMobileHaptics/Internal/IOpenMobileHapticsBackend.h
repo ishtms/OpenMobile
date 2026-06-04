@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
+#include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsTypes.h"
 
@@ -93,6 +94,7 @@ public:
 	) = 0;
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 		const FOpenMobileHapticOneShotRequest& Request,
+		const FOpenMobileHapticsOneShotResolution& Resolution,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) = 0;

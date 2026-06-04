@@ -32,11 +32,13 @@ public:
 	}
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 		const FOpenMobileHapticOneShotRequest& Request,
+		const FOpenMobileHapticsOneShotResolution& Resolution,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override
 	{
 		static_cast<void>(Request);
+		static_cast<void>(Resolution);
 		static_cast<void>(Token);
 		static_cast<void>(Callback);
 		return MakeUnsupportedSubmission();

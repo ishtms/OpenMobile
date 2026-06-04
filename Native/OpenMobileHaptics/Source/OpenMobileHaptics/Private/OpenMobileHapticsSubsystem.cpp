@@ -7,6 +7,7 @@
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsErrorMapper.h"
+#include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
@@ -276,7 +277,11 @@ void UOpenMobileHapticsSubsystem::Initialize(
 {
 	Super::Initialize(Collection);
 	bDeinitialized = false;
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
 	UserPolicy = {};
+	UserPolicy.bEnabled = Settings->bEnabledByDefault;
+	UserPolicy.MasterIntensity = Settings->DefaultMasterIntensity;
 	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
 }
@@ -805,6 +810,105 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 )
 {
 	check(IsInGameThread());
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	if (!FMath::IsFinite(Request.DurationSeconds)
+		|| Request.DurationSeconds < 0.0f
+		|| (Request.DurationSeconds > 0.0f
+			&& Request.DurationSeconds
+				< Settings->MinimumOneShotDurationSeconds)
+		|| Request.DurationSeconds > Settings->MaximumOneShotDurationSeconds
+		|| !FMath::IsFinite(Request.Intensity)
+		|| Request.Intensity < 0.0f
+		|| Request.Intensity > 1.0f
+		|| !FMath::IsFinite(Request.Options.IntensityScale)
+		|| Request.Options.IntensityScale < 0.0f
+		|| Request.Options.IntensityScale > 1.0f
+		|| Request.Options.Channel.IsNone()
+		|| Request.Options.Category.IsNone()
+		|| static_cast<uint8>(Request.Options.OverlapPolicy)
+			> static_cast<uint8>(EOpenMobileHapticOverlapPolicy::MixWhenSupported))
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::InvalidRequest,
+			EOpenMobileHapticFailureStage::Validation,
+			TEXT("OneShot"),
+			Request.Options.Channel
+		);
+	}
+	if (Request.DurationSeconds == 0.0f
+		|| Request.Intensity == 0.0f
+		|| !UserPolicy.bEnabled)
+	{
+		const FName Reason = !UserPolicy.bEnabled
+			? FName(TEXT("PlayerPolicy"))
+			: Request.DurationSeconds == 0.0f
+				? FName(TEXT("ZeroDuration"))
+				: FName(TEXT("ZeroIntensity"));
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			Reason
+		);
+	}
+	if (!FOpenMobileHapticsBackendRegistry::IsApplicationActive()
+		&& Settings->BackgroundPolicy
+			!= EOpenMobileHapticBackgroundPolicy::AllowAll
+		&& (Settings->BackgroundPolicy
+				!= EOpenMobileHapticBackgroundPolicy::CriticalOnly
+			|| Request.Options.Priority
+				!= EOpenMobileHapticChannelPriority::Critical))
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("BackgroundPolicy")
+		);
+	}
+
+	FOpenMobileHapticOneShotRequest AdjustedRequest = Request;
+	float ProjectScale = 1.0f;
+	double MinimumIntervalSeconds = Settings->DefaultMinimumIntervalSeconds;
+	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
+	{
+		if (Channel.Name == Request.Options.Channel)
+		{
+			ProjectScale *= Channel.IntensityScale;
+			MinimumIntervalSeconds = Channel.MinimumIntervalSeconds;
+			break;
+		}
+	}
+	for (const FOpenMobileHapticEffectSettings& Effect :
+		Settings->EffectOverrides)
+	{
+		if (Effect.Name == TEXT("OneShot"))
+		{
+			ProjectScale *= Effect.IntensityScale;
+			MinimumIntervalSeconds = FMath::Max<double>(
+				MinimumIntervalSeconds,
+				Effect.MinimumIntervalSeconds
+			);
+			break;
+		}
+	}
+	AdjustedRequest.Intensity = Request.Intensity
+		* Request.Options.IntensityScale
+		* UserPolicy.MasterIntensity
+		* OpenMobileHapticsSubsystemPrivate::FindScale(
+			UserPolicy.CategoryScales,
+			Request.Options.Category
+		)
+		* OpenMobileHapticsSubsystemPrivate::FindScale(
+			UserPolicy.EffectScales,
+			TEXT("OneShot")
+		)
+		* ProjectScale;
+	if (AdjustedRequest.Intensity <= 0.0f)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("ZeroIntensity")
+		);
+	}
+
 	IOpenMobileHapticsBackend* Backend = bDeinitialized
 		? nullptr
 		: FOpenMobileHapticsBackendRegistry::FindBackend();
@@ -814,15 +918,63 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	}
 
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const FOpenMobileHapticsOneShotResolution Resolution =
+		FOpenMobileHapticsOneShotPolicy::Resolve(
+			FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot(),
+			Request.DurationSeconds,
+			Request.Options.FallbackPolicy
+		);
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::Unsupported)
+	{
+		if (Resolution.bSuppressWhenUnavailable)
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+				Request.Options.Channel,
+				TEXT("Unavailable")
+			);
+		}
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::UnsupportedFeature,
+			EOpenMobileHapticFailureStage::Capability,
+			TEXT("OneShot"),
+			Request.Options.Channel
+		);
+	}
+	if (LocalState.RateLimiter.ShouldSuppress(
+		Request.Options.Channel,
+		false,
+		FPlatformTime::Seconds(),
+		MinimumIntervalSeconds,
+		Settings->SelectionDebounceSeconds,
+		Settings->MaximumSubmissionsPerSecond
+	))
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("RateLimited")
+		);
+	}
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
 	LocalState.Requests.Add(Token.RequestId, {Token, 0});
-	return OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
+	FOpenMobileHapticPlaybackResult Result =
+		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
 		Token,
 		Request.Options.Channel,
-		Backend->SubmitOneShot(Request, Token, MakeBackendCallback())
+		Backend->SubmitOneShot(
+			AdjustedRequest,
+			Resolution,
+			Token,
+			MakeBackendCallback()
+		)
 	);
+	if (Result.IsAccepted() && Result.ResolvedPath.IsNone())
+	{
+		Result.ResolvedPath =
+			FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	}
+	return Result;
 }
 
 FOpenMobileHapticPlaybackResult

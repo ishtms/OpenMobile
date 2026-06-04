@@ -163,6 +163,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Loop Limits", meta = (ClampMin = "0.1", ClampMax = "300.0", Units = "s"))
 	float MaximumContinuousDurationSeconds = 30.0f;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "One Shot", meta = (ClampMin = "0.001", ClampMax = "1.0", Units = "s"))
+	float MinimumOneShotDurationSeconds = 0.001f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "One Shot", meta = (ClampMin = "0.001", ClampMax = "30.0", Units = "s"))
+	float MaximumOneShotDurationSeconds = 1.0f;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float DefaultMinimumIntervalSeconds = 0.02f;
 
