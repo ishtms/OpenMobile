@@ -411,12 +411,53 @@ private:
 	FGuid GetOrCreateSubscriptionOwnerIdentifier();
 	void EnsureCapabilityListener() const;
 	void EnsureSubscriptionListener() const;
+	void EnsureSampleListeners() const;
 	void HandleCapabilitySnapshotChanged(
 		const FOpenMobileSensorCapabilitySnapshot& Snapshot
 	);
 	void HandleSubscriptionStateChanged(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
+	);
+	void HandleVectorBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileVectorSensorBatch& Batch
+	);
+	void HandleAttitudeBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileAttitudeSensorBatch& Batch
+	);
+	void HandleScalarBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileScalarSensorBatch& Batch
+	);
+	void HandleHeadingBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileHeadingSensorBatch& Batch
+	);
+	void HandleStepsBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileStepsSensorBatch& Batch
+	);
+	void HandleActivityBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileActivitySensorBatch& Batch
+	);
+	void HandleOrientationBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileOrientationSensorBatch& Batch
+	);
+	void HandleProximityBatch(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileProximitySensorBatch& Batch
 	);
 	void RegisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
 	void UnregisterAsyncAction(UOpenMobileSensorAsyncActionBase* Action);
@@ -434,6 +475,14 @@ private:
 	TSet<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> AsyncActions;
 	mutable FDelegateHandle CapabilityServiceChangedHandle;
 	mutable FDelegateHandle SubscriptionServiceChangedHandle;
+	mutable FDelegateHandle VectorBatchReadyHandle;
+	mutable FDelegateHandle AttitudeBatchReadyHandle;
+	mutable FDelegateHandle ScalarBatchReadyHandle;
+	mutable FDelegateHandle HeadingBatchReadyHandle;
+	mutable FDelegateHandle StepsBatchReadyHandle;
+	mutable FDelegateHandle ActivityBatchReadyHandle;
+	mutable FDelegateHandle OrientationBatchReadyHandle;
+	mutable FDelegateHandle ProximityBatchReadyHandle;
 	FGuid SubscriptionOwnerIdentifier;
 	bool bDeinitialized = false;
 };

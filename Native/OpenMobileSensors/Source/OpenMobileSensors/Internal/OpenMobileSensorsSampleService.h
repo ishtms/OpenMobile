@@ -4,6 +4,55 @@
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
 
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileVectorSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileVectorSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileAttitudeSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileAttitudeSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileScalarSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileScalarSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileHeadingSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileHeadingSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileStepsSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileStepsSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileActivitySensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileActivitySensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileOrientationSensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileOrientationSensorBatch&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileProximitySensorBatchReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileProximitySensorBatch&
+);
+
 class OPENMOBILESENSORS_API FOpenMobileSensorsSampleService final
 {
 public:
@@ -103,8 +152,17 @@ public:
 		FOpenMobileSensorReadResult& OutResult,
 		FOpenMobileProximitySensorSample& OutSample
 	);
+	static FOnOpenMobileVectorSensorBatchReady& OnVectorBatch();
+	static FOnOpenMobileAttitudeSensorBatchReady& OnAttitudeBatch();
+	static FOnOpenMobileScalarSensorBatchReady& OnScalarBatch();
+	static FOnOpenMobileHeadingSensorBatchReady& OnHeadingBatch();
+	static FOnOpenMobileStepsSensorBatchReady& OnStepsBatch();
+	static FOnOpenMobileActivitySensorBatchReady& OnActivityBatch();
+	static FOnOpenMobileOrientationSensorBatchReady& OnOrientationBatch();
+	static FOnOpenMobileProximitySensorBatchReady& OnProximityBatch();
 
 #if WITH_DEV_AUTOMATION_TESTS
+	static void DrainPendingEventsForTests(double NowSeconds);
 	static void ResetForTests();
 #endif
 };

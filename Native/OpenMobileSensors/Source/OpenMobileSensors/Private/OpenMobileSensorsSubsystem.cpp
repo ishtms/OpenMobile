@@ -53,6 +53,7 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	SubscriptionOwnerIdentifier = FGuid::NewGuid();
 	EnsureCapabilityListener();
 	EnsureSubscriptionListener();
+	EnsureSampleListeners();
 }
 
 void UOpenMobileSensorsSubsystem::Deinitialize()
@@ -82,6 +83,62 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 			SubscriptionServiceChangedHandle
 		);
 		SubscriptionServiceChangedHandle.Reset();
+	}
+	if (VectorBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnVectorBatch().Remove(
+			VectorBatchReadyHandle
+		);
+		VectorBatchReadyHandle.Reset();
+	}
+	if (AttitudeBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnAttitudeBatch().Remove(
+			AttitudeBatchReadyHandle
+		);
+		AttitudeBatchReadyHandle.Reset();
+	}
+	if (ScalarBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnScalarBatch().Remove(
+			ScalarBatchReadyHandle
+		);
+		ScalarBatchReadyHandle.Reset();
+	}
+	if (HeadingBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnHeadingBatch().Remove(
+			HeadingBatchReadyHandle
+		);
+		HeadingBatchReadyHandle.Reset();
+	}
+	if (StepsBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnStepsBatch().Remove(
+			StepsBatchReadyHandle
+		);
+		StepsBatchReadyHandle.Reset();
+	}
+	if (ActivityBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnActivityBatch().Remove(
+			ActivityBatchReadyHandle
+		);
+		ActivityBatchReadyHandle.Reset();
+	}
+	if (OrientationBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnOrientationBatch().Remove(
+			OrientationBatchReadyHandle
+		);
+		OrientationBatchReadyHandle.Reset();
+	}
+	if (ProximityBatchReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnProximityBatch().Remove(
+			ProximityBatchReadyHandle
+		);
+		ProximityBatchReadyHandle.Reset();
 	}
 	TArray<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> PendingActions;
 	PendingActions.Reserve(AsyncActions.Num());
@@ -141,6 +198,7 @@ UOpenMobileSensorsSubsystem::StartSubscriptionNative(
 )
 {
 	EnsureSubscriptionListener();
+	EnsureSampleListeners();
 	if (bDeinitialized)
 	{
 		FOpenMobileSensorSubscriptionResult Result;
@@ -585,48 +643,56 @@ UOpenMobileSensorsSubsystem::OnSubscriptionStateChangedNative()
 FOnOpenMobileVectorSensorBatch&
 UOpenMobileSensorsSubsystem::OnVectorSamplesNative()
 {
+	EnsureSampleListeners();
 	return VectorSamplesEvent;
 }
 
 FOnOpenMobileAttitudeSensorBatch&
 UOpenMobileSensorsSubsystem::OnAttitudeSamplesNative()
 {
+	EnsureSampleListeners();
 	return AttitudeSamplesEvent;
 }
 
 FOnOpenMobileScalarSensorBatch&
 UOpenMobileSensorsSubsystem::OnScalarSamplesNative()
 {
+	EnsureSampleListeners();
 	return ScalarSamplesEvent;
 }
 
 FOnOpenMobileHeadingSensorBatch&
 UOpenMobileSensorsSubsystem::OnHeadingSamplesNative()
 {
+	EnsureSampleListeners();
 	return HeadingSamplesEvent;
 }
 
 FOnOpenMobileStepsSensorBatch&
 UOpenMobileSensorsSubsystem::OnStepsSamplesNative()
 {
+	EnsureSampleListeners();
 	return StepsSamplesEvent;
 }
 
 FOnOpenMobileActivitySensorBatch&
 UOpenMobileSensorsSubsystem::OnActivitySamplesNative()
 {
+	EnsureSampleListeners();
 	return ActivitySamplesEvent;
 }
 
 FOnOpenMobileOrientationSensorBatch&
 UOpenMobileSensorsSubsystem::OnOrientationSamplesNative()
 {
+	EnsureSampleListeners();
 	return OrientationSamplesEvent;
 }
 
 FOnOpenMobileProximitySensorBatch&
 UOpenMobileSensorsSubsystem::OnProximitySamplesNative()
 {
+	EnsureSampleListeners();
 	return ProximitySamplesEvent;
 }
 
@@ -669,6 +735,56 @@ void UOpenMobileSensorsSubsystem::EnsureSubscriptionListener() const
 		);
 }
 
+void UOpenMobileSensorsSubsystem::EnsureSampleListeners() const
+{
+	if (bDeinitialized || VectorBatchReadyHandle.IsValid())
+	{
+		return;
+	}
+	UOpenMobileSensorsSubsystem* MutableThis =
+		const_cast<UOpenMobileSensorsSubsystem*>(this);
+	VectorBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnVectorBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleVectorBatch
+		);
+	AttitudeBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnAttitudeBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleAttitudeBatch
+		);
+	ScalarBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnScalarBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleScalarBatch
+		);
+	HeadingBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnHeadingBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleHeadingBatch
+		);
+	StepsBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnStepsBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleStepsBatch
+		);
+	ActivityBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnActivityBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleActivityBatch
+		);
+	OrientationBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnOrientationBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleOrientationBatch
+		);
+	ProximityBatchReadyHandle =
+		FOpenMobileSensorsSampleService::OnProximityBatch().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleProximityBatch
+		);
+}
+
 void UOpenMobileSensorsSubsystem::HandleCapabilitySnapshotChanged(
 	const FOpenMobileSensorCapabilitySnapshot& Snapshot
 )
@@ -689,6 +805,35 @@ void UOpenMobileSensorsSubsystem::HandleSubscriptionStateChanged(
 	OnSubscriptionStateChanged.Broadcast(Snapshot);
 	SubscriptionStateChangedEvent.Broadcast(Snapshot);
 }
+
+#define OPENMOBILE_IMPLEMENT_BATCH_HANDLER(FamilyName, BatchType) \
+	void UOpenMobileSensorsSubsystem::Handle##FamilyName##Batch( \
+		const FGuid& OwnerIdentifier, \
+		const FOpenMobileSensorSubscriptionHandle& Handle, \
+		const BatchType& Batch \
+	) \
+	{ \
+		if (bDeinitialized || OwnerIdentifier != SubscriptionOwnerIdentifier) \
+		{ \
+			return; \
+		} \
+		On##FamilyName##Samples.Broadcast(Handle, Batch); \
+		FamilyName##SamplesEvent.Broadcast(Handle, Batch); \
+	}
+
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Vector, FOpenMobileVectorSensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Attitude, FOpenMobileAttitudeSensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Scalar, FOpenMobileScalarSensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Heading, FOpenMobileHeadingSensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Steps, FOpenMobileStepsSensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Activity, FOpenMobileActivitySensorBatch)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(
+	Orientation,
+	FOpenMobileOrientationSensorBatch
+)
+OPENMOBILE_IMPLEMENT_BATCH_HANDLER(Proximity, FOpenMobileProximitySensorBatch)
+
+#undef OPENMOBILE_IMPLEMENT_BATCH_HANDLER
 
 void UOpenMobileSensorsSubsystem::RegisterAsyncAction(
 	UOpenMobileSensorAsyncActionBase* Action
