@@ -30,6 +30,8 @@ public:
 		const FOpenMobileBrightnessRequest& Request
 	) override;
 	virtual void ClearBrightness() override;
+	virtual FOpenMobileKeepScreenAwakeResult ApplyKeepScreenAwake() override;
+	virtual void ClearKeepScreenAwake() override;
 	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request
 	) override;

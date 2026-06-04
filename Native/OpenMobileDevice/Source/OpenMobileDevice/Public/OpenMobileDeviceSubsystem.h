@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
 #include "OpenMobileDeviceNetworkTypes.h"
@@ -206,6 +207,9 @@ public:
 		const FOpenMobileBrightnessRequest& Request
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Keep Screen Awake", ToolTip = "Keeps the active app screen awake until the returned handle is released."))
+	UOpenMobileKeepScreenAwakeHandle* RequestKeepScreenAwake();
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Preferred Refresh Rate", ToolTip = "Requests preferred display refresh-rate bounds or a target until the returned handle is released."))
 	UOpenMobilePreferredRefreshRateHandle* RequestPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request
@@ -368,6 +372,7 @@ private:
 	friend class UOpenMobileDeviceMonitoringSubscription;
 	friend class UOpenMobilePreferredRefreshRateHandle;
 	friend class UOpenMobileBrightnessHandle;
+	friend class UOpenMobileKeepScreenAwakeHandle;
 	friend class UOpenMobileOrientationPolicyHandle;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
@@ -380,6 +385,9 @@ private:
 		UOpenMobilePreferredRefreshRateHandle* Handle
 	);
 	void ReleaseBrightnessHandle(UOpenMobileBrightnessHandle* Handle);
+	void ReleaseKeepScreenAwakeHandle(
+		UOpenMobileKeepScreenAwakeHandle* Handle
+	);
 	void ReleaseOrientationPolicyHandle(
 		UOpenMobileOrientationPolicyHandle* Handle
 	);
@@ -415,6 +423,10 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileBrightnessHandle>> BrightnessHandles;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UOpenMobileKeepScreenAwakeHandle>>
+		KeepScreenAwakeHandles;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>>

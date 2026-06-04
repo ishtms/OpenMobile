@@ -727,6 +727,64 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(token, service)
 
+	def test_keep_screen_awake_is_foreground_scoped_and_permissionless(self) -> None:
+		android_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidKeepScreenAwakeControl.cpp"
+		).read_text(encoding="utf-8")
+		ios_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSKeepScreenAwakeControl.mm"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceKeepScreenAwakeControlService.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceApplyKeepScreenAwake",
+			"AndroidThunkJava_OpenMobileDeviceClearKeepScreenAwake",
+			"FLAG_KEEP_SCREEN_ON",
+			"addFlags",
+			"clearFlags",
+		):
+			self.assertIn(token, android_upl)
+		self.assertNotIn("WAKE_LOCK", android_upl)
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceApplyKeepScreenAwake",
+			"AndroidThunkJava_OpenMobileDeviceClearKeepScreenAwake",
+		):
+			self.assertIn(token, android_control)
+		for token in (
+			"idleTimerDisabled",
+			"View.window",
+			"TARGET_OS_SIMULATOR",
+		):
+			self.assertIn(token, ios_control)
+		for token in (
+			"ApplicationWillEnterBackgroundDelegate",
+			"ApplicationHasEnteredForegroundDelegate",
+			"OnSafeFrameChangedEvent",
+		):
+			self.assertIn(token, service)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

@@ -9,6 +9,7 @@
 #include "OpenMobileDeviceAndroidBrightnessControl.h"
 #include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
+#include "OpenMobileDeviceAndroidKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
 #include "OpenMobileDeviceAndroidMemoryMonitor.h"
@@ -184,6 +185,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android reads and overrides brightness only through the active app Window. A system brightness fallback is read-only, and no global settings permission is requested.");
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::KeepScreenAwake)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android keeps only the foreground activity screen on with FLAG_KEEP_SCREEN_ON. The control uses no wake lock or permission and restores a preexisting Window flag.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -353,6 +363,17 @@ FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(
 void FOpenMobileDeviceAndroidBackend::ClearBrightness()
 {
 	ClearOpenMobileDeviceAndroidBrightness();
+}
+
+FOpenMobileKeepScreenAwakeResult
+FOpenMobileDeviceAndroidBackend::ApplyKeepScreenAwake()
+{
+	return ApplyOpenMobileDeviceAndroidKeepScreenAwake();
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearKeepScreenAwake()
+{
+	ClearOpenMobileDeviceAndroidKeepScreenAwake();
 }
 
 FOpenMobilePreferredRefreshRateResult
@@ -586,6 +607,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidKeepScreenAwake();
 	ClearOpenMobileDeviceAndroidBrightness();
 	ClearOpenMobileDeviceAndroidOrientationPolicy();
 	ClearOpenMobileDeviceAndroidPreferredRefreshRate();

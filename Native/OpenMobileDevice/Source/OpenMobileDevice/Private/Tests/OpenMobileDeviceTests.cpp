@@ -35,6 +35,8 @@
 #include "OpenMobileDeviceFoldableInfo.h"
 #include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceKeepScreenAwakeControl.h"
+#include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceLocaleInfo.h"
 #include "OpenMobileDeviceMemoryInfo.h"
@@ -208,6 +210,21 @@ namespace OpenMobileDeviceTests
 			++BrightnessClearCount;
 		}
 
+		virtual FOpenMobileKeepScreenAwakeResult ApplyKeepScreenAwake() override
+		{
+			++KeepScreenAwakeApplyCount;
+			FOpenMobileKeepScreenAwakeResult Result;
+			Result.State = KeepScreenAwakeApplyState;
+			Result.bEffectiveKeepScreenAwake =
+				FOpenMobileDeviceOptionalBool::MakeAvailable(true);
+			return Result;
+		}
+
+		virtual void ClearKeepScreenAwake() override
+		{
+			++KeepScreenAwakeClearCount;
+		}
+
 		virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
 			const FOpenMobileOrientationPolicyRequest& Request
 		) override
@@ -306,6 +323,10 @@ namespace OpenMobileDeviceTests
 		float BrightnessEffectiveValue = 0.8f;
 		TArray<FOpenMobileBrightnessRequest> BrightnessApplyRequests;
 		int32 BrightnessClearCount = 0;
+		EOpenMobileKeepScreenAwakeApplyState KeepScreenAwakeApplyState =
+			EOpenMobileKeepScreenAwakeApplyState::Applied;
+		int32 KeepScreenAwakeApplyCount = 0;
+		int32 KeepScreenAwakeClearCount = 0;
 		EOpenMobilePreferredRefreshRateApplyState RefreshRateApplyState =
 			EOpenMobilePreferredRefreshRateApplyState::Accepted;
 		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
@@ -2359,6 +2380,107 @@ bool FOpenMobileDeviceBrightnessControlServiceTest::RunTest(
 
 	FOpenMobileDeviceBrightnessControlService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceKeepScreenAwakeControlServiceTest,
+	"OpenMobile.Device.Display.KeepScreenAwakeControlService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceKeepScreenAwakeControlServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceKeepScreenAwakeControlService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("Display"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	FOpenMobileKeepScreenAwakeResult Result;
+	const FGuid First =
+		FOpenMobileDeviceKeepScreenAwakeControlService::AddRequest(Result);
+	TestTrue(TEXT("First keep-awake owner gets a handle"), First.IsValid());
+	TestEqual(TEXT("First owner applies native state once"), Backend.KeepScreenAwakeApplyCount, 1);
+	TestTrue(TEXT("Effective keep-awake state is returned"), Result.bEffectiveKeepScreenAwake.bIsAvailable && Result.bEffectiveKeepScreenAwake.Value);
+	const FGuid Second =
+		FOpenMobileDeviceKeepScreenAwakeControlService::AddRequest(Result);
+	TestTrue(TEXT("Nested keep-awake owner gets a handle"), Second.IsValid());
+	TestEqual(TEXT("Nested owner shares native state"), Backend.KeepScreenAwakeApplyCount, 1);
+	TestEqual(TEXT("Nested owner has accepted state"), Result.State, EOpenMobileKeepScreenAwakeApplyState::Accepted);
+
+	FOpenMobileDeviceKeepScreenAwakeControlService::RemoveRequest(First);
+	TestEqual(TEXT("Releasing one owner preserves keep-awake"), Backend.KeepScreenAwakeClearCount, 0);
+	FOpenMobileDeviceKeepScreenAwakeControlService::RemoveRequest(First);
+	TestEqual(TEXT("Duplicate release is inert"), Backend.KeepScreenAwakeClearCount, 0);
+	FOpenMobileDeviceKeepScreenAwakeControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Surface recreation reapplies keep-awake"), Backend.KeepScreenAwakeApplyCount, 2);
+
+	FOpenMobileDeviceKeepScreenAwakeControlService::NotifyBackgroundForTests();
+	TestEqual(TEXT("Background restores prior screen policy"), Backend.KeepScreenAwakeClearCount, 1);
+	const int32 AppliesWhileBackgrounded = Backend.KeepScreenAwakeApplyCount;
+	FOpenMobileDeviceKeepScreenAwakeControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Background surface changes do not reapply keep-awake"), Backend.KeepScreenAwakeApplyCount, AppliesWhileBackgrounded);
+	const FGuid BackgroundRequest =
+		FOpenMobileDeviceKeepScreenAwakeControlService::AddRequest(Result);
+	TestFalse(TEXT("Background keep-awake request gets no handle"), BackgroundRequest.IsValid());
+	TestEqual(TEXT("Background keep-awake request is rejected"), Result.State, EOpenMobileKeepScreenAwakeApplyState::Rejected);
+	TestEqual(TEXT("Background request does not touch native state"), Backend.KeepScreenAwakeApplyCount, AppliesWhileBackgrounded);
+	FOpenMobileDeviceKeepScreenAwakeControlService::NotifyForegroundForTests();
+	TestEqual(TEXT("Foreground reapplies keep-awake"), Backend.KeepScreenAwakeApplyCount, AppliesWhileBackgrounded + 1);
+	FOpenMobileDeviceKeepScreenAwakeControlService::RemoveRequest(Second);
+	TestEqual(TEXT("Final owner restores screen policy"), Backend.KeepScreenAwakeClearCount, 2);
+
+	Backend.KeepScreenAwakeApplyState =
+		EOpenMobileKeepScreenAwakeApplyState::Unsupported;
+	const FGuid Unsupported =
+		FOpenMobileDeviceKeepScreenAwakeControlService::AddRequest(Result);
+	TestFalse(TEXT("Unsupported keep-awake gets no handle"), Unsupported.IsValid());
+	TestEqual(TEXT("Unsupported keep-awake stays typed"), Result.State, EOpenMobileKeepScreenAwakeApplyState::Unsupported);
+	TestNotNull(TEXT("Subsystem exposes keep-awake request"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("RequestKeepScreenAwake")));
+	TestNotNull(TEXT("Keep-awake handle exposes release"), UOpenMobileKeepScreenAwakeHandle::StaticClass()->FindFunctionByName(TEXT("Release")));
+	TestNotNull(TEXT("Keep-awake handle exposes typed result"), UOpenMobileKeepScreenAwakeHandle::StaticClass()->FindPropertyByName(TEXT("Result")));
+
+	Backend.KeepScreenAwakeApplyState =
+		EOpenMobileKeepScreenAwakeApplyState::Applied;
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* FirstSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(FirstGameInstance);
+	UOpenMobileKeepScreenAwakeHandle* FirstHandle =
+		FirstSubsystem->RequestKeepScreenAwake();
+	TestTrue(TEXT("Game Instance keep-awake handle is active"), FirstHandle && FirstHandle->IsActive());
+	const int32 ClearsBeforeFirstTeardown = Backend.KeepScreenAwakeClearCount;
+	FirstSubsystem->Deinitialize();
+	TestFalse(TEXT("Game Instance teardown releases keep-awake"), FirstHandle->IsActive());
+	TestEqual(TEXT("Game Instance teardown restores screen policy"), Backend.KeepScreenAwakeClearCount, ClearsBeforeFirstTeardown + 1);
+
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* SecondSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(SecondGameInstance);
+	UOpenMobileKeepScreenAwakeHandle* SecondHandle =
+		SecondSubsystem->RequestKeepScreenAwake();
+	TestTrue(TEXT("Recreated Game Instance can own keep-awake"), SecondHandle && SecondHandle->IsActive());
+	SecondSubsystem->Deinitialize();
+	TestFalse(TEXT("Recreated Game Instance releases keep-awake"), SecondHandle->IsActive());
+
+	FOpenMobileDeviceKeepScreenAwakeControlService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	UOpenMobileDeviceSubsystem* EditorSubsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(NewObject<UGameInstance>());
+	UOpenMobileKeepScreenAwakeHandle* EditorHandle =
+		EditorSubsystem->RequestKeepScreenAwake();
+	TestTrue(TEXT("PIE without a mobile backend returns an inactive handle"), EditorHandle && !EditorHandle->IsActive());
+	TestEqual(TEXT("PIE result remains unsupported"), EditorHandle->Result.State, EOpenMobileKeepScreenAwakeApplyState::Unsupported);
+	EditorSubsystem->Deinitialize();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

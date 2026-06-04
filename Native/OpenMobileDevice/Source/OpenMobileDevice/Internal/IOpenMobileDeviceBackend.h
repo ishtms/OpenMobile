@@ -8,6 +8,7 @@
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoringCallback.h"
 #include "OpenMobileDeviceNetworkTypes.h"
@@ -181,6 +182,19 @@ public:
 	}
 
 	virtual void ClearBrightness() {}
+
+	virtual FOpenMobileKeepScreenAwakeResult ApplyKeepScreenAwake()
+	{
+		FOpenMobileKeepScreenAwakeResult Result;
+		Result.State = EOpenMobileKeepScreenAwakeApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support keep-awake control.")
+		);
+		return Result;
+	}
+
+	virtual void ClearKeepScreenAwake() {}
 
 	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request

@@ -393,7 +393,7 @@ import androidx.window.layout.WindowLayoutInfo;
 	private float OpenMobileDeviceLastAppliedBrightness =
 		android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
 
-	private boolean OpenMobileDeviceRunBrightnessTask(final Runnable task)
+	private boolean OpenMobileDeviceRunWindowTask(final Runnable task)
 	{
 		if (android.os.Looper.myLooper()
 			== android.os.Looper.getMainLooper())
@@ -514,7 +514,7 @@ import androidx.window.layout.WindowLayoutInfo;
 	public float[] AndroidThunkJava_OpenMobileDeviceGetBrightness()
 	{
 		final float[] result = new float[] { Float.NaN };
-		boolean completed = OpenMobileDeviceRunBrightnessTask(new Runnable()
+		boolean completed = OpenMobileDeviceRunWindowTask(new Runnable()
 		{
 			@Override
 			public void run()
@@ -537,7 +537,7 @@ import androidx.window.layout.WindowLayoutInfo;
 			return new float[0];
 		}
 		final float[] result = new float[] { Float.NaN };
-		boolean completed = OpenMobileDeviceRunBrightnessTask(new Runnable()
+		boolean completed = OpenMobileDeviceRunWindowTask(new Runnable()
 		{
 			@Override
 			public void run()
@@ -596,12 +596,95 @@ import androidx.window.layout.WindowLayoutInfo;
 
 	public void AndroidThunkJava_OpenMobileDeviceClearBrightness()
 	{
-		OpenMobileDeviceRunBrightnessTask(new Runnable()
+		OpenMobileDeviceRunWindowTask(new Runnable()
 		{
 			@Override
 			public void run()
 			{
 				OpenMobileDeviceClearBrightnessOnUiThread();
+			}
+		});
+	}
+
+	private android.view.Window OpenMobileDeviceKeepScreenAwakeWindow = null;
+	private boolean OpenMobileDeviceHasSavedKeepScreenAwake = false;
+	private boolean OpenMobileDeviceSavedKeepScreenAwake = false;
+
+	private void OpenMobileDeviceClearKeepScreenAwakeOnUiThread()
+	{
+		if (!OpenMobileDeviceHasSavedKeepScreenAwake
+			|| OpenMobileDeviceKeepScreenAwakeWindow == null)
+		{
+			OpenMobileDeviceKeepScreenAwakeWindow = null;
+			OpenMobileDeviceHasSavedKeepScreenAwake = false;
+			return;
+		}
+		int flag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+		boolean effective =
+			(OpenMobileDeviceKeepScreenAwakeWindow.getAttributes().flags & flag)
+				!= 0;
+		if (!OpenMobileDeviceSavedKeepScreenAwake && effective)
+		{
+			OpenMobileDeviceKeepScreenAwakeWindow.clearFlags(flag);
+		}
+		OpenMobileDeviceKeepScreenAwakeWindow = null;
+		OpenMobileDeviceHasSavedKeepScreenAwake = false;
+		OpenMobileDeviceSavedKeepScreenAwake = false;
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceApplyKeepScreenAwake()
+	{
+		final java.util.concurrent.atomic.AtomicBoolean result =
+			new java.util.concurrent.atomic.AtomicBoolean(false);
+		boolean completed = OpenMobileDeviceRunWindowTask(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				android.view.Window window = getWindow();
+				if (window == null)
+				{
+					return;
+				}
+				if (OpenMobileDeviceKeepScreenAwakeWindow != window)
+				{
+					OpenMobileDeviceClearKeepScreenAwakeOnUiThread();
+				}
+				int flag =
+					android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+				if (!OpenMobileDeviceHasSavedKeepScreenAwake)
+				{
+					OpenMobileDeviceKeepScreenAwakeWindow = window;
+					OpenMobileDeviceSavedKeepScreenAwake =
+						(window.getAttributes().flags & flag) != 0;
+					OpenMobileDeviceHasSavedKeepScreenAwake = true;
+				}
+				window.addFlags(flag);
+				result.set((window.getAttributes().flags & flag) != 0);
+			}
+		});
+		if (!completed)
+		{
+			runOnUiThread(new Runnable()
+			{
+				@Override
+				public void run()
+				{
+					OpenMobileDeviceClearKeepScreenAwakeOnUiThread();
+				}
+			});
+		}
+		return completed && result.get();
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceClearKeepScreenAwake()
+	{
+		OpenMobileDeviceRunWindowTask(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				OpenMobileDeviceClearKeepScreenAwakeOnUiThread();
 			}
 		});
 	}

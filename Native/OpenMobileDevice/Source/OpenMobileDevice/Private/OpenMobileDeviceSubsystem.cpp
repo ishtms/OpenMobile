@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
+#include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
@@ -139,6 +140,17 @@ void UOpenMobileDeviceSubsystem::Deinitialize()
 		}
 	}
 	BrightnessHandles.Reset();
+
+	TArray<TObjectPtr<UOpenMobileKeepScreenAwakeHandle>> KeepAwakeHandles =
+		KeepScreenAwakeHandles;
+	for (UOpenMobileKeepScreenAwakeHandle* Handle : KeepAwakeHandles)
+	{
+		if (Handle)
+		{
+			Handle->Release();
+		}
+	}
+	KeepScreenAwakeHandles.Reset();
 
 	TArray<TObjectPtr<UOpenMobileDeviceMonitoringSubscription>> Subscriptions =
 		MonitoringSubscriptions;
@@ -303,6 +315,51 @@ void UOpenMobileDeviceSubsystem::ReleaseBrightnessHandle(
 	Handle->RequestId.Invalidate();
 	Handle->Subsystem.Reset();
 	BrightnessHandles.RemoveSingleSwap(Handle);
+}
+
+UOpenMobileKeepScreenAwakeHandle*
+UOpenMobileDeviceSubsystem::RequestKeepScreenAwake()
+{
+	UOpenMobileKeepScreenAwakeHandle* Handle =
+		NewObject<UOpenMobileKeepScreenAwakeHandle>(this);
+	if (bDeinitialized)
+	{
+		Handle->Result.State =
+			EOpenMobileKeepScreenAwakeApplyState::Rejected;
+		Handle->Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Handle;
+	}
+	Handle->RequestId =
+		FOpenMobileDeviceKeepScreenAwakeControlService::AddRequest(
+			Handle->Result
+		);
+	Handle->bActive = Handle->RequestId.IsValid();
+	if (Handle->bActive)
+	{
+		Handle->Subsystem = this;
+		KeepScreenAwakeHandles.Add(Handle);
+	}
+	return Handle;
+}
+
+void UOpenMobileDeviceSubsystem::ReleaseKeepScreenAwakeHandle(
+	UOpenMobileKeepScreenAwakeHandle* Handle
+)
+{
+	if (!Handle || !Handle->bActive)
+	{
+		return;
+	}
+	FOpenMobileDeviceKeepScreenAwakeControlService::RemoveRequest(
+		Handle->RequestId
+	);
+	Handle->bActive = false;
+	Handle->RequestId.Invalidate();
+	Handle->Subsystem.Reset();
+	KeepScreenAwakeHandles.RemoveSingleSwap(Handle);
 }
 
 UOpenMobilePreferredRefreshRateHandle*

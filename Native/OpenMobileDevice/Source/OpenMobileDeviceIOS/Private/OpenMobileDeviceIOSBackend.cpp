@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceIOSBrightnessControl.h"
 #include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
+#include "OpenMobileDeviceIOSKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceIOSLocale.h"
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
 #include "OpenMobileDeviceIOSMemory.h"
@@ -165,6 +166,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #else
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.Detail = TEXT("iOS reads and overrides the active app window's main-screen brightness. External-screen brightness is not supported by UIKit, and the prior value is restored when ownership ends or the app backgrounds.");
+#endif
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::KeepScreenAwake)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not represent device idle-timer behavior.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS disables the application idle timer only while at least one foreground handle is active, then restores the prior app setting.");
 #endif
 		return Capability;
 	}
@@ -337,6 +353,17 @@ void FOpenMobileDeviceIOSBackend::ClearBrightness()
 	ClearOpenMobileDeviceIOSBrightness();
 }
 
+FOpenMobileKeepScreenAwakeResult
+FOpenMobileDeviceIOSBackend::ApplyKeepScreenAwake()
+{
+	return ApplyOpenMobileDeviceIOSKeepScreenAwake();
+}
+
+void FOpenMobileDeviceIOSBackend::ClearKeepScreenAwake()
+{
+	ClearOpenMobileDeviceIOSKeepScreenAwake();
+}
+
 FOpenMobileOrientationPolicyResult
 FOpenMobileDeviceIOSBackend::ApplyOrientationPolicy(
 	const FOpenMobileOrientationPolicyRequest& Request
@@ -499,6 +526,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceIOSKeepScreenAwake();
 	ClearOpenMobileDeviceIOSBrightness();
 	ClearOpenMobileDeviceIOSOrientationPolicy();
 	StopOpenMobileDeviceIOSLocaleMonitoring();
