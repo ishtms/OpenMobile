@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidBattery.h"
+#include "OpenMobileDeviceAndroidBrightnessControl.h"
 #include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidLocale.h"
@@ -174,6 +175,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reads and overrides brightness only through the active app Window. A system brightness fallback is read-only, and no global settings permission is requested.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -325,6 +335,24 @@ FOpenMobileWindowDisplaySnapshot
 FOpenMobileDeviceAndroidBackend::GetWindowDisplaySnapshot() const
 {
 	return GetOpenMobileDeviceAndroidWindowDisplaySnapshot();
+}
+
+FOpenMobileBrightnessSnapshot
+FOpenMobileDeviceAndroidBackend::GetBrightnessSnapshot() const
+{
+	return GetOpenMobileDeviceAndroidBrightnessSnapshot();
+}
+
+FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(
+	const FOpenMobileBrightnessRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceAndroidBrightness(Request);
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearBrightness()
+{
+	ClearOpenMobileDeviceAndroidBrightness();
 }
 
 FOpenMobilePreferredRefreshRateResult
@@ -558,6 +586,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidBrightness();
 	ClearOpenMobileDeviceAndroidOrientationPolicy();
 	ClearOpenMobileDeviceAndroidPreferredRefreshRate();
 	StopOpenMobileDeviceAndroidLocaleMonitoring();

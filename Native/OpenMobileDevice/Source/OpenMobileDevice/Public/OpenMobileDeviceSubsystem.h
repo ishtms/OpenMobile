@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -197,6 +198,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Window and Display Snapshot", ToolTip = "Captures the current game window, display, safe-area, orientation, and posture state."))
 	FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot() const;
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get App Screen Brightness", ToolTip = "Captures the normalized brightness of the active app screen without prompting."))
+	FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))
+	UOpenMobileBrightnessHandle* RequestBrightnessOverride(
+		const FOpenMobileBrightnessRequest& Request
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Preferred Refresh Rate", ToolTip = "Requests preferred display refresh-rate bounds or a target until the returned handle is released."))
 	UOpenMobilePreferredRefreshRateHandle* RequestPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request
@@ -358,6 +367,7 @@ private:
 	friend class UOpenMobileDeviceStorageQueryAsyncAction;
 	friend class UOpenMobileDeviceMonitoringSubscription;
 	friend class UOpenMobilePreferredRefreshRateHandle;
+	friend class UOpenMobileBrightnessHandle;
 	friend class UOpenMobileOrientationPolicyHandle;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
@@ -369,6 +379,7 @@ private:
 	void ReleasePreferredRefreshRateHandle(
 		UOpenMobilePreferredRefreshRateHandle* Handle
 	);
+	void ReleaseBrightnessHandle(UOpenMobileBrightnessHandle* Handle);
 	void ReleaseOrientationPolicyHandle(
 		UOpenMobileOrientationPolicyHandle* Handle
 	);
@@ -401,6 +412,9 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobilePreferredRefreshRateHandle>>
 		PreferredRefreshRateHandles;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UOpenMobileBrightnessHandle>> BrightnessHandles;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>>

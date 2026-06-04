@@ -25,6 +25,11 @@ public:
 	virtual FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot() const override;
 	virtual FOpenMobileWindowDisplaySnapshot
 	GetWindowDisplaySnapshot() const override;
+	virtual FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const override;
+	virtual FOpenMobileBrightnessResult ApplyBrightness(
+		const FOpenMobileBrightnessRequest& Request
+	) override;
+	virtual void ClearBrightness() override;
 	virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
 		const FOpenMobileOrientationPolicyRequest& Request
 	) override;

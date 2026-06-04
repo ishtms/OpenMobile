@@ -386,6 +386,226 @@ import androidx.window.layout.WindowLayoutInfo;
 		});
 	}
 
+	private android.view.Window OpenMobileDeviceBrightnessWindow = null;
+	private boolean OpenMobileDeviceHasSavedBrightness = false;
+	private float OpenMobileDeviceSavedBrightness =
+		android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+	private float OpenMobileDeviceLastAppliedBrightness =
+		android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+
+	private boolean OpenMobileDeviceRunBrightnessTask(final Runnable task)
+	{
+		if (android.os.Looper.myLooper()
+			== android.os.Looper.getMainLooper())
+		{
+			try
+			{
+				task.run();
+				return true;
+			}
+			catch (RuntimeException ignored)
+			{
+				return false;
+			}
+		}
+		final java.util.concurrent.CountDownLatch latch =
+			new java.util.concurrent.CountDownLatch(1);
+		final java.util.concurrent.atomic.AtomicBoolean succeeded =
+			new java.util.concurrent.atomic.AtomicBoolean(false);
+		runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				try
+				{
+					task.run();
+					succeeded.set(true);
+				}
+				catch (RuntimeException ignored)
+				{
+				}
+				finally
+				{
+					latch.countDown();
+				}
+			}
+		});
+		try
+		{
+			return latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+				&& succeeded.get();
+		}
+		catch (InterruptedException ignored)
+		{
+			Thread.currentThread().interrupt();
+			return false;
+		}
+	}
+
+	private float OpenMobileDeviceReadBrightness(
+		android.view.Window window
+	)
+	{
+		if (window == null)
+		{
+			return Float.NaN;
+		}
+		float windowBrightness = window.getAttributes().screenBrightness;
+		if (windowBrightness >= 0.0f)
+		{
+			return Math.max(0.0f, Math.min(1.0f, windowBrightness));
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 31)
+		{
+			android.view.View decorView = window.getDecorView();
+			android.view.Display display = decorView == null
+				? null
+				: decorView.getDisplay();
+			android.hardware.display.BrightnessInfo brightnessInfo =
+				display == null ? null : display.getBrightnessInfo();
+			if (brightnessInfo != null
+				&& !Float.isNaN(brightnessInfo.brightness)
+				&& !Float.isInfinite(brightnessInfo.brightness))
+			{
+				return Math.max(
+					0.0f,
+					Math.min(1.0f, brightnessInfo.brightness)
+				);
+			}
+		}
+		int systemBrightness = android.provider.Settings.System.getInt(
+			getContentResolver(),
+			android.provider.Settings.System.SCREEN_BRIGHTNESS,
+			-1
+		);
+		return systemBrightness < 0
+			? Float.NaN
+			: Math.max(0.0f, Math.min(1.0f, systemBrightness / 255.0f));
+	}
+
+	private void OpenMobileDeviceClearBrightnessOnUiThread()
+	{
+		if (!OpenMobileDeviceHasSavedBrightness
+			|| OpenMobileDeviceBrightnessWindow == null)
+		{
+			OpenMobileDeviceBrightnessWindow = null;
+			OpenMobileDeviceHasSavedBrightness = false;
+			return;
+		}
+		android.view.WindowManager.LayoutParams attributes =
+			OpenMobileDeviceBrightnessWindow.getAttributes();
+		if (Math.abs(
+			attributes.screenBrightness
+				- OpenMobileDeviceLastAppliedBrightness
+		) <= 0.001f)
+		{
+			attributes.screenBrightness = OpenMobileDeviceSavedBrightness;
+			OpenMobileDeviceBrightnessWindow.setAttributes(attributes);
+		}
+		OpenMobileDeviceBrightnessWindow = null;
+		OpenMobileDeviceHasSavedBrightness = false;
+		OpenMobileDeviceSavedBrightness =
+			android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+		OpenMobileDeviceLastAppliedBrightness =
+			android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+	}
+
+	public float[] AndroidThunkJava_OpenMobileDeviceGetBrightness()
+	{
+		final float[] result = new float[] { Float.NaN };
+		boolean completed = OpenMobileDeviceRunBrightnessTask(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				result[0] = OpenMobileDeviceReadBrightness(getWindow());
+			}
+		});
+		return completed && !Float.isNaN(result[0])
+			? new float[] { result[0] }
+			: new float[0];
+	}
+
+	public float[] AndroidThunkJava_OpenMobileDeviceApplyBrightness(
+		final float brightness
+	)
+	{
+		if (Float.isNaN(brightness) || Float.isInfinite(brightness)
+			|| brightness < 0.0f || brightness > 1.0f)
+		{
+			return new float[0];
+		}
+		final float[] result = new float[] { Float.NaN };
+		boolean completed = OpenMobileDeviceRunBrightnessTask(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				android.view.Window window = getWindow();
+				if (window == null)
+				{
+					return;
+				}
+				if (OpenMobileDeviceBrightnessWindow != window)
+				{
+					OpenMobileDeviceClearBrightnessOnUiThread();
+				}
+				android.view.WindowManager.LayoutParams attributes =
+					window.getAttributes();
+				if (!OpenMobileDeviceHasSavedBrightness)
+				{
+					OpenMobileDeviceBrightnessWindow = window;
+					OpenMobileDeviceSavedBrightness =
+						attributes.screenBrightness;
+					OpenMobileDeviceHasSavedBrightness = true;
+				}
+				else if (Math.abs(
+					attributes.screenBrightness
+						- OpenMobileDeviceLastAppliedBrightness
+				) > 0.001f)
+				{
+					OpenMobileDeviceSavedBrightness =
+						attributes.screenBrightness;
+				}
+				attributes.screenBrightness = brightness;
+				window.setAttributes(attributes);
+				float effective = window.getAttributes().screenBrightness;
+				if (effective >= 0.0f && effective <= 1.0f)
+				{
+					OpenMobileDeviceLastAppliedBrightness = effective;
+					result[0] = effective;
+				}
+			}
+		});
+		if (!completed)
+		{
+			runOnUiThread(new Runnable()
+			{
+				@Override
+				public void run()
+				{
+					OpenMobileDeviceClearBrightnessOnUiThread();
+				}
+			});
+		}
+		return completed && !Float.isNaN(result[0])
+			? new float[] { result[0] }
+			: new float[0];
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceClearBrightness()
+	{
+		OpenMobileDeviceRunBrightnessTask(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				OpenMobileDeviceClearBrightnessOnUiThread();
+			}
+		});
+	}
+
 	public float[] AndroidThunkJava_OpenMobileDeviceGetWindowInsets()
 	{
 		android.view.Window window = getWindow();

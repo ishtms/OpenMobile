@@ -3,6 +3,7 @@
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
+#include "OpenMobileDeviceBrightnessControlService.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
@@ -128,6 +129,17 @@ void UOpenMobileDeviceSubsystem::Deinitialize()
 	}
 	PreferredRefreshRateHandles.Reset();
 
+	TArray<TObjectPtr<UOpenMobileBrightnessHandle>> BrightnessOverrideHandles =
+		BrightnessHandles;
+	for (UOpenMobileBrightnessHandle* Handle : BrightnessOverrideHandles)
+	{
+		if (Handle)
+		{
+			Handle->Release();
+		}
+	}
+	BrightnessHandles.Reset();
+
 	TArray<TObjectPtr<UOpenMobileDeviceMonitoringSubscription>> Subscriptions =
 		MonitoringSubscriptions;
 	for (UOpenMobileDeviceMonitoringSubscription* Subscription : Subscriptions)
@@ -237,6 +249,60 @@ UOpenMobileDeviceSubsystem::GetWindowDisplaySnapshot() const
 	return bDeinitialized
 		? FOpenMobileWindowDisplaySnapshot()
 		: FOpenMobileDeviceSnapshotService::GetWindowDisplaySnapshot();
+}
+
+FOpenMobileBrightnessSnapshot
+UOpenMobileDeviceSubsystem::GetBrightnessSnapshot() const
+{
+	return bDeinitialized
+		? FOpenMobileBrightnessSnapshot()
+		: FOpenMobileDeviceSnapshotService::GetBrightnessSnapshot();
+}
+
+UOpenMobileBrightnessHandle*
+UOpenMobileDeviceSubsystem::RequestBrightnessOverride(
+	const FOpenMobileBrightnessRequest& Request
+)
+{
+	UOpenMobileBrightnessHandle* Handle =
+		NewObject<UOpenMobileBrightnessHandle>(this);
+	Handle->Request = Request;
+	if (bDeinitialized)
+	{
+		Handle->Result.Request = Request;
+		Handle->Result.State = EOpenMobileBrightnessApplyState::Rejected;
+		Handle->Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Handle;
+	}
+	Handle->RequestId = FOpenMobileDeviceBrightnessControlService::AddRequest(
+		Request,
+		Handle->Result
+	);
+	Handle->bActive = Handle->RequestId.IsValid();
+	if (Handle->bActive)
+	{
+		Handle->Subsystem = this;
+		BrightnessHandles.Add(Handle);
+	}
+	return Handle;
+}
+
+void UOpenMobileDeviceSubsystem::ReleaseBrightnessHandle(
+	UOpenMobileBrightnessHandle* Handle
+)
+{
+	if (!Handle || !Handle->bActive)
+	{
+		return;
+	}
+	FOpenMobileDeviceBrightnessControlService::RemoveRequest(Handle->RequestId);
+	Handle->bActive = false;
+	Handle->RequestId.Invalidate();
+	Handle->Subsystem.Reset();
+	BrightnessHandles.RemoveSingleSwap(Handle);
 }
 
 UOpenMobilePreferredRefreshRateHandle*

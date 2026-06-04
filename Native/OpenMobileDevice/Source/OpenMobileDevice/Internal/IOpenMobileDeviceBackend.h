@@ -4,6 +4,7 @@
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -159,6 +160,27 @@ public:
 	{
 		return {};
 	}
+
+	virtual FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileBrightnessResult ApplyBrightness(
+		const FOpenMobileBrightnessRequest& Request
+	)
+	{
+		FOpenMobileBrightnessResult Result;
+		Result.Request = Request;
+		Result.State = EOpenMobileBrightnessApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support brightness control.")
+		);
+		return Result;
+	}
+
+	virtual void ClearBrightness() {}
 
 	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request

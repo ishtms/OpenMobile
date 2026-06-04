@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -23,6 +24,7 @@ public:
 	static void StampStorageSnapshot(FOpenMobileStorageSnapshot& Snapshot);
 	static FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot();
 	static FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot();
+	static FOpenMobileBrightnessSnapshot GetBrightnessSnapshot();
 	static FOpenMobileAppearanceSnapshot GetAppearanceSnapshot();
 	static FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot();
 };

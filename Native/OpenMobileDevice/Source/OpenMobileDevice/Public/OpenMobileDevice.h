@@ -3,6 +3,7 @@
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
+#include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"

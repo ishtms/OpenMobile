@@ -17,6 +17,10 @@
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBatteryInfo.h"
+#include "OpenMobileDeviceBrightnessControl.h"
+#include "OpenMobileDeviceBrightnessControlPolicy.h"
+#include "OpenMobileDeviceBrightnessControlService.h"
+#include "OpenMobileDeviceBrightnessOverrideState.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
@@ -178,6 +182,32 @@ namespace OpenMobileDeviceTests
 			++RefreshRateClearCount;
 		}
 
+		virtual FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const override
+		{
+			++BrightnessQueries;
+			return Brightness;
+		}
+
+		virtual FOpenMobileBrightnessResult ApplyBrightness(
+			const FOpenMobileBrightnessRequest& Request
+		) override
+		{
+			BrightnessApplyRequests.Add(Request);
+			FOpenMobileBrightnessResult Result;
+			Result.Request = Request;
+			Result.State = BrightnessApplyState;
+			Result.EffectiveBrightness =
+				FOpenMobileDeviceOptionalFloat::MakeAvailable(
+					BrightnessEffectiveValue
+				);
+			return Result;
+		}
+
+		virtual void ClearBrightness() override
+		{
+			++BrightnessClearCount;
+		}
+
 		virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
 			const FOpenMobileOrientationPolicyRequest& Request
 		) override
@@ -258,6 +288,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 MediaVolumeQueries = 0;
 		mutable int32 MemoryQueries = 0;
 		mutable int32 NetworkQueries = 0;
+		mutable int32 BrightnessQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -269,6 +300,12 @@ namespace OpenMobileDeviceTests
 		FOpenMobileMemorySnapshot Memory;
 		FOpenMobileNetworkPathSnapshot Network;
 		FOpenMobileWindowDisplaySnapshot WindowDisplay;
+		FOpenMobileBrightnessSnapshot Brightness;
+		EOpenMobileBrightnessApplyState BrightnessApplyState =
+			EOpenMobileBrightnessApplyState::Applied;
+		float BrightnessEffectiveValue = 0.8f;
+		TArray<FOpenMobileBrightnessRequest> BrightnessApplyRequests;
+		int32 BrightnessClearCount = 0;
 		EOpenMobilePreferredRefreshRateApplyState RefreshRateApplyState =
 			EOpenMobilePreferredRefreshRateApplyState::Accepted;
 		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
@@ -2164,6 +2201,163 @@ bool FOpenMobileDeviceRefreshRateControlServiceTest::RunTest(
 	TestEqual(TEXT("Subsystem teardown restores native preference"), Backend.RefreshRateClearCount, ClearsBeforeTeardown + 1);
 
 	FOpenMobileDeviceRefreshRateControlService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceBrightnessControlPolicyTest,
+	"OpenMobile.Device.Display.BrightnessControlPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceBrightnessControlPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileError Error;
+	FOpenMobileBrightnessRequest Request;
+	Request.Brightness = 0.0f;
+	TestTrue(TEXT("Zero brightness is valid"), FOpenMobileDeviceBrightnessControlPolicy::Validate(Request, Error));
+	Request.Brightness = 1.0f;
+	TestTrue(TEXT("Full brightness is valid"), FOpenMobileDeviceBrightnessControlPolicy::Validate(Request, Error));
+	Request.Brightness = -0.01f;
+	TestFalse(TEXT("Negative brightness is rejected"), FOpenMobileDeviceBrightnessControlPolicy::Validate(Request, Error));
+	TestEqual(TEXT("Invalid range has typed error"), Error.Code, EOpenMobileErrorCode::InvalidArgument);
+	Request.Brightness = 1.01f;
+	TestFalse(TEXT("Brightness above one is rejected"), FOpenMobileDeviceBrightnessControlPolicy::Validate(Request, Error));
+	Request.Brightness = std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("Non-finite brightness is rejected"), FOpenMobileDeviceBrightnessControlPolicy::Validate(Request, Error));
+
+	FOpenMobileDeviceBrightnessRequestStack Stack;
+	FOpenMobileBrightnessRequest Dim;
+	Dim.Brightness = 0.25f;
+	FOpenMobileBrightnessRequest Bright;
+	Bright.Brightness = 0.75f;
+	Stack.Add(10, Dim);
+	Stack.Add(20, Bright);
+	TestEqual(TEXT("Newest brightness handle wins"), Stack.GetEffectiveRequest()->Brightness, 0.75f);
+	Stack.Remove(10);
+	TestEqual(TEXT("Removing shadowed brightness preserves newest"), Stack.GetEffectiveRequest()->Brightness, 0.75f);
+	Stack.Add(10, Dim);
+	TestEqual(TEXT("Re-added brightness becomes newest"), Stack.GetEffectiveRequest()->Brightness, 0.25f);
+	Stack.Remove(10);
+	TestEqual(TEXT("Releasing newest brightness restores previous"), Stack.GetEffectiveRequest()->Brightness, 0.75f);
+	Stack.Remove(20);
+	TestFalse(TEXT("Final brightness release clears request"), Stack.GetEffectiveRequest().IsSet());
+
+	FOpenMobileDeviceBrightnessOverrideState OverrideState;
+	OverrideState.BeginScope(100, 0.4f);
+	OverrideState.RecordApplied(100, 0.8f);
+	const TOptional<float> Original = OverrideState.ReleaseScope(100, 0.8f);
+	TestTrue(TEXT("Unchanged override restores original value"), Original.IsSet());
+	TestEqual(TEXT("Original brightness is retained"), Original.GetValue(), 0.4f);
+	OverrideState.BeginScope(200, 0.5f);
+	OverrideState.RecordApplied(200, 0.7f);
+	TestFalse(TEXT("External changes are not overwritten"), OverrideState.ReleaseScope(200, 0.6f).IsSet());
+	OverrideState.BeginScope(250, 0.2f);
+	OverrideState.RecordApplied(250, 0.8f);
+	OverrideState.BeginScope(250, 0.6f);
+	OverrideState.RecordApplied(250, 0.7f);
+	const TOptional<float> ExternalBaseline =
+		OverrideState.ReleaseScope(250, 0.7f);
+	TestTrue(TEXT("External change becomes the next restore baseline"), ExternalBaseline.IsSet());
+	TestEqual(TEXT("Updated external baseline is restored"), ExternalBaseline.GetValue(), 0.6f);
+	OverrideState.BeginScope(300, 0.3f);
+	OverrideState.RecordApplied(300, 0.6f);
+	TestFalse(TEXT("Another screen cannot restore the active scope"), OverrideState.ReleaseScope(301, 0.6f).IsSet());
+	TestTrue(TEXT("Active screen can still restore after migration check"), OverrideState.ReleaseScope(300, 0.6f).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceBrightnessControlServiceTest,
+	"OpenMobile.Device.Display.BrightnessControlService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceBrightnessControlServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceBrightnessControlService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("Display"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	Backend.Brightness.CurrentBrightness =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.42f);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	const FOpenMobileBrightnessSnapshot Snapshot =
+		FOpenMobileDeviceSnapshotService::GetBrightnessSnapshot();
+	TestTrue(TEXT("Brightness query is available"), Snapshot.CurrentBrightness.bIsAvailable);
+	TestEqual(TEXT("Brightness query retains normalized value"), Snapshot.CurrentBrightness.Value, 0.42f);
+	TestTrue(TEXT("Brightness query is stamped"), Snapshot.Metadata.Generation > 0);
+
+	FOpenMobileBrightnessRequest Dim;
+	Dim.Brightness = 0.25f;
+	FOpenMobileBrightnessRequest Bright;
+	Bright.Brightness = 0.9f;
+	FOpenMobileBrightnessResult Result;
+	const FGuid First =
+		FOpenMobileDeviceBrightnessControlService::AddRequest(Dim, Result);
+	TestTrue(TEXT("Accepted brightness request gets a handle"), First.IsValid());
+	TestTrue(TEXT("Effective brightness is returned"), Result.EffectiveBrightness.bIsAvailable);
+	TestEqual(TEXT("Platform clamp is retained"), Result.EffectiveBrightness.Value, 0.8f);
+	const FGuid Second =
+		FOpenMobileDeviceBrightnessControlService::AddRequest(Bright, Result);
+	TestTrue(TEXT("Nested brightness request gets a handle"), Second.IsValid());
+	TestEqual(TEXT("Newest brightness request applies"), Backend.BrightnessApplyRequests.Last().Brightness, 0.9f);
+	FOpenMobileDeviceBrightnessControlService::RemoveRequest(Second);
+	TestEqual(TEXT("Nested release reapplies prior brightness"), Backend.BrightnessApplyRequests.Last().Brightness, 0.25f);
+
+	const int32 AppliesBeforeMigration = Backend.BrightnessApplyRequests.Num();
+	FOpenMobileDeviceBrightnessControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Screen migration reapplies active brightness"), Backend.BrightnessApplyRequests.Num(), AppliesBeforeMigration + 1);
+	FOpenMobileDeviceBrightnessControlService::NotifyBackgroundForTests();
+	TestEqual(TEXT("Background restores prior brightness"), Backend.BrightnessClearCount, 1);
+	const int32 AppliesWhileBackgrounded = Backend.BrightnessApplyRequests.Num();
+	const FGuid BackgroundRequest =
+		FOpenMobileDeviceBrightnessControlService::AddRequest(Bright, Result);
+	TestFalse(TEXT("Background brightness request gets no handle"), BackgroundRequest.IsValid());
+	TestEqual(TEXT("Background brightness request is rejected"), Result.State, EOpenMobileBrightnessApplyState::Rejected);
+	TestEqual(TEXT("Background request does not change native brightness"), Backend.BrightnessApplyRequests.Num(), AppliesWhileBackgrounded);
+	FOpenMobileDeviceBrightnessControlService::NotifyForegroundForTests();
+	TestEqual(TEXT("Foreground reapplies active brightness"), Backend.BrightnessApplyRequests.Num(), AppliesBeforeMigration + 2);
+	FOpenMobileDeviceBrightnessControlService::RemoveRequest(First);
+	TestEqual(TEXT("Final release restores prior brightness"), Backend.BrightnessClearCount, 2);
+
+	Backend.BrightnessApplyState = EOpenMobileBrightnessApplyState::Unsupported;
+	const FGuid Unsupported =
+		FOpenMobileDeviceBrightnessControlService::AddRequest(Dim, Result);
+	TestFalse(TEXT("Unsupported brightness gets no active handle"), Unsupported.IsValid());
+	TestEqual(TEXT("Unsupported brightness stays typed"), Result.State, EOpenMobileBrightnessApplyState::Unsupported);
+	TestNotNull(TEXT("Subsystem exposes brightness query"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("GetBrightnessSnapshot")));
+	TestNotNull(TEXT("Subsystem exposes brightness override"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("RequestBrightnessOverride")));
+	TestNotNull(TEXT("Brightness handle exposes release"), UOpenMobileBrightnessHandle::StaticClass()->FindFunctionByName(TEXT("Release")));
+	TestNotNull(TEXT("Brightness handle exposes typed result"), UOpenMobileBrightnessHandle::StaticClass()->FindPropertyByName(TEXT("Result")));
+
+	Backend.BrightnessApplyState = EOpenMobileBrightnessApplyState::Applied;
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileBrightnessHandle* Handle =
+		Subsystem->RequestBrightnessOverride(Dim);
+	TestTrue(TEXT("Subsystem brightness request returns active handle"), Handle && Handle->IsActive());
+	const int32 ClearsBeforeTeardown = Backend.BrightnessClearCount;
+	Subsystem->Deinitialize();
+	TestFalse(TEXT("Subsystem teardown releases brightness handle"), Handle->IsActive());
+	TestEqual(TEXT("Subsystem teardown restores brightness"), Backend.BrightnessClearCount, ClearsBeforeTeardown + 1);
+
+	FOpenMobileDeviceBrightnessControlService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

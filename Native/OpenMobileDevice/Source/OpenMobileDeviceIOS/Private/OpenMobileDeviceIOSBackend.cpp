@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSBattery.h"
+#include "OpenMobileDeviceIOSBrightnessControl.h"
 #include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDeviceIOSLocale.h"
@@ -149,6 +150,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 					TEXT("iOS 10")
 				);
 		}
+#endif
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not control device screen brightness.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS reads and overrides the active app window's main-screen brightness. External-screen brightness is not supported by UIKit, and the prior value is restored when ownership ends or the app backgrounds.");
 #endif
 		return Capability;
 	}
@@ -301,6 +317,24 @@ FOpenMobileWindowDisplaySnapshot
 FOpenMobileDeviceIOSBackend::GetWindowDisplaySnapshot() const
 {
 	return GetOpenMobileDeviceIOSWindowDisplaySnapshot();
+}
+
+FOpenMobileBrightnessSnapshot
+FOpenMobileDeviceIOSBackend::GetBrightnessSnapshot() const
+{
+	return GetOpenMobileDeviceIOSBrightnessSnapshot();
+}
+
+FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(
+	const FOpenMobileBrightnessRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceIOSBrightness(Request);
+}
+
+void FOpenMobileDeviceIOSBackend::ClearBrightness()
+{
+	ClearOpenMobileDeviceIOSBrightness();
 }
 
 FOpenMobileOrientationPolicyResult
@@ -465,6 +499,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceIOSBrightness();
 	ClearOpenMobileDeviceIOSOrientationPolicy();
 	StopOpenMobileDeviceIOSLocaleMonitoring();
 	StopOpenMobileDeviceIOSBatteryMonitoring();

@@ -173,6 +173,17 @@ FOpenMobileDeviceSnapshotService::GetWindowDisplaySnapshot()
 	});
 }
 
+FOpenMobileBrightnessSnapshot
+FOpenMobileDeviceSnapshotService::GetBrightnessSnapshot()
+{
+	return OpenMobileDeviceSnapshotServicePrivate::Capture<
+		FOpenMobileBrightnessSnapshot
+	>([](const IOpenMobileDeviceBackend& Backend)
+	{
+		return Backend.GetBrightnessSnapshot();
+	});
+}
+
 FOpenMobileAppearanceSnapshot FOpenMobileDeviceSnapshotService::GetAppearanceSnapshot()
 {
 	return OpenMobileDeviceSnapshotServicePrivate::Capture<FOpenMobileAppearanceSnapshot>(

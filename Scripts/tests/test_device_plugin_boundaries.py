@@ -660,6 +660,73 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn('"RHI"', android_build)
 		self.assertIn('"RHI"', ios_build)
 
+	def test_brightness_control_is_scoped_reversible_and_permissionless(self) -> None:
+		android_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBrightnessControl.cpp"
+		).read_text(encoding="utf-8")
+		ios_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBrightnessControl.mm"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceBrightnessControlService.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceGetBrightness",
+			"AndroidThunkJava_OpenMobileDeviceApplyBrightness",
+			"AndroidThunkJava_OpenMobileDeviceClearBrightness",
+			"WindowManager.LayoutParams",
+			"screenBrightness",
+			"getBrightnessInfo",
+			"Settings.System.SCREEN_BRIGHTNESS",
+			"CountDownLatch",
+		):
+			self.assertIn(token, android_upl)
+		for forbidden_token in (
+			"WRITE_SETTINGS",
+			"Settings.System.put",
+		):
+			self.assertNotIn(forbidden_token, android_upl)
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceGetBrightness",
+			"AndroidThunkJava_OpenMobileDeviceApplyBrightness",
+			"AndroidThunkJava_OpenMobileDeviceClearBrightness",
+		):
+			self.assertIn(token, android_control)
+		for token in (
+			"View.window.screen",
+			"Screen.brightness",
+			"TARGET_OS_SIMULATOR",
+			"FOpenMobileDeviceBrightnessOverrideState",
+		):
+			self.assertIn(token, ios_control)
+		for token in (
+			"ApplicationWillEnterBackgroundDelegate",
+			"ApplicationHasEnteredForegroundDelegate",
+			"OnSafeFrameChangedEvent",
+		):
+			self.assertIn(token, service)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN
