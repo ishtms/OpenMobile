@@ -12,6 +12,7 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
+#include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsAsyncAction.h"
@@ -240,6 +241,63 @@ namespace OpenMobileHapticsTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsIntensityPolicyTest,
+	"OpenMobile.Haptics.Intensity.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsIntensityPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	const float Scaled = FOpenMobileHapticsIntensityPolicy::Scale(
+		0.5f,
+		0.5f,
+		0.8f,
+		0.5f,
+		0.25f,
+		0.5f
+	);
+	TestTrue(TEXT("Intensity scale order is deterministic"),
+		FMath::IsNearlyEqual(Scaled, 0.0125f));
+	TestEqual(TEXT("Scale result is finally clamped"),
+		FOpenMobileHapticsIntensityPolicy::Scale(
+			1.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f),
+		1.0f);
+	TestEqual(TEXT("Underflow resolves to silence"),
+		FOpenMobileHapticsIntensityPolicy::Scale(
+			UE_SMALL_NUMBER,
+			UE_SMALL_NUMBER,
+			UE_SMALL_NUMBER,
+			UE_SMALL_NUMBER,
+			UE_SMALL_NUMBER,
+			UE_SMALL_NUMBER
+		),
+		0.0f);
+	TestEqual(TEXT("Missing amplitude control reports fallback"),
+		FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+			0.5f,
+			EOpenMobileHapticSupportState::Unsupported,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Outcome,
+		EOpenMobileHapticsIntensityOutcome::DefaultAmplitudeFallback);
+	TestEqual(TEXT("Exact intensity rejects missing amplitude control"),
+		FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+			0.5f,
+			EOpenMobileHapticSupportState::Unsupported,
+			EOpenMobileHapticFallbackPolicy::ExactOnly
+		).Outcome,
+		EOpenMobileHapticsIntensityOutcome::Rejected);
+	TestEqual(TEXT("Zero is always silent"),
+		FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+			0.0f,
+			EOpenMobileHapticSupportState::Supported,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		).Outcome,
+		EOpenMobileHapticsIntensityOutcome::Suppressed);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsDurationPolicyTest,
 	"OpenMobile.Haptics.Duration.Policy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -424,6 +482,10 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 		static_cast<double>(Settings->MaximumOneShotDurationSeconds));
 	TestFalse(TEXT("Unknown native duration remains explicit"),
 		Maximum.Duration.bNativeDurationKnown);
+	TestEqual(TEXT("Requested intensity is reported"),
+		Maximum.Intensity.Requested, 1.0f);
+	TestEqual(TEXT("Resolved intensity is reported"),
+		Maximum.Intensity.Resolved, 1.0f);
 	TestTrue(TEXT("Controllable mock playback receives a handle"),
 		Maximum.Handle.IsValid());
 	TestEqual(TEXT("One-shot resolution reaches the backend"),
@@ -470,6 +532,35 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 	TestEqual(TEXT("Native duration overflow is rejected before submission"),
 		Backend.OneShotSubmissionCount, BeforeNativeLimit);
 	Backend.Capabilities.MaximumDurationSeconds = {};
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Unsupported;
+	const FOpenMobileHapticPlaybackResult DefaultAmplitude =
+		Subsystem->Vibrate(0.2f, 0.4f, TEXT("DefaultAmplitudePulse"));
+	TestEqual(TEXT("Missing amplitude control is a reported fallback"),
+		DefaultAmplitude.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Default-amplitude fallback is named"),
+		DefaultAmplitude.ResolvedPath,
+		FName(TEXT("BasicVibrationDefaultAmplitude")));
+	TestTrue(TEXT("Default native amplitude is known"),
+		DefaultAmplitude.Intensity.bNativeIntensityKnown);
+	TestEqual(TEXT("Default native amplitude is maximum"),
+		DefaultAmplitude.Intensity.Native, 1.0f);
+	TestEqual(TEXT("Diagnostics retain the native amplitude fallback"),
+		Subsystem->GetDiagnostics().LastIntensity.Native, 1.0f);
+	FOpenMobileHapticOneShotRequest ExactIntensityRequest;
+	ExactIntensityRequest.DurationSeconds = 0.2f;
+	ExactIntensityRequest.Intensity = 0.4f;
+	ExactIntensityRequest.Options.Channel = TEXT("ExactIntensityPulse");
+	ExactIntensityRequest.Options.FallbackPolicy =
+		EOpenMobileHapticFallbackPolicy::ExactOnly;
+	TestEqual(TEXT("Exact partial intensity rejects fixed-amplitude hardware"),
+		Subsystem->SubmitOneShot(ExactIntensityRequest).Error.Code,
+		EOpenMobileHapticErrorCode::UnsupportedFeature);
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
 	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 
 	const FOpenMobileHapticPlaybackResult FirstRateLimited =
@@ -803,6 +894,25 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	TestEqual(TEXT("Resolved fallback reaches the backend"),
 		Backend.LastSemanticResolution.Path,
 		EOpenMobileHapticsSemanticPath::PredefinedEffect);
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Unsupported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	Options.Channel = TEXT("SemanticDefaultAmplitudeTest");
+	const FOpenMobileHapticPlaybackResult SemanticDefaultAmplitude =
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::Damage,
+			0.5f,
+			Options
+		});
+	TestEqual(TEXT("Semantic basic fallback reports fixed amplitude"),
+		SemanticDefaultAmplitude.ResolvedPath,
+		FName(TEXT("BasicVibrationDefaultAmplitude")));
+	TestTrue(TEXT("Semantic fixed amplitude is explicit"),
+		SemanticDefaultAmplitude.Intensity.bNativeIntensityKnown);
 
 	Options.Channel = TEXT("ExactPolicyTest");
 	Options.FallbackPolicy = EOpenMobileHapticFallbackPolicy::ExactOnly;

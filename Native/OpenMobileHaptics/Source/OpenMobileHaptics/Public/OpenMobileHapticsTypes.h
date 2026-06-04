@@ -686,6 +686,27 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationDiagnostics
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticIntensityDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	float Requested = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	float Resolved = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bNativeIntensityKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	float Native = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bNativeClamped = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 {
 	GENERATED_BODY()
@@ -712,6 +733,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticDurationDiagnostics Duration;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticIntensityDiagnostics Intensity;
 
 	bool IsAccepted() const
 	{
@@ -848,4 +872,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticDurationDiagnostics LastDuration;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticIntensityDiagnostics LastIntensity;
 };

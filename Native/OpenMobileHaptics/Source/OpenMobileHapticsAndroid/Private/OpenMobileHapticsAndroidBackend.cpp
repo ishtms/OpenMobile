@@ -506,7 +506,8 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 	Submission.Result.ResolvedPath =
 		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
 	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration
-		|| NativeResult == 3)
+		|| NativeResult == 3
+		|| NativeResult == 5)
 	{
 		Submission.Result.Duration.bNativeDurationKnown = true;
 		Submission.Result.Duration.NativeSeconds =
@@ -516,6 +517,35 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 			static_cast<double>(Request.DurationSeconds),
 			UE_DOUBLE_SMALL_NUMBER
 		);
+		const EOpenMobileHapticSupportState AmplitudeControl =
+			GetCapabilities().AmplitudeControl;
+		if (NativeResult == 5)
+		{
+			Submission.Result.Intensity.bNativeIntensityKnown = true;
+			Submission.Result.Intensity.Native = 1.0f;
+			Submission.Result.Intensity.bNativeClamped = true;
+		}
+		else if (AmplitudeControl
+			== EOpenMobileHapticSupportState::Supported)
+		{
+			const int32 NativeAmplitude = FMath::Clamp(
+				FMath::RoundToInt(Request.Intensity * 255.0f),
+				1,
+				255
+			);
+			Submission.Result.Intensity.bNativeIntensityKnown = true;
+			Submission.Result.Intensity.Native =
+				static_cast<float>(NativeAmplitude) / 255.0f;
+			Submission.Result.Intensity.bNativeClamped = !FMath::IsNearlyEqual(
+				Submission.Result.Intensity.Native,
+				Request.Intensity
+			);
+		}
+		else if (Request.Intensity == 1.0f)
+		{
+			Submission.Result.Intensity.bNativeIntensityKnown = true;
+			Submission.Result.Intensity.Native = 1.0f;
+		}
 	}
 	switch (NativeResult)
 	{
@@ -537,6 +567,11 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 			EOpenMobileErrorCode::NotSupported,
 			TEXT("The Android device has no available one-shot vibration path.")
 		);
+		break;
+	case 5:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		Submission.Result.ResolvedPath = TEXT("BasicVibrationDefaultAmplitude");
 		break;
 	default:
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(

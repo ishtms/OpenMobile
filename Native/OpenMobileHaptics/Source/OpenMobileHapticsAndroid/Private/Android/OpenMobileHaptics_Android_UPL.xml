@@ -302,6 +302,7 @@ import java.lang.reflect.Method;
             }
             VibrationEffect effect = null;
             boolean usedFallback = false;
+            boolean usedDefaultAmplitude = false;
             if (path == 2)
             {
                 if (Build.VERSION.SDK_INT &gt;= 29)
@@ -324,6 +325,8 @@ import java.lang.reflect.Method;
                 int amplitude = vibrator.hasAmplitudeControl()
                     ? Math.max(1, Math.min(255, Math.round(intensity * 255.0f)))
                     : VibrationEffect.DEFAULT_AMPLITUDE;
+                usedDefaultAmplitude = !vibrator.hasAmplitudeControl()
+                    &amp;&amp; intensity &lt; 1.0f;
                 effect = VibrationEffect.createOneShot(durationMillis, amplitude);
             }
             if (Build.VERSION.SDK_INT &gt;= 33)
@@ -346,7 +349,7 @@ import java.lang.reflect.Method;
                     OpenMobileHapticsAudioAttributes(purpose)
                 );
             }
-            return usedFallback ? 3 : 1;
+            return usedDefaultAmplitude ? 5 : usedFallback ? 3 : 1;
         }
         catch (SecurityException exception)
         {

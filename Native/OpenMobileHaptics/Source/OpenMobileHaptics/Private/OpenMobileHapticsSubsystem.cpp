@@ -8,6 +8,7 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
+#include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -27,6 +28,7 @@ struct FOpenMobileHapticsSubsystemState
 		PlaybackStates;
 	FOpenMobileHapticError LastError;
 	FOpenMobileHapticDurationDiagnostics LastDuration;
+	FOpenMobileHapticIntensityDiagnostics LastIntensity;
 	FOpenMobileHapticsRateLimiter RateLimiter;
 };
 
@@ -657,18 +659,20 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			break;
 		}
 	}
-	AdjustedRequest.Intensity = Request.Intensity
-		* Request.Options.IntensityScale
-		* UserPolicy.MasterIntensity
-		* OpenMobileHapticsSubsystemPrivate::FindScale(
+	AdjustedRequest.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+		Request.Intensity,
+		UserPolicy.MasterIntensity,
+		OpenMobileHapticsSubsystemPrivate::FindScale(
 			UserPolicy.CategoryScales,
 			Request.Options.Category
-		)
-		* OpenMobileHapticsSubsystemPrivate::FindScale(
+		),
+		OpenMobileHapticsSubsystemPrivate::FindScale(
 			UserPolicy.EffectScales,
 			Descriptor.Name
-		)
-		* ProjectScale;
+		),
+		Request.Options.IntensityScale,
+		ProjectScale
+	);
 	if (AdjustedRequest.Intensity <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
@@ -686,9 +690,11 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	}
 
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const FOpenMobileHapticCapabilities Capabilities =
+		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
 	const FOpenMobileHapticsSemanticResolution Resolution =
 		FOpenMobileHapticsSemanticPolicy::Resolve(
-			FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot(),
+			Capabilities,
 			Request.Options.FallbackPolicy
 		);
 	const bool bSelection = Descriptor.Behavior
@@ -737,6 +743,12 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 				== EOpenMobileHapticPlaybackOutcome::Suppressed)
 		{
 			OverrideResult.ResolvedPath = TEXT("NamedLibrary");
+			if (OverrideResult.IsAccepted())
+			{
+				OverrideResult.Intensity.Requested = Request.Intensity;
+				OverrideResult.Intensity.Resolved = AdjustedRequest.Intensity;
+				LocalState.LastIntensity = OverrideResult.Intensity;
+			}
 			return OverrideResult;
 		}
 		if (Request.Options.FallbackPolicy
@@ -769,6 +781,35 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		}
 		return Unsupported;
 	}
+	const FOpenMobileHapticsIntensityResolution IntensityResolution =
+		Resolution.Path == EOpenMobileHapticsSemanticPath::BasicVibration
+			? FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+				AdjustedRequest.Intensity,
+				Capabilities.AmplitudeControl,
+				Request.Options.FallbackPolicy
+			)
+			: FOpenMobileHapticsIntensityResolution{
+				EOpenMobileHapticsIntensityOutcome::Accepted,
+				AdjustedRequest.Intensity
+			};
+	if (IntensityResolution.Outcome
+		== EOpenMobileHapticsIntensityOutcome::Suppressed)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("UnavailableIntensity")
+		);
+	}
+	if (IntensityResolution.Outcome
+		== EOpenMobileHapticsIntensityOutcome::Rejected)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::UnsupportedFeature,
+			EOpenMobileHapticFailureStage::Capability,
+			Descriptor.Name,
+			Request.Options.Channel
+		);
+	}
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, false);
 	LocalState.Requests.Add(Token.RequestId, {Token, 0});
@@ -786,6 +827,20 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	);
 	if (Result.IsAccepted())
 	{
+		Result.Intensity.Requested = Request.Intensity;
+		Result.Intensity.Resolved = AdjustedRequest.Intensity;
+		if (IntensityResolution.Outcome
+			== EOpenMobileHapticsIntensityOutcome::DefaultAmplitudeFallback)
+		{
+			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+			Result.ResolvedPath = TEXT("BasicVibrationDefaultAmplitude");
+			Result.Intensity.bNativeIntensityKnown =
+				IntensityResolution.bNativeIntensityKnown;
+			Result.Intensity.Native = IntensityResolution.NativeIntensity;
+			Result.Intensity.bNativeClamped =
+				IntensityResolution.bNativeClamped;
+		}
+		LocalState.LastIntensity = Result.Intensity;
 		if (Result.ResolvedPath.IsNone())
 		{
 			Result.ResolvedPath =
@@ -893,18 +948,20 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			break;
 		}
 	}
-	AdjustedRequest.Intensity = Request.Intensity
-		* Request.Options.IntensityScale
-		* UserPolicy.MasterIntensity
-		* OpenMobileHapticsSubsystemPrivate::FindScale(
+	AdjustedRequest.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+		Request.Intensity,
+		UserPolicy.MasterIntensity,
+		OpenMobileHapticsSubsystemPrivate::FindScale(
 			UserPolicy.CategoryScales,
 			Request.Options.Category
-		)
-		* OpenMobileHapticsSubsystemPrivate::FindScale(
+		),
+		OpenMobileHapticsSubsystemPrivate::FindScale(
 			UserPolicy.EffectScales,
 			TEXT("OneShot")
-		)
-		* ProjectScale;
+		),
+		Request.Options.IntensityScale,
+		ProjectScale
+	);
 	if (AdjustedRequest.Intensity <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
@@ -961,6 +1018,35 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			Request.Options.Channel
 		);
 	}
+	const FOpenMobileHapticsIntensityResolution IntensityResolution =
+		Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration
+			? FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+				AdjustedRequest.Intensity,
+				Capabilities.AmplitudeControl,
+				Request.Options.FallbackPolicy
+			)
+			: FOpenMobileHapticsIntensityResolution{
+				EOpenMobileHapticsIntensityOutcome::Accepted,
+				AdjustedRequest.Intensity
+			};
+	if (IntensityResolution.Outcome
+		== EOpenMobileHapticsIntensityOutcome::Suppressed)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("UnavailableIntensity")
+		);
+	}
+	if (IntensityResolution.Outcome
+		== EOpenMobileHapticsIntensityOutcome::Rejected)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::UnsupportedFeature,
+			EOpenMobileHapticFailureStage::Capability,
+			TEXT("OneShotIntensity"),
+			Request.Options.Channel
+		);
+	}
 	if (LocalState.RateLimiter.ShouldSuppress(
 		Request.Options.Channel,
 		false,
@@ -999,7 +1085,21 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	{
 		Result.Duration.RequestedSeconds = Request.DurationSeconds;
 		Result.Duration.ResolvedSeconds = AdjustedRequest.DurationSeconds;
+		Result.Intensity.Requested = Request.Intensity;
+		Result.Intensity.Resolved = AdjustedRequest.Intensity;
+		if (IntensityResolution.Outcome
+			== EOpenMobileHapticsIntensityOutcome::DefaultAmplitudeFallback)
+		{
+			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+			Result.ResolvedPath = TEXT("BasicVibrationDefaultAmplitude");
+			Result.Intensity.bNativeIntensityKnown =
+				IntensityResolution.bNativeIntensityKnown;
+			Result.Intensity.Native = IntensityResolution.NativeIntensity;
+			Result.Intensity.bNativeClamped =
+				IntensityResolution.bNativeClamped;
+		}
 		LocalState.LastDuration = Result.Duration;
+		LocalState.LastIntensity = Result.Intensity;
 	}
 	return Result;
 }
@@ -1184,6 +1284,7 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 		Diagnostics.ActivePlaybackCount = State->Requests.Num();
 		Diagnostics.LastError = State->LastError;
 		Diagnostics.LastDuration = State->LastDuration;
+		Diagnostics.LastIntensity = State->LastIntensity;
 	}
 	return Diagnostics;
 }

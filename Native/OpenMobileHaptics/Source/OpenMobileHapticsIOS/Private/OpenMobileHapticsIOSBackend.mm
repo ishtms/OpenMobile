@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsIOSBackend.h"
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileHapticsIntensityPolicy.h"
 
 #import <AudioToolbox/AudioToolbox.h>
 #import <CoreHaptics/CoreHaptics.h>
@@ -370,9 +371,47 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 	}
 	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration)
 	{
+		const FOpenMobileHapticsIntensityResolution IntensityResolution =
+			FOpenMobileHapticsIntensityPolicy::ResolveBasicVibration(
+				Request.Intensity,
+				EOpenMobileHapticSupportState::Unsupported,
+				Request.Options.FallbackPolicy
+			);
+		if (IntensityResolution.Outcome
+			== EOpenMobileHapticsIntensityOutcome::Suppressed)
+		{
+			Submission.Result.Outcome =
+				EOpenMobileHapticPlaybackOutcome::Suppressed;
+			Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
+			Submission.Result.ResolvedPath = TEXT("UnavailableIntensity");
+			return Submission;
+		}
+		if (IntensityResolution.Outcome
+			== EOpenMobileHapticsIntensityOutcome::Rejected)
+		{
+			Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("Apple system vibration cannot reproduce the requested intensity.")
+			);
+			return Submission;
+		}
 		dispatch_async(dispatch_get_main_queue(), ^{
 			AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
 		});
+		Submission.Result.Intensity.bNativeIntensityKnown =
+			IntensityResolution.bNativeIntensityKnown;
+		Submission.Result.Intensity.Native =
+			IntensityResolution.NativeIntensity;
+		Submission.Result.Intensity.bNativeClamped =
+			IntensityResolution.bNativeClamped;
+		if (IntensityResolution.Outcome
+			== EOpenMobileHapticsIntensityOutcome::DefaultAmplitudeFallback)
+		{
+			Submission.Result.Outcome =
+				EOpenMobileHapticPlaybackOutcome::Fallback;
+			Submission.Result.ResolvedPath =
+				TEXT("BasicVibrationDefaultAmplitude");
+		}
 	}
 	else
 	{
@@ -388,11 +427,20 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
 			Request.Intensity
 		);
+		Submission.Result.Intensity.bNativeIntensityKnown = true;
+		Submission.Result.Intensity.Native = Request.Intensity;
 	}
-	Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+	if (Submission.Result.Outcome
+		!= EOpenMobileHapticPlaybackOutcome::Fallback)
+	{
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+	}
 	Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
-	Submission.Result.ResolvedPath =
-		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	if (Submission.Result.ResolvedPath.IsNone())
+	{
+		Submission.Result.ResolvedPath =
+			FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	}
 	return Submission;
 }
 
