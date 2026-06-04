@@ -196,6 +196,12 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum continuous duration must be finite and between 0.1 and 300 seconds."));
 	}
+	if (!FMath::IsFinite(MaximumPatternEventDurationSeconds)
+		|| MaximumPatternEventDurationSeconds < 0.001f
+		|| MaximumPatternEventDurationSeconds > MaximumContinuousDurationSeconds)
+	{
+		AddError(TEXT("Maximum pattern event duration must be finite, positive, and no greater than the continuous limit."));
+	}
 	if (!IsFiniteRange(MinimumOneShotDurationSeconds, 0.001f, 1.0f))
 	{
 		AddError(TEXT("Minimum one-shot duration must be finite and between 0.001 and 1 second."));

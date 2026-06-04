@@ -6,6 +6,7 @@
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
@@ -25,6 +26,7 @@ struct FOpenMobileHapticsSubsystemState
 	TMap<FOpenMobileHapticPlaybackHandle, EOpenMobileHapticPlaybackState>
 		PlaybackStates;
 	FOpenMobileHapticError LastError;
+	FOpenMobileHapticDurationDiagnostics LastDuration;
 	FOpenMobileHapticsRateLimiter RateLimiter;
 };
 
@@ -815,9 +817,11 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	if (!FMath::IsFinite(Request.DurationSeconds)
 		|| Request.DurationSeconds < 0.0f
 		|| (Request.DurationSeconds > 0.0f
-			&& Request.DurationSeconds
-				< Settings->MinimumOneShotDurationSeconds)
-		|| Request.DurationSeconds > Settings->MaximumOneShotDurationSeconds
+			&& !FOpenMobileHapticsDurationPolicy::IsWithinBounds(
+				Request.DurationSeconds,
+				Settings->MinimumOneShotDurationSeconds,
+				Settings->MaximumOneShotDurationSeconds
+			))
 		|| !FMath::IsFinite(Request.Intensity)
 		|| Request.Intensity < 0.0f
 		|| Request.Intensity > 1.0f
@@ -918,9 +922,11 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	}
 
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const FOpenMobileHapticCapabilities Capabilities =
+		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
 	const FOpenMobileHapticsOneShotResolution Resolution =
 		FOpenMobileHapticsOneShotPolicy::Resolve(
-			FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot(),
+			Capabilities,
 			Request.DurationSeconds,
 			Request.Options.FallbackPolicy
 		);
@@ -937,6 +943,21 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			EOpenMobileHapticsFailureReason::UnsupportedFeature,
 			EOpenMobileHapticFailureStage::Capability,
 			TEXT("OneShot"),
+			Request.Options.Channel
+		);
+	}
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration
+		&& Capabilities.MaximumDurationSeconds.bKnown
+		&& FOpenMobileHapticsDurationPolicy::ResolveNativeLimit(
+			Request.DurationSeconds,
+			Capabilities.MaximumDurationSeconds.Seconds,
+			false
+		).Outcome == EOpenMobileHapticsNativeDurationOutcome::Rejected)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::UnsupportedFeature,
+			EOpenMobileHapticFailureStage::Capability,
+			TEXT("OneShotDuration"),
 			Request.Options.Channel
 		);
 	}
@@ -973,6 +994,12 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	{
 		Result.ResolvedPath =
 			FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	}
+	if (Result.IsAccepted())
+	{
+		Result.Duration.RequestedSeconds = Request.DurationSeconds;
+		Result.Duration.ResolvedSeconds = AdjustedRequest.DurationSeconds;
+		LocalState.LastDuration = Result.Duration;
 	}
 	return Result;
 }
@@ -1156,6 +1183,7 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 	{
 		Diagnostics.ActivePlaybackCount = State->Requests.Num();
 		Diagnostics.LastError = State->LastError;
+		Diagnostics.LastDuration = State->LastDuration;
 	}
 	return Diagnostics;
 }

@@ -306,6 +306,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"AndroidThunkJava_OpenMobileHapticsPlayOneShot",
 			android_backend,
 		)
+		self.assertIn("bNativeDurationKnown", android_backend)
+		self.assertIn("bNativeClamped", android_backend)
 		one_shot_bridge = android_bridge.split(
 			"AndroidThunkJava_OpenMobileHapticsPlayOneShot", 1
 		)[1].split("private Vibrator OpenMobileHapticsVibrator", 1)[0]

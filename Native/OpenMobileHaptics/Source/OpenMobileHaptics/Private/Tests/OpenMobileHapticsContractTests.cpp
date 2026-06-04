@@ -10,6 +10,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
@@ -239,6 +240,72 @@ namespace OpenMobileHapticsTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsDurationPolicyTest,
+	"OpenMobile.Haptics.Duration.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsDurationPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	TestTrue(TEXT("Minimum duration is accepted"),
+		FOpenMobileHapticsDurationPolicy::IsWithinBounds(0.001, 0.001, 1.0));
+	TestTrue(TEXT("Maximum duration is accepted"),
+		FOpenMobileHapticsDurationPolicy::IsWithinBounds(1.0, 0.001, 1.0));
+	TestFalse(TEXT("Nonfinite duration is rejected"),
+		FOpenMobileHapticsDurationPolicy::IsWithinBounds(
+			std::numeric_limits<double>::infinity(), 0.001, 1.0));
+
+	const FOpenMobileHapticsNativeDurationResolution Rejected =
+		FOpenMobileHapticsDurationPolicy::ResolveNativeLimit(
+			0.3, 0.1, false);
+	TestEqual(TEXT("Unsplittable native overflow is rejected"),
+		Rejected.Outcome,
+		EOpenMobileHapticsNativeDurationOutcome::Rejected);
+	const FOpenMobileHapticsNativeDurationResolution Split =
+		FOpenMobileHapticsDurationPolicy::ResolveNativeLimit(
+			0.3, 0.1, true);
+	TestEqual(TEXT("Splittable native overflow is segmented"),
+		Split.Outcome, EOpenMobileHapticsNativeDurationOutcome::Split);
+	TestEqual(TEXT("Split count is deterministic"), Split.SegmentCount, 3);
+
+	FOpenMobileHapticPattern Pattern;
+	Pattern.Events.Add({
+		EOpenMobileHapticPatternEventType::Continuous,
+		0.0,
+		0.25,
+		1.0f,
+		0.5f,
+		0.5f
+	});
+	Pattern.Events.Add({
+		EOpenMobileHapticPatternEventType::Transient,
+		0.5,
+		0.0,
+		1.0f,
+		0.5f,
+		0.5f
+	});
+	double PatternDuration = 0.0;
+	TestTrue(TEXT("Accumulated pattern duration is calculated"),
+		FOpenMobileHapticsDurationPolicy::TryCalculatePatternDuration(
+			Pattern, 1.0, PatternDuration));
+	TestEqual(TEXT("Pattern duration includes sparse start times"),
+		PatternDuration, 0.5);
+	TestFalse(TEXT("Per-event duration limit is enforced"),
+		FOpenMobileHapticsDurationPolicy::TryCalculatePatternDuration(
+			Pattern, 1.0, 0.1, PatternDuration));
+	Pattern.Events[1].StartTimeSeconds =
+		std::numeric_limits<double>::max();
+	Pattern.Events[1].DurationSeconds =
+		std::numeric_limits<double>::max();
+	TestFalse(TEXT("Pattern duration overflow is rejected"),
+		FOpenMobileHapticsDurationPolicy::TryCalculatePatternDuration(
+			Pattern, 1.0, PatternDuration));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsOneShotPolicyTest,
 	"OpenMobile.Haptics.OneShot.Policy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -297,6 +364,8 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 		Settings->MinimumOneShotDurationSeconds, 0.001f);
 	TestEqual(TEXT("One-shot maximum requires longer-pattern APIs"),
 		Settings->MaximumOneShotDurationSeconds, 1.0f);
+	TestEqual(TEXT("Pattern events have a conservative duration bound"),
+		Settings->MaximumPatternEventDurationSeconds, 10.0f);
 
 	const int32 InitialSubmissionCount = Backend.OneShotSubmissionCount;
 	TestEqual(TEXT("Zero duration is silent"),
@@ -347,6 +416,14 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 		Minimum.IsAccepted());
 	TestTrue(TEXT("Maximum one-shot duration is accepted"),
 		Maximum.IsAccepted());
+	TestEqual(TEXT("Requested duration is reported"),
+		Maximum.Duration.RequestedSeconds,
+		static_cast<double>(Settings->MaximumOneShotDurationSeconds));
+	TestEqual(TEXT("Resolved duration is reported"),
+		Maximum.Duration.ResolvedSeconds,
+		static_cast<double>(Settings->MaximumOneShotDurationSeconds));
+	TestFalse(TEXT("Unknown native duration remains explicit"),
+		Maximum.Duration.bNativeDurationKnown);
 	TestTrue(TEXT("Controllable mock playback receives a handle"),
 		Maximum.Handle.IsValid());
 	TestEqual(TEXT("One-shot resolution reaches the backend"),
@@ -375,6 +452,25 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 		Busy.Error.Code, EOpenMobileHapticErrorCode::ChannelBusy);
 	TestFalse(TEXT("Busy one-shot has no handle"), Busy.Handle.IsValid());
 	Backend.bBusyOneShot = false;
+	TestEqual(TEXT("Diagnostics retain the latest accepted duration"),
+		Subsystem->GetDiagnostics().LastDuration.RequestedSeconds,
+		0.1);
+
+	Backend.Capabilities.MaximumDurationSeconds = {true, 0.05};
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	const int32 BeforeNativeLimit = Backend.OneShotSubmissionCount;
+	const FOpenMobileHapticPlaybackResult NativeLimited = Subsystem->Vibrate(
+		0.2f,
+		1.0f,
+		TEXT("NativeLimitedPulse")
+	);
+	TestEqual(TEXT("Unsplittable native duration is rejected"),
+		NativeLimited.Error.Code,
+		EOpenMobileHapticErrorCode::UnsupportedFeature);
+	TestEqual(TEXT("Native duration overflow is rejected before submission"),
+		Backend.OneShotSubmissionCount, BeforeNativeLimit);
+	Backend.Capabilities.MaximumDurationSeconds = {};
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 
 	const FOpenMobileHapticPlaybackResult FirstRateLimited =
 		Subsystem->Vibrate(0.05f, 1.0f, TEXT("PulseRate"));

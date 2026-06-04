@@ -665,6 +665,27 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedPatternRequest
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double RequestedSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double ResolvedSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bNativeDurationKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double NativeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bNativeClamped = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 {
 	GENERATED_BODY()
@@ -688,6 +709,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FName ResolvedPath;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticDurationDiagnostics Duration;
 
 	bool IsAccepted() const
 	{
@@ -821,4 +845,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticError LastError;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticDurationDiagnostics LastDuration;
 };

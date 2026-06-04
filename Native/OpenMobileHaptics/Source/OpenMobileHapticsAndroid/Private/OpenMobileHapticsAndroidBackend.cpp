@@ -143,7 +143,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	}
 
 	int32 PlayOneShot(
-		double DurationSeconds,
+		int64 DurationMillis,
 		float Intensity,
 		EOpenMobileHapticsOneShotPath Path,
 		int32 Purpose
@@ -172,14 +172,10 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		{
 			return 0;
 		}
-		const jlong DurationMillis = static_cast<jlong>(FMath::Max(
-			1.0,
-			FMath::RoundToDouble(DurationSeconds * 1000.0)
-		));
 		const jint Result = Env->CallIntMethod(
 			Activity,
 			Method,
-			DurationMillis,
+			static_cast<jlong>(DurationMillis),
 			static_cast<jfloat>(Intensity),
 			static_cast<jint>(Path),
 			static_cast<jint>(Purpose)
@@ -497,14 +493,30 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		: Request.Options.Category == TEXT("Gameplay")
 			? 1
 			: 0;
+	const int64 DurationMillis = static_cast<int64>(FMath::Max(
+		1.0,
+		FMath::RoundToDouble(Request.DurationSeconds * 1000.0)
+	));
 	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlayOneShot(
-		Request.DurationSeconds,
+		DurationMillis,
 		Request.Intensity,
 		Resolution.Path,
 		Purpose
 	);
 	Submission.Result.ResolvedPath =
 		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration
+		|| NativeResult == 3)
+	{
+		Submission.Result.Duration.bNativeDurationKnown = true;
+		Submission.Result.Duration.NativeSeconds =
+			static_cast<double>(DurationMillis) / 1000.0;
+		Submission.Result.Duration.bNativeClamped = !FMath::IsNearlyEqual(
+			Submission.Result.Duration.NativeSeconds,
+			static_cast<double>(Request.DurationSeconds),
+			UE_DOUBLE_SMALL_NUMBER
+		);
+	}
 	switch (NativeResult)
 	{
 	case 1:
