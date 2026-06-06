@@ -202,6 +202,18 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum pattern event duration must be finite, positive, and no greater than the continuous limit."));
 	}
+	if (MaximumPatternEventCount < 1 || MaximumPatternEventCount > 4096)
+	{
+		AddError(TEXT("Maximum pattern event count must be between 1 and 4096."));
+	}
+	if (!FMath::IsFinite(MinimumPatternGranularitySeconds)
+		|| MinimumPatternGranularitySeconds < 0.0001f
+		|| MinimumPatternGranularitySeconds > 1.0f
+		|| MinimumPatternGranularitySeconds
+			> MaximumPatternEventDurationSeconds)
+	{
+		AddError(TEXT("Minimum pattern granularity must be finite, between 0.0001 and 1 second, and no greater than the event duration limit."));
+	}
 	if (!IsFiniteRange(MinimumOneShotDurationSeconds, 0.001f, 1.0f))
 	{
 		AddError(TEXT("Minimum one-shot duration must be finite and between 0.001 and 1 second."));

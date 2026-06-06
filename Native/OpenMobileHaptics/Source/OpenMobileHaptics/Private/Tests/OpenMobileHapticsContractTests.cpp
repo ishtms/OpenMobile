@@ -15,6 +15,7 @@
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -360,6 +361,112 @@ bool FOpenMobileHapticsDurationPolicyTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Pattern duration overflow is rejected"),
 		FOpenMobileHapticsDurationPolicy::TryCalculatePatternDuration(
 			Pattern, 1.0, PatternDuration));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPatternCompilerTest,
+	"OpenMobile.Haptics.Pattern.Compiler",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsPatternCompileLimits Limits;
+	Limits.MaximumEventCount = 3;
+	Limits.MaximumDurationSeconds = 1.0;
+	Limits.MaximumEventDurationSeconds = 0.5;
+	Limits.MinimumGranularitySeconds = 0.01;
+	FOpenMobileHapticCapabilities NativeLimits;
+	NativeLimits.MaximumEventCount = {true, 2};
+	NativeLimits.MaximumDurationSeconds = {true, 0.5};
+	NativeLimits.MinimumTimingGranularitySeconds = {true, 0.02};
+	const FOpenMobileHapticsPatternCompileLimits ResolvedLimits =
+		FOpenMobileHapticsPatternCompiler::MakeLimits(
+			*GetDefault<UOpenMobileHapticsSettings>(),
+			NativeLimits
+		);
+	TestEqual(TEXT("Native event limit narrows project settings"),
+		ResolvedLimits.MaximumEventCount, 2);
+	TestEqual(TEXT("Native duration narrows project settings"),
+		ResolvedLimits.MaximumDurationSeconds, 0.5);
+	TestEqual(TEXT("Native granularity raises the portable minimum"),
+		ResolvedLimits.MinimumGranularitySeconds, 0.02);
+
+	const FOpenMobileHapticsPatternCompileResult Empty =
+		FOpenMobileHapticsPatternCompiler::Compile({}, Limits);
+	TestEqual(TEXT("Empty patterns are rejected"), Empty.Error,
+		EOpenMobileHapticsPatternCompileError::Empty);
+
+	FOpenMobileHapticPattern Pattern;
+	FOpenMobileHapticPatternEvent Transient;
+	Transient.Type = EOpenMobileHapticPatternEventType::Transient;
+	Transient.StartTimeSeconds = 0.0;
+	Transient.DurationSeconds = 0.0;
+	Pattern.Events.Add(Transient);
+	FOpenMobileHapticPatternEvent Silence;
+	Silence.Type = EOpenMobileHapticPatternEventType::Silence;
+	Silence.StartTimeSeconds = 0.014;
+	Silence.DurationSeconds = 0.016;
+	Pattern.Events.Add(Silence);
+	FOpenMobileHapticPatternEvent ZeroIntensity;
+	ZeroIntensity.Type = EOpenMobileHapticPatternEventType::Continuous;
+	ZeroIntensity.StartTimeSeconds = 0.05;
+	ZeroIntensity.DurationSeconds = 0.02;
+	ZeroIntensity.Intensity = 0.0f;
+	Pattern.Events.Add(ZeroIntensity);
+	const FOpenMobileHapticsPatternCompileResult Valid =
+		FOpenMobileHapticsPatternCompiler::Compile(Pattern, Limits);
+	TestTrue(TEXT("Valid sparse pattern compiles"), Valid.IsSuccess());
+	TestEqual(TEXT("Compiled event count is immutable and stable"),
+		Valid.Pattern->GetEvents().Num(), 3);
+	TestEqual(TEXT("Start times use platform-neutral granularity"),
+		Valid.Pattern->GetEvents()[1].StartTimeSeconds, 0.01);
+	TestEqual(TEXT("Durations use platform-neutral granularity"),
+		Valid.Pattern->GetEvents()[1].DurationSeconds, 0.02);
+	TestEqual(TEXT("Intentional silence remains an event"),
+		Valid.Pattern->GetEvents()[1].Type,
+		EOpenMobileHapticPatternEventType::Silence);
+	TestEqual(TEXT("Silence compiles to zero intensity"),
+		Valid.Pattern->GetEvents()[1].Intensity, 0.0f);
+	TestEqual(TEXT("Zero-intensity continuous events are preserved"),
+		Valid.Pattern->GetEvents()[2].Intensity, 0.0f);
+	TestEqual(TEXT("Resolved sparse duration is stable"),
+		Valid.Pattern->GetDurationSeconds(), 0.07);
+
+	FOpenMobileHapticPattern Unsorted = Pattern;
+	Unsorted.Events[2].StartTimeSeconds = 0.005;
+	TestEqual(TEXT("Unsorted events are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(Unsorted, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::Unsorted);
+	FOpenMobileHapticPattern Overlap = Pattern;
+	Overlap.Events[2].StartTimeSeconds = 0.02;
+	TestEqual(TEXT("Overlapping events are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(Overlap, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::Overlap);
+	FOpenMobileHapticPattern Nonfinite = Pattern;
+	Nonfinite.Events[1].Intensity =
+		std::numeric_limits<float>::quiet_NaN();
+	TestEqual(TEXT("Nonfinite pattern values are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(Nonfinite, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::Nonfinite);
+	FOpenMobileHapticPattern TooDense = Pattern;
+	TooDense.Events.Add(ZeroIntensity);
+	TestEqual(TEXT("Patterns above the event limit are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(TooDense, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::EventLimit);
+	FOpenMobileHapticPattern TooLong = Pattern;
+	TooLong.Events[2].StartTimeSeconds = 0.99;
+	TooLong.Events[2].DurationSeconds = 0.02;
+	TestEqual(TEXT("Patterns above the duration limit are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(TooLong, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::DurationLimit);
+	FOpenMobileHapticPattern EventTooLong = Pattern;
+	EventTooLong.Events[1].DurationSeconds = 0.51;
+	TestEqual(TEXT("Events above the duration limit are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(EventTooLong, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::EventDurationLimit);
 	return true;
 }
 
@@ -1508,6 +1615,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Custom Android vibration packaging is enabled by default"),
 		Settings->Android.bPackageCustomVibration
 	);
+	TestEqual(TEXT("Portable patterns have a bounded event count"),
+		Settings->MaximumPatternEventCount, 128);
+	TestEqual(TEXT("Portable timing has a stable minimum granularity"),
+		Settings->MinimumPatternGranularitySeconds, 0.001f);
 
 	TArray<FString> Errors;
 	TestTrue(TEXT("Default settings validate"), Settings->Validate(Errors));
