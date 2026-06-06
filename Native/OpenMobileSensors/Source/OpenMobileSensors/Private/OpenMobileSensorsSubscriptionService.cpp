@@ -176,7 +176,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				120.0
 			)
 			|| Requested.BufferCapacitySamples < 1
-			|| Requested.BufferCapacitySamples > 65536
+			|| Requested.BufferCapacitySamples > 4096
 			|| !ValidateFilterOptions(Requested.Filters)
 			|| Requested.AttitudeRepresentations == 0
 			|| (Requested.AttitudeRepresentations

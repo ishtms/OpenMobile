@@ -87,6 +87,22 @@ public:
 		const FOpenMobileOrientationSensorSample& Sample
 	);
 	static void PublishProximity(const FOpenMobileProximitySensorSample& Sample);
+	static bool PublishVectorBatch(const FOpenMobileVectorSensorBatch& Batch);
+	static bool PublishAttitudeBatch(
+		const FOpenMobileAttitudeSensorBatch& Batch
+	);
+	static bool PublishScalarBatch(const FOpenMobileScalarSensorBatch& Batch);
+	static bool PublishHeadingBatch(const FOpenMobileHeadingSensorBatch& Batch);
+	static bool PublishStepsBatch(const FOpenMobileStepsSensorBatch& Batch);
+	static bool PublishActivityBatch(
+		const FOpenMobileActivitySensorBatch& Batch
+	);
+	static bool PublishOrientationBatch(
+		const FOpenMobileOrientationSensorBatch& Batch
+	);
+	static bool PublishProximityBatch(
+		const FOpenMobileProximitySensorBatch& Batch
+	);
 
 	static bool ReadLatestVector(
 		const FGuid& OwnerIdentifier,
@@ -151,6 +167,62 @@ public:
 		double NowSeconds,
 		FOpenMobileSensorReadResult& OutResult,
 		FOpenMobileProximitySensorSample& OutSample
+	);
+	static bool DrainBufferedVector(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileVectorSensorBatch& OutBatch
+	);
+	static bool DrainBufferedAttitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileAttitudeSensorBatch& OutBatch
+	);
+	static bool DrainBufferedScalar(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileScalarSensorBatch& OutBatch
+	);
+	static bool DrainBufferedHeading(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileHeadingSensorBatch& OutBatch
+	);
+	static bool DrainBufferedSteps(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileStepsSensorBatch& OutBatch
+	);
+	static bool DrainBufferedActivity(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileActivitySensorBatch& OutBatch
+	);
+	static bool DrainBufferedOrientation(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileOrientationSensorBatch& OutBatch
+	);
+	static bool DrainBufferedProximity(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32 MaximumSamples,
+		FOpenMobileSensorBufferReadResult& OutResult,
+		FOpenMobileProximitySensorBatch& OutBatch
 	);
 	static FOnOpenMobileVectorSensorBatchReady& OnVectorBatch();
 	static FOnOpenMobileAttitudeSensorBatchReady& OnAttitudeBatch();

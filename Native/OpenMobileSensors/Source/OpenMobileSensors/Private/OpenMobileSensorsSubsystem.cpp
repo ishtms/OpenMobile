@@ -11,35 +11,6 @@
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
-namespace OpenMobileSensorsSubsystemPrivate
-{
-	template <typename BatchType>
-	bool DrainUnavailable(
-		const FGuid& OwnerIdentifier,
-		const FOpenMobileSensorSubscriptionHandle& Handle,
-		int32 MaximumSamples,
-		FOpenMobileSensorBufferReadResult& OutResult,
-		BatchType& OutBatch
-	)
-	{
-		OutBatch = {};
-		OutResult = {};
-		if (MaximumSamples <= 0)
-		{
-			OutResult.Operation = FOpenMobileSensorsErrorMapper::Map(
-				EOpenMobileSensorFailureReason::InvalidRequest
-			);
-			return false;
-		}
-		OutResult.Operation =
-			FOpenMobileSensorsSubscriptionService::GetHandleStatus(
-				OwnerIdentifier,
-				Handle
-			);
-		return OutResult.Operation.IsSuccess();
-	}
-}
-
 void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -317,7 +288,9 @@ OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 
 #undef OPENMOBILE_IMPLEMENT_LATEST_SAMPLE
 
-#define OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(MethodName, BatchType) \
+#define OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES( \
+	MethodName, ServiceMethod, BatchType \
+) \
 	bool UOpenMobileSensorsSubsystem::MethodName( \
 		const FOpenMobileSensorSubscriptionHandle& Handle, \
 		int32 MaximumSamples, \
@@ -325,7 +298,16 @@ OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 		BatchType& OutBatch \
 	) \
 	{ \
-		return OpenMobileSensorsSubsystemPrivate::DrainUnavailable( \
+		if (MaximumSamples < 1 || MaximumSamples > 4096) \
+		{ \
+			OutBatch = {}; \
+			OutResult = {}; \
+			OutResult.Operation = FOpenMobileSensorsErrorMapper::Map( \
+				EOpenMobileSensorFailureReason::InvalidRequest \
+			); \
+			return false; \
+		} \
+		return FOpenMobileSensorsSampleService::ServiceMethod( \
 			SubscriptionOwnerIdentifier, Handle, MaximumSamples, \
 			OutResult, OutBatch \
 		); \
@@ -333,34 +315,42 @@ OPENMOBILE_IMPLEMENT_LATEST_SAMPLE(
 
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedVectorSamplesNative,
+	DrainBufferedVector,
 	FOpenMobileVectorSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedAttitudeSamplesNative,
+	DrainBufferedAttitude,
 	FOpenMobileAttitudeSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedScalarSamplesNative,
+	DrainBufferedScalar,
 	FOpenMobileScalarSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedHeadingSamplesNative,
+	DrainBufferedHeading,
 	FOpenMobileHeadingSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedStepsSamplesNative,
+	DrainBufferedSteps,
 	FOpenMobileStepsSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedActivitySamplesNative,
+	DrainBufferedActivity,
 	FOpenMobileActivitySensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedOrientationSamplesNative,
+	DrainBufferedOrientation,
 	FOpenMobileOrientationSensorBatch
 )
 OPENMOBILE_IMPLEMENT_BUFFERED_SAMPLES(
 	GetBufferedProximitySamplesNative,
+	DrainBufferedProximity,
 	FOpenMobileProximitySensorBatch
 )
 
@@ -511,7 +501,6 @@ UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 	const FOpenMobileSensorLocationInput& LocationInput
 )
 {
-	using namespace OpenMobileSensorsSubsystemPrivate;
 	if (!FMath::IsFinite(LocationInput.LatitudeDegrees)
 		|| !FMath::IsFinite(LocationInput.LongitudeDegrees)
 		|| !FMath::IsFinite(LocationInput.AltitudeMeters)

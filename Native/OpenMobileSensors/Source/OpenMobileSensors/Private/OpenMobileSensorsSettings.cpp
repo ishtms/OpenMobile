@@ -88,9 +88,9 @@ bool UOpenMobileSensorsSettings::Validate(
 		OutErrors.Add(TEXT("Default MaximumDeliveryLatencySeconds must be between 0 and 10 seconds."));
 	}
 	if (DefaultStreamOptions.BufferCapacitySamples < 1
-		|| DefaultStreamOptions.BufferCapacitySamples > 65536)
+		|| DefaultStreamOptions.BufferCapacitySamples > 4096)
 	{
-		OutErrors.Add(TEXT("Default BufferCapacitySamples must be between 1 and 65536."));
+		OutErrors.Add(TEXT("Default BufferCapacitySamples must be between 1 and 4096."));
 	}
 	if ((DefaultStreamOptions.RatePreset == EOpenMobileSensorRatePreset::Fast
 		|| DefaultStreamOptions.CustomFrequencyHz > 200.0
