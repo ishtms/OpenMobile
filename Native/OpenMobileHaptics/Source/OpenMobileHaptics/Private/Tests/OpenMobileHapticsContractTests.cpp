@@ -18,6 +18,7 @@
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
+#include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
@@ -467,6 +468,95 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Events above the duration limit are rejected"),
 		FOpenMobileHapticsPatternCompiler::Compile(EventTooLong, Limits).Error,
 		EOpenMobileHapticsPatternCompileError::EventDurationLimit);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRepeatPolicyTest,
+	"OpenMobile.Haptics.Pattern.RepeatPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRepeatPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticLoopOptions NoLoop;
+	const FOpenMobileHapticsRepeatPlanResult Single =
+		FOpenMobileHapticsRepeatPolicy::Resolve(NoLoop, 0.8, 32, 30.0);
+	TestTrue(TEXT("Non-looping pattern has one iteration"),
+		Single.IsSuccess());
+	TestEqual(TEXT("Non-looping iteration count is one"),
+		Single.Plan.TotalIterationCount, 1);
+
+	FOpenMobileHapticLoopOptions Finite;
+	Finite.bLoop = true;
+	Finite.RepeatCount = 1;
+	Finite.RepeatStartTimeSeconds = 0.2;
+	Finite.MaximumDurationSeconds = 5.0;
+	const FOpenMobileHapticsRepeatPlanResult OneRepeat =
+		FOpenMobileHapticsRepeatPolicy::Resolve(Finite, 0.8, 32, 30.0);
+	TestTrue(TEXT("One repeat is accepted"), OneRepeat.IsSuccess());
+	TestEqual(TEXT("One repeat means two total iterations"),
+		OneRepeat.Plan.TotalIterationCount, 2);
+	TestEqual(TEXT("Repeat section duration is stable"),
+		OneRepeat.Plan.RepeatDurationSeconds, 0.6);
+	TestEqual(TEXT("Finite total duration includes the repeat section"),
+		OneRepeat.Plan.TotalDurationSeconds, 1.4);
+
+	FOpenMobileHapticLoopOptions Indefinite = Finite;
+	Indefinite.RepeatCount = 0;
+	const FOpenMobileHapticsRepeatPlanResult UntilStopped =
+		FOpenMobileHapticsRepeatPolicy::Resolve(
+			Indefinite, 0.8, 32, 30.0);
+	TestTrue(TEXT("Zero repeat count loops until stopped"),
+		UntilStopped.Plan.bRepeatUntilStopped);
+	TestEqual(TEXT("Indefinite playback keeps an explicit safety bound"),
+		UntilStopped.Plan.MaximumDurationSeconds, 5.0);
+
+	Finite.RepeatStartTimeSeconds = 0.8;
+	TestEqual(TEXT("Repeat start at pattern end is rejected"),
+		FOpenMobileHapticsRepeatPolicy::Resolve(
+			Finite, 0.8, 32, 30.0).Error,
+		EOpenMobileHapticsRepeatError::InvalidRepeatStart);
+	Finite.RepeatStartTimeSeconds = 0.2;
+	Finite.RepeatCount = 33;
+	TestEqual(TEXT("Repeat count above project limit is rejected"),
+		FOpenMobileHapticsRepeatPolicy::Resolve(
+			Finite, 0.8, 32, 30.0).Error,
+		EOpenMobileHapticsRepeatError::RepeatLimit);
+	Indefinite.MaximumDurationSeconds = 0.0;
+	TestEqual(TEXT("Unbounded indefinite repeat is rejected"),
+		FOpenMobileHapticsRepeatPolicy::Resolve(
+			Indefinite, 0.8, 32, 30.0).Error,
+		EOpenMobileHapticsRepeatError::InvalidSafetyDuration);
+
+	FOpenMobileHapticPlaybackHandle Handle;
+	Handle.Id = FGuid(42, 0, 0, 1);
+	FOpenMobileHapticsRepeatCursor Cursor(UntilStopped.Plan, Handle, 10.0);
+	TestFalse(TEXT("No repeat is due during the first iteration"),
+		Cursor.Advance(10.5).bShouldSubmit);
+	const FOpenMobileHapticsRepeatAdvance Hitched = Cursor.Advance(12.0);
+	TestTrue(TEXT("Clock hitch schedules one repeat"), Hitched.bShouldSubmit);
+	TestEqual(TEXT("Clock hitch skips missed repeat callbacks"),
+		Hitched.IterationIndex, 3);
+	TestFalse(TEXT("Same time never accumulates another callback"),
+		Cursor.Advance(12.0).bShouldSubmit);
+	FOpenMobileHapticPlaybackHandle StaleHandle;
+	StaleHandle.Id = FGuid(7, 0, 0, 1);
+	TestFalse(TEXT("Stale handle cannot stop repeat ownership"),
+		Cursor.Stop(StaleHandle));
+	TestTrue(TEXT("Owning handle stops all future repeats"),
+		Cursor.Stop(Handle));
+	TestFalse(TEXT("Stopped cursor never schedules again"),
+		Cursor.Advance(12.6).bShouldSubmit);
+	FOpenMobileHapticsRepeatCursor TeardownCursor(
+		UntilStopped.Plan,
+		Handle,
+		20.0
+	);
+	TeardownCursor.Cancel();
+	TestFalse(TEXT("Teardown cancellation removes future repeats"),
+		TeardownCursor.Advance(20.8).bShouldSubmit);
 	return true;
 }
 
