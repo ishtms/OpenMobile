@@ -145,7 +145,7 @@ void UOpenMobileHapticPlaybackAsyncAction::Cancel()
 	}
 	if (Subsystem.IsValid() && PlaybackHandle.IsValid())
 	{
-		Subsystem->StopPlaybackNative(PlaybackHandle);
+		Subsystem->CancelPlaybackNative(PlaybackHandle);
 	}
 
 	FOpenMobileHapticPlaybackResult Result = ImmediateResult;
@@ -245,7 +245,6 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 	case EOpenMobileHapticPlaybackState::Completed:
 		FinishCompleted(MoveTemp(Result));
 		break;
-	case EOpenMobileHapticPlaybackState::Stopped:
 	case EOpenMobileHapticPlaybackState::Cancelled:
 		if (!Result.Error.IsSet())
 		{
@@ -258,6 +257,9 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 			);
 		}
 		FinishCancelled(MoveTemp(Result));
+		break;
+	case EOpenMobileHapticPlaybackState::Stopped:
+		FinishCompleted(MoveTemp(Result));
 		break;
 	case EOpenMobileHapticPlaybackState::Interrupted:
 	case EOpenMobileHapticPlaybackState::Failed:

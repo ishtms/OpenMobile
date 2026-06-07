@@ -188,6 +188,40 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return static_cast<int32>(Result);
 	}
 
+	bool StopAll()
+	{
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return false;
+		}
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID Method = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileHapticsStopAll",
+				"()Z"
+			)
+			: nullptr;
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return false;
+		}
+		if (!Method)
+		{
+			return false;
+		}
+		const jboolean Result = Env->CallBooleanMethod(Activity, Method);
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+			return false;
+		}
+		return Result == JNI_TRUE;
+	}
+
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
 		int64 SupportedFlag,
@@ -475,6 +509,20 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		break;
 	}
 	return Submission;
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
+{
+	if (!OpenMobileHapticsAndroidBackendPrivate::StopAll())
+	{
+		return FOpenMobileHapticControlResult::MakeRejected(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android could not stop application vibration.")
+		);
+	}
+	FOpenMobileHapticControlResult Result;
+	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+	return Result;
 }
 
 FOpenMobileHapticsBackendSubmission

@@ -149,6 +149,27 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		virtual FOpenMobileHapticControlResult StopChannel(FName Channel) override
+		{
+			LastStoppedChannel = Channel;
+			++StopChannelCount;
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = ControlSupport.bStopChannel
+				? EOpenMobileHapticControlOutcome::Accepted
+				: EOpenMobileHapticControlOutcome::Unsupported;
+			return Result;
+		}
+
+		virtual FOpenMobileHapticControlResult StopAll() override
+		{
+			++StopAllCount;
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = ControlSupport.bStopAll
+				? EOpenMobileHapticControlOutcome::Accepted
+				: EOpenMobileHapticControlOutcome::Unsupported;
+			return Result;
+		}
+
 		virtual void BeginShutdown() override
 		{
 			++ShutdownCount;
@@ -188,8 +209,11 @@ namespace OpenMobileHapticsTests
 		int32 NamedSubmissionCount = 0;
 		int32 ShutdownCount = 0;
 		int32 LifecycleChangeCount = 0;
+		int32 StopChannelCount = 0;
+		int32 StopAllCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
+		FName LastStoppedChannel;
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
 		FOpenMobileHapticOneShotRequest LastOneShotRequest;
 		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
@@ -2439,32 +2463,41 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 		High.LastStoppedToken.PlaybackHandle,
 		Named.Handle
 	);
+	TestEqual(TEXT("Stop immediately records terminal state"),
+		Subsystem->GetPlaybackState(Named.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Stop broadcasts one terminal event"), EventCount, 1);
+	TestEqual(TEXT("Stop event is distinct from cancellation"), LastState,
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Repeated stop is idempotent"),
+		Subsystem->StopPlayback(Named.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Repeated stop does not duplicate events"), EventCount, 1);
 
 	High.CurrentTimeSeconds = 12.5;
 	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Delayed callback is delivered"), EventCount, 1);
+	TestEqual(TEXT("Callback queued before stop is invalidated"), EventCount, 1);
 	TestEqual(
-		TEXT("Callback state is preserved"),
+		TEXT("Stopped state cannot regress"),
 		LastState,
-		EOpenMobileHapticPlaybackState::Started
+		EOpenMobileHapticPlaybackState::Stopped
 	);
-	TestEqual(TEXT("Mock time is preserved"), LastTimestamp, 12.5);
 	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
 	TestEqual(TEXT("Duplicate callback is ignored"), EventCount, 1);
 
 	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 2);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Terminal callback is delivered once"), EventCount, 2);
+	TestEqual(TEXT("Post-stop terminal callback is ignored"), EventCount, 1);
 	TestEqual(
-		TEXT("Completed state remains queryable"),
+		TEXT("Stopped state remains queryable"),
 		Subsystem->GetPlaybackState(Named.Handle),
-		EOpenMobileHapticPlaybackState::Completed
+		EOpenMobileHapticPlaybackState::Stopped
 	);
 	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 3);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 2);
+	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 1);
 
 	const FOpenMobileHapticPlaybackResult Stale =
 		Subsystem->PlayNamedPattern(TEXT("Stale"));
@@ -2472,7 +2505,7 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Newest);
 	High.Emit(1, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Stale backend callback is ignored"), EventCount, 2);
+	TestEqual(TEXT("Stale backend callback is ignored"), EventCount, 1);
 	TestTrue(TEXT("Stale request originally had a handle"), Stale.Handle.IsValid());
 
 	Newest.bFailSubmissions = true;
@@ -2494,6 +2527,111 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Newest);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(High);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Low);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackControlTest,
+	"OpenMobile.Haptics.Playback.StopAndCancel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackControlTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("Control"));
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bStopChannel = true;
+	Backend.ControlSupport.bStopAll = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	int32 StoppedEvents = 0;
+	int32 CancelledEvents = 0;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&StoppedEvents, &CancelledEvents](
+			const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			StoppedEvents += Event.State
+				== EOpenMobileHapticPlaybackState::Stopped;
+			CancelledEvents += Event.State
+				== EOpenMobileHapticPlaybackState::Cancelled;
+		}
+	);
+	FOpenMobileHapticPlaybackOptions AOptions;
+	AOptions.Channel = TEXT("A");
+	FOpenMobileHapticPlaybackOptions BOptions;
+	BOptions.Channel = TEXT("B");
+	const FOpenMobileHapticPlaybackResult A1 =
+		Subsystem->PlayNamedPatternAdvanced(TEXT("A1"), 1.0f, AOptions);
+	const FOpenMobileHapticPlaybackResult A2 =
+		Subsystem->PlayNamedPatternAdvanced(TEXT("A2"), 1.0f, AOptions);
+	const FOpenMobileHapticPlaybackResult B =
+		Subsystem->PlayNamedPatternAdvanced(TEXT("B"), 1.0f, BOptions);
+
+	TestEqual(TEXT("Cancel routes through the owning backend"),
+		Subsystem->CancelPlayback(A1.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Cancel records a distinct terminal state"),
+		Subsystem->GetPlaybackState(A1.Handle),
+		EOpenMobileHapticPlaybackState::Cancelled);
+	TestEqual(TEXT("Cancel emits once"), CancelledEvents, 1);
+	TestEqual(TEXT("Repeated cancel is idempotent"),
+		Subsystem->CancelPlayback(A1.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Repeated cancel does not emit again"), CancelledEvents, 1);
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Cancelled callbacks are invalidated"), CancelledEvents, 1);
+
+	TestEqual(TEXT("Channel stop is accepted"),
+		Subsystem->StopChannel(TEXT("A")).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Channel stop affects matching playback"),
+		Subsystem->GetPlaybackState(A2.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Channel stop leaves other playback active"),
+		Subsystem->GetPlaybackState(B.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+	TestEqual(TEXT("Channel stop emits once per active handle"),
+		StoppedEvents, 1);
+	TestEqual(TEXT("Repeated channel stop is idempotent"),
+		Subsystem->StopChannel(TEXT("A")).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Repeated channel stop does not emit again"),
+		StoppedEvents, 1);
+
+	TestEqual(TEXT("Stop all is accepted"),
+		Subsystem->StopAll().Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Stop all terminates remaining playback"),
+		Subsystem->GetPlaybackState(B.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Stop all emits once per active handle"),
+		StoppedEvents, 2);
+
+	const FOpenMobileHapticPlaybackResult Newer =
+		Subsystem->PlayNamedPatternAdvanced(TEXT("Newer"), 1.0f, BOptions);
+	FOpenMobileHapticPlaybackHandle Unknown;
+	Unknown.Id = FGuid(99, 0, 0, 1);
+	TestEqual(TEXT("Unknown handle remains stale"),
+		Subsystem->StopPlayback(Unknown).Outcome,
+		EOpenMobileHapticControlOutcome::StaleHandle);
+	TestEqual(TEXT("Stale stop cannot affect newer playback"),
+		Subsystem->GetPlaybackState(Newer.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+
+	Subsystem->Deinitialize();
+	TestEqual(TEXT("Shutdown stops native playback once more"),
+		Backend.StopAllCount, 2);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }

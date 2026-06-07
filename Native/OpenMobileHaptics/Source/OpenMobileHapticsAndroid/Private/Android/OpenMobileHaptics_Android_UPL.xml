@@ -361,6 +361,28 @@ import java.lang.reflect.Method;
         }
     }
 
+    public boolean AndroidThunkJava_OpenMobileHapticsStopAll()
+    {
+        try
+        {
+            Vibrator vibrator = OpenMobileHapticsVibrator();
+            if (vibrator == null)
+            {
+                return false;
+            }
+            vibrator.cancel();
+            return true;
+        }
+        catch (SecurityException exception)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            return false;
+        }
+    }
+
     private Vibrator OpenMobileHapticsVibrator()
     {
         if (Build.VERSION.SDK_INT &gt;= 31)

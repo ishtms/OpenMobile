@@ -18,6 +18,7 @@ struct FOpenMobileHapticsSubsystemRequestState
 {
 	FOpenMobileHapticsBackendRequestToken Token;
 	uint64 LastCallbackSequence = 0;
+	FName Channel;
 };
 
 struct FOpenMobileHapticsSubsystemState
@@ -296,6 +297,16 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 	{
 		return;
 	}
+	if (IOpenMobileHapticsBackend* Backend =
+		FOpenMobileHapticsBackendRegistry::FindBackend())
+	{
+		if (State
+			&& !State->Requests.IsEmpty()
+			&& Backend->GetControlSupport().bStopAll)
+		{
+			Backend->StopAll();
+		}
+	}
 	bDeinitialized = true;
 
 	TArray<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> Actions;
@@ -523,6 +534,13 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopPlayback(
 	return StopPlaybackNative(Handle);
 }
 
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::CancelPlayback(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return CancelPlaybackNative(Handle);
+}
+
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannel(
 	FName Channel
 )
@@ -725,7 +743,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
 		LocalState.Requests.Add(
 			OverrideToken.RequestId,
-			{OverrideToken, 0}
+			{OverrideToken, 0, Request.Options.Channel}
 		);
 		FOpenMobileHapticPlaybackResult OverrideResult =
 			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
@@ -812,7 +830,10 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	}
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, false);
-	LocalState.Requests.Add(Token.RequestId, {Token, 0});
+	LocalState.Requests.Add(
+		Token.RequestId,
+		{Token, 0, Request.Options.Channel}
+	);
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
@@ -1063,7 +1084,10 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	}
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
-	LocalState.Requests.Add(Token.RequestId, {Token, 0});
+	LocalState.Requests.Add(
+		Token.RequestId,
+		{Token, 0, Request.Options.Channel}
+	);
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
@@ -1121,7 +1145,10 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
-	LocalState.Requests.Add(Token.RequestId, {Token, 0});
+	LocalState.Requests.Add(
+		Token.RequestId,
+		{Token, 0, Request.Options.Channel}
+	);
 	return OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
 		Token,
@@ -1130,27 +1157,65 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	);
 }
 
-FOpenMobileHapticControlResult
-UOpenMobileHapticsSubsystem::StopPlaybackNative(
-	FOpenMobileHapticPlaybackHandle Handle
+void UOpenMobileHapticsSubsystem::CompleteControlledRequest(
+	uint64 RequestId,
+	EOpenMobileHapticPlaybackState TerminalState
+)
+{
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const FOpenMobileHapticsSubsystemRequestState* Request =
+		LocalState.Requests.Find(RequestId);
+	if (!Request || !Request->Token.PlaybackHandle.IsValid())
+	{
+		return;
+	}
+	const FOpenMobileHapticPlaybackHandle Handle =
+		Request->Token.PlaybackHandle;
+	const FName Channel = Request->Channel;
+	LocalState.PlaybackStates.Add(Handle, TerminalState);
+	OpenMobileHapticsSubsystemPrivate::RemoveRequest(LocalState, RequestId);
+
+	FOpenMobileHapticPlaybackEvent Event;
+	Event.Handle = Handle;
+	Event.State = TerminalState;
+	Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+	Event.TimestampSeconds = FPlatformTime::Seconds();
+	Event.Channel = Channel;
+	OnPlaybackEvent.Broadcast(Event);
+	NativePlaybackEvent.Broadcast(Event);
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::EndPlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle,
+	EOpenMobileHapticPlaybackState TerminalState
 )
 {
 	check(IsInGameThread());
-	IOpenMobileHapticsBackend* Backend = bDeinitialized
-		? nullptr
-		: FOpenMobileHapticsBackendRegistry::FindBackend();
-	if (!Backend)
-	{
-		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
-	}
-
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	const uint64* RequestId = LocalState.RequestByHandle.Find(Handle);
 	FOpenMobileHapticsSubsystemRequestState* Request = RequestId
 		? LocalState.Requests.Find(*RequestId)
 		: nullptr;
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
 	if (!Request)
 	{
+		const EOpenMobileHapticPlaybackState* ExistingState =
+			LocalState.PlaybackStates.Find(Handle);
+		if (ExistingState
+			&& (*ExistingState == EOpenMobileHapticPlaybackState::Stopped
+				|| *ExistingState
+					== EOpenMobileHapticPlaybackState::Cancelled))
+		{
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			return Result;
+		}
+		if (!Backend)
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
+		}
 		FOpenMobileHapticsErrorContext Context;
 		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
 		Context.Stage = EOpenMobileHapticFailureStage::Playback;
@@ -1162,6 +1227,10 @@ UOpenMobileHapticsSubsystem::StopPlaybackNative(
 			);
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
 		return Result;
+	}
+	if (!Backend)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
 	}
 
 	if (!FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
@@ -1193,7 +1262,36 @@ UOpenMobileHapticsSubsystem::StopPlaybackNative(
 		Result.Error.bRejectedBeforeSubmission = false;
 		return Result;
 	}
-	return Backend->StopPlayback(Request->Token);
+	const uint64 OwnedRequestId = Request->Token.RequestId;
+	FOpenMobileHapticControlResult Result =
+		Backend->StopPlayback(Request->Token);
+	if (Result.Outcome == EOpenMobileHapticControlOutcome::Accepted)
+	{
+		CompleteControlledRequest(OwnedRequestId, TerminalState);
+	}
+	return Result;
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::StopPlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return EndPlaybackNative(
+		Handle,
+		EOpenMobileHapticPlaybackState::Stopped
+	);
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::CancelPlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return EndPlaybackNative(
+		Handle,
+		EOpenMobileHapticPlaybackState::Cancelled
+	);
 }
 
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannelNative(
@@ -1208,7 +1306,38 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannelNative(
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
 	}
-	return Backend->StopChannel(Channel);
+	if (Channel.IsNone())
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::InvalidRequest;
+		Context.Stage = EOpenMobileHapticFailureStage::Validation;
+		return FOpenMobileHapticControlResult::MakeRejected(
+			FOpenMobileHapticsErrorMapper::Map(Context)
+		);
+	}
+	FOpenMobileHapticControlResult Result = Backend->StopChannel(Channel);
+	if (Result.Outcome == EOpenMobileHapticControlOutcome::Accepted)
+	{
+		FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+		TArray<uint64> RequestIds;
+		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+			LocalState.Requests)
+		{
+			if (Pair.Value.Channel == Channel
+				&& Pair.Value.Token.PlaybackHandle.IsValid())
+			{
+				RequestIds.Add(Pair.Key);
+			}
+		}
+		for (const uint64 RequestId : RequestIds)
+		{
+			CompleteControlledRequest(
+				RequestId,
+				EOpenMobileHapticPlaybackState::Stopped
+			);
+		}
+	}
+	return Result;
 }
 
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopAllNative()
@@ -1221,7 +1350,28 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopAllNative()
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
 	}
-	return Backend->StopAll();
+	FOpenMobileHapticControlResult Result = Backend->StopAll();
+	if (Result.Outcome == EOpenMobileHapticControlOutcome::Accepted)
+	{
+		FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+		TArray<uint64> RequestIds;
+		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+			LocalState.Requests)
+		{
+			if (Pair.Value.Token.PlaybackHandle.IsValid())
+			{
+				RequestIds.Add(Pair.Key);
+			}
+		}
+		for (const uint64 RequestId : RequestIds)
+		{
+			CompleteControlledRequest(
+				RequestId,
+				EOpenMobileHapticPlaybackState::Stopped
+			);
+		}
+	}
+	return Result;
 }
 
 EOpenMobileHapticPlaybackState

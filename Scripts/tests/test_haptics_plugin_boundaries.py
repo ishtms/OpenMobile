@@ -309,6 +309,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("bNativeDurationKnown", android_backend)
 		self.assertIn("bNativeClamped", android_backend)
 		self.assertIn("bNativeIntensityKnown", android_backend)
+		self.assertIn("AndroidThunkJava_OpenMobileHapticsStopAll", android_backend)
 		one_shot_bridge = android_bridge.split(
 			"AndroidThunkJava_OpenMobileHapticsPlayOneShot", 1
 		)[1].split("private Vibrator OpenMobileHapticsVibrator", 1)[0]
@@ -317,6 +318,11 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("HAPTIC_FEEDBACK_ENABLED", one_shot_bridge)
 		self.assertIn("OpenMobileHapticsVibrationUsage", one_shot_bridge)
 		self.assertIn("usedDefaultAmplitude", one_shot_bridge)
+		self.assertIn(
+			"AndroidThunkJava_OpenMobileHapticsStopAll",
+			android_bridge,
+		)
+		self.assertIn("vibrator.cancel()", android_bridge)
 		self.assertNotIn("FLAG_IGNORE", one_shot_bridge)
 
 		ios_backend = (

@@ -121,6 +121,11 @@ public:
 		FOpenMobileHapticPlaybackHandle Handle
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Cancel Haptic Playback", ToolTip = "Cancels pending or scheduled plugin-owned work for one playback handle."))
+	FOpenMobileHapticControlResult CancelPlayback(
+		FOpenMobileHapticPlaybackHandle Handle
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Channel", ToolTip = "Stops plugin-owned work on one named Haptics channel."))
 	FOpenMobileHapticControlResult StopChannel(FName Channel);
 
@@ -159,6 +164,9 @@ public:
 	virtual FOpenMobileHapticControlResult StopPlaybackNative(
 		FOpenMobileHapticPlaybackHandle Handle
 	) override;
+	virtual FOpenMobileHapticControlResult CancelPlaybackNative(
+		FOpenMobileHapticPlaybackHandle Handle
+	) override;
 	virtual FOpenMobileHapticControlResult StopChannelNative(
 		FName Channel
 	) override;
@@ -184,6 +192,14 @@ private:
 	MakeBackendCallback();
 	void HandleBackendCallback(
 		const FOpenMobileHapticsBackendCallback& Callback
+	);
+	FOpenMobileHapticControlResult EndPlaybackNative(
+		FOpenMobileHapticPlaybackHandle Handle,
+		EOpenMobileHapticPlaybackState TerminalState
+	);
+	void CompleteControlledRequest(
+		uint64 RequestId,
+		EOpenMobileHapticPlaybackState TerminalState
 	);
 	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
 		const FOpenMobileHapticSemanticRequest& Request,
