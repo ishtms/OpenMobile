@@ -74,6 +74,7 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				or path.suffix not in {
 				".cs",
 				".cpp",
+				".mm",
 				".h",
 				".uplugin",
 				}
@@ -167,6 +168,7 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				or path.suffix not in {
 				".cs",
 				".cpp",
+				".mm",
 				".h",
 				".ini",
 				".md",

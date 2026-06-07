@@ -142,7 +142,7 @@ class SensorsFoundationBoundaryTests(unittest.TestCase):
 		sensor_sources = "\n".join(
 			path.read_text(encoding="utf-8")
 			for path in (SENSORS_PLUGIN / "Source").rglob("*")
-			if path.is_file() and path.suffix in {".cpp", ".h"}
+			if path.is_file() and path.suffix in {".cpp", ".mm", ".h"}
 		)
 		self.assertIn("FOpenMobileError", sensor_sources)
 		self.assertIn("FOpenMobileCapability", sensor_sources)

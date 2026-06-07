@@ -11,5 +11,7 @@ public class OpenMobileSensorsIOS : ModuleRules
 			"Core",
 			"OpenMobileSensors"
 		});
+
+		PublicFrameworks.Add("Foundation");
 	}
 }

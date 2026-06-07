@@ -100,6 +100,7 @@ public:
 	) override
 	{
 		++StartSensorStreamCount;
+		LastStartedPhysicalHandle = Handle;
 		LastStartedPhysicalRequest = InOutRequest;
 		if (StartSensorStreamResult.IsSuccess())
 		{
@@ -324,6 +325,12 @@ public:
 		return LastStartedPhysicalRequest;
 	}
 
+	const FOpenMobileSensorBackendStreamHandle&
+	GetLastStartedPhysicalHandle() const
+	{
+		return LastStartedPhysicalHandle;
+	}
+
 	const FOpenMobileSensorPhysicalStreamRequest&
 	GetLastReconfiguredPhysicalRequest() const
 	{
@@ -347,6 +354,7 @@ private:
 	mutable int32 LastMutableSensorMetadataRefreshCount = 0;
 	FOpenMobileSensorOperationResult StartSensorStreamResult;
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
+	FOpenMobileSensorBackendStreamHandle LastStartedPhysicalHandle;
 	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
 	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;
 	TSet<FOpenMobileSensorBackendStreamHandle> ActiveSensorStreams;

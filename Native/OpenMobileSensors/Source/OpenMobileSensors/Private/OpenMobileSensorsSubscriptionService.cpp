@@ -523,6 +523,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 
 		if (Operation.IsSuccess())
 		{
+			const FOpenMobileSensorBackendStreamHandle ActivePhysicalHandle =
+				ExistingPhysical
+				? ExistingPhysical->Handle
+				: NewPhysicalHandle;
 			if (ExistingPhysical)
 			{
 				ExistingPhysical->Request = DesiredRequest;
@@ -539,6 +543,15 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			}
 			for (const FGuid& Identifier : StartingIdentifiers)
 			{
+				const FSubscriptionEntry* Entry =
+					Subscriptions.Find(Identifier);
+				if (Entry)
+				{
+					FOpenMobileSensorsSampleService::SetPhysicalStreamHandle(
+						Entry->Handle,
+						ActivePhysicalHandle
+					);
+				}
 				SetState(
 					Identifier,
 					EOpenMobileSensorSubscriptionState::Active
@@ -705,7 +718,8 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		OwnerIdentifier,
 		Handle,
 		Request.Sensor,
-		AppliedOptions
+		AppliedOptions,
+		BackendToken.Generation
 	);
 	SchedulePendingBackendOperations();
 

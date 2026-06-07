@@ -4,6 +4,8 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "Misc/ScopeRWLock.h"
+#include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
@@ -129,7 +131,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FCriticalSection Mutex;
 		FGuid OwnerIdentifier;
 		FOpenMobileSensorSubscriptionHandle Handle;
+		FOpenMobileSensorBackendStreamHandle PhysicalStreamHandle;
 		FOpenMobileSensorIdentifier Sensor;
+		uint64 BackendGeneration = 0;
 		EOpenMobileSensorSubscriptionState State =
 			EOpenMobileSensorSubscriptionState::Accepted;
 		ELatestSampleFamily Family = ELatestSampleFamily::None;
@@ -181,6 +185,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	> Slots;
 	FCriticalSection EventTickerMutex;
 	FTSTicker::FDelegateHandle EventTickerHandle;
+	TAtomic<bool> bShuttingDown(false);
 	FOnOpenMobileVectorSensorBatchReady VectorBatchEvent;
 	FOnOpenMobileAttitudeSensorBatchReady AttitudeBatchEvent;
 	FOnOpenMobileScalarSensorBatchReady ScalarBatchEvent;
@@ -493,14 +498,19 @@ namespace OpenMobileSensorsSampleServicePrivate
 		ELatestSampleFamily Family,
 		SampleType FLatestSlot::* Member,
 		TArray<SampleType> FLatestSlot::* PendingMember,
-		TFixedSampleRingBuffer<SampleType> FLatestSlot::* BufferedMember
+		TFixedSampleRingBuffer<SampleType> FLatestSlot::* BufferedMember,
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
 	)
 	{
-		if (SampleCount < 0 || SampleCount > 4096)
+		if (bShuttingDown.Load()
+			|| SampleCount < 0
+			|| SampleCount > 4096)
 		{
 			return false;
 		}
 		bool bQueuedEvent = false;
+		bool bMatchedStream = false;
 		{
 			FReadScopeLock RegistryLock(SlotsLock);
 			for (TPair<
@@ -510,10 +520,16 @@ namespace OpenMobileSensorsSampleServicePrivate
 			{
 				FLatestSlot& Slot = *Pair.Value;
 				FScopeLock SlotLock(&Slot.Mutex);
-				if (Slot.State != EOpenMobileSensorSubscriptionState::Active)
+				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
+					|| (RequiredBackendGeneration != 0
+						&& (Slot.BackendGeneration != RequiredBackendGeneration
+							|| !RequiredPhysicalStream
+							|| Slot.PhysicalStreamHandle !=
+								*RequiredPhysicalStream)))
 				{
 					continue;
 				}
+				bMatchedStream = true;
 				for (int32 Index = 0; Index < SampleCount; ++Index)
 				{
 					const SampleType& Sample = Samples[Index];
@@ -522,7 +538,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						|| Sample.Header.TimestampSeconds < 0.0
 						|| Slot.Sensor != Sample.Header.Sensor
 						|| (Slot.bHasSample
-							&& Sample.Header.TimestampSeconds <
+							&& Sample.Header.TimestampSeconds <=
 								Slot.LatestTimestampSeconds))
 					{
 						continue;
@@ -548,7 +564,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			EnsureEventTicker();
 		}
-		return true;
+		return RequiredBackendGeneration == 0 || bMatchedStream;
 	}
 
 	EOpenMobileSensorReadStatus GetUnavailableStatus(
@@ -956,6 +972,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 
 void FOpenMobileSensorsSampleService::Start()
 {
+	OpenMobileSensorsSampleServicePrivate::bShuttingDown.Store(false);
 	OpenMobileSensorsSampleServicePrivate::CancelEventTicker();
 	UnregisterAll();
 }
@@ -963,6 +980,7 @@ void FOpenMobileSensorsSampleService::Start()
 void FOpenMobileSensorsSampleService::BeginShutdown()
 {
 	using namespace OpenMobileSensorsSampleServicePrivate;
+	bShuttingDown.Store(true);
 	CancelEventTicker();
 	UnregisterAll();
 	VectorBatchEvent.Clear();
@@ -979,11 +997,16 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	const FGuid& OwnerIdentifier,
 	const FOpenMobileSensorSubscriptionHandle& Handle,
 	const FOpenMobileSensorIdentifier& Sensor,
-	const FOpenMobileSensorStreamOptions& Options
+	const FOpenMobileSensorStreamOptions& Options,
+	uint64 BackendGeneration
 )
 {
 	using namespace OpenMobileSensorsSampleServicePrivate;
-	if (!OwnerIdentifier.IsValid() || !Handle.IsValid() || !Sensor.IsValid())
+	if (bShuttingDown.Load()
+		|| !OwnerIdentifier.IsValid()
+		|| !Handle.IsValid()
+		|| !Sensor.IsValid()
+		|| BackendGeneration == 0)
 	{
 		return;
 	}
@@ -991,6 +1014,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->OwnerIdentifier = OwnerIdentifier;
 	Slot->Handle = Handle;
 	Slot->Sensor = Sensor;
+	Slot->BackendGeneration = BackendGeneration;
 	Slot->ExpectedFamily = GetExpectedFamily(Sensor.Type);
 	Slot->StaleAfterSeconds = GetStaleAfterSeconds(Options);
 	Slot->MaximumCallbackFrequencyHz = Options.MaximumCallbackFrequencyHz;
@@ -1011,6 +1035,26 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	}
 	FWriteScopeLock RegistryLock(SlotsLock);
 	Slots.Add(Handle, MoveTemp(Slot));
+}
+
+void FOpenMobileSensorsSampleService::SetPhysicalStreamHandle(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	if (!PhysicalStreamHandle.IsValid())
+	{
+		return;
+	}
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!SlotPointer)
+	{
+		return;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	(*SlotPointer)->PhysicalStreamHandle = PhysicalStreamHandle;
 }
 
 void FOpenMobileSensorsSampleService::SetSubscriptionState(
@@ -1118,7 +1162,9 @@ void FOpenMobileSensorsSampleService::UnregisterAll()
 			OpenMobileSensorsSampleServicePrivate::ELatestSampleFamily::FamilyName, \
 			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::Member, \
 			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::PendingMember, \
-			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::BufferedMember \
+			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::BufferedMember, \
+			0, \
+			nullptr \
 		); \
 	}
 
@@ -1203,7 +1249,9 @@ OPENMOBILE_IMPLEMENT_PUBLISH(
 			OpenMobileSensorsSampleServicePrivate::ELatestSampleFamily::FamilyName, \
 			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::Member, \
 			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::PendingMember, \
-			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::BufferedMember \
+			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::BufferedMember, \
+			0, \
+			nullptr \
 		); \
 	}
 
@@ -1281,6 +1329,110 @@ OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH_BATCH
+
+#define OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH( \
+	MethodName, BatchType, SampleType, FamilyName, Member, \
+	PendingMember, BufferedMember \
+) \
+	bool FOpenMobileSensorsSampleService::MethodName( \
+		const FOpenMobileSensorsBackendToken& Token, \
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle, \
+		const BatchType& Batch \
+	) \
+	{ \
+		if (!FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token) \
+			|| !PhysicalStreamHandle.IsValid()) \
+		{ \
+			return false; \
+		} \
+		return OpenMobileSensorsSampleServicePrivate::PublishSamples< \
+			SampleType \
+		>( \
+			Batch.Samples.GetData(), \
+			Batch.Samples.Num(), \
+			OpenMobileSensorsSampleServicePrivate::ELatestSampleFamily::FamilyName, \
+			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::Member, \
+			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::PendingMember, \
+			&OpenMobileSensorsSampleServicePrivate::FLatestSlot::BufferedMember, \
+			Token.Generation, \
+			&PhysicalStreamHandle \
+		); \
+	}
+
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishVectorBatchFromBackend,
+	FOpenMobileVectorSensorBatch,
+	FOpenMobileVectorSensorSample,
+	Vector,
+	Vector,
+	PendingVector,
+	BufferedVector
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishAttitudeBatchFromBackend,
+	FOpenMobileAttitudeSensorBatch,
+	FOpenMobileAttitudeSensorSample,
+	Attitude,
+	Attitude,
+	PendingAttitude,
+	BufferedAttitude
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishScalarBatchFromBackend,
+	FOpenMobileScalarSensorBatch,
+	FOpenMobileScalarSensorSample,
+	Scalar,
+	Scalar,
+	PendingScalar,
+	BufferedScalar
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishHeadingBatchFromBackend,
+	FOpenMobileHeadingSensorBatch,
+	FOpenMobileHeadingSensorSample,
+	Heading,
+	Heading,
+	PendingHeading,
+	BufferedHeading
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishStepsBatchFromBackend,
+	FOpenMobileStepsSensorBatch,
+	FOpenMobileStepsSensorSample,
+	Steps,
+	Steps,
+	PendingSteps,
+	BufferedSteps
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishActivityBatchFromBackend,
+	FOpenMobileActivitySensorBatch,
+	FOpenMobileActivitySensorSample,
+	Activity,
+	Activity,
+	PendingActivity,
+	BufferedActivity
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishOrientationBatchFromBackend,
+	FOpenMobileOrientationSensorBatch,
+	FOpenMobileOrientationSensorSample,
+	Orientation,
+	Orientation,
+	PendingOrientation,
+	BufferedOrientation
+)
+OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
+	PublishProximityBatchFromBackend,
+	FOpenMobileProximitySensorBatch,
+	FOpenMobileProximitySensorSample,
+	Proximity,
+	Proximity,
+	PendingProximity,
+	BufferedProximity
+)
+
+#undef OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH
 
 #define OPENMOBILE_IMPLEMENT_READ(MethodName, SampleType, FamilyName, Member) \
 	bool FOpenMobileSensorsSampleService::MethodName( \
@@ -1498,6 +1650,7 @@ void FOpenMobileSensorsSampleService::DrainPendingEventsForTests(
 void FOpenMobileSensorsSampleService::ResetForTests()
 {
 	using namespace OpenMobileSensorsSampleServicePrivate;
+	bShuttingDown.Store(false);
 	CancelEventTicker();
 	UnregisterAll();
 	VectorBatchEvent.Clear();

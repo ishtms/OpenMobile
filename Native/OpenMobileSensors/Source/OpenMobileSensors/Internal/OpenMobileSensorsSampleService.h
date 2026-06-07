@@ -4,6 +4,9 @@
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
 
+struct FOpenMobileSensorsBackendToken;
+struct FOpenMobileSensorBackendStreamHandle;
+
 DECLARE_MULTICAST_DELEGATE_ThreeParams(
 	FOnOpenMobileVectorSensorBatchReady,
 	const FGuid&,
@@ -62,7 +65,12 @@ public:
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		const FOpenMobileSensorIdentifier& Sensor,
-		const FOpenMobileSensorStreamOptions& Options
+		const FOpenMobileSensorStreamOptions& Options,
+		uint64 BackendGeneration
+	);
+	static void SetPhysicalStreamHandle(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle
 	);
 	static void SetSubscriptionState(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
@@ -101,6 +109,46 @@ public:
 		const FOpenMobileOrientationSensorBatch& Batch
 	);
 	static bool PublishProximityBatch(
+		const FOpenMobileProximitySensorBatch& Batch
+	);
+	static bool PublishVectorBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileVectorSensorBatch& Batch
+	);
+	static bool PublishAttitudeBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileAttitudeSensorBatch& Batch
+	);
+	static bool PublishScalarBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileScalarSensorBatch& Batch
+	);
+	static bool PublishHeadingBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileHeadingSensorBatch& Batch
+	);
+	static bool PublishStepsBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileStepsSensorBatch& Batch
+	);
+	static bool PublishActivityBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileActivitySensorBatch& Batch
+	);
+	static bool PublishOrientationBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileOrientationSensorBatch& Batch
+	);
+	static bool PublishProximityBatchFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
 		const FOpenMobileProximitySensorBatch& Batch
 	);
 

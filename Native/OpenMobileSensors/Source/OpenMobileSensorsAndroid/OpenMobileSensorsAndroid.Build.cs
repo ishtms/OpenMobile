@@ -9,6 +9,7 @@ public class OpenMobileSensorsAndroid : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"Launch",
 			"OpenMobileSensors"
 		});
 	}
