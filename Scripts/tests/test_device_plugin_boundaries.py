@@ -785,6 +785,69 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(token, service)
 
+	def test_system_ui_control_preserves_navigation_and_settles_insets(self) -> None:
+		android_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidSystemUiControl.cpp"
+		).read_text(encoding="utf-8")
+		ios_control = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSSystemUiControl.mm"
+		).read_text(encoding="utf-8")
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		monitoring = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceMonitoringService.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceApplySystemUiMode",
+			"AndroidThunkJava_OpenMobileDeviceClearSystemUiMode",
+			"WindowInsetsController",
+			"setDecorFitsSystemWindows",
+			"BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE",
+			"SYSTEM_UI_FLAG_IMMERSIVE_STICKY",
+			"SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN",
+			"SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION",
+			"postOnAnimation",
+			"OpenMobileDeviceNotifyWindowChanged",
+		):
+			self.assertIn(token, android_upl)
+		for token in (
+			"AndroidThunkJava_OpenMobileDeviceApplySystemUiMode",
+			"AndroidThunkJava_OpenMobileDeviceClearSystemUiMode",
+		):
+			self.assertIn(token, android_control)
+		for token in (
+			"edgesForExtendedLayout",
+			"prefersStatusBarHidden",
+			"prefersHomeIndicatorAutoHidden",
+			"setNeedsStatusBarAppearanceUpdate",
+			"setNeedsUpdateOfHomeIndicatorAutoHidden",
+			"method_setImplementation",
+			"NotifyWindowSettled",
+			"TARGET_OS_SIMULATOR",
+		):
+			self.assertIn(token, ios_control)
+		self.assertNotIn("preferredScreenEdgesDeferringSystemGestures", ios_control)
+		self.assertIn("NotifyWindowSettled", monitoring)
+
 	def test_public_consumer_uses_only_documented_device_header(self) -> None:
 		consumer = (
 			DEVICE_PLUGIN

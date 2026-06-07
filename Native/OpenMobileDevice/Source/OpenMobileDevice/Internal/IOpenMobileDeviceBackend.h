@@ -14,6 +14,7 @@
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceOrientationControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
 
 enum class EOpenMobileDeviceBackendDomain : uint8
@@ -195,6 +196,22 @@ public:
 	}
 
 	virtual void ClearKeepScreenAwake() {}
+
+	virtual FOpenMobileSystemUiResult ApplySystemUiMode(
+		const FOpenMobileSystemUiRequest& Request
+	)
+	{
+		FOpenMobileSystemUiResult Result;
+		Result.Request = Request;
+		Result.State = EOpenMobileSystemUiApplyState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support system UI control.")
+		);
+		return Result;
+	}
+
+	virtual void ClearSystemUiMode() {}
 
 	virtual FOpenMobilePreferredRefreshRateResult ApplyPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request

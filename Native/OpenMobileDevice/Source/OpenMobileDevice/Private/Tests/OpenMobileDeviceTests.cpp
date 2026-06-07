@@ -60,6 +60,9 @@
 #include "OpenMobileDeviceStorageInfo.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
 #include "OpenMobileDeviceSubsystem.h"
+#include "OpenMobileDeviceSystemUiControl.h"
+#include "OpenMobileDeviceSystemUiControlPolicy.h"
+#include "OpenMobileDeviceSystemUiControlService.h"
 #include "OpenMobileDeviceTimeZoneInfo.h"
 #include "OpenMobileDeviceThermalHeadroom.h"
 #include "OpenMobileDeviceWindowMetrics.h"
@@ -225,6 +228,24 @@ namespace OpenMobileDeviceTests
 			++KeepScreenAwakeClearCount;
 		}
 
+		virtual FOpenMobileSystemUiResult ApplySystemUiMode(
+			const FOpenMobileSystemUiRequest& Request
+		) override
+		{
+			SystemUiApplyRequests.Add(Request);
+			FOpenMobileSystemUiResult Result;
+			Result.Request = Request;
+			Result.State = SystemUiApplyState;
+			Result.bEffectiveModeAvailable = true;
+			Result.EffectiveMode = SystemUiEffectiveMode;
+			return Result;
+		}
+
+		virtual void ClearSystemUiMode() override
+		{
+			++SystemUiClearCount;
+		}
+
 		virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
 			const FOpenMobileOrientationPolicyRequest& Request
 		) override
@@ -327,6 +348,12 @@ namespace OpenMobileDeviceTests
 			EOpenMobileKeepScreenAwakeApplyState::Applied;
 		int32 KeepScreenAwakeApplyCount = 0;
 		int32 KeepScreenAwakeClearCount = 0;
+		EOpenMobileSystemUiApplyState SystemUiApplyState =
+			EOpenMobileSystemUiApplyState::Applied;
+		EOpenMobileSystemUiMode SystemUiEffectiveMode =
+			EOpenMobileSystemUiMode::Normal;
+		TArray<FOpenMobileSystemUiRequest> SystemUiApplyRequests;
+		int32 SystemUiClearCount = 0;
 		EOpenMobilePreferredRefreshRateApplyState RefreshRateApplyState =
 			EOpenMobilePreferredRefreshRateApplyState::Accepted;
 		TArray<FOpenMobilePreferredRefreshRateRequest> RefreshRateApplyRequests;
@@ -2481,6 +2508,147 @@ bool FOpenMobileDeviceKeepScreenAwakeControlServiceTest::RunTest(
 	TestTrue(TEXT("PIE without a mobile backend returns an inactive handle"), EditorHandle && !EditorHandle->IsActive());
 	TestEqual(TEXT("PIE result remains unsupported"), EditorHandle->Result.State, EOpenMobileKeepScreenAwakeApplyState::Unsupported);
 	EditorSubsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSystemUiControlPolicyTest,
+	"OpenMobile.Device.Display.SystemUiControlPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSystemUiControlPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileError Error;
+	for (EOpenMobileSystemUiMode Mode : {
+		EOpenMobileSystemUiMode::Normal,
+		EOpenMobileSystemUiMode::EdgeToEdge,
+		EOpenMobileSystemUiMode::Immersive
+	})
+	{
+		FOpenMobileSystemUiRequest Request;
+		Request.Mode = Mode;
+		TestTrue(TEXT("Documented system UI mode is valid"), FOpenMobileDeviceSystemUiControlPolicy::Validate(Request, Error));
+	}
+	FOpenMobileSystemUiRequest Invalid;
+	Invalid.Mode = static_cast<EOpenMobileSystemUiMode>(255);
+	TestFalse(TEXT("Unknown system UI mode is rejected"), FOpenMobileDeviceSystemUiControlPolicy::Validate(Invalid, Error));
+	TestEqual(TEXT("Invalid system UI mode has typed error"), Error.Code, EOpenMobileErrorCode::InvalidArgument);
+
+	FOpenMobileDeviceSystemUiRequestStack Stack;
+	FOpenMobileSystemUiRequest Normal;
+	Normal.Mode = EOpenMobileSystemUiMode::Normal;
+	FOpenMobileSystemUiRequest Immersive;
+	Immersive.Mode = EOpenMobileSystemUiMode::Immersive;
+	Stack.Add(10, Normal);
+	Stack.Add(20, Immersive);
+	TestEqual(TEXT("Newest system UI handle wins"), Stack.GetEffectiveRequest()->Mode, EOpenMobileSystemUiMode::Immersive);
+	Stack.Remove(10);
+	TestEqual(TEXT("Removing shadowed system UI handle preserves newest"), Stack.GetEffectiveRequest()->Mode, EOpenMobileSystemUiMode::Immersive);
+	Stack.Add(10, Normal);
+	TestEqual(TEXT("Re-added system UI handle becomes newest"), Stack.GetEffectiveRequest()->Mode, EOpenMobileSystemUiMode::Normal);
+	Stack.Remove(10);
+	TestEqual(TEXT("Releasing newest system UI handle restores prior"), Stack.GetEffectiveRequest()->Mode, EOpenMobileSystemUiMode::Immersive);
+	Stack.Remove(20);
+	TestFalse(TEXT("Final system UI release clears request"), Stack.GetEffectiveRequest().IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSystemUiControlServiceTest,
+	"OpenMobile.Device.Display.SystemUiControlService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSystemUiControlServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceSystemUiControlService::ResetForTests();
+	FMockBackend Backend(
+		TEXT("Display"),
+		0,
+		true,
+		EOpenMobileDeviceBackendDomain::Display
+	);
+	FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+
+	FOpenMobileSystemUiRequest Normal;
+	Normal.Mode = EOpenMobileSystemUiMode::Normal;
+	FOpenMobileSystemUiRequest Immersive;
+	Immersive.Mode = EOpenMobileSystemUiMode::Immersive;
+	FOpenMobileSystemUiResult Result;
+	Backend.SystemUiEffectiveMode = EOpenMobileSystemUiMode::EdgeToEdge;
+	const FGuid First =
+		FOpenMobileDeviceSystemUiControlService::AddRequest(Normal, Result);
+	TestTrue(TEXT("Accepted system UI request gets a handle"), First.IsValid());
+	TestTrue(TEXT("Effective system UI mode is reported"), Result.bEffectiveModeAvailable);
+	TestEqual(TEXT("Restricted platform mode is retained"), Result.EffectiveMode, EOpenMobileSystemUiMode::EdgeToEdge);
+	Backend.SystemUiEffectiveMode = EOpenMobileSystemUiMode::Immersive;
+	const FGuid Second =
+		FOpenMobileDeviceSystemUiControlService::AddRequest(Immersive, Result);
+	TestTrue(TEXT("Nested system UI request gets a handle"), Second.IsValid());
+	TestEqual(TEXT("Newest system UI mode applies"), Backend.SystemUiApplyRequests.Last().Mode, EOpenMobileSystemUiMode::Immersive);
+	FOpenMobileDeviceSystemUiControlService::RemoveRequest(Second);
+	TestEqual(TEXT("Nested release reapplies prior system UI mode"), Backend.SystemUiApplyRequests.Last().Mode, EOpenMobileSystemUiMode::Normal);
+
+	int32 ExpectedApplies = Backend.SystemUiApplyRequests.Num();
+	for (const TCHAR* Context : {
+		TEXT("Rotation reapplies system UI mode"),
+		TEXT("Keyboard inset change reapplies system UI mode"),
+		TEXT("Transient bar reveal reapplies system UI mode"),
+		TEXT("Multi-window change reapplies system UI mode")
+	})
+	{
+		FOpenMobileDeviceSystemUiControlService::NotifySurfaceChangedForTests();
+		++ExpectedApplies;
+		TestEqual(Context, Backend.SystemUiApplyRequests.Num(), ExpectedApplies);
+	}
+
+	FOpenMobileDeviceSystemUiControlService::NotifyBackgroundForTests();
+	TestEqual(TEXT("Background restores prior system UI policy"), Backend.SystemUiClearCount, 1);
+	const int32 AppliesWhileBackgrounded = Backend.SystemUiApplyRequests.Num();
+	FOpenMobileDeviceSystemUiControlService::NotifySurfaceChangedForTests();
+	TestEqual(TEXT("Background changes do not reapply system UI"), Backend.SystemUiApplyRequests.Num(), AppliesWhileBackgrounded);
+	const FGuid BackgroundRequest =
+		FOpenMobileDeviceSystemUiControlService::AddRequest(Immersive, Result);
+	TestFalse(TEXT("Background system UI request gets no handle"), BackgroundRequest.IsValid());
+	TestEqual(TEXT("Background system UI request is rejected"), Result.State, EOpenMobileSystemUiApplyState::Rejected);
+	FOpenMobileDeviceSystemUiControlService::NotifyForegroundForTests();
+	TestEqual(TEXT("Foreground reapplies system UI mode"), Backend.SystemUiApplyRequests.Num(), AppliesWhileBackgrounded + 1);
+	FOpenMobileDeviceSystemUiControlService::RemoveRequest(First);
+	TestEqual(TEXT("Final system UI release restores prior policy"), Backend.SystemUiClearCount, 2);
+
+	Backend.SystemUiApplyState = EOpenMobileSystemUiApplyState::Unsupported;
+	const FGuid Unsupported =
+		FOpenMobileDeviceSystemUiControlService::AddRequest(Immersive, Result);
+	TestFalse(TEXT("Unsupported system UI mode gets no handle"), Unsupported.IsValid());
+	TestEqual(TEXT("Unsupported system UI result stays typed"), Result.State, EOpenMobileSystemUiApplyState::Unsupported);
+	TestNotNull(TEXT("Subsystem exposes system UI request"), UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(TEXT("RequestSystemUiMode")));
+	TestNotNull(TEXT("System UI handle exposes release"), UOpenMobileSystemUiHandle::StaticClass()->FindFunctionByName(TEXT("Release")));
+	TestNotNull(TEXT("System UI handle exposes typed result"), UOpenMobileSystemUiHandle::StaticClass()->FindPropertyByName(TEXT("Result")));
+
+	Backend.SystemUiApplyState = EOpenMobileSystemUiApplyState::Applied;
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	UOpenMobileSystemUiHandle* Handle =
+		Subsystem->RequestSystemUiMode(Immersive);
+	TestTrue(TEXT("Subsystem system UI request returns active handle"), Handle && Handle->IsActive());
+	const int32 ClearsBeforeTeardown = Backend.SystemUiClearCount;
+	Subsystem->Deinitialize();
+	TestFalse(TEXT("Subsystem teardown releases system UI handle"), Handle->IsActive());
+	TestEqual(TEXT("Subsystem teardown restores system UI policy"), Backend.SystemUiClearCount, ClearsBeforeTeardown + 1);
+
+	FOpenMobileDeviceSystemUiControlService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

@@ -656,6 +656,17 @@ void FOpenMobileDeviceMonitoringService::NotifyNativeChange(
 	);
 }
 
+void FOpenMobileDeviceMonitoringService::NotifyWindowSettled()
+{
+	check(IsInGameThread());
+	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	if (bApplicationActive
+		&& GroupStates.Contains(EOpenMobileDeviceMonitoringGroup::WindowDisplay))
+	{
+		RefreshGroup(EOpenMobileDeviceMonitoringGroup::WindowDisplay, true);
+	}
+}
+
 FOpenMobileDeviceMonitoringGroupChanged&
 FOpenMobileDeviceMonitoringService::OnGroupChanged()
 {

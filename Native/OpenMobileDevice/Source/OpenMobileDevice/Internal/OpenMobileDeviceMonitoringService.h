@@ -29,6 +29,7 @@ public:
 		const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken,
 		uint64 SourceSequence
 	);
+	static void NotifyWindowSettled();
 	static FOpenMobileDeviceMonitoringGroupChanged& OnGroupChanged();
 	static FOpenMobileDeviceMonitoredNetworkPathChanged& OnNetworkPathChanged();
 	static FOpenMobileDeviceMonitoringMaintenance& OnMaintenance();

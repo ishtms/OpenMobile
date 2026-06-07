@@ -21,4 +21,5 @@
 #include "OpenMobileDeviceSettings.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
 #include "OpenMobileDeviceSubsystem.h"
+#include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceTypes.h"

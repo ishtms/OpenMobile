@@ -18,6 +18,7 @@
 #include "OpenMobileDeviceAndroidOrientationControl.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
+#include "OpenMobileDeviceAndroidSystemUiControl.h"
 #include "OpenMobileDeviceAndroidWindowMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
@@ -192,6 +193,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android keeps only the foreground activity screen on with FLAG_KEEP_SCREEN_ON. The control uses no wake lock or permission and restores a preexisting Window flag.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ImmersiveMode)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android applies Normal, Edge to Edge, or Immersive policy to the active Window. Immersive bars remain temporarily revealable by system gestures, and newer OS policy may force edge-to-edge layout.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
@@ -374,6 +384,18 @@ FOpenMobileDeviceAndroidBackend::ApplyKeepScreenAwake()
 void FOpenMobileDeviceAndroidBackend::ClearKeepScreenAwake()
 {
 	ClearOpenMobileDeviceAndroidKeepScreenAwake();
+}
+
+FOpenMobileSystemUiResult FOpenMobileDeviceAndroidBackend::ApplySystemUiMode(
+	const FOpenMobileSystemUiRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceAndroidSystemUiMode(Request);
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearSystemUiMode()
+{
+	ClearOpenMobileDeviceAndroidSystemUiMode();
 }
 
 FOpenMobilePreferredRefreshRateResult
@@ -607,6 +629,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidSystemUiMode();
 	ClearOpenMobileDeviceAndroidKeepScreenAwake();
 	ClearOpenMobileDeviceAndroidBrightness();
 	ClearOpenMobileDeviceAndroidOrientationPolicy();

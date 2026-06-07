@@ -16,6 +16,7 @@
 #include "OpenMobileDeviceIOSNetworkMonitor.h"
 #include "OpenMobileDeviceIOSOrientationControl.h"
 #include "OpenMobileDeviceIOSStorage.h"
+#include "OpenMobileDeviceIOSSystemUiControl.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -181,6 +182,21 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #else
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.Detail = TEXT("iOS disables the application idle timer only while at least one foreground handle is active, then restores the prior app setting.");
+#endif
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ImmersiveMode)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not represent device system-bar behavior.");
+#else
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("iOS applies Normal, Edge to Edge, or Immersive preferences through Unreal's active view controller. UIKit remains authoritative and may keep the Home indicator or presented-controller bars visible.");
 #endif
 		return Capability;
 	}
@@ -364,6 +380,18 @@ void FOpenMobileDeviceIOSBackend::ClearKeepScreenAwake()
 	ClearOpenMobileDeviceIOSKeepScreenAwake();
 }
 
+FOpenMobileSystemUiResult FOpenMobileDeviceIOSBackend::ApplySystemUiMode(
+	const FOpenMobileSystemUiRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceIOSSystemUiMode(Request);
+}
+
+void FOpenMobileDeviceIOSBackend::ClearSystemUiMode()
+{
+	ClearOpenMobileDeviceIOSSystemUiMode();
+}
+
 FOpenMobileOrientationPolicyResult
 FOpenMobileDeviceIOSBackend::ApplyOrientationPolicy(
 	const FOpenMobileOrientationPolicyRequest& Request
@@ -526,6 +554,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceIOSSystemUiMode();
 	ClearOpenMobileDeviceIOSKeepScreenAwake();
 	ClearOpenMobileDeviceIOSBrightness();
 	ClearOpenMobileDeviceIOSOrientationPolicy();

@@ -13,6 +13,7 @@
 #include "OpenMobileDeviceRefreshRateControl.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceTypes.h"
+#include "OpenMobileDeviceSystemUiControl.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "OpenMobileDeviceSubsystem.generated.h"
 
@@ -210,6 +211,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Keep Screen Awake", ToolTip = "Keeps the active app screen awake until the returned handle is released."))
 	UOpenMobileKeepScreenAwakeHandle* RequestKeepScreenAwake();
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request System UI Mode", ToolTip = "Applies Normal, Edge to Edge, or Immersive system UI until the returned handle is released."))
+	UOpenMobileSystemUiHandle* RequestSystemUiMode(
+		const FOpenMobileSystemUiRequest& Request
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Preferred Refresh Rate", ToolTip = "Requests preferred display refresh-rate bounds or a target until the returned handle is released."))
 	UOpenMobilePreferredRefreshRateHandle* RequestPreferredRefreshRate(
 		const FOpenMobilePreferredRefreshRateRequest& Request
@@ -373,6 +379,7 @@ private:
 	friend class UOpenMobilePreferredRefreshRateHandle;
 	friend class UOpenMobileBrightnessHandle;
 	friend class UOpenMobileKeepScreenAwakeHandle;
+	friend class UOpenMobileSystemUiHandle;
 	friend class UOpenMobileOrientationPolicyHandle;
 	friend class FOpenMobileDeviceAsyncContractTest;
 	friend class FOpenMobileDeviceStorageSpaceTest;
@@ -388,6 +395,7 @@ private:
 	void ReleaseKeepScreenAwakeHandle(
 		UOpenMobileKeepScreenAwakeHandle* Handle
 	);
+	void ReleaseSystemUiHandle(UOpenMobileSystemUiHandle* Handle);
 	void ReleaseOrientationPolicyHandle(
 		UOpenMobileOrientationPolicyHandle* Handle
 	);
@@ -427,6 +435,9 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileKeepScreenAwakeHandle>>
 		KeepScreenAwakeHandles;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UOpenMobileSystemUiHandle>> SystemUiHandles;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>>

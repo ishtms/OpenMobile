@@ -32,6 +32,10 @@ public:
 	virtual void ClearBrightness() override;
 	virtual FOpenMobileKeepScreenAwakeResult ApplyKeepScreenAwake() override;
 	virtual void ClearKeepScreenAwake() override;
+	virtual FOpenMobileSystemUiResult ApplySystemUiMode(
+		const FOpenMobileSystemUiRequest& Request
+	) override;
+	virtual void ClearSystemUiMode() override;
 	virtual FOpenMobileOrientationPolicyResult ApplyOrientationPolicy(
 		const FOpenMobileOrientationPolicyRequest& Request
 	) override;

@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
+#include "OpenMobileDeviceSystemUiControlService.h"
 
 #include "Modules/ModuleManager.h"
 
@@ -18,10 +19,12 @@ public:
 		FOpenMobileDeviceRefreshRateControlService::Start();
 		FOpenMobileDeviceBrightnessControlService::Start();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Start();
+		FOpenMobileDeviceSystemUiControlService::Start();
 	}
 
 	virtual void ShutdownModule() override
 	{
+		FOpenMobileDeviceSystemUiControlService::Shutdown();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Shutdown();
 		FOpenMobileDeviceBrightnessControlService::Shutdown();
 		FOpenMobileDeviceRefreshRateControlService::Shutdown();

@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceRefreshRateControlService.h"
 #include "OpenMobileDeviceSnapshotService.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
+#include "OpenMobileDeviceSystemUiControlService.h"
 
 namespace OpenMobileDeviceSubsystemPrivate
 {
@@ -151,6 +152,17 @@ void UOpenMobileDeviceSubsystem::Deinitialize()
 		}
 	}
 	KeepScreenAwakeHandles.Reset();
+
+	TArray<TObjectPtr<UOpenMobileSystemUiHandle>> SystemUiModeHandles =
+		SystemUiHandles;
+	for (UOpenMobileSystemUiHandle* Handle : SystemUiModeHandles)
+	{
+		if (Handle)
+		{
+			Handle->Release();
+		}
+	}
+	SystemUiHandles.Reset();
 
 	TArray<TObjectPtr<UOpenMobileDeviceMonitoringSubscription>> Subscriptions =
 		MonitoringSubscriptions;
@@ -360,6 +372,51 @@ void UOpenMobileDeviceSubsystem::ReleaseKeepScreenAwakeHandle(
 	Handle->RequestId.Invalidate();
 	Handle->Subsystem.Reset();
 	KeepScreenAwakeHandles.RemoveSingleSwap(Handle);
+}
+
+UOpenMobileSystemUiHandle* UOpenMobileDeviceSubsystem::RequestSystemUiMode(
+	const FOpenMobileSystemUiRequest& Request
+)
+{
+	UOpenMobileSystemUiHandle* Handle =
+		NewObject<UOpenMobileSystemUiHandle>(this);
+	Handle->Request = Request;
+	if (bDeinitialized)
+	{
+		Handle->Result.Request = Request;
+		Handle->Result.State = EOpenMobileSystemUiApplyState::Rejected;
+		Handle->Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Handle;
+	}
+	Handle->RequestId = FOpenMobileDeviceSystemUiControlService::AddRequest(
+		Request,
+		Handle->Result
+	);
+	Handle->bActive = Handle->RequestId.IsValid();
+	if (Handle->bActive)
+	{
+		Handle->Subsystem = this;
+		SystemUiHandles.Add(Handle);
+	}
+	return Handle;
+}
+
+void UOpenMobileDeviceSubsystem::ReleaseSystemUiHandle(
+	UOpenMobileSystemUiHandle* Handle
+)
+{
+	if (!Handle || !Handle->bActive)
+	{
+		return;
+	}
+	FOpenMobileDeviceSystemUiControlService::RemoveRequest(Handle->RequestId);
+	Handle->bActive = false;
+	Handle->RequestId.Invalidate();
+	Handle->Subsystem.Reset();
+	SystemUiHandles.RemoveSingleSwap(Handle);
 }
 
 UOpenMobilePreferredRefreshRateHandle*
