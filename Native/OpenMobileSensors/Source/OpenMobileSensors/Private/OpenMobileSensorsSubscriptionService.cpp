@@ -3,6 +3,7 @@
 #include "Containers/Ticker.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSettings.h"
@@ -141,6 +142,105 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			&& Filters.DeadZone >= 0.0;
 	}
 
+	bool ResolvePreset(
+		const FOpenMobileSensorStreamOptions& Requested,
+		const UOpenMobileSensorsSettings& Settings,
+		FOpenMobileSensorStreamOptions& OutApplied
+	)
+	{
+		OutApplied = Requested;
+		const FOpenMobileSensorRatePresetSettings* Preset = nullptr;
+		switch (Requested.RatePreset)
+		{
+		case EOpenMobileSensorRatePreset::UI:
+			Preset = &Settings.UIPreset;
+			break;
+		case EOpenMobileSensorRatePreset::Game:
+			Preset = &Settings.GamePreset;
+			break;
+		case EOpenMobileSensorRatePreset::Fast:
+			Preset = &Settings.FastPreset;
+			break;
+		case EOpenMobileSensorRatePreset::Custom:
+			return true;
+		default:
+			return false;
+		}
+		OutApplied.CustomFrequencyHz = Preset->RequestedFrequencyHz;
+		OutApplied.MaximumDeliveryLatencySeconds =
+			Preset->MaximumDeliveryLatencySeconds;
+		OutApplied.MaximumCallbackFrequencyHz =
+			Preset->MaximumCallbackFrequencyHz;
+		return true;
+	}
+
+	void ApplyRateLimits(
+		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorStreamOptions& Requested,
+		const UOpenMobileSensorsSettings& Settings,
+		FOpenMobileSensorStreamOptions& OutApplied
+	)
+	{
+		constexpr double NormalMaximumFrequencyHz = 200.0;
+		const FOpenMobileSensorCapabilitySnapshot Snapshot =
+			FOpenMobileSensorsCapabilityService::GetSnapshot();
+		const FOpenMobileSensorCapability* Capability =
+			Snapshot.Sensors.FindByPredicate(
+				[&Sensor](const FOpenMobileSensorCapability& Candidate)
+				{
+					return Candidate.Sensor.Type == Sensor.Type
+						&& (Sensor.InstanceId.IsNone()
+							|| Candidate.Sensor.InstanceId ==
+								Sensor.InstanceId);
+				}
+			);
+		if (Capability)
+		{
+			const bool bHasMinimum =
+				FMath::IsFinite(Capability->MinimumFrequencyHz)
+				&& Capability->MinimumFrequencyHz > 0.0;
+			const bool bHasMaximum =
+				FMath::IsFinite(Capability->MaximumFrequencyHz)
+				&& Capability->MaximumFrequencyHz > 0.0;
+			if (bHasMinimum && bHasMaximum
+				&& Capability->MinimumFrequencyHz <=
+					Capability->MaximumFrequencyHz)
+			{
+				OutApplied.CustomFrequencyHz = FMath::Clamp(
+					OutApplied.CustomFrequencyHz,
+					Capability->MinimumFrequencyHz,
+					Capability->MaximumFrequencyHz
+				);
+			}
+			else if (bHasMaximum)
+			{
+				OutApplied.CustomFrequencyHz = FMath::Min(
+					OutApplied.CustomFrequencyHz,
+					Capability->MaximumFrequencyHz
+				);
+			}
+			else if (bHasMinimum)
+			{
+				OutApplied.CustomFrequencyHz = FMath::Max(
+					OutApplied.CustomFrequencyHz,
+					Capability->MinimumFrequencyHz
+				);
+			}
+		}
+		if (!Requested.bAllowHighSamplingRate
+			|| !Settings.bAllowHighSamplingRate)
+		{
+			OutApplied.CustomFrequencyHz = FMath::Min(
+				OutApplied.CustomFrequencyHz,
+				NormalMaximumFrequencyHz
+			);
+		}
+		OutApplied.MaximumCallbackFrequencyHz = FMath::Min(
+			OutApplied.MaximumCallbackFrequencyHz,
+			OutApplied.CustomFrequencyHz
+		);
+	}
+
 	bool ValidateAndResolveOptions(
 		const FOpenMobileSensorIdentifier& Sensor,
 		const FOpenMobileSensorStreamOptions& Requested,
@@ -185,33 +285,13 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			return false;
 		}
 
-		OutApplied = Requested;
 		const UOpenMobileSensorsSettings* Settings =
 			GetDefault<UOpenMobileSensorsSettings>();
-		const FOpenMobileSensorRatePresetSettings* Preset = nullptr;
-		switch (Requested.RatePreset)
+		if (!ResolvePreset(Requested, *Settings, OutApplied))
 		{
-		case EOpenMobileSensorRatePreset::UI:
-			Preset = &Settings->UIPreset;
-			break;
-		case EOpenMobileSensorRatePreset::Game:
-			Preset = &Settings->GamePreset;
-			break;
-		case EOpenMobileSensorRatePreset::Fast:
-			Preset = &Settings->FastPreset;
-			break;
-		case EOpenMobileSensorRatePreset::Custom:
-		default:
-			break;
+			return false;
 		}
-		if (Preset)
-		{
-			OutApplied.CustomFrequencyHz = Preset->RequestedFrequencyHz;
-			OutApplied.MaximumDeliveryLatencySeconds =
-				Preset->MaximumDeliveryLatencySeconds;
-			OutApplied.MaximumCallbackFrequencyHz =
-				Preset->MaximumCallbackFrequencyHz;
-		}
+		ApplyRateLimits(Sensor, Requested, *Settings, OutApplied);
 		return IsFiniteInRange(OutApplied.CustomFrequencyHz, 1.0, 1000.0)
 			&& IsFiniteInRange(
 				OutApplied.MaximumDeliveryLatencySeconds,

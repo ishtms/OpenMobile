@@ -44,6 +44,15 @@ namespace OpenMobileSensorsSettingsPrivate
 				Name
 			));
 		}
+		if (!StaticEnum<EOpenMobileSensorPowerIntent>()->IsValidEnumValue(
+			static_cast<int64>(Preset.PowerIntent)
+		))
+		{
+			OutErrors.Add(FString::Printf(
+				TEXT("%s PowerIntent is invalid."),
+				Name
+			));
+		}
 	}
 }
 

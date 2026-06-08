@@ -13,6 +13,14 @@ enum class EOpenMobileSensorsDevelopmentInputMode : uint8
 	Replay
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorPowerIntent : uint8
+{
+	LowPower,
+	Balanced,
+	Performance
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorRatePresetSettings
 {
@@ -23,11 +31,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRatePresetSettings
 	FOpenMobileSensorRatePresetSettings(
 		double InRequestedFrequencyHz,
 		double InMaximumDeliveryLatencySeconds,
-		double InMaximumCallbackFrequencyHz
+		double InMaximumCallbackFrequencyHz,
+		EOpenMobileSensorPowerIntent InPowerIntent
 	)
 		: RequestedFrequencyHz(InRequestedFrequencyHz)
 		, MaximumDeliveryLatencySeconds(InMaximumDeliveryLatencySeconds)
 		, MaximumCallbackFrequencyHz(InMaximumCallbackFrequencyHz)
+		, PowerIntent(InPowerIntent)
 	{
 	}
 
@@ -39,6 +49,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRatePresetSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Preset", meta = (ClampMin = "1.0", ClampMax = "120.0", Units = "Hz"))
 	double MaximumCallbackFrequencyHz = 15.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Preset")
+	EOpenMobileSensorPowerIntent PowerIntent =
+		EOpenMobileSensorPowerIntent::LowPower;
 };
 
 UCLASS(
@@ -67,11 +81,21 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Sampling Presets", meta = (DisplayName = "Game Preset"))
 	FOpenMobileSensorRatePresetSettings GamePreset =
-		FOpenMobileSensorRatePresetSettings(60.0, 0.02, 30.0);
+		FOpenMobileSensorRatePresetSettings(
+			60.0,
+			0.02,
+			30.0,
+			EOpenMobileSensorPowerIntent::Balanced
+		);
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Sampling Presets", meta = (DisplayName = "Fast Preset"))
 	FOpenMobileSensorRatePresetSettings FastPreset =
-		FOpenMobileSensorRatePresetSettings(200.0, 0.0, 60.0);
+		FOpenMobileSensorRatePresetSettings(
+			200.0,
+			0.0,
+			60.0,
+			EOpenMobileSensorPowerIntent::Performance
+		);
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Streaming", meta = (DisplayName = "Default Stream Options", ToolTip = "Safe defaults copied into new sensor requests before caller overrides."))
 	FOpenMobileSensorStreamOptions DefaultStreamOptions;
