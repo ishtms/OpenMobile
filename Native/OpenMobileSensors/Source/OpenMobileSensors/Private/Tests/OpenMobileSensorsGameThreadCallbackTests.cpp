@@ -363,33 +363,34 @@ bool FOpenMobileSensorsShutdownAndOwnerTeardownTest::RunTest(
 	const FOpenMobileSensorBackendStreamHandle PhysicalHandle =
 		Backend.GetLastStartedPhysicalHandle();
 	TAtomic<bool> bStop(false);
-	TAtomic<int32> RejectedPublishes(0);
 	TFuture<void> Publisher = Async(EAsyncExecution::ThreadPool, [&]()
 	{
 		int32 Value = 1;
 		while (!bStop.Load())
 		{
-			if (!FOpenMobileSensorsSampleService::
-				PublishVectorBatchFromBackend(
-					Token,
-					PhysicalHandle,
-					MakeBatch(Request.Sensor, Value++, 1)
-				))
-			{
-				RejectedPublishes++;
-			}
+			FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+				Token,
+				PhysicalHandle,
+				MakeBatch(Request.Sensor, Value++, 1)
+			);
 		}
 	});
 	Subsystem->Deinitialize();
 	FOpenMobileSensorsSampleService::BeginShutdown();
+	const bool bAcceptedAfterShutdown =
+		FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+			Token,
+			PhysicalHandle,
+			MakeBatch(Request.Sensor, 1000000, 1)
+		);
 	for (int32 Index = 0; Index < 100; ++Index)
 	{
 		FPlatformProcess::YieldThread();
 	}
 	bStop.Store(true);
 	Publisher.Wait();
-	TestTrue(TEXT("Shutdown rejects racing platform callbacks"),
-		RejectedPublishes.Load() > 0);
+	TestFalse(TEXT("Shutdown rejects later platform callbacks"),
+		bAcceptedAfterShutdown);
 	TestFalse(TEXT("Owner teardown leaves the handle invalid"),
 		FOpenMobileSensorsSubscriptionService::IsHandleCurrent(
 			Subscription.Handle
