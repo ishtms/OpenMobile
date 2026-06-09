@@ -98,5 +98,8 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 	FOpenMobileSensorStreamOptions AppliedOptions;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorRateResolution RateResolution;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;
 };

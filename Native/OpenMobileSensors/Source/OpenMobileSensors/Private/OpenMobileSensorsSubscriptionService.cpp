@@ -41,6 +41,9 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorSubscriptionHandle Handle;
 		FOpenMobileSensorSubscriptionRequest Request;
 		FOpenMobileSensorStreamOptions AppliedOptions;
+		FOpenMobileSensorRateResolution RateResolution;
+		EOpenMobileSensorRateAdjustmentReason CommonRateAdjustmentReason =
+			EOpenMobileSensorRateAdjustmentReason::None;
 		FPhysicalStreamKey PhysicalKey;
 		FOpenMobileSensorsBackendToken BackendToken;
 		EOpenMobileSensorSubscriptionState State =
@@ -178,10 +181,13 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		const FOpenMobileSensorIdentifier& Sensor,
 		const FOpenMobileSensorStreamOptions& Requested,
 		const UOpenMobileSensorsSettings& Settings,
-		FOpenMobileSensorStreamOptions& OutApplied
+		FOpenMobileSensorStreamOptions& OutApplied,
+		FOpenMobileSensorRateResolution& OutResolution
 	)
 	{
 		constexpr double NormalMaximumFrequencyHz = 200.0;
+		OutResolution = {};
+		OutResolution.RequestedFrequencyHz = OutApplied.CustomFrequencyHz;
 		const FOpenMobileSensorCapabilitySnapshot Snapshot =
 			FOpenMobileSensorsCapabilityService::GetSnapshot();
 		const FOpenMobileSensorCapability* Capability =
@@ -226,25 +232,42 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 					Capability->MinimumFrequencyHz
 				);
 			}
+			if (OutApplied.CustomFrequencyHz !=
+				OutResolution.RequestedFrequencyHz)
+			{
+				OutResolution.AdjustmentReason =
+					EOpenMobileSensorRateAdjustmentReason::HardwareLimit;
+			}
 		}
 		if (!Requested.bAllowHighSamplingRate
 			|| !Settings.bAllowHighSamplingRate)
 		{
+			const double BeforeProjectLimit =
+				OutApplied.CustomFrequencyHz;
 			OutApplied.CustomFrequencyHz = FMath::Min(
 				OutApplied.CustomFrequencyHz,
 				NormalMaximumFrequencyHz
 			);
+			if (OutApplied.CustomFrequencyHz < BeforeProjectLimit)
+			{
+				OutResolution.AdjustmentReason =
+					EOpenMobileSensorRateAdjustmentReason::ProjectPolicy;
+			}
 		}
 		OutApplied.MaximumCallbackFrequencyHz = FMath::Min(
 			OutApplied.MaximumCallbackFrequencyHz,
 			OutApplied.CustomFrequencyHz
 		);
+		OutResolution.ClampedFrequencyHz = OutApplied.CustomFrequencyHz;
+		OutResolution.AppliedNativeFrequencyHz =
+			OutApplied.CustomFrequencyHz;
 	}
 
 	bool ValidateAndResolveOptions(
 		const FOpenMobileSensorIdentifier& Sensor,
 		const FOpenMobileSensorStreamOptions& Requested,
-		FOpenMobileSensorStreamOptions& OutApplied
+		FOpenMobileSensorStreamOptions& OutApplied,
+		FOpenMobileSensorRateResolution& OutRateResolution
 	)
 	{
 		const int32 AllowedAttitudeRepresentations =
@@ -291,7 +314,13 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		{
 			return false;
 		}
-		ApplyRateLimits(Sensor, Requested, *Settings, OutApplied);
+		ApplyRateLimits(
+			Sensor,
+			Requested,
+			*Settings,
+			OutApplied,
+			OutRateResolution
+		);
 		return IsFiniteInRange(OutApplied.CustomFrequencyHz, 1.0, 1000.0)
 			&& IsFiniteInRange(
 				OutApplied.MaximumDeliveryLatencySeconds,
@@ -354,6 +383,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		Snapshot.State = Entry.State;
 		Snapshot.RequestedOptions = Entry.Request.Options;
 		Snapshot.AppliedOptions = Entry.AppliedOptions;
+		Snapshot.RateResolution = Entry.RateResolution;
 		Snapshot.Error = Entry.Error;
 		return Snapshot;
 	}
@@ -430,6 +460,37 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			OutRequest.bLowLatency |= Entry.AppliedOptions.bLowLatency;
 		}
 		return bFound;
+	}
+
+	void UpdateAppliedNativeRate(
+		const FPhysicalStreamKey& Key,
+		double AppliedNativeFrequencyHz
+	)
+	{
+		if (!FMath::IsFinite(AppliedNativeFrequencyHz)
+			|| AppliedNativeFrequencyHz <= 0.0)
+		{
+			return;
+		}
+		constexpr double RateToleranceHz = 1.e-9;
+		for (TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+		{
+			FSubscriptionEntry& Entry = Pair.Value;
+			if (!(Entry.PhysicalKey == Key))
+			{
+				continue;
+			}
+			Entry.RateResolution.AppliedNativeFrequencyHz =
+				AppliedNativeFrequencyHz;
+			Entry.RateResolution.AdjustmentReason =
+				Entry.CommonRateAdjustmentReason;
+			if (AppliedNativeFrequencyHz + RateToleranceHz <
+				Entry.RateResolution.ClampedFrequencyHz)
+			{
+				Entry.RateResolution.AdjustmentReason =
+					EOpenMobileSensorRateAdjustmentReason::BackendLimit;
+			}
+		}
 	}
 
 	FOpenMobileError GetOperationError(
@@ -514,6 +575,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		if (Result.IsSuccess())
 		{
 			Physical->Request = MoveTemp(AppliedRequest);
+			UpdateAppliedNativeRate(
+				Key,
+				Physical->Request.RequestedFrequencyHz
+			);
 		}
 	}
 
@@ -621,6 +686,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				Physical.Backend = Backend;
 				PhysicalStreams.Add(Key, MoveTemp(Physical));
 			}
+			UpdateAppliedNativeRate(
+				Key,
+				DesiredRequest.RequestedFrequencyHz
+			);
 			for (const FGuid& Identifier : StartingIdentifiers)
 			{
 				const FSubscriptionEntry* Entry =
@@ -738,6 +807,8 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	using namespace OpenMobileSensorsSubscriptionServicePrivate;
 	FOpenMobileSensorSubscriptionResult Result;
 	Result.RequestedOptions = Request.Options;
+	Result.RateResolution.RequestedFrequencyHz =
+		Request.Options.CustomFrequencyHz;
 	if (!OwnerIdentifier.IsValid())
 	{
 		Result.AppliedOptions = Request.Options;
@@ -746,11 +817,21 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		);
 		return Result;
 	}
+	if (!IsFiniteInRange(Request.Options.CustomFrequencyHz, 1.0, 1000.0))
+	{
+		Result.AppliedOptions = Request.Options;
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidFrequency
+		);
+		return Result;
+	}
 	FOpenMobileSensorStreamOptions AppliedOptions;
+	FOpenMobileSensorRateResolution RateResolution;
 	if (!ValidateAndResolveOptions(
 		Request.Sensor,
 		Request.Options,
-		AppliedOptions
+		AppliedOptions,
+		RateResolution
 	))
 	{
 		Result.AppliedOptions = Request.Options;
@@ -760,6 +841,7 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		return Result;
 	}
 	Result.AppliedOptions = AppliedOptions;
+	Result.RateResolution = RateResolution;
 	if (bShuttingDown)
 	{
 		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
@@ -791,6 +873,8 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	Entry.Handle = Handle;
 	Entry.Request = Request;
 	Entry.AppliedOptions = AppliedOptions;
+	Entry.RateResolution = RateResolution;
+	Entry.CommonRateAdjustmentReason = RateResolution.AdjustmentReason;
 	Entry.PhysicalKey = MakePhysicalKey(Request.Sensor, AppliedOptions);
 	Entry.BackendToken = BackendToken;
 	Subscriptions.Add(Handle.Identifier, MoveTemp(Entry));
@@ -829,11 +913,19 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 	}
+	if (!IsFiniteInRange(Options.CustomFrequencyHz, 1.0, 1000.0))
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidFrequency
+		);
+	}
 	FOpenMobileSensorStreamOptions AppliedOptions;
+	FOpenMobileSensorRateResolution RateResolution;
 	if (!ValidateAndResolveOptions(
 		Entry->Request.Sensor,
 		Options,
-		AppliedOptions
+		AppliedOptions,
+		RateResolution
 	))
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
@@ -856,9 +948,15 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 		Entry->Request.Options;
 	const FOpenMobileSensorStreamOptions PreviousApplied =
 		Entry->AppliedOptions;
+	const FOpenMobileSensorRateResolution PreviousRateResolution =
+		Entry->RateResolution;
+	const EOpenMobileSensorRateAdjustmentReason PreviousCommonRateReason =
+		Entry->CommonRateAdjustmentReason;
 	const FPhysicalStreamKey PreviousKey = Entry->PhysicalKey;
 	Entry->Request.Options = Options;
 	Entry->AppliedOptions = AppliedOptions;
+	Entry->RateResolution = RateResolution;
+	Entry->CommonRateAdjustmentReason = RateResolution.AdjustmentReason;
 	Entry->PhysicalKey = NewKey;
 	if (Entry->State != EOpenMobileSensorSubscriptionState::Active)
 	{
@@ -875,6 +973,8 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	{
 		Entry->Request.Options = PreviousRequested;
 		Entry->AppliedOptions = PreviousApplied;
+		Entry->RateResolution = PreviousRateResolution;
+		Entry->CommonRateAdjustmentReason = PreviousCommonRateReason;
 		Entry->PhysicalKey = PreviousKey;
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::TemporarilyUnavailable
@@ -882,6 +982,10 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	}
 	if (DesiredRequest == Physical->Request)
 	{
+		UpdateAppliedNativeRate(
+			PreviousKey,
+			Physical->Request.RequestedFrequencyHz
+		);
 		FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 			Handle,
 			AppliedOptions
@@ -898,10 +1002,16 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	{
 		Entry->Request.Options = PreviousRequested;
 		Entry->AppliedOptions = PreviousApplied;
+		Entry->RateResolution = PreviousRateResolution;
+		Entry->CommonRateAdjustmentReason = PreviousCommonRateReason;
 		Entry->PhysicalKey = PreviousKey;
 		return ReconfigureResult;
 	}
 	Physical->Request = MoveTemp(BackendRequest);
+	UpdateAppliedNativeRate(
+		PreviousKey,
+		Physical->Request.RequestedFrequencyHz
+	);
 	FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 		Handle,
 		AppliedOptions

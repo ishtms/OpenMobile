@@ -59,6 +59,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorStreamOptions AppliedOptions;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorRateResolution RateResolution;
 };
 
 UENUM(BlueprintType)

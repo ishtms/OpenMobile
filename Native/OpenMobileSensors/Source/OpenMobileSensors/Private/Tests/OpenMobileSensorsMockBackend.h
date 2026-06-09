@@ -101,6 +101,12 @@ public:
 	{
 		++StartSensorStreamCount;
 		LastStartedPhysicalHandle = Handle;
+		if (StartSensorStreamResult.IsSuccess()
+			&& AppliedStartFrequencyForTests.IsSet())
+		{
+			InOutRequest.RequestedFrequencyHz =
+				AppliedStartFrequencyForTests.GetValue();
+		}
 		LastStartedPhysicalRequest = InOutRequest;
 		if (StartSensorStreamResult.IsSuccess())
 		{
@@ -115,13 +121,19 @@ public:
 	) override
 	{
 		++ReconfigureSensorStreamCount;
-		LastReconfiguredPhysicalRequest = InOutRequest;
 		if (!ActiveSensorStreams.Contains(Handle))
 		{
 			return FOpenMobileSensorsErrorMapper::Map(
 				EOpenMobileSensorFailureReason::InvalidHandle
 			);
 		}
+		if (ReconfigureSensorStreamResult.IsSuccess()
+			&& AppliedReconfigureFrequencyForTests.IsSet())
+		{
+			InOutRequest.RequestedFrequencyHz =
+				AppliedReconfigureFrequencyForTests.GetValue();
+		}
+		LastReconfiguredPhysicalRequest = InOutRequest;
 		return ReconfigureSensorStreamResult;
 	}
 
@@ -181,6 +193,16 @@ public:
 	)
 	{
 		ReconfigureSensorStreamResult = MoveTemp(InResult);
+	}
+
+	void SetAppliedStartFrequencyForTests(double FrequencyHz)
+	{
+		AppliedStartFrequencyForTests = FrequencyHz;
+	}
+
+	void SetAppliedReconfigureFrequencyForTests(double FrequencyHz)
+	{
+		AppliedReconfigureFrequencyForTests = FrequencyHz;
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -354,6 +376,8 @@ private:
 	mutable int32 LastMutableSensorMetadataRefreshCount = 0;
 	FOpenMobileSensorOperationResult StartSensorStreamResult;
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
+	TOptional<double> AppliedStartFrequencyForTests;
+	TOptional<double> AppliedReconfigureFrequencyForTests;
 	FOpenMobileSensorBackendStreamHandle LastStartedPhysicalHandle;
 	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
 	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;

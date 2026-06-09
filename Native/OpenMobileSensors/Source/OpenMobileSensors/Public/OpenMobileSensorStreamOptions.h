@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorStreamOptions.generated.h"
 
@@ -11,6 +12,34 @@ enum class EOpenMobileSensorRatePreset : uint8
 	Game,
 	Fast,
 	Custom
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileSensorRateAdjustmentReason : uint8
+{
+	None,
+	ProjectPolicy,
+	HardwareLimit,
+	BackendLimit
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorRateResolution
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double RequestedFrequencyHz = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double ClampedFrequencyHz = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double AppliedNativeFrequencyHz = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorRateAdjustmentReason AdjustmentReason =
+		EOpenMobileSensorRateAdjustmentReason::None;
 };
 
 UENUM(BlueprintType)
@@ -156,4 +185,24 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionRequest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorStreamOptions Options;
+};
+
+UCLASS()
+class OPENMOBILESENSORS_API UOpenMobileSensorRateLibrary final
+	: public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+
+public:
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Sensor Hertz to Interval Seconds", ToolTip = "Converts a finite positive sensor frequency to its sample interval."))
+	static bool HertzToIntervalSeconds(
+		double FrequencyHz,
+		double& OutIntervalSeconds
+	);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Sensor Interval Seconds to Hertz", ToolTip = "Converts a finite positive sample interval to sensor frequency."))
+	static bool IntervalSecondsToHertz(
+		double IntervalSeconds,
+		double& OutFrequencyHz
+	);
 };
