@@ -1,0 +1,129 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
+#include "OpenMobileHapticsTypes.h"
+#include "OpenMobileHapticPatternAsset.generated.h"
+
+USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticPatternEventType Type =
+		EOpenMobileHapticPatternEventType::Transient;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 StartTimeMicroseconds = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 DurationMicroseconds = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint16 Intensity = MAX_uint16;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint16 Sharpness = MAX_uint16 / 2;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint16 FrequencyIntent = MAX_uint16 / 2;
+};
+
+USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternData
+{
+	GENERATED_BODY()
+
+	static constexpr uint8 CurrentFormatVersion = 2;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint8 DataFormatVersion = CurrentFormatVersion;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 SourceHash = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 DurationMicroseconds = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 GranularityMicroseconds = 1000;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticCookedPatternEvent> Events;
+
+	bool Serialize(FArchive& Archive);
+	void Reset();
+};
+
+template<>
+struct TStructOpsTypeTraits<FOpenMobileHapticCookedPatternData>
+	: public TStructOpsTypeTraitsBase2<FOpenMobileHapticCookedPatternData>
+{
+	enum
+	{
+		WithSerializer = true
+	};
+};
+
+UCLASS(BlueprintType)
+class OPENMOBILEHAPTICS_API UOpenMobileHapticPatternAsset
+	: public UPrimaryDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
+	FName DefaultCategory = TEXT("Gameplay");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
+	EOpenMobileHapticChannelPriority Priority =
+		EOpenMobileHapticChannelPriority::Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
+	EOpenMobileHapticOverlapPolicy OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
+	FOpenMobileHapticLoopOptions Loop;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
+	EOpenMobileHapticFallbackPolicy FallbackPolicy =
+		EOpenMobileHapticFallbackPolicy::Automatic;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(EditAnywhere, Category = "Pattern")
+	FOpenMobileHapticPattern SourcePattern;
+#endif
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
+	TSoftObjectPtr<UObject> AndroidOverride;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
+	TSoftObjectPtr<UObject> IOSOverride;
+
+	const FOpenMobileHapticCookedPatternData& GetCookedPattern() const
+	{
+		return CookedPattern;
+	}
+
+	bool IsDerivedDataCurrent() const;
+	bool RebuildDerivedData(TArray<FString>& Errors);
+
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(
+		FPropertyChangedEvent& PropertyChangedEvent
+	) override;
+	virtual EDataValidationResult IsDataValid(
+		FDataValidationContext& Context
+	) const override;
+#endif
+
+private:
+	uint32 ComputeSourceHash() const;
+
+	UPROPERTY(VisibleAnywhere, Category = "Cooked Pattern")
+	FOpenMobileHapticCookedPatternData CookedPattern;
+};

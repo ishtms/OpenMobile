@@ -9,11 +9,16 @@
 #include "IOpenMobileHapticsBackend.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/ObjectAndNameAsStringProxyArchive.h"
+#include "UObject/CoreRedirects.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
+#include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
@@ -583,6 +588,177 @@ bool FOpenMobileHapticsRepeatPolicyTest::RunTest(const FString& Parameters)
 		TeardownCursor.Advance(20.8).bShouldSubmit);
 	return true;
 }
+
+#if WITH_EDITORONLY_DATA
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticPatternAssetTest,
+	"OpenMobile.Haptics.Pattern.Asset",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticPatternAsset* Asset =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Asset->DefaultCategory = TEXT("Gameplay");
+	Asset->Priority = EOpenMobileHapticChannelPriority::High;
+	Asset->OverlapPolicy = EOpenMobileHapticOverlapPolicy::Queue;
+	Asset->FallbackPolicy = EOpenMobileHapticFallbackPolicy::NoBasicVibration;
+	FOpenMobileHapticPatternEvent Transient;
+	Transient.Type = EOpenMobileHapticPatternEventType::Transient;
+	Asset->SourcePattern.Events.Add(Transient);
+	FOpenMobileHapticPatternEvent Silence;
+	Silence.Type = EOpenMobileHapticPatternEventType::Silence;
+	Silence.StartTimeSeconds = 0.01;
+	Silence.DurationSeconds = 0.02;
+	Asset->SourcePattern.Events.Add(Silence);
+	FOpenMobileHapticPatternEvent Continuous;
+	Continuous.Type = EOpenMobileHapticPatternEventType::Continuous;
+	Continuous.StartTimeSeconds = 0.03;
+	Continuous.DurationSeconds = 0.04;
+	Continuous.Intensity = 0.75f;
+	Asset->SourcePattern.Events.Add(Continuous);
+	Asset->AndroidOverride = TSoftObjectPtr<UObject>(
+		FSoftObjectPath(TEXT("/Game/Haptics/Android.Pattern")));
+	Asset->IOSOverride = TSoftObjectPtr<UObject>(
+		FSoftObjectPath(TEXT("/Game/Haptics/IOS.Pattern")));
+
+	TArray<FString> Errors;
+	TestTrue(TEXT("Valid asset builds compact derived data"),
+		Asset->RebuildDerivedData(Errors));
+	TestTrue(TEXT("Derived data matches its source"),
+		Asset->IsDerivedDataCurrent());
+	TestEqual(TEXT("Cooked event count matches source"),
+		Asset->GetCookedPattern().Events.Num(), 3);
+	TestEqual(TEXT("Cooked silence remains zero amplitude"),
+		Asset->GetCookedPattern().Events[1].Intensity, static_cast<uint16>(0));
+	TestEqual(TEXT("Cooked duration uses bounded microseconds"),
+		Asset->GetCookedPattern().DurationMicroseconds,
+		static_cast<uint32>(70000));
+	TestFalse(TEXT("Rebuild reports no errors"), !Errors.IsEmpty());
+
+	UOpenMobileHapticPatternAsset* Duplicate =
+		DuplicateObject<UOpenMobileHapticPatternAsset>(
+			Asset,
+			GetTransientPackage()
+		);
+	TestTrue(TEXT("Duplicated asset retains current derived data"),
+		Duplicate && Duplicate->IsDerivedDataCurrent());
+	TestEqual(TEXT("Duplication retains soft Android override"),
+		Duplicate->AndroidOverride.ToSoftObjectPath(),
+		Asset->AndroidOverride.ToSoftObjectPath());
+	TestEqual(TEXT("Duplication retains soft iOS override"),
+		Duplicate->IOSOverride.ToSoftObjectPath(),
+		Asset->IOSOverride.ToSoftObjectPath());
+
+	TArray<uint8> Bytes;
+	FMemoryWriter Writer(Bytes);
+	FOpenMobileHapticCookedPatternData Saved = Asset->GetCookedPattern();
+	Saved.Serialize(Writer);
+	FMemoryReader Reader(Bytes);
+	FOpenMobileHapticCookedPatternData Loaded;
+	Loaded.Serialize(Reader);
+	TestFalse(TEXT("Cooked serialization remains readable"), Reader.IsError());
+	TestEqual(TEXT("Cooked serialization preserves event count"),
+		Loaded.Events.Num(), Saved.Events.Num());
+	TestEqual(TEXT("Cooked serialization preserves frequency intent"),
+		Loaded.Events[2].FrequencyIntent,
+		Saved.Events[2].FrequencyIntent);
+
+	FOpenMobileHapticCookedPatternData Legacy = Saved;
+	Legacy.DataFormatVersion = 1;
+	TArray<uint8> LegacyBytes;
+	FMemoryWriter LegacyWriter(LegacyBytes);
+	Legacy.Serialize(LegacyWriter);
+	FMemoryReader LegacyReader(LegacyBytes);
+	FOpenMobileHapticCookedPatternData LoadedLegacy;
+	LoadedLegacy.Serialize(LegacyReader);
+	TestFalse(TEXT("Legacy cooked data remains readable"),
+		LegacyReader.IsError());
+	TestEqual(TEXT("Legacy data receives neutral frequency intent"),
+		LoadedLegacy.Events[2].FrequencyIntent,
+		static_cast<uint16>(MAX_uint16 / 2));
+
+	TArray<uint8> CookBytes;
+	FMemoryWriter CookMemoryWriter(CookBytes);
+	FObjectAndNameAsStringProxyArchive CookWriter(
+		CookMemoryWriter,
+		false
+	);
+	CookWriter.SetFilterEditorOnly(true);
+	Asset->Serialize(CookWriter);
+	UOpenMobileHapticPatternAsset* CookedCopy =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	FMemoryReader CookMemoryReader(CookBytes);
+	FObjectAndNameAsStringProxyArchive CookReader(
+		CookMemoryReader,
+		false
+	);
+	CookReader.SetFilterEditorOnly(true);
+	CookedCopy->Serialize(CookReader);
+	TestFalse(TEXT("Cook-filtered serialization remains readable"),
+		CookMemoryReader.IsError());
+	TestTrue(TEXT("Cook filtering removes the editor timeline"),
+		CookedCopy->SourcePattern.Events.IsEmpty());
+	TestEqual(TEXT("Cook filtering preserves derived events"),
+		CookedCopy->GetCookedPattern().Events.Num(), 3);
+
+	const FName RenameSource = MakeUniqueObjectName(
+		GetTransientPackage(),
+		UOpenMobileHapticPatternAsset::StaticClass(),
+		TEXT("PatternBeforeRename")
+	);
+	UOpenMobileHapticPatternAsset* RenamedAsset =
+		NewObject<UOpenMobileHapticPatternAsset>(
+			GetTransientPackage(),
+			RenameSource
+		);
+	const FPrimaryAssetId BeforeRename = RenamedAsset->GetPrimaryAssetId();
+	const FName RenameTarget = MakeUniqueObjectName(
+		GetTransientPackage(),
+		UOpenMobileHapticPatternAsset::StaticClass(),
+		TEXT("PatternAfterRename")
+	);
+	TestTrue(TEXT("Pattern asset can be renamed"),
+		RenamedAsset->Rename(*RenameTarget.ToString()));
+	const FPrimaryAssetId AfterRename = RenamedAsset->GetPrimaryAssetId();
+	TestEqual(TEXT("Rename preserves the primary asset type"),
+		AfterRename.PrimaryAssetType, BeforeRename.PrimaryAssetType);
+	TestEqual(TEXT("Rename updates the primary asset name"),
+		AfterRename.PrimaryAssetName, RenameTarget);
+
+	const FString RedirectSource = TEXT("OpenMobileHapticPatternAssetTest");
+	const FString OldPath = TEXT("/Game/Haptics/OldPattern.OldPattern");
+	const FString NewPath = TEXT("/Game/Haptics/NewPattern.NewPattern");
+	TArray<FCoreRedirect> Redirects;
+	Redirects.Emplace(ECoreRedirectFlags::Type_Object, OldPath, NewPath);
+	TestTrue(TEXT("Pattern redirect registers"),
+		FCoreRedirects::AddRedirectList(Redirects, RedirectSource));
+	FSoftObjectPath RedirectedPath(OldPath);
+	TestTrue(TEXT("Soft pattern path follows a redirect"),
+		RedirectedPath.FixupCoreRedirects());
+	TestEqual(TEXT("Redirect resolves to the renamed pattern"),
+		RedirectedPath, FSoftObjectPath(NewPath));
+	TestTrue(TEXT("Pattern redirect unregisters"),
+		FCoreRedirects::RemoveRedirectList(Redirects, RedirectSource));
+
+	Asset->SourcePattern.Events[2].Intensity = 0.5f;
+	TestFalse(TEXT("Source edits invalidate derived data"),
+		Asset->IsDerivedDataCurrent());
+	TestTrue(TEXT("Edited source rebuilds derived data"),
+		Asset->RebuildDerivedData(Errors));
+	Asset->SourcePattern.Events[1].DurationSeconds =
+		std::numeric_limits<double>::quiet_NaN();
+	TestFalse(TEXT("Invalid asset source cannot rebuild"),
+		Asset->RebuildDerivedData(Errors));
+	TestFalse(TEXT("Invalid asset identifies its source event"),
+		Errors.IsEmpty());
+	TestTrue(TEXT("Invalid asset identifies its source field"),
+		Errors[0].Contains(TEXT("DurationSeconds")));
+	return true;
+}
+#endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsOneShotPolicyTest,
