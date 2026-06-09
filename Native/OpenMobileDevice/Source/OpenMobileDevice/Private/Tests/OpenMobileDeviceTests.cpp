@@ -32,6 +32,7 @@
 #include "OpenMobileDeviceEndpointReachabilityPolicy.h"
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFormFactor.h"
+#include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceFoldableInfo.h"
 #include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -193,6 +194,12 @@ namespace OpenMobileDeviceTests
 			return Brightness;
 		}
 
+		virtual FOpenMobileFlashlightSnapshot GetFlashlightSnapshot() const override
+		{
+			++FlashlightQueries;
+			return Flashlight;
+		}
+
 		virtual FOpenMobileBrightnessResult ApplyBrightness(
 			const FOpenMobileBrightnessRequest& Request
 		) override
@@ -327,6 +334,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 MemoryQueries = 0;
 		mutable int32 NetworkQueries = 0;
 		mutable int32 BrightnessQueries = 0;
+		mutable int32 FlashlightQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -339,6 +347,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobileNetworkPathSnapshot Network;
 		FOpenMobileWindowDisplaySnapshot WindowDisplay;
 		FOpenMobileBrightnessSnapshot Brightness;
+		FOpenMobileFlashlightSnapshot Flashlight;
 		EOpenMobileBrightnessApplyState BrightnessApplyState =
 			EOpenMobileBrightnessApplyState::Applied;
 		float BrightnessEffectiveValue = 0.8f;
@@ -5484,6 +5493,178 @@ bool FOpenMobileDeviceBackendRegistryTest::RunTest(const FString& Parameters)
 		Unavailable.ShutdownCount,
 		1
 	);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceFlashlightStateTest,
+	"OpenMobile.Device.Utility.FlashlightState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FMockBackend Backend(TEXT("Flashlight"));
+	Backend.Flashlight.HardwareState =
+		EOpenMobileFlashlightHardwareState::Available;
+	Backend.Flashlight.TorchState = EOpenMobileFlashlightTorchState::Off;
+	Backend.Flashlight.bVariableIntensitySupported =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(true);
+	Backend.Flashlight.PermissionState =
+		EOpenMobileFlashlightPermissionState::NotRequired;
+	Backend.Flashlight.ConflictState =
+		EOpenMobileFlashlightConflictState::None;
+	Backend.Flashlight.ThermalState =
+		EOpenMobileFlashlightThermalState::NotRestricted;
+	Backend.Flashlight.Ownership = EOpenMobileFlashlightOwnership::Unknown;
+	Backend.NativeMonitoringGroups = {Group::Flashlight};
+	TestTrue(
+		TEXT("Mock backend registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+
+	const FOpenMobileFlashlightSnapshot Snapshot =
+		FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot();
+	TestEqual(
+		TEXT("Hardware state is preserved"),
+		Snapshot.HardwareState,
+		EOpenMobileFlashlightHardwareState::Available
+	);
+	TestEqual(
+		TEXT("Torch state is preserved"),
+		Snapshot.TorchState,
+		EOpenMobileFlashlightTorchState::Off
+	);
+	TestTrue(
+		TEXT("Snapshot is stamped"),
+		Snapshot.Metadata.Generation > 0
+	);
+	TestEqual(TEXT("Snapshot queries once"), Backend.FlashlightQueries, 1);
+	TestEqual(
+		TEXT("External owner remains unknown"),
+		Snapshot.Ownership,
+		EOpenMobileFlashlightOwnership::Unknown
+	);
+	Backend.Flashlight.HardwareState =
+		EOpenMobileFlashlightHardwareState::Unavailable;
+	Backend.Flashlight.TorchState = EOpenMobileFlashlightTorchState::Unknown;
+	Backend.Flashlight.bVariableIntensitySupported =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(false);
+	Backend.Flashlight.PermissionState =
+		EOpenMobileFlashlightPermissionState::Denied;
+	Backend.Flashlight.ConflictState =
+		EOpenMobileFlashlightConflictState::CameraResourceBusy;
+	Backend.Flashlight.ThermalState =
+		EOpenMobileFlashlightThermalState::Restricted;
+	const FOpenMobileFlashlightSnapshot Restricted =
+		FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot();
+	TestEqual(
+		TEXT("Missing hardware stays separate"),
+		Restricted.HardwareState,
+		EOpenMobileFlashlightHardwareState::Unavailable
+	);
+	TestEqual(
+		TEXT("Denied permission stays separate"),
+		Restricted.PermissionState,
+		EOpenMobileFlashlightPermissionState::Denied
+	);
+	TestEqual(
+		TEXT("Camera conflict stays separate"),
+		Restricted.ConflictState,
+		EOpenMobileFlashlightConflictState::CameraResourceBusy
+	);
+	TestEqual(
+		TEXT("Thermal restriction stays separate"),
+		Restricted.ThermalState,
+		EOpenMobileFlashlightThermalState::Restricted
+	);
+	TestFalse(
+		TEXT("No hardware reports no variable intensity"),
+		Restricted.bVariableIntensitySupported.Value
+	);
+	Backend.Flashlight.HardwareState =
+		EOpenMobileFlashlightHardwareState::Available;
+	Backend.Flashlight.TorchState = EOpenMobileFlashlightTorchState::Off;
+	Backend.Flashlight.PermissionState =
+		EOpenMobileFlashlightPermissionState::NotRequired;
+	Backend.Flashlight.ConflictState =
+		EOpenMobileFlashlightConflictState::None;
+	Backend.Flashlight.ThermalState =
+		EOpenMobileFlashlightThermalState::NotRestricted;
+
+	TestNotNull(
+		TEXT("Subsystem exposes flashlight query"),
+		UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("GetFlashlightSnapshot")
+		)
+	);
+	TestNotNull(
+		TEXT("Subsystem exposes flashlight event"),
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileDeviceSubsystem::StaticClass(),
+			TEXT("OnFlashlightSnapshotChanged")
+		)
+	);
+
+	int32 ChangeCount = 0;
+	const FDelegateHandle ChangedHandle =
+		FOpenMobileDeviceMonitoringService::OnGroupChanged().AddLambda(
+			[&ChangeCount](EOpenMobileDeviceMonitoringGroup ChangedGroup)
+			{
+				if (ChangedGroup == Group::Flashlight)
+				{
+					++ChangeCount;
+				}
+			}
+		);
+	const FGuid Subscription =
+		FOpenMobileDeviceMonitoringService::AddSubscription(
+			{Group::Flashlight},
+			1.0f
+		);
+	TestTrue(TEXT("Flashlight monitoring starts"), Subscription.IsValid());
+	TestEqual(
+		TEXT("Native observer starts once"),
+		Backend.MonitoringStarts.FindRef(Group::Flashlight),
+		1
+	);
+	TestFalse(
+		TEXT("Native torch observer needs no polling"),
+		FOpenMobileDeviceMonitoringService::UsesFallbackForTests(Group::Flashlight)
+	);
+
+	Backend.Flashlight.TorchState = EOpenMobileFlashlightTorchState::On;
+	Backend.Flashlight.CurrentIntensity =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.5f);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Flashlight
+	);
+	TestEqual(TEXT("Native change broadcasts"), ChangeCount, 1);
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Flashlight
+	);
+	TestEqual(TEXT("Background change is suppressed"), ChangeCount, 1);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refreshes state"), ChangeCount, 2);
+
+	FOpenMobileDeviceMonitoringService::RemoveSubscription(Subscription);
+	TestEqual(
+		TEXT("Native observer stops once"),
+		Backend.MonitoringStops.FindRef(Group::Flashlight),
+		1
+	);
+	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(ChangedHandle);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

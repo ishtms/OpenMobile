@@ -227,6 +227,7 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 		case EOpenMobileDeviceMonitoringGroup::Appearance:
 		case EOpenMobileDeviceMonitoringGroup::Accessibility:
 		case EOpenMobileDeviceMonitoringGroup::MediaVolume:
+		case EOpenMobileDeviceMonitoringGroup::Flashlight:
 			return true;
 		}
 		return false;

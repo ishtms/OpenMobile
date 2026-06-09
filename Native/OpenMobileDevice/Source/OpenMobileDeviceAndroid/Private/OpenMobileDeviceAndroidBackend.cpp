@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidBattery.h"
 #include "OpenMobileDeviceAndroidBrightnessControl.h"
+#include "OpenMobileDeviceAndroidFlashlight.h"
 #include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
 #include "OpenMobileDeviceAndroidKeepScreenAwakeControl.h"
@@ -204,6 +205,28 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android applies Normal, Edge to Edge, or Immersive policy to the active Window. Immersive bars remain temporarily revealable by system gestures, and newer OS policy may force edge-to-edge layout.");
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::FlashlightAvailability)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		const FOpenMobileFlashlightSnapshot Snapshot =
+			GetOpenMobileDeviceAndroidFlashlightSnapshot();
+		if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Available)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android reports torch hardware and demand-driven external state through CameraManager without opening a camera or requiring camera permission.");
+		}
+		else if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Unavailable)
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MissingHardware;
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -361,6 +384,12 @@ FOpenMobileBrightnessSnapshot
 FOpenMobileDeviceAndroidBackend::GetBrightnessSnapshot() const
 {
 	return GetOpenMobileDeviceAndroidBrightnessSnapshot();
+}
+
+FOpenMobileFlashlightSnapshot
+FOpenMobileDeviceAndroidBackend::GetFlashlightSnapshot() const
+{
+	return GetOpenMobileDeviceAndroidFlashlightSnapshot();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(
@@ -583,6 +612,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceAndroidWindowMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
+	{
+		return StartOpenMobileDeviceAndroidFlashlightMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -614,6 +647,10 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidWindowMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
+	{
+		StopOpenMobileDeviceAndroidFlashlightMonitoring();
+	}
 }
 
 bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
@@ -640,4 +677,5 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidStorageMonitoring();
 	StopOpenMobileDeviceAndroidNetworkMonitoring();
 	StopOpenMobileDeviceAndroidWindowMonitoring();
+	StopOpenMobileDeviceAndroidFlashlightMonitoring();
 }

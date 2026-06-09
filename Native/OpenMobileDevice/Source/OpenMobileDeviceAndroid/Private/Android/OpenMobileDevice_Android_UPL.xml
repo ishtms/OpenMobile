@@ -1286,6 +1286,269 @@ import androidx.window.layout.WindowLayoutInfo;
 		return new String[] { timeFormat, measurementSystem };
 	}
 
+	private android.hardware.camera2.CameraManager OpenMobileDeviceCameraManager;
+	private android.hardware.camera2.CameraManager.TorchCallback OpenMobileDeviceFlashlightCallback;
+	private String OpenMobileDeviceFlashlightCameraId;
+	private Boolean OpenMobileDeviceFlashlightEnabled;
+	private boolean OpenMobileDeviceFlashlightUnavailable;
+	private int OpenMobileDeviceFlashlightStrength = -1;
+
+	public native void nativeOpenMobileDeviceFlashlightChanged();
+
+	private android.hardware.camera2.CameraManager OpenMobileDeviceGetCameraManager()
+	{
+		if (OpenMobileDeviceCameraManager == null)
+		{
+			OpenMobileDeviceCameraManager =
+				(android.hardware.camera2.CameraManager)getSystemService(
+					android.content.Context.CAMERA_SERVICE
+				);
+		}
+		return OpenMobileDeviceCameraManager;
+	}
+
+	private String OpenMobileDeviceFindFlashlightCameraId()
+	{
+		if (OpenMobileDeviceFlashlightCameraId != null)
+		{
+			return OpenMobileDeviceFlashlightCameraId;
+		}
+		android.hardware.camera2.CameraManager manager =
+			OpenMobileDeviceGetCameraManager();
+		if (manager == null)
+		{
+			return null;
+		}
+		try
+		{
+			String fallbackId = null;
+			for (String cameraId : manager.getCameraIdList())
+			{
+				android.hardware.camera2.CameraCharacteristics characteristics =
+					manager.getCameraCharacteristics(cameraId);
+				Boolean hasFlash = characteristics.get(
+					android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE
+				);
+				if (!Boolean.TRUE.equals(hasFlash))
+				{
+					continue;
+				}
+				if (fallbackId == null)
+				{
+					fallbackId = cameraId;
+				}
+				Integer facing = characteristics.get(
+					android.hardware.camera2.CameraCharacteristics.LENS_FACING
+				);
+				if (facing != null && facing
+					== android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK)
+				{
+					OpenMobileDeviceFlashlightCameraId = cameraId;
+					return cameraId;
+				}
+			}
+			OpenMobileDeviceFlashlightCameraId = fallbackId;
+			return fallbackId;
+		}
+		catch (android.hardware.camera2.CameraAccessException ignored)
+		{
+			return null;
+		}
+		catch (RuntimeException ignored)
+		{
+			return null;
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceGetFlashlightDetails()
+	{
+		android.hardware.camera2.CameraManager manager =
+			OpenMobileDeviceGetCameraManager();
+		String cameraId = OpenMobileDeviceFindFlashlightCameraId();
+		if (manager == null)
+		{
+			return new String[] {
+				"unknown", "unknown", "", "", "not_required",
+				"unknown", "unknown", "unknown"
+			};
+		}
+		if (cameraId == null)
+		{
+			try
+			{
+				if (manager.getCameraIdList().length == 0)
+				{
+					return new String[] {
+						"unavailable", "unknown", "", "false",
+						"not_required", "none", "unknown", "unknown"
+					};
+				}
+			}
+			catch (Exception ignored)
+			{
+			}
+			return new String[] {
+				"unavailable", "unknown", "", "false", "not_required",
+				"none", "unknown", "unknown"
+			};
+		}
+
+		try
+		{
+			android.hardware.camera2.CameraCharacteristics characteristics =
+				manager.getCameraCharacteristics(cameraId);
+			int maximumStrength = 1;
+			if (android.os.Build.VERSION.SDK_INT >= 33)
+			{
+				Integer value = characteristics.get(
+					android.hardware.camera2.CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL
+				);
+				if (value != null && value > 0)
+				{
+					maximumStrength = value;
+				}
+			}
+			String torchState = OpenMobileDeviceFlashlightEnabled == null
+				? (OpenMobileDeviceFlashlightUnavailable ? "off" : "unknown")
+				: (OpenMobileDeviceFlashlightEnabled ? "on" : "off");
+			String intensity = "";
+			if ("off".equals(torchState))
+			{
+				intensity = "0";
+			}
+			else if ("on".equals(torchState)
+				&& OpenMobileDeviceFlashlightStrength > 0)
+			{
+				intensity = Float.toString(
+					(float)OpenMobileDeviceFlashlightStrength
+						/ (float)maximumStrength
+				);
+			}
+			String conflict = OpenMobileDeviceFlashlightUnavailable
+				? "busy"
+				: OpenMobileDeviceFlashlightEnabled == null ? "unknown" : "none";
+			return new String[] {
+				"available",
+				torchState,
+				intensity,
+				maximumStrength > 1 ? "true" : "false",
+				"not_required",
+				conflict,
+				"unknown",
+				"unknown"
+			};
+		}
+		catch (Exception ignored)
+		{
+			return new String[] {
+				"unknown", "unknown", "", "", "not_required",
+				"unknown", "unknown", "unknown"
+			};
+		}
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartFlashlightMonitoring()
+	{
+		if (android.os.Build.VERSION.SDK_INT < 23)
+		{
+			return false;
+		}
+		if (OpenMobileDeviceFlashlightCallback != null)
+		{
+			return true;
+		}
+		final String cameraId = OpenMobileDeviceFindFlashlightCameraId();
+		final android.hardware.camera2.CameraManager manager =
+			OpenMobileDeviceGetCameraManager();
+		if (cameraId == null || manager == null)
+		{
+			return false;
+		}
+		OpenMobileDeviceFlashlightEnabled = null;
+		OpenMobileDeviceFlashlightUnavailable = false;
+		OpenMobileDeviceFlashlightStrength = -1;
+		OpenMobileDeviceFlashlightCallback =
+			new android.hardware.camera2.CameraManager.TorchCallback()
+			{
+				@Override
+				public void onTorchModeChanged(String changedId, boolean enabled)
+				{
+					if (!cameraId.equals(changedId))
+					{
+						return;
+					}
+					OpenMobileDeviceFlashlightEnabled = enabled;
+					OpenMobileDeviceFlashlightUnavailable = false;
+					if (!enabled)
+					{
+						OpenMobileDeviceFlashlightStrength = -1;
+					}
+					nativeOpenMobileDeviceFlashlightChanged();
+				}
+
+				@Override
+				public void onTorchModeUnavailable(String changedId)
+				{
+					if (!cameraId.equals(changedId))
+					{
+						return;
+					}
+					OpenMobileDeviceFlashlightEnabled = false;
+					OpenMobileDeviceFlashlightUnavailable = true;
+					OpenMobileDeviceFlashlightStrength = -1;
+					nativeOpenMobileDeviceFlashlightChanged();
+				}
+
+				@Override
+				public void onTorchStrengthLevelChanged(
+					String changedId,
+					int newStrengthLevel
+				)
+				{
+					if (!cameraId.equals(changedId))
+					{
+						return;
+					}
+					OpenMobileDeviceFlashlightStrength = newStrengthLevel;
+					nativeOpenMobileDeviceFlashlightChanged();
+				}
+			};
+		try
+		{
+			manager.registerTorchCallback(
+				OpenMobileDeviceFlashlightCallback,
+				new android.os.Handler(android.os.Looper.getMainLooper())
+			);
+			return true;
+		}
+		catch (RuntimeException ignored)
+		{
+			OpenMobileDeviceFlashlightCallback = null;
+			return false;
+		}
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopFlashlightMonitoring()
+	{
+		if (OpenMobileDeviceFlashlightCallback != null
+			&& OpenMobileDeviceCameraManager != null)
+		{
+			try
+			{
+				OpenMobileDeviceCameraManager.unregisterTorchCallback(
+					OpenMobileDeviceFlashlightCallback
+				);
+			}
+			catch (RuntimeException ignored)
+			{
+			}
+		}
+		OpenMobileDeviceFlashlightCallback = null;
+		OpenMobileDeviceFlashlightEnabled = null;
+		OpenMobileDeviceFlashlightUnavailable = false;
+		OpenMobileDeviceFlashlightStrength = -1;
+	}
+
 	private android.content.BroadcastReceiver OpenMobileDeviceLocaleReceiver;
 
 	public native void nativeOpenMobileDeviceLocaleChanged();

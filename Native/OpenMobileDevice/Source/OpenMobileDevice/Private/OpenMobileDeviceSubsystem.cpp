@@ -283,6 +283,14 @@ UOpenMobileDeviceSubsystem::GetBrightnessSnapshot() const
 		: FOpenMobileDeviceSnapshotService::GetBrightnessSnapshot();
 }
 
+FOpenMobileFlashlightSnapshot
+UOpenMobileDeviceSubsystem::GetFlashlightSnapshot() const
+{
+	return bDeinitialized
+		? FOpenMobileFlashlightSnapshot()
+		: FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot();
+}
+
 UOpenMobileBrightnessHandle*
 UOpenMobileDeviceSubsystem::RequestBrightnessOverride(
 	const FOpenMobileBrightnessRequest& Request
@@ -779,6 +787,9 @@ void UOpenMobileDeviceSubsystem::PrimeMonitoringGroup(
 	case EOpenMobileDeviceMonitoringGroup::MediaVolume:
 		LastMediaVolumeSnapshot = GetMediaVolumeSnapshot();
 		break;
+	case EOpenMobileDeviceMonitoringGroup::Flashlight:
+		LastFlashlightSnapshot = GetFlashlightSnapshot();
+		break;
 	}
 }
 
@@ -925,6 +936,21 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 			LastMediaVolumeSnapshot = Snapshot;
 			OnMediaVolumeSnapshotChanged.Broadcast(Snapshot);
 			NativeMediaVolumeSnapshotChanged.Broadcast(Snapshot);
+		}
+		break;
+	}
+	case EOpenMobileDeviceMonitoringGroup::Flashlight:
+	{
+		const FOpenMobileFlashlightSnapshot Snapshot = GetFlashlightSnapshot();
+		if (!LastFlashlightSnapshot.IsSet()
+			|| !EquivalentWithoutMetadata(
+				LastFlashlightSnapshot.GetValue(),
+				Snapshot
+			))
+		{
+			LastFlashlightSnapshot = Snapshot;
+			OnFlashlightSnapshotChanged.Broadcast(Snapshot);
+			NativeFlashlightSnapshotChanged.Broadcast(Snapshot);
 		}
 		break;
 	}

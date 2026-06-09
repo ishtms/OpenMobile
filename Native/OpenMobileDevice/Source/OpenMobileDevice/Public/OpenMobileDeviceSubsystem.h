@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -88,6 +89,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	const FOpenMobileAccessibilitySnapshot&,
 	Snapshot
 );
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileFlashlightSnapshotChangedEvent,
+	const FOpenMobileFlashlightSnapshot&,
+	Snapshot
+);
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileDeviceStatusChangedNativeEvent,
@@ -144,6 +150,10 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAccessibilitySnapshotChangedNativeEvent,
 	const FOpenMobileAccessibilitySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileFlashlightSnapshotChangedNativeEvent,
+	const FOpenMobileFlashlightSnapshot&
 );
 
 class UOpenMobileDeviceAsyncActionBase;
@@ -202,6 +212,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get App Screen Brightness", ToolTip = "Captures the normalized brightness of the active app screen without prompting."))
 	FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const;
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Flashlight Snapshot", ToolTip = "Captures flashlight hardware, state, intensity support, permission, conflict, thermal, and ownership information without prompting or opening a camera capture session."))
+	FOpenMobileFlashlightSnapshot GetFlashlightSnapshot() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))
 	UOpenMobileBrightnessHandle* RequestBrightnessOverride(
@@ -330,6 +343,12 @@ public:
 		return NativeAccessibilitySnapshotChanged;
 	}
 
+	FOpenMobileFlashlightSnapshotChangedNativeEvent&
+	OnNativeFlashlightSnapshotChanged()
+	{
+		return NativeFlashlightSnapshotChanged;
+	}
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Device Status Changed", ToolTip = "Broadcasts when monitored legacy battery or media-volume status changes."))
 	FOpenMobileDeviceStatusChangedEvent OnDeviceStatusChanged;
 
@@ -371,6 +390,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Accessibility Snapshot Changed", ToolTip = "Broadcasts when a monitored accessibility snapshot changes beyond its numeric tolerances."))
 	FOpenMobileAccessibilitySnapshotChangedEvent OnAccessibilitySnapshotChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Flashlight Snapshot Changed", ToolTip = "Broadcasts when monitored flashlight state, availability, intensity, conflict, or thermal restriction changes."))
+	FOpenMobileFlashlightSnapshotChangedEvent OnFlashlightSnapshotChanged;
 
 private:
 	friend class UOpenMobileDeviceAsyncActionBase;
@@ -460,6 +482,7 @@ private:
 	TOptional<FOpenMobileWindowDisplaySnapshot> LastWindowSnapshot;
 	TOptional<FOpenMobileAppearanceSnapshot> LastAppearanceSnapshot;
 	TOptional<FOpenMobileAccessibilitySnapshot> LastAccessibilitySnapshot;
+	TOptional<FOpenMobileFlashlightSnapshot> LastFlashlightSnapshot;
 	FOpenMobileDeviceStatusChangedNativeEvent NativeDeviceStatusChanged;
 	FOpenMobileLocaleSnapshotChangedNativeEvent NativeLocaleSnapshotChanged;
 	FOpenMobilePowerSnapshotChangedNativeEvent NativePowerSnapshotChanged;
@@ -476,6 +499,8 @@ private:
 	FOpenMobileAppearanceSnapshotChangedNativeEvent NativeAppearanceSnapshotChanged;
 	FOpenMobileAccessibilitySnapshotChangedNativeEvent
 		NativeAccessibilitySnapshotChanged;
+	FOpenMobileFlashlightSnapshotChangedNativeEvent
+		NativeFlashlightSnapshotChanged;
 	TSet<TWeakObjectPtr<UOpenMobileDeviceAsyncActionBase>> ActiveAsyncActions;
 	bool bDeinitialized = false;
 };

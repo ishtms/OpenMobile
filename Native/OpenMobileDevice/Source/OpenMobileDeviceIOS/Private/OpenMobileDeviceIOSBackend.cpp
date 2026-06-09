@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSBattery.h"
 #include "OpenMobileDeviceIOSBrightnessControl.h"
+#include "OpenMobileDeviceIOSFlashlight.h"
 #include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
 #include "OpenMobileDeviceIOSKeepScreenAwakeControl.h"
@@ -200,6 +201,34 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #endif
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::FlashlightAvailability)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not represent physical torch hardware or state.");
+#else
+		const FOpenMobileFlashlightSnapshot Snapshot =
+			GetOpenMobileDeviceIOSFlashlightSnapshot();
+		if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Available)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("iOS reports torch hardware and demand-driven external state through AVFoundation without creating a capture session or prompting for camera access.");
+		}
+		else if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Unavailable)
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MissingHardware;
+		}
+#endif
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -355,6 +384,12 @@ FOpenMobileBrightnessSnapshot
 FOpenMobileDeviceIOSBackend::GetBrightnessSnapshot() const
 {
 	return GetOpenMobileDeviceIOSBrightnessSnapshot();
+}
+
+FOpenMobileFlashlightSnapshot
+FOpenMobileDeviceIOSBackend::GetFlashlightSnapshot() const
+{
+	return GetOpenMobileDeviceIOSFlashlightSnapshot();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(
@@ -527,6 +562,10 @@ bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	{
 		return StartOpenMobileDeviceIOSNetworkMonitoring(CallbackToken);
 	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
+	{
+		return StartOpenMobileDeviceIOSFlashlightMonitoring(CallbackToken);
+	}
 	return false;
 }
 
@@ -550,6 +589,10 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceIOSNetworkMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
+	{
+		StopOpenMobileDeviceIOSFlashlightMonitoring();
+	}
 }
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
@@ -562,4 +605,5 @@ void FOpenMobileDeviceIOSBackend::BeginShutdown()
 	StopOpenMobileDeviceIOSBatteryMonitoring();
 	StopOpenMobileDeviceIOSMemoryMonitoring();
 	StopOpenMobileDeviceIOSNetworkMonitoring();
+	StopOpenMobileDeviceIOSFlashlightMonitoring();
 }

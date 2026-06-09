@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
@@ -164,6 +165,11 @@ public:
 	}
 
 	virtual FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const
+	{
+		return {};
+	}
+
+	virtual FOpenMobileFlashlightSnapshot GetFlashlightSnapshot() const
 	{
 		return {};
 	}

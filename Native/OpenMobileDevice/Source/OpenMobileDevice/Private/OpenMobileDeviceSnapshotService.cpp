@@ -184,6 +184,17 @@ FOpenMobileDeviceSnapshotService::GetBrightnessSnapshot()
 	});
 }
 
+FOpenMobileFlashlightSnapshot
+FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot()
+{
+	return OpenMobileDeviceSnapshotServicePrivate::Capture<
+		FOpenMobileFlashlightSnapshot
+	>([](const IOpenMobileDeviceBackend& Backend)
+	{
+		return Backend.GetFlashlightSnapshot();
+	});
+}
+
 FOpenMobileAppearanceSnapshot FOpenMobileDeviceSnapshotService::GetAppearanceSnapshot()
 {
 	return OpenMobileDeviceSnapshotServicePrivate::Capture<FOpenMobileAppearanceSnapshot>(

@@ -3,6 +3,7 @@
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceNetworkTypes.h"
@@ -25,6 +26,7 @@ public:
 	static FOpenMobileNetworkPathSnapshot GetNetworkPathSnapshot();
 	static FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot();
 	static FOpenMobileBrightnessSnapshot GetBrightnessSnapshot();
+	static FOpenMobileFlashlightSnapshot GetFlashlightSnapshot();
 	static FOpenMobileAppearanceSnapshot GetAppearanceSnapshot();
 	static FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot();
 };

@@ -17,7 +17,8 @@ enum class EOpenMobileDeviceMonitoringGroup : uint8
 	WindowDisplay,
 	Appearance,
 	Accessibility,
-	MediaVolume
+	MediaVolume,
+	Flashlight
 };
 
 UCLASS(BlueprintType)

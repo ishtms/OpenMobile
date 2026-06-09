@@ -2010,5 +2010,67 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn("LogicalProcessorCount", backend)
 
 
+	def test_flashlight_state_is_read_only_native_and_demand_driven(self) -> None:
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceFlashlightTypes.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"HardwareState",
+			"TorchState",
+			"bVariableIntensitySupported",
+			"PermissionState",
+			"ConflictState",
+			"ThermalState",
+			"Ownership",
+		):
+			self.assertIn(token, public_types)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"FLASH_INFO_AVAILABLE",
+			"FLASH_INFO_STRENGTH_MAXIMUM_LEVEL",
+			"registerTorchCallback",
+			"unregisterTorchCallback",
+			"onTorchModeChanged",
+			"onTorchModeUnavailable",
+			"onTorchStrengthLevelChanged",
+		):
+			self.assertIn(token, android_upl)
+		self.assertNotIn("openCamera(", android_upl)
+
+		ios_flashlight = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSFlashlight.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"hasTorch",
+			"isTorchAvailable",
+			"isTorchActive",
+			"torchLevel",
+			"authorizationStatusForMediaType",
+			"systemPressureState",
+			"addObserver",
+			"removeObserver",
+		):
+			self.assertIn(token, ios_flashlight)
+		self.assertNotIn("AVCaptureSession", ios_flashlight)
+		self.assertNotIn("requestAccessForMediaType", ios_flashlight)
+		self.assertIn("TARGET_OS_SIMULATOR", ios_flashlight)
+
+
 if __name__ == "__main__":
 	unittest.main()
