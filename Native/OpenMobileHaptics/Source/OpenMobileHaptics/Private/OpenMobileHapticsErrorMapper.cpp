@@ -86,8 +86,8 @@ namespace OpenMobileHapticsErrorMapperPrivate
 			return {
 				EOpenMobileHapticErrorCode::NotConfigured,
 				EOpenMobileErrorCode::NotConfigured,
-				TEXT("This haptic path was not included in the packaged build."),
-				TEXT("Enable the matching Haptics platform packaging option and rebuild.")
+				TEXT("This haptic path is not prepared or included in the packaged build."),
+				TEXT("Preload its named library or enable the matching platform packaging option.")
 			};
 		case EOpenMobileHapticsFailureReason::NativeEngineFailure:
 			return {

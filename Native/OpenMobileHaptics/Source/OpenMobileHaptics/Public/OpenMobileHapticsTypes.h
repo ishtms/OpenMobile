@@ -148,6 +148,16 @@ enum class EOpenMobileHapticPlaybackOutcome : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticNamedPatternStatus : uint8
+{
+	Unprepared,
+	Loading,
+	Loaded,
+	Missing,
+	Invalid
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticControlOutcome : uint8
 {
 	Rejected,
@@ -657,11 +667,60 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedPatternRequest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	FName PatternName;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FSoftObjectPath PatternAsset;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Intensity = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticPlaybackOptions Options;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadHandle
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FGuid Id;
+
+	bool IsValid() const { return Id.IsValid(); }
+
+	friend bool operator==(
+		const FOpenMobileHapticLibraryPreloadHandle& Left,
+		const FOpenMobileHapticLibraryPreloadHandle& Right
+	)
+	{
+		return Left.Id == Right.Id;
+	}
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileHapticLibraryPreloadOutcome : uint8
+{
+	Prepared,
+	Cancelled,
+	Failed
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticLibraryPreloadHandle Handle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticLibraryPreloadOutcome Outcome =
+		EOpenMobileHapticLibraryPreloadOutcome::Failed;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 PreparedPatternCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FString> Errors;
 };
 
 USTRUCT(BlueprintType)
@@ -875,4 +934,14 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticIntensityDiagnostics LastIntensity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName LastNamedPattern;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticNamedPatternStatus LastNamedPatternStatus =
+		EOpenMobileHapticNamedPatternStatus::Unprepared;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 PreparedNamedPatternCount = 0;
 };

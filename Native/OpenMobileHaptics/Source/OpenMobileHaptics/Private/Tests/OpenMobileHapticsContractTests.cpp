@@ -19,6 +19,7 @@
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
@@ -756,6 +757,238 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 		Errors.IsEmpty());
 	TestTrue(TEXT("Invalid asset identifies its source field"),
 		Errors[0].Contains(TEXT("DurationSeconds")));
+	return true;
+}
+#endif
+
+#if WITH_EDITORONLY_DATA
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticNamedLibraryResolverTest,
+	"OpenMobile.Haptics.Pattern.NamedLibraryResolver",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticNamedLibraryResolverTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticPatternAsset* ConfirmPattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	UOpenMobileHapticPatternAsset* RecoilPattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	UOpenMobileHapticPatternAsset* OverridePattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	for (UOpenMobileHapticPatternAsset* Pattern :
+		{ConfirmPattern, RecoilPattern, OverridePattern})
+	{
+		Pattern->SourcePattern.Events.AddDefaulted();
+		TArray<FString> BuildErrors;
+		TestTrue(TEXT("Named pattern asset builds for preparation"),
+			Pattern->RebuildDerivedData(BuildErrors));
+	}
+	UOpenMobileHapticLibrary* PrimaryLibrary =
+		NewObject<UOpenMobileHapticLibrary>();
+	PrimaryLibrary->Patterns = {
+		{TEXT("UI_Confirm"), ConfirmPattern},
+		{TEXT("Weapon_Recoil"), RecoilPattern}
+	};
+	UOpenMobileHapticLibrary* SecondaryLibrary =
+		NewObject<UOpenMobileHapticLibrary>();
+	SecondaryLibrary->Patterns = {
+		{TEXT("UI_Confirm"), OverridePattern},
+		{TEXT("Vehicle_Bump"), OverridePattern}
+	};
+
+	FOpenMobileHapticsLibraryResolver Resolver;
+	const uint64 Generation = Resolver.BeginPreparation();
+	TestEqual(TEXT("Preparation exposes a loading state"),
+		Resolver.GetStatus(TEXT("UI_Confirm")),
+		EOpenMobileHapticNamedPatternStatus::Loading);
+	TArray<FString> Errors;
+	TestTrue(TEXT("Ordered loaded libraries prepare"),
+		Resolver.CompletePreparation(
+			Generation,
+			{PrimaryLibrary, SecondaryLibrary},
+			Errors
+		));
+	TestTrue(TEXT("Valid preparation has no errors"), Errors.IsEmpty());
+	FSoftObjectPath ResolvedPath;
+	TestTrue(TEXT("Prepared lookup finds the first library entry"),
+		Resolver.Find(TEXT("UI_Confirm"), ResolvedPath));
+	TestEqual(TEXT("Earlier configured library wins deterministically"),
+		ResolvedPath, FSoftObjectPath(ConfirmPattern));
+	TestTrue(TEXT("Later library contributes unique names"),
+		Resolver.Find(TEXT("Vehicle_Bump"), ResolvedPath));
+	TestEqual(TEXT("Prepared names report loaded status"),
+		Resolver.GetStatus(TEXT("Vehicle_Bump")),
+		EOpenMobileHapticNamedPatternStatus::Loaded);
+	TestEqual(TEXT("Unknown prepared names report missing status"),
+		Resolver.GetStatus(TEXT("Missing")),
+		EOpenMobileHapticNamedPatternStatus::Missing);
+
+	Resolver.Release();
+	TestEqual(TEXT("Release returns lookups to unprepared"),
+		Resolver.GetStatus(TEXT("UI_Confirm")),
+		EOpenMobileHapticNamedPatternStatus::Unprepared);
+	TestFalse(TEXT("Released generation rejects a stale completion"),
+		Resolver.CompletePreparation(
+			Generation,
+			{PrimaryLibrary},
+			Errors
+		));
+
+	UOpenMobileHapticLibrary* InvalidLibrary =
+		NewObject<UOpenMobileHapticLibrary>();
+	InvalidLibrary->Patterns = {
+		{TEXT("Duplicate"), ConfirmPattern},
+		{TEXT("Duplicate"), RecoilPattern},
+		{NAME_None, RecoilPattern},
+		{TEXT("MissingAsset"), nullptr}
+	};
+	TMap<FName, FSoftObjectPath> InvalidLookup;
+	Errors.Reset();
+	TestFalse(TEXT("Invalid names and assets fail library validation"),
+		InvalidLibrary->BuildPatternLookup(InvalidLookup, Errors));
+	TestTrue(TEXT("Invalid library reports every rejected entry"),
+		Errors.Num() >= 3);
+	TestTrue(TEXT("Failed validation leaves no partial lookup"),
+		InvalidLookup.IsEmpty());
+
+	UOpenMobileHapticLibrary* UnloadedLibrary =
+		NewObject<UOpenMobileHapticLibrary>();
+	UnloadedLibrary->Patterns = {{
+		TEXT("Unloaded"),
+		TSoftObjectPtr<UOpenMobileHapticPatternAsset>(
+			FSoftObjectPath(TEXT("/Game/Haptics/Unloaded.Unloaded"))
+		)
+	}};
+	const uint64 UnloadedGeneration = Resolver.BeginPreparation();
+	TestFalse(TEXT("Unloaded pattern assets cannot become prepared"),
+		Resolver.CompletePreparation(
+			UnloadedGeneration,
+			{UnloadedLibrary},
+			Errors
+		));
+	TestEqual(TEXT("Unloaded pattern leaves resolver invalid"),
+		Resolver.GetStatus(TEXT("Unloaded")),
+		EOpenMobileHapticNamedPatternStatus::Invalid);
+
+	const FString LibraryRedirectSource =
+		TEXT("OpenMobileHapticNamedLibraryResolverTest");
+	const FString OldPatternPath =
+		TEXT("/Game/Haptics/OldNamed.OldNamed");
+	const FString NewPatternPath =
+		TEXT("/Game/Haptics/NewNamed.NewNamed");
+	TArray<FCoreRedirect> LibraryRedirects;
+	LibraryRedirects.Emplace(
+		ECoreRedirectFlags::Type_Object,
+		OldPatternPath,
+		NewPatternPath
+	);
+	TestTrue(TEXT("Named pattern redirect registers"),
+		FCoreRedirects::AddRedirectList(
+			LibraryRedirects,
+			LibraryRedirectSource
+		));
+	FSoftObjectPath LibraryPatternPath(OldPatternPath);
+	TestTrue(TEXT("Named library soft path follows asset rename redirect"),
+		LibraryPatternPath.FixupCoreRedirects());
+	TestEqual(TEXT("Named library redirect resolves the new asset path"),
+		LibraryPatternPath, FSoftObjectPath(NewPatternPath));
+	TestTrue(TEXT("Named pattern redirect unregisters"),
+		FCoreRedirects::RemoveRedirectList(
+			LibraryRedirects,
+			LibraryRedirectSource
+		));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticNamedLibrarySubsystemTest,
+	"OpenMobile.Haptics.Pattern.NamedLibrarySubsystem",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("NamedLibrary"));
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("Subsystem pattern asset builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+	UOpenMobileHapticLibrary* Library = NewObject<UOpenMobileHapticLibrary>();
+	Library->Patterns = {{TEXT("Weapon_Recoil"), Pattern}};
+	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
+	LibrarySettings.Name = TEXT("Gameplay");
+	LibrarySettings.Asset = FSoftObjectPath(Library);
+	Settings->NamedLibraries = {LibrarySettings};
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TestEqual(TEXT("Configured library starts unprepared"),
+		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
+		EOpenMobileHapticNamedPatternStatus::Unprepared);
+	const FOpenMobileHapticPlaybackResult Unprepared =
+		Subsystem->PlayNamedPattern(TEXT("Weapon_Recoil"));
+	TestEqual(TEXT("Unprepared configured request is rejected"),
+		Unprepared.Error.Code, EOpenMobileHapticErrorCode::NotConfigured);
+	TestEqual(TEXT("Unprepared request never reaches the backend"),
+		Backend.NamedSubmissionCount, 0);
+
+	TArray<FString> Errors;
+	TestTrue(TEXT("Loaded libraries can complete preparation"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Prepared pattern reports loaded"),
+		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
+		EOpenMobileHapticNamedPatternStatus::Loaded);
+	const FOpenMobileHapticPlaybackResult Prepared =
+		Subsystem->PlayNamedPattern(TEXT("Weapon_Recoil"));
+	TestTrue(TEXT("Prepared named request reaches the backend"),
+		Prepared.IsAccepted());
+	TestEqual(TEXT("Prepared request carries the soft asset path"),
+		Backend.LastNamedRequest.PatternAsset,
+		FSoftObjectPath(Pattern));
+	TestEqual(TEXT("Diagnostics expose the last loaded lookup"),
+		Subsystem->GetDiagnostics().LastNamedPatternStatus,
+		EOpenMobileHapticNamedPatternStatus::Loaded);
+
+	Subsystem->ReleaseNamedLibraries();
+	TestEqual(TEXT("Release unloads the prepared registry"),
+		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
+		EOpenMobileHapticNamedPatternStatus::Unprepared);
+	const FOpenMobileHapticLibraryPreloadHandle LoadHandle =
+		Subsystem->PreloadNamedLibraries();
+	TestTrue(TEXT("Async preload returns a stable handle"),
+		LoadHandle.IsValid());
+	TestEqual(TEXT("Async preload enters loading state"),
+		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
+		EOpenMobileHapticNamedPatternStatus::Loading);
+	TestEqual(TEXT("Active async preload can be cancelled"),
+		Subsystem->CancelNamedLibraryPreload(LoadHandle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Cancelled preload cannot publish loaded state"),
+		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
+		EOpenMobileHapticNamedPatternStatus::Unprepared);
+
+	Settings->NamedLibraries = SavedLibraries;
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }
 #endif

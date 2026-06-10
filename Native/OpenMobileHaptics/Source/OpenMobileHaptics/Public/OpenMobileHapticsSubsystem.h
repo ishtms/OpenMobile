@@ -11,6 +11,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Event
 );
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticLibraryPreloadEventDynamic,
+	const FOpenMobileHapticLibraryPreloadResult&,
+	Result
+);
+
+class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsSubsystemState;
@@ -116,6 +123,22 @@ public:
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Preload Named Haptic Libraries", ToolTip = "Asynchronously loads configured Haptics libraries and their portable patterns."))
+	FOpenMobileHapticLibraryPreloadHandle PreloadNamedLibraries();
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Cancel Named Haptic Library Preload", ToolTip = "Cancels the matching active library preload and ignores its late callbacks."))
+	FOpenMobileHapticControlResult CancelNamedLibraryPreload(
+		FOpenMobileHapticLibraryPreloadHandle Handle
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Release Named Haptic Libraries", ToolTip = "Releases prepared named libraries and their loaded portable patterns."))
+	void ReleaseNamedLibraries();
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Named Haptic Pattern Status", ToolTip = "Reports whether a named portable pattern is unprepared, loading, loaded, missing, or invalid."))
+	EOpenMobileHapticNamedPatternStatus GetNamedPatternStatus(
+		FName PatternName
+	) const;
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Playback", ToolTip = "Stops plugin-owned work for one playback handle."))
 	FOpenMobileHapticControlResult StopPlayback(
 		FOpenMobileHapticPlaybackHandle Handle
@@ -151,6 +174,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "On Haptic Playback Event", ToolTip = "Broadcasts ordered playback state changes on the game thread."))
 	FOpenMobileHapticPlaybackEventDynamic OnPlaybackEvent;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "On Named Haptic Libraries Prepared", ToolTip = "Broadcasts the terminal result of an explicit named-library preload."))
+	FOpenMobileHapticLibraryPreloadEventDynamic OnNamedLibrariesPrepared;
+
 	virtual FOpenMobileHapticCapabilities GetCapabilitiesNative() const override;
 	virtual FOpenMobileHapticPlaybackResult SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request
@@ -184,6 +210,7 @@ public:
 private:
 	friend class UOpenMobileHapticPlaybackAsyncAction;
 	friend class FOpenMobileHapticsAsyncContractTest;
+	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
@@ -205,6 +232,24 @@ private:
 		const FOpenMobileHapticSemanticRequest& Request,
 		FName PatternOverride
 	);
+	bool PrepareLoadedNamedLibraries(
+		const TArray<UOpenMobileHapticLibrary*>& Libraries,
+		TArray<FString>& Errors
+	);
+	void HandleNamedLibrariesLoaded(
+		uint64 Generation,
+		FOpenMobileHapticLibraryPreloadHandle Handle
+	);
+	void HandleNamedPatternsLoaded(
+		uint64 Generation,
+		FOpenMobileHapticLibraryPreloadHandle Handle
+	);
+	void FinishNamedLibraryPreload(
+		FOpenMobileHapticLibraryPreloadHandle Handle,
+		EOpenMobileHapticLibraryPreloadOutcome Outcome,
+		TArray<FString> Errors
+	);
+	void ReleaseNamedLibrariesInternal(bool bNotifyCancellation);
 
 	FOpenMobileHapticUserPolicy UserPolicy;
 	TAtomic<bool> bUserPolicyEnabled = true;
