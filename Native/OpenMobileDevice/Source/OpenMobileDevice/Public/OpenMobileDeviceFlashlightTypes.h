@@ -55,6 +55,77 @@ enum class EOpenMobileFlashlightOwnership : uint8
 	External
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileFlashlightOperation : uint8
+{
+	Off,
+	On,
+	SetIntensity
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileFlashlightOperationState : uint8
+{
+	Unknown,
+	Applied,
+	Rejected,
+	Unsupported,
+	PermissionRequired,
+	PermissionDenied,
+	Restricted,
+	Busy
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEDEVICE_API FOpenMobileFlashlightRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Device")
+	EOpenMobileFlashlightOperation Operation =
+		EOpenMobileFlashlightOperation::Off;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Device")
+	float Intensity = 1.0f;
+
+	bool operator==(const FOpenMobileFlashlightRequest& Other) const
+	{
+		return Operation == Other.Operation && Intensity == Other.Intensity;
+	}
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEDEVICE_API FOpenMobileFlashlightOperationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	EOpenMobileFlashlightOperationState State =
+		EOpenMobileFlashlightOperationState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileFlashlightRequest Request;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	EOpenMobileFlashlightTorchState EffectiveTorchState =
+		EOpenMobileFlashlightTorchState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalFloat EffectiveIntensity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	EOpenMobileFlashlightPermissionState PermissionState =
+		EOpenMobileFlashlightPermissionState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileError Error;
+
+	bool IsApplied() const
+	{
+		return State == EOpenMobileFlashlightOperationState::Applied;
+	}
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEDEVICE_API FOpenMobileFlashlightSnapshot
 {
@@ -76,6 +147,12 @@ struct OPENMOBILEDEVICE_API FOpenMobileFlashlightSnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	FOpenMobileDeviceOptionalBool bVariableIntensitySupported;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalFloat MinimumIntensity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalFloat MaximumIntensity;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	EOpenMobileFlashlightPermissionState PermissionState =
@@ -101,6 +178,8 @@ struct OPENMOBILEDEVICE_API FOpenMobileFlashlightSnapshot
 			&& CurrentIntensity == Other.CurrentIntensity
 			&& bVariableIntensitySupported
 				== Other.bVariableIntensitySupported
+			&& MinimumIntensity == Other.MinimumIntensity
+			&& MaximumIntensity == Other.MaximumIntensity
 			&& PermissionState == Other.PermissionState
 			&& ConflictState == Other.ConflictState
 			&& ThermalState == Other.ThermalState

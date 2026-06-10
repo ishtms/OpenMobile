@@ -227,6 +227,36 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::FlashlightControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		const FOpenMobileFlashlightSnapshot Snapshot =
+			GetOpenMobileDeviceAndroidFlashlightSnapshot();
+		if (FAndroidMisc::GetAndroidBuildVersion() < 23)
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 6.0 (API 23)")
+				);
+		}
+		else if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Available)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android controls the selected torch through CameraManager without camera permission. Variable strength requires API 33 and reported multi-level hardware.");
+		}
+		else if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Unavailable)
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MissingHardware;
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -390,6 +420,19 @@ FOpenMobileFlashlightSnapshot
 FOpenMobileDeviceAndroidBackend::GetFlashlightSnapshot() const
 {
 	return GetOpenMobileDeviceAndroidFlashlightSnapshot();
+}
+
+FOpenMobileFlashlightOperationResult
+FOpenMobileDeviceAndroidBackend::ApplyFlashlight(
+	const FOpenMobileFlashlightRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceAndroidFlashlight(Request);
+}
+
+void FOpenMobileDeviceAndroidBackend::ClearFlashlight()
+{
+	ClearOpenMobileDeviceAndroidFlashlight();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(
@@ -666,6 +709,7 @@ bool FOpenMobileDeviceAndroidBackend::RequiresFallbackPolling(
 
 void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceAndroidFlashlight();
 	ClearOpenMobileDeviceAndroidSystemUiMode();
 	ClearOpenMobileDeviceAndroidKeepScreenAwake();
 	ClearOpenMobileDeviceAndroidBrightness();

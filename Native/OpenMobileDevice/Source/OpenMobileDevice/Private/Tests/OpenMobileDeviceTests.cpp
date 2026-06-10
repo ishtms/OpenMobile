@@ -33,6 +33,9 @@
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFormFactor.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
+#include "OpenMobileDeviceFlashlightAsyncAction.h"
+#include "OpenMobileDeviceFlashlightControlPolicy.h"
+#include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceFoldableInfo.h"
 #include "OpenMobileDeviceHdrInfo.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -200,6 +203,21 @@ namespace OpenMobileDeviceTests
 			return Flashlight;
 		}
 
+		virtual FOpenMobileFlashlightOperationResult ApplyFlashlight(
+			const FOpenMobileFlashlightRequest& Request
+		) override
+		{
+			FlashlightRequests.Add(Request);
+			FOpenMobileFlashlightOperationResult Result = FlashlightResult;
+			Result.Request = Request;
+			return Result;
+		}
+
+		virtual void ClearFlashlight() override
+		{
+			++FlashlightClearCount;
+		}
+
 		virtual FOpenMobileBrightnessResult ApplyBrightness(
 			const FOpenMobileBrightnessRequest& Request
 		) override
@@ -348,6 +366,9 @@ namespace OpenMobileDeviceTests
 		FOpenMobileWindowDisplaySnapshot WindowDisplay;
 		FOpenMobileBrightnessSnapshot Brightness;
 		FOpenMobileFlashlightSnapshot Flashlight;
+		FOpenMobileFlashlightOperationResult FlashlightResult;
+		TArray<FOpenMobileFlashlightRequest> FlashlightRequests;
+		int32 FlashlightClearCount = 0;
 		EOpenMobileBrightnessApplyState BrightnessApplyState =
 			EOpenMobileBrightnessApplyState::Applied;
 		float BrightnessEffectiveValue = 0.8f;
@@ -5517,6 +5538,10 @@ bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
 	Backend.Flashlight.TorchState = EOpenMobileFlashlightTorchState::Off;
 	Backend.Flashlight.bVariableIntensitySupported =
 		FOpenMobileDeviceOptionalBool::MakeAvailable(true);
+	Backend.Flashlight.MinimumIntensity =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.1f);
+	Backend.Flashlight.MaximumIntensity =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(1.0f);
 	Backend.Flashlight.PermissionState =
 		EOpenMobileFlashlightPermissionState::NotRequired;
 	Backend.Flashlight.ConflictState =
@@ -5547,6 +5572,16 @@ bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
 		Snapshot.Metadata.Generation > 0
 	);
 	TestEqual(TEXT("Snapshot queries once"), Backend.FlashlightQueries, 1);
+	TestEqual(
+		TEXT("Minimum supported intensity is preserved"),
+		Snapshot.MinimumIntensity.Value,
+		0.1f
+	);
+	TestEqual(
+		TEXT("Maximum supported intensity is preserved"),
+		Snapshot.MaximumIntensity.Value,
+		1.0f
+	);
 	TestEqual(
 		TEXT("External owner remains unknown"),
 		Snapshot.Ownership,
@@ -5664,6 +5699,167 @@ bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
 	);
 	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(ChangedHandle);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceFlashlightControlTest,
+	"OpenMobile.Device.Utility.FlashlightControl",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceFlashlightControlTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+
+	FOpenMobileFlashlightRequest Request;
+	Request.Operation = EOpenMobileFlashlightOperation::SetIntensity;
+	Request.Intensity = std::numeric_limits<float>::quiet_NaN();
+	FOpenMobileError ValidationError;
+	TestFalse(
+		TEXT("Non-finite intensity is rejected"),
+		FOpenMobileDeviceFlashlightControlPolicy::Validate(
+			Request,
+			ValidationError
+		)
+	);
+	TestEqual(
+		TEXT("Invalid intensity has typed error"),
+		ValidationError.Code,
+		EOpenMobileErrorCode::InvalidArgument
+	);
+	Request.Intensity = 2.0f;
+	TestTrue(
+		TEXT("Finite intensity reaches native range clamping"),
+		FOpenMobileDeviceFlashlightControlPolicy::Validate(
+			Request,
+			ValidationError
+		)
+	);
+	Request.Operation = static_cast<EOpenMobileFlashlightOperation>(255);
+	TestFalse(
+		TEXT("Unknown operation is rejected"),
+		FOpenMobileDeviceFlashlightControlPolicy::Validate(
+			Request,
+			ValidationError
+		)
+	);
+
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceFlashlightControlService::ResetForTests();
+	FMockBackend Backend(TEXT("FlashlightControl"));
+	Backend.FlashlightResult.State =
+		EOpenMobileFlashlightOperationState::Applied;
+	Backend.FlashlightResult.EffectiveTorchState =
+		EOpenMobileFlashlightTorchState::On;
+	Backend.FlashlightResult.EffectiveIntensity =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(0.5f);
+	TestTrue(
+		TEXT("Mock backend registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	FOpenMobileDeviceFlashlightControlService::SetApplicationActiveForTests(
+		true
+	);
+
+	FOpenMobileError BeginError;
+	const FGuid First =
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError);
+	TestTrue(TEXT("Foreground operation begins"), First.IsValid());
+	const FGuid Duplicate =
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError);
+	TestFalse(TEXT("Concurrent operation is rejected"), Duplicate.IsValid());
+	TestEqual(
+		TEXT("Concurrent operation reports Busy"),
+		BeginError.Code,
+		EOpenMobileErrorCode::Busy
+	);
+	FOpenMobileDeviceFlashlightControlService::CompleteOperation(
+		First,
+		Backend.FlashlightResult
+	);
+	TestTrue(
+		TEXT("Successful on operation records safety ownership"),
+		FOpenMobileDeviceFlashlightControlService::IsTorchOnForTests()
+	);
+
+	FOpenMobileDeviceFlashlightControlService::SetApplicationActiveForTests(
+		false
+	);
+	TestEqual(
+		TEXT("Backgrounding turns owned torch off"),
+		Backend.FlashlightClearCount,
+		1
+	);
+	TestFalse(
+		TEXT("Backgrounding clears safety ownership"),
+		FOpenMobileDeviceFlashlightControlService::IsTorchOnForTests()
+	);
+	TestFalse(
+		TEXT("Background operation is rejected"),
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError)
+			.IsValid()
+	);
+	TestEqual(
+		TEXT("Background rejection is unavailable"),
+		BeginError.Code,
+		EOpenMobileErrorCode::Unavailable
+	);
+	FOpenMobileDeviceFlashlightControlService::SetApplicationActiveForTests(
+		true
+	);
+	TestEqual(
+		TEXT("Foreground does not restore torch"),
+		Backend.FlashlightClearCount,
+		1
+	);
+
+	const FGuid Cancelled =
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError);
+	FOpenMobileDeviceFlashlightControlService::CancelOperation(Cancelled);
+	TestFalse(
+		TEXT("Cancelled operation token becomes stale"),
+		FOpenMobileDeviceFlashlightControlService::IsOperationCurrent(Cancelled)
+	);
+	const FGuid Replacement =
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError);
+	TestTrue(TEXT("Cancellation releases Busy state"), Replacement.IsValid());
+	FOpenMobileFlashlightOperationResult OffResult;
+	OffResult.State = EOpenMobileFlashlightOperationState::Applied;
+	OffResult.Request.Operation = EOpenMobileFlashlightOperation::Off;
+	OffResult.EffectiveTorchState = EOpenMobileFlashlightTorchState::Off;
+	FOpenMobileDeviceFlashlightControlService::CompleteOperation(
+		Replacement,
+		OffResult
+	);
+	TestFalse(
+		TEXT("Off result stays off"),
+		FOpenMobileDeviceFlashlightControlService::IsTorchOnForTests()
+	);
+	const FGuid TeardownOperation =
+		FOpenMobileDeviceFlashlightControlService::BeginOperation(BeginError);
+	TestTrue(TEXT("Teardown fixture operation begins"), TeardownOperation.IsValid());
+	FOpenMobileDeviceFlashlightControlService::CompleteOperation(
+		TeardownOperation,
+		Backend.FlashlightResult
+	);
+	FOpenMobileDeviceFlashlightControlService::HandleGameInstanceTeardown();
+	TestEqual(
+		TEXT("Game Instance teardown turns owned torch off"),
+		Backend.FlashlightClearCount,
+		2
+	);
+
+	TestNotNull(
+		TEXT("Async flashlight node is reflected"),
+		UOpenMobileDeviceFlashlightAsyncAction::StaticClass()->FindFunctionByName(
+			TEXT("SetFlashlight")
+		)
+	);
+	FOpenMobileDeviceFlashlightControlService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

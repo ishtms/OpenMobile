@@ -70,6 +70,79 @@ namespace OpenMobileDeviceAndroidFlashlightPrivate
 		return true;
 	}
 
+	bool CallOperationMethod(
+		const FOpenMobileFlashlightRequest& Request,
+		TArray<FString>& OutValues
+	)
+	{
+		OutValues.Reset();
+		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (!Env || !Activity)
+		{
+			return false;
+		}
+		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+		const jmethodID Method = ActivityClass
+			? Env->GetMethodID(
+				*ActivityClass,
+				"AndroidThunkJava_OpenMobileDeviceApplyFlashlight",
+				"(IF)[Ljava/lang/String;"
+			)
+			: nullptr;
+		if (!Method || ClearJavaException(Env))
+		{
+			return false;
+		}
+		FScopedJavaObject<jobjectArray> Values(static_cast<jobjectArray>(
+			Env->CallObjectMethod(
+				Activity,
+				Method,
+				static_cast<jint>(Request.Operation),
+				static_cast<jfloat>(Request.Intensity)
+			)
+		));
+		if (!Values || ClearJavaException(Env))
+		{
+			return false;
+		}
+		const jsize Count = Env->GetArrayLength(*Values);
+		if (ClearJavaException(Env))
+		{
+			return false;
+		}
+		OutValues.Reserve(Count);
+		for (jsize Index = 0; Index < Count; ++Index)
+		{
+			jstring Value = static_cast<jstring>(
+				Env->GetObjectArrayElement(*Values, Index)
+			);
+			if (ClearJavaException(Env))
+			{
+				OutValues.Reset();
+				return false;
+			}
+			OutValues.Add(FJavaHelper::FStringFromLocalRef(Env, Value));
+		}
+		return true;
+	}
+
+	void ApplyOptionalFloat(
+		const FString& Text,
+		FOpenMobileDeviceOptionalFloat& OutValue
+	)
+	{
+		if (Text.IsEmpty())
+		{
+			return;
+		}
+		const float Value = FCString::Atof(*Text);
+		if (FMath::IsFinite(Value) && Value >= 0.0f && Value <= 1.0f)
+		{
+			OutValue = FOpenMobileDeviceOptionalFloat::MakeAvailable(Value);
+		}
+	}
+
 	void ClearState()
 	{
 		FScopeLock Lock(&StateMutex);
@@ -125,7 +198,7 @@ FOpenMobileFlashlightSnapshot GetOpenMobileDeviceAndroidFlashlightSnapshot()
 	using namespace OpenMobileDeviceAndroidFlashlightPrivate;
 	FOpenMobileFlashlightSnapshot Snapshot;
 	TArray<FString> Values;
-	if (!CallStringArrayMethod(Values) || Values.Num() != 8)
+	if (!CallStringArrayMethod(Values) || Values.Num() != 10)
 	{
 		return Snapshot;
 	}
@@ -140,16 +213,7 @@ FOpenMobileFlashlightSnapshot GetOpenMobileDeviceAndroidFlashlightSnapshot()
 		: Values[1] == TEXT("off")
 			? EOpenMobileFlashlightTorchState::Off
 			: EOpenMobileFlashlightTorchState::Unknown;
-	if (!Values[2].IsEmpty())
-	{
-		const float Intensity = FCString::Atof(*Values[2]);
-		if (FMath::IsFinite(Intensity) && Intensity >= 0.0f
-			&& Intensity <= 1.0f)
-		{
-			Snapshot.CurrentIntensity =
-				FOpenMobileDeviceOptionalFloat::MakeAvailable(Intensity);
-		}
-	}
+	ApplyOptionalFloat(Values[2], Snapshot.CurrentIntensity);
 	if (Values[3] == TEXT("true") || Values[3] == TEXT("false"))
 	{
 		Snapshot.bVariableIntensitySupported =
@@ -157,25 +221,110 @@ FOpenMobileFlashlightSnapshot GetOpenMobileDeviceAndroidFlashlightSnapshot()
 				Values[3] == TEXT("true")
 			);
 	}
-	Snapshot.PermissionState = Values[4] == TEXT("not_required")
+	ApplyOptionalFloat(Values[4], Snapshot.MinimumIntensity);
+	ApplyOptionalFloat(Values[5], Snapshot.MaximumIntensity);
+	Snapshot.PermissionState = Values[6] == TEXT("not_required")
 		? EOpenMobileFlashlightPermissionState::NotRequired
 		: EOpenMobileFlashlightPermissionState::Unknown;
-	Snapshot.ConflictState = Values[5] == TEXT("none")
+	Snapshot.ConflictState = Values[7] == TEXT("none")
 		? EOpenMobileFlashlightConflictState::None
-		: Values[5] == TEXT("busy")
+		: Values[7] == TEXT("busy")
 			? EOpenMobileFlashlightConflictState::CameraResourceBusy
 			: EOpenMobileFlashlightConflictState::Unknown;
-	Snapshot.ThermalState = Values[6] == TEXT("not_restricted")
+	Snapshot.ThermalState = Values[8] == TEXT("not_restricted")
 		? EOpenMobileFlashlightThermalState::NotRestricted
-		: Values[6] == TEXT("restricted")
+		: Values[8] == TEXT("restricted")
 			? EOpenMobileFlashlightThermalState::Restricted
 			: EOpenMobileFlashlightThermalState::Unknown;
-	Snapshot.Ownership = Values[7] == TEXT("application")
+	Snapshot.Ownership = Values[9] == TEXT("application")
 		? EOpenMobileFlashlightOwnership::ThisApplication
-		: Values[7] == TEXT("external")
+		: Values[9] == TEXT("external")
 			? EOpenMobileFlashlightOwnership::External
 			: EOpenMobileFlashlightOwnership::Unknown;
 	return Snapshot;
+}
+
+FOpenMobileFlashlightOperationResult ApplyOpenMobileDeviceAndroidFlashlight(
+	const FOpenMobileFlashlightRequest& Request
+)
+{
+	using namespace OpenMobileDeviceAndroidFlashlightPrivate;
+	FOpenMobileFlashlightOperationResult Result;
+	Result.Request = Request;
+	Result.PermissionState = EOpenMobileFlashlightPermissionState::NotRequired;
+	TArray<FString> Values;
+	if (!CallOperationMethod(Request, Values) || Values.Num() != 5)
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Rejected;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android could not run the flashlight operation."),
+			FString(),
+			TEXT("Android")
+		);
+		return Result;
+	}
+
+	if (Values[0] == TEXT("applied"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Applied;
+	}
+	else if (Values[0] == TEXT("unsupported"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Unsupported;
+	}
+	else if (Values[0] == TEXT("busy"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Busy;
+	}
+	else if (Values[0] == TEXT("permission_required"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::PermissionRequired;
+		Result.PermissionState =
+			EOpenMobileFlashlightPermissionState::NotDetermined;
+	}
+	else if (Values[0] == TEXT("permission_denied"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::PermissionDenied;
+		Result.PermissionState = EOpenMobileFlashlightPermissionState::Denied;
+	}
+	else if (Values[0] == TEXT("restricted"))
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Restricted;
+	}
+	else
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Rejected;
+	}
+	Result.EffectiveTorchState = Values[1] == TEXT("on")
+		? EOpenMobileFlashlightTorchState::On
+		: Values[1] == TEXT("off")
+			? EOpenMobileFlashlightTorchState::Off
+			: EOpenMobileFlashlightTorchState::Unknown;
+	ApplyOptionalFloat(Values[2], Result.EffectiveIntensity);
+	if (!Result.IsApplied())
+	{
+		const EOpenMobileErrorCode ErrorCode =
+			Result.State == EOpenMobileFlashlightOperationState::Unsupported
+				? EOpenMobileErrorCode::NotSupported
+				: Result.State == EOpenMobileFlashlightOperationState::Busy
+					? EOpenMobileErrorCode::Busy
+					: EOpenMobileErrorCode::Unavailable;
+		Result.Error = FOpenMobileError::Make(
+			ErrorCode,
+			TEXT("Android rejected the flashlight operation."),
+			Values[4],
+			TEXT("Android")
+		);
+	}
+	return Result;
+}
+
+void ClearOpenMobileDeviceAndroidFlashlight()
+{
+	FOpenMobileFlashlightRequest Request;
+	Request.Operation = EOpenMobileFlashlightOperation::Off;
+	ApplyOpenMobileDeviceAndroidFlashlight(Request);
 }
 
 bool StartOpenMobileDeviceAndroidFlashlightMonitoring(

@@ -181,6 +181,13 @@ FOpenMobileFlashlightSnapshot GetOpenMobileDeviceIOSFlashlightSnapshot()
 		FOpenMobileDeviceOptionalBool::MakeAvailable(
 			[Device isTorchModeSupported:AVCaptureTorchModeOn]
 		);
+	if (Snapshot.bVariableIntensitySupported.Value)
+	{
+		Snapshot.MinimumIntensity =
+			FOpenMobileDeviceOptionalFloat::MakeAvailable(0.0f);
+		Snapshot.MaximumIntensity =
+			FOpenMobileDeviceOptionalFloat::MakeAvailable(1.0f);
+	}
 	Snapshot.Ownership = EOpenMobileFlashlightOwnership::Unknown;
 	const bool bThermalPressure = HasThermalPressure(Device);
 	Snapshot.ThermalState = bThermalPressure
@@ -193,6 +200,172 @@ FOpenMobileFlashlightSnapshot GetOpenMobileDeviceIOSFlashlightSnapshot()
 		: EOpenMobileFlashlightConflictState::Unknown;
 	return Snapshot;
 #endif
+}
+
+FOpenMobileFlashlightOperationResult ApplyOpenMobileDeviceIOSFlashlight(
+	const FOpenMobileFlashlightRequest& Request
+)
+{
+	using namespace OpenMobileDeviceIOSFlashlightPrivate;
+	FOpenMobileFlashlightOperationResult Result;
+	Result.Request = Request;
+#if TARGET_OS_SIMULATOR
+	Result.State = EOpenMobileFlashlightOperationState::Unsupported;
+	Result.Error = FOpenMobileError::Make(
+		EOpenMobileErrorCode::NotSupported,
+		TEXT("iOS Simulator does not support flashlight control."),
+		FString(),
+		TEXT("IOS")
+	);
+	return Result;
+#else
+	Result.PermissionState = GetPermissionState();
+	AVCaptureDevice* Device = GetTorchDevice();
+	if (!Device || !Device.hasTorch)
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("This iOS device has no supported torch."),
+			FString(),
+			TEXT("IOS")
+		);
+		return Result;
+	}
+	if (Request.Operation == EOpenMobileFlashlightOperation::Off
+		&& !Device.isTorchActive)
+	{
+		Result.State = EOpenMobileFlashlightOperationState::Applied;
+		Result.EffectiveTorchState = EOpenMobileFlashlightTorchState::Off;
+		Result.EffectiveIntensity =
+			FOpenMobileDeviceOptionalFloat::MakeAvailable(0.0f);
+		return Result;
+	}
+	if (Request.Operation != EOpenMobileFlashlightOperation::Off
+		&& !Device.isTorchAvailable)
+	{
+		const bool bThermal = HasThermalPressure(Device);
+		Result.State = bThermal
+			? EOpenMobileFlashlightOperationState::Restricted
+			: EOpenMobileFlashlightOperationState::Busy;
+		Result.Error = FOpenMobileError::Make(
+			bThermal ? EOpenMobileErrorCode::Unavailable
+				: EOpenMobileErrorCode::Busy,
+			bThermal
+				? TEXT("The iOS torch is thermally restricted.")
+				: TEXT("The iOS torch or camera resource is busy."),
+			bThermal ? TEXT("thermal") : TEXT("torch_unavailable"),
+			TEXT("IOS")
+		);
+		return Result;
+	}
+
+	NSError* Error = nil;
+	if (![Device lockForConfiguration:&Error])
+	{
+		const NSInteger NativeCode = Error ? Error.code : 0;
+		if (NativeCode == AVErrorDeviceInUseByAnotherApplication)
+		{
+			Result.State = EOpenMobileFlashlightOperationState::Busy;
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::Busy,
+				TEXT("The iOS camera resource is busy."),
+				FString::Printf(TEXT("%lld"), static_cast<int64>(NativeCode)),
+				TEXT("IOS")
+			);
+		}
+		else if (NativeCode
+			== AVErrorApplicationIsNotAuthorizedToUseDevice)
+		{
+			Result.State =
+				EOpenMobileFlashlightOperationState::PermissionDenied;
+			Result.PermissionState =
+				EOpenMobileFlashlightPermissionState::Denied;
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("iOS denied camera-device configuration access."),
+				FString::Printf(TEXT("%lld"), static_cast<int64>(NativeCode)),
+				TEXT("IOS")
+			);
+		}
+		else
+		{
+			Result.State = EOpenMobileFlashlightOperationState::Rejected;
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::NativeFailure,
+				TEXT("iOS could not lock the torch for configuration."),
+				FString::Printf(TEXT("%lld"), static_cast<int64>(NativeCode)),
+				TEXT("IOS")
+			);
+		}
+		return Result;
+	}
+
+	bool bApplied = true;
+	if (Request.Operation == EOpenMobileFlashlightOperation::Off)
+	{
+		Device.torchMode = AVCaptureTorchModeOff;
+	}
+	else if (Request.Operation == EOpenMobileFlashlightOperation::On)
+	{
+		if ([Device isTorchModeSupported:AVCaptureTorchModeOn])
+		{
+			Device.torchMode = AVCaptureTorchModeOn;
+		}
+		else
+		{
+			bApplied = false;
+			Result.State = EOpenMobileFlashlightOperationState::Unsupported;
+		}
+	}
+	else
+	{
+		const float Intensity = FMath::Clamp(Request.Intensity, 0.0f, 1.0f);
+		bApplied = [Device setTorchModeOnWithLevel:Intensity error:&Error];
+		if (!bApplied)
+		{
+			Result.State = Error.code == AVErrorTorchLevelUnavailable
+				? EOpenMobileFlashlightOperationState::Restricted
+				: EOpenMobileFlashlightOperationState::Rejected;
+		}
+	}
+	[Device unlockForConfiguration];
+
+	if (!bApplied)
+	{
+		const NSInteger NativeCode = Error ? Error.code : 0;
+		Result.Error = FOpenMobileError::Make(
+			Result.State == EOpenMobileFlashlightOperationState::Restricted
+				? EOpenMobileErrorCode::Unavailable
+				: Result.State
+					== EOpenMobileFlashlightOperationState::Unsupported
+						? EOpenMobileErrorCode::NotSupported
+						: EOpenMobileErrorCode::NativeFailure,
+			Result.State == EOpenMobileFlashlightOperationState::Restricted
+				? TEXT("The requested iOS torch intensity is thermally unavailable.")
+				: TEXT("iOS rejected the flashlight operation."),
+			FString::Printf(TEXT("%lld"), static_cast<int64>(NativeCode)),
+			TEXT("IOS")
+		);
+		return Result;
+	}
+
+	Result.State = EOpenMobileFlashlightOperationState::Applied;
+	Result.EffectiveTorchState = Device.isTorchActive
+		? EOpenMobileFlashlightTorchState::On
+		: EOpenMobileFlashlightTorchState::Off;
+	Result.EffectiveIntensity = FOpenMobileDeviceOptionalFloat::MakeAvailable(
+		FMath::Clamp(static_cast<float>(Device.torchLevel), 0.0f, 1.0f)
+	);
+	return Result;
+#endif
+}
+
+void ClearOpenMobileDeviceIOSFlashlight()
+{
+	FOpenMobileFlashlightRequest Request;
+	Request.Operation = EOpenMobileFlashlightOperation::Off;
+	ApplyOpenMobileDeviceIOSFlashlight(Request);
 }
 
 bool StartOpenMobileDeviceIOSFlashlightMonitoring(

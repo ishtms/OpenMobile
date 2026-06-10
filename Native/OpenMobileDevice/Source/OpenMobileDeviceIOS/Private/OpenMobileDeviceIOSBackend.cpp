@@ -229,6 +229,33 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #endif
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::FlashlightControl)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+#if TARGET_OS_SIMULATOR
+		Capability.State = EOpenMobileCapabilityState::NotSupported;
+		Capability.Limit = EOpenMobileDeviceCapabilityLimit::Simulator;
+		Capability.Detail = TEXT("iOS Simulator does not support flashlight control.");
+#else
+		const FOpenMobileFlashlightSnapshot Snapshot =
+			GetOpenMobileDeviceIOSFlashlightSnapshot();
+		if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Available)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("iOS configures the default back torch with an AVFoundation device lock. Camera authorization is reported separately, and the operation never prompts.");
+		}
+		else if (Snapshot.HardwareState
+			== EOpenMobileFlashlightHardwareState::Unavailable)
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit = EOpenMobileDeviceCapabilityLimit::MissingHardware;
+		}
+#endif
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -390,6 +417,19 @@ FOpenMobileFlashlightSnapshot
 FOpenMobileDeviceIOSBackend::GetFlashlightSnapshot() const
 {
 	return GetOpenMobileDeviceIOSFlashlightSnapshot();
+}
+
+FOpenMobileFlashlightOperationResult
+FOpenMobileDeviceIOSBackend::ApplyFlashlight(
+	const FOpenMobileFlashlightRequest& Request
+)
+{
+	return ApplyOpenMobileDeviceIOSFlashlight(Request);
+}
+
+void FOpenMobileDeviceIOSBackend::ClearFlashlight()
+{
+	ClearOpenMobileDeviceIOSFlashlight();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(
@@ -597,6 +637,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ClearOpenMobileDeviceIOSFlashlight();
 	ClearOpenMobileDeviceIOSSystemUiMode();
 	ClearOpenMobileDeviceIOSKeepScreenAwake();
 	ClearOpenMobileDeviceIOSBrightness();

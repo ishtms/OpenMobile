@@ -11,6 +11,7 @@
 #include "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
+#include "OpenMobileDeviceFlashlightAsyncAction.h"
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"

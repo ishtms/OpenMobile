@@ -27,6 +27,10 @@ public:
 	GetWindowDisplaySnapshot() const override;
 	virtual FOpenMobileBrightnessSnapshot GetBrightnessSnapshot() const override;
 	virtual FOpenMobileFlashlightSnapshot GetFlashlightSnapshot() const override;
+	virtual FOpenMobileFlashlightOperationResult ApplyFlashlight(
+		const FOpenMobileFlashlightRequest& Request
+	) override;
+	virtual void ClearFlashlight() override;
 	virtual FOpenMobileBrightnessResult ApplyBrightness(
 		const FOpenMobileBrightnessRequest& Request
 	) override;

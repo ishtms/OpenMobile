@@ -1368,8 +1368,8 @@ import androidx.window.layout.WindowLayoutInfo;
 		if (manager == null)
 		{
 			return new String[] {
-				"unknown", "unknown", "", "", "not_required",
-				"unknown", "unknown", "unknown"
+				"unknown", "unknown", "", "", "", "",
+				"not_required", "unknown", "unknown", "unknown"
 			};
 		}
 		if (cameraId == null)
@@ -1379,7 +1379,7 @@ import androidx.window.layout.WindowLayoutInfo;
 				if (manager.getCameraIdList().length == 0)
 				{
 					return new String[] {
-						"unavailable", "unknown", "", "false",
+						"unavailable", "unknown", "", "false", "", "",
 						"not_required", "none", "unknown", "unknown"
 					};
 				}
@@ -1388,8 +1388,8 @@ import androidx.window.layout.WindowLayoutInfo;
 			{
 			}
 			return new String[] {
-				"unavailable", "unknown", "", "false", "not_required",
-				"none", "unknown", "unknown"
+				"unavailable", "unknown", "", "false", "", "",
+				"not_required", "none", "unknown", "unknown"
 			};
 		}
 
@@ -1432,6 +1432,10 @@ import androidx.window.layout.WindowLayoutInfo;
 				torchState,
 				intensity,
 				maximumStrength > 1 ? "true" : "false",
+				maximumStrength > 1
+					? Float.toString(1.0f / (float)maximumStrength)
+					: "",
+				maximumStrength > 1 ? "1" : "",
 				"not_required",
 				conflict,
 				"unknown",
@@ -1441,8 +1445,141 @@ import androidx.window.layout.WindowLayoutInfo;
 		catch (Exception ignored)
 		{
 			return new String[] {
-				"unknown", "unknown", "", "", "not_required",
-				"unknown", "unknown", "unknown"
+				"unknown", "unknown", "", "", "", "",
+				"not_required", "unknown", "unknown", "unknown"
+			};
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceApplyFlashlight(
+		int operation,
+		float requestedIntensity
+	)
+	{
+		if (android.os.Build.VERSION.SDK_INT < 23)
+		{
+			return new String[] {
+				"unsupported", "unknown", "", "not_required", "api_below_23"
+			};
+		}
+		android.hardware.camera2.CameraManager manager =
+			OpenMobileDeviceGetCameraManager();
+		String cameraId = OpenMobileDeviceFindFlashlightCameraId();
+		if (manager == null || cameraId == null)
+		{
+			return new String[] {
+				"unsupported", "unknown", "", "not_required", "missing_hardware"
+			};
+		}
+		try
+		{
+			if (operation == 0)
+			{
+				manager.setTorchMode(cameraId, false);
+				OpenMobileDeviceFlashlightEnabled = false;
+				OpenMobileDeviceFlashlightUnavailable = false;
+				OpenMobileDeviceFlashlightStrength = -1;
+				return new String[] {
+					"applied", "off", "0", "not_required", ""
+				};
+			}
+			if (operation == 1)
+			{
+				manager.setTorchMode(cameraId, true);
+				OpenMobileDeviceFlashlightEnabled = true;
+				OpenMobileDeviceFlashlightUnavailable = false;
+				String effectiveIntensity = "";
+				if (android.os.Build.VERSION.SDK_INT >= 33)
+				{
+					android.hardware.camera2.CameraCharacteristics characteristics =
+						manager.getCameraCharacteristics(cameraId);
+					Integer maximum = characteristics.get(
+						android.hardware.camera2.CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL
+					);
+					if (maximum != null && maximum > 0)
+					{
+						int strength = manager.getTorchStrengthLevel(cameraId);
+						OpenMobileDeviceFlashlightStrength = strength;
+						effectiveIntensity = Float.toString(
+							(float)strength / (float)maximum
+						);
+					}
+				}
+				return new String[] {
+					"applied", "on", effectiveIntensity, "not_required", ""
+				};
+			}
+			if (operation != 2 || android.os.Build.VERSION.SDK_INT < 33)
+			{
+				return new String[] {
+					"unsupported", "unknown", "", "not_required",
+					"variable_intensity_unavailable"
+				};
+			}
+			android.hardware.camera2.CameraCharacteristics characteristics =
+				manager.getCameraCharacteristics(cameraId);
+			Integer maximum = characteristics.get(
+				android.hardware.camera2.CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL
+			);
+			if (maximum == null || maximum <= 1)
+			{
+				return new String[] {
+					"unsupported", "unknown", "", "not_required",
+					"variable_intensity_unavailable"
+				};
+			}
+			float minimumIntensity = 1.0f / (float)maximum;
+			float clampedIntensity = Math.max(
+				minimumIntensity,
+				Math.min(1.0f, requestedIntensity)
+			);
+			int strength = Math.max(
+				1,
+				Math.min(maximum, Math.round(clampedIntensity * (float)maximum))
+			);
+			manager.turnOnTorchWithStrengthLevel(cameraId, strength);
+			int effectiveStrength = manager.getTorchStrengthLevel(cameraId);
+			OpenMobileDeviceFlashlightEnabled = true;
+			OpenMobileDeviceFlashlightUnavailable = false;
+			OpenMobileDeviceFlashlightStrength = effectiveStrength;
+			return new String[] {
+				"applied",
+				"on",
+				Float.toString((float)effectiveStrength / (float)maximum),
+				"not_required",
+				""
+			};
+		}
+		catch (android.hardware.camera2.CameraAccessException exception)
+		{
+			int reason = exception.getReason();
+			String outcome = reason
+				== android.hardware.camera2.CameraAccessException.CAMERA_IN_USE
+				|| reason
+					== android.hardware.camera2.CameraAccessException.MAX_CAMERAS_IN_USE
+				? "busy"
+				: reason == android.hardware.camera2.CameraAccessException.CAMERA_DISABLED
+					? "restricted"
+					: "rejected";
+			return new String[] {
+				outcome,
+				"unknown",
+				"",
+				"not_required",
+				Integer.toString(reason)
+			};
+		}
+		catch (SecurityException exception)
+		{
+			return new String[] {
+				"permission_denied", "unknown", "", "denied", "security"
+			};
+		}
+		catch (RuntimeException exception)
+		{
+			return new String[] {
+				"rejected", "unknown", "", "not_required",
+				exception.getClass().getSimpleName()
 			};
 		}
 	}

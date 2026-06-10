@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
+#include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceOrientationControlService.h"
@@ -109,6 +110,7 @@ void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection
 void UOpenMobileDeviceSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	FOpenMobileDeviceFlashlightControlService::HandleGameInstanceTeardown();
 	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>> OrientationHandles =
 		OrientationPolicyHandles;
 	for (UOpenMobileOrientationPolicyHandle* Handle : OrientationHandles)

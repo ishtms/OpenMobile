@@ -174,6 +174,22 @@ public:
 		return {};
 	}
 
+	virtual FOpenMobileFlashlightOperationResult ApplyFlashlight(
+		const FOpenMobileFlashlightRequest& Request
+	)
+	{
+		FOpenMobileFlashlightOperationResult Result;
+		Result.Request = Request;
+		Result.State = EOpenMobileFlashlightOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support flashlight control.")
+		);
+		return Result;
+	}
+
+	virtual void ClearFlashlight() {}
+
 	virtual FOpenMobileBrightnessResult ApplyBrightness(
 		const FOpenMobileBrightnessRequest& Request
 	)
