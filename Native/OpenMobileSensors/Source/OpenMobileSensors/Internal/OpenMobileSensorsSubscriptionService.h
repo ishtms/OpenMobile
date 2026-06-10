@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorResults.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(
@@ -45,6 +46,9 @@ public:
 	);
 	static bool IsHandleCurrent(
 		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+	static TArray<FOpenMobileSensorStreamDiagnostics> GetStreamDiagnostics(
+		const FGuid& OwnerIdentifier
 	);
 	static TArray<FOpenMobileSensorSubscriptionHandle>
 	SelectSubscribersForSample(

@@ -141,8 +141,16 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int64 NextSequence = 1;
 		double LatestTimestampSeconds = 0.0;
 		double StaleAfterSeconds = 1.0;
+		double AppliedSampleFrequencyHz = 0.0;
 		double MaximumCallbackFrequencyHz = 15.0;
 		double LastCallbackTimeSeconds = 0.0;
+		double RateIntervals[64] = {};
+		double RateIntervalSum = 0.0;
+		double RateIntervalSquareSum = 0.0;
+		double LastRateTimestampSeconds = 0.0;
+		double LastRateGapSeconds = 0.0;
+		int32 RateIntervalStart = 0;
+		int32 RateIntervalCount = 0;
 		int32 MaximumPendingSamples = 128;
 		EOpenMobileSensorDeliveryMode DeliveryMode =
 			EOpenMobileSensorDeliveryMode::LatestValue;
@@ -150,6 +158,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorOverflowPolicy::DropOldest;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
+		bool bHasRateTimestamp = false;
 		FOpenMobileVectorSensorSample Vector;
 		FOpenMobileAttitudeSensorSample Attitude;
 		FOpenMobileScalarSensorSample Scalar;
@@ -196,6 +205,70 @@ namespace OpenMobileSensorsSampleServicePrivate
 	FOnOpenMobileProximitySensorBatchReady ProximityBatchEvent;
 
 	void EnsureEventTicker();
+
+	void ResetRateStatistics(FLatestSlot& Slot)
+	{
+		Slot.RateIntervalSum = 0.0;
+		Slot.RateIntervalSquareSum = 0.0;
+		Slot.LastRateTimestampSeconds = 0.0;
+		Slot.LastRateGapSeconds = 0.0;
+		Slot.RateIntervalStart = 0;
+		Slot.RateIntervalCount = 0;
+		Slot.bHasRateTimestamp = false;
+	}
+
+	void UpdateRateStatistics(FLatestSlot& Slot, double TimestampSeconds)
+	{
+		if (!Slot.bHasRateTimestamp)
+		{
+			Slot.LastRateTimestampSeconds = TimestampSeconds;
+			Slot.bHasRateTimestamp = true;
+			return;
+		}
+		const double IntervalSeconds =
+			TimestampSeconds - Slot.LastRateTimestampSeconds;
+		if (IntervalSeconds <= 0.0)
+		{
+			ResetRateStatistics(Slot);
+			return;
+		}
+		const double LongGapSeconds = FMath::Max(
+			5.0,
+			Slot.AppliedSampleFrequencyHz > 0.0
+				? 10.0 / Slot.AppliedSampleFrequencyHz
+				: 5.0
+		);
+		if (IntervalSeconds > LongGapSeconds)
+		{
+			ResetRateStatistics(Slot);
+			Slot.LastRateTimestampSeconds = TimestampSeconds;
+			Slot.bHasRateTimestamp = true;
+			return;
+		}
+		if (Slot.RateIntervalCount == UE_ARRAY_COUNT(Slot.RateIntervals))
+		{
+			const double Removed =
+				Slot.RateIntervals[Slot.RateIntervalStart];
+			Slot.RateIntervalSum -= Removed;
+			Slot.RateIntervalSquareSum -= Removed * Removed;
+			Slot.RateIntervals[Slot.RateIntervalStart] = IntervalSeconds;
+			Slot.RateIntervalStart =
+				(Slot.RateIntervalStart + 1)
+				% UE_ARRAY_COUNT(Slot.RateIntervals);
+		}
+		else
+		{
+			const int32 WriteIndex =
+				(Slot.RateIntervalStart + Slot.RateIntervalCount)
+				% UE_ARRAY_COUNT(Slot.RateIntervals);
+			Slot.RateIntervals[WriteIndex] = IntervalSeconds;
+			++Slot.RateIntervalCount;
+		}
+		Slot.RateIntervalSum += IntervalSeconds;
+		Slot.RateIntervalSquareSum += IntervalSeconds * IntervalSeconds;
+		Slot.LastRateTimestampSeconds = TimestampSeconds;
+		Slot.LastRateGapSeconds = IntervalSeconds;
+	}
 
 	ELatestSampleFamily GetExpectedFamily(EOpenMobileSensorType SensorType)
 	{
@@ -536,13 +609,25 @@ namespace OpenMobileSensorsSampleServicePrivate
 					if (!Sample.Header.bValid
 						|| !FMath::IsFinite(Sample.Header.TimestampSeconds)
 						|| Sample.Header.TimestampSeconds < 0.0
-						|| Slot.Sensor != Sample.Header.Sensor
-						|| (Slot.bHasSample
-							&& Sample.Header.TimestampSeconds <=
-								Slot.LatestTimestampSeconds))
+						|| Slot.Sensor != Sample.Header.Sensor)
 					{
 						continue;
 					}
+					if (Slot.bHasSample
+						&& Sample.Header.TimestampSeconds <=
+							Slot.LatestTimestampSeconds)
+					{
+						if (Sample.Header.TimestampSeconds <
+							Slot.LatestTimestampSeconds)
+						{
+							ResetRateStatistics(Slot);
+						}
+						continue;
+					}
+					UpdateRateStatistics(
+						Slot,
+						Sample.Header.TimestampSeconds
+					);
 					SampleType& Destination = Slot.*Member;
 					Destination = Sample;
 					Destination.Header.Sensor = Slot.Sensor;
@@ -1017,6 +1102,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->BackendGeneration = BackendGeneration;
 	Slot->ExpectedFamily = GetExpectedFamily(Sensor.Type);
 	Slot->StaleAfterSeconds = GetStaleAfterSeconds(Options);
+	Slot->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	Slot->MaximumCallbackFrequencyHz = Options.MaximumCallbackFrequencyHz;
 	Slot->MaximumPendingSamples = FMath::Clamp(
 		Options.BufferCapacitySamples,
@@ -1073,6 +1159,10 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 		}
 		FScopeLock SlotLock(&(*SlotPointer)->Mutex);
 		(*SlotPointer)->State = State;
+		if (State != EOpenMobileSensorSubscriptionState::Active)
+		{
+			ResetRateStatistics(**SlotPointer);
+		}
 		bSchedulePendingEvents =
 			State == EOpenMobileSensorSubscriptionState::Active
 			&& (*SlotPointer)->DeliveryMode ==
@@ -1101,6 +1191,8 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	const EOpenMobileSensorDeliveryMode PreviousDeliveryMode =
 		(*SlotPointer)->DeliveryMode;
 	(*SlotPointer)->StaleAfterSeconds = GetStaleAfterSeconds(Options);
+	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
+	ResetRateStatistics(**SlotPointer);
 	(*SlotPointer)->MaximumCallbackFrequencyHz =
 		Options.MaximumCallbackFrequencyHz;
 	(*SlotPointer)->MaximumPendingSamples = FMath::Clamp(
@@ -1149,6 +1241,56 @@ void FOpenMobileSensorsSampleService::UnregisterAll()
 	using namespace OpenMobileSensorsSampleServicePrivate;
 	FWriteScopeLock RegistryLock(SlotsLock);
 	Slots.Reset();
+}
+
+bool FOpenMobileSensorsSampleService::GetRateDiagnostics(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	FOpenMobileSensorRateDiagnostics& OutRate
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	OutRate = {};
+	if (!OwnerIdentifier.IsValid() || !Handle.IsValid())
+	{
+		return false;
+	}
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	const FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier || Slot.Handle != Handle)
+	{
+		return false;
+	}
+	OutRate.SampleCount = Slot.bHasRateTimestamp
+		? Slot.RateIntervalCount + 1
+		: 0;
+	OutRate.LastGapSeconds = Slot.LastRateGapSeconds;
+	if (Slot.RateIntervalCount > 0 && Slot.RateIntervalSum > 0.0)
+	{
+		const double MeanIntervalSeconds =
+			Slot.RateIntervalSum / Slot.RateIntervalCount;
+		double IntervalVariance = 0.0;
+		for (int32 Index = 0; Index < Slot.RateIntervalCount; ++Index)
+		{
+			const double Difference =
+				Slot.RateIntervals[
+					(Slot.RateIntervalStart + Index)
+					% UE_ARRAY_COUNT(Slot.RateIntervals)
+				] - MeanIntervalSeconds;
+			IntervalVariance += Difference * Difference;
+		}
+		OutRate.MeanFrequencyHz = 1.0 / MeanIntervalSeconds;
+		OutRate.IntervalJitterSeconds = FMath::Sqrt(
+			IntervalVariance / Slot.RateIntervalCount
+		);
+	}
+	return true;
 }
 
 #define OPENMOBILE_IMPLEMENT_PUBLISH( \

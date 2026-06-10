@@ -1146,6 +1146,46 @@ bool FOpenMobileSensorsSubscriptionService::IsHandleCurrent(
 		);
 }
 
+TArray<FOpenMobileSensorStreamDiagnostics>
+FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
+	const FGuid& OwnerIdentifier
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileSensorStreamDiagnostics> Streams;
+	if (!OwnerIdentifier.IsValid())
+	{
+		return Streams;
+	}
+	for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+	{
+		const FSubscriptionEntry& Entry = Pair.Value;
+		if (Entry.OwnerIdentifier != OwnerIdentifier)
+		{
+			continue;
+		}
+		FOpenMobileSensorStreamDiagnostics& Diagnostics =
+			Streams.AddDefaulted_GetRef();
+		Diagnostics.Subscription = MakeSnapshot(Entry);
+		FOpenMobileSensorsSampleService::GetRateDiagnostics(
+			OwnerIdentifier,
+			Entry.Handle,
+			Diagnostics.Rate
+		);
+		Diagnostics.Rate.RequestedFrequencyHz =
+			Entry.RateResolution.RequestedFrequencyHz;
+		Diagnostics.Rate.AppliedFrequencyHz =
+			Entry.RateResolution.AppliedNativeFrequencyHz;
+		Diagnostics.BatchingMode =
+			Entry.AppliedOptions.DeliveryMode ==
+				EOpenMobileSensorDeliveryMode::LatestValue
+			? EOpenMobileSensorBatchingMode::Disabled
+			: EOpenMobileSensorBatchingMode::Plugin;
+	}
+	return Streams;
+}
+
 TArray<FOpenMobileSensorSubscriptionHandle>
 FOpenMobileSensorsSubscriptionService::SelectSubscribersForSample(
 	const FOpenMobileSensorIdentifier& Sensor,

@@ -7,7 +7,6 @@
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsMetadataService.h"
-#include "OpenMobileSensorsModule.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
@@ -607,12 +606,15 @@ FOpenMobileSensorDiagnosticsSnapshot
 UOpenMobileSensorsSubsystem::GetDiagnosticsSnapshotNative() const
 {
 	FOpenMobileSensorDiagnosticsSnapshot Snapshot;
-	const FOpenMobileCapability Backend =
-		FOpenMobileSensorsModule::GetBackendCapability();
-	if (Backend.IsAvailable())
-	{
-		Snapshot.BackendName = TEXT("Registered");
-	}
+	const FOpenMobileSensorCapabilitySnapshot Capabilities =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	Snapshot.BackendName = Capabilities.BackendName;
+	Snapshot.BackendGeneration = Capabilities.BackendGeneration;
+	Snapshot.Capabilities = Capabilities.Sensors;
+	Snapshot.Streams =
+		FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
+			SubscriptionOwnerIdentifier
+		);
 	return Snapshot;
 }
 

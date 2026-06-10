@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
 
@@ -84,6 +85,11 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 	static void UnregisterAll();
+	static bool GetRateDiagnostics(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		FOpenMobileSensorRateDiagnostics& OutRate
+	);
 
 	static void PublishVector(const FOpenMobileVectorSensorSample& Sample);
 	static void PublishAttitude(const FOpenMobileAttitudeSensorSample& Sample);
