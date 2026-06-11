@@ -9,6 +9,53 @@
 #include "Misc/DataValidation.h"
 #endif
 
+namespace OpenMobileHapticPlatformAssetsPrivate
+{
+	FName PrimitiveName(EOpenMobileHapticAndroidPrimitive Primitive)
+	{
+		switch (Primitive)
+		{
+		case EOpenMobileHapticAndroidPrimitive::Tick:
+			return TEXT("Tick");
+		case EOpenMobileHapticAndroidPrimitive::LowTick:
+			return TEXT("LowTick");
+		case EOpenMobileHapticAndroidPrimitive::Click:
+			return TEXT("Click");
+		case EOpenMobileHapticAndroidPrimitive::Thud:
+			return TEXT("Thud");
+		case EOpenMobileHapticAndroidPrimitive::Spin:
+			return TEXT("Spin");
+		case EOpenMobileHapticAndroidPrimitive::QuickRise:
+			return TEXT("QuickRise");
+		case EOpenMobileHapticAndroidPrimitive::SlowRise:
+			return TEXT("SlowRise");
+		case EOpenMobileHapticAndroidPrimitive::QuickFall:
+			return TEXT("QuickFall");
+		default:
+			return NAME_None;
+		}
+	}
+
+	bool SupportsPrimitive(
+		EOpenMobileHapticAndroidPrimitive Primitive,
+		const FOpenMobileHapticCapabilities& Capabilities
+	)
+	{
+		const FName Name = PrimitiveName(Primitive);
+		for (const FOpenMobileHapticNamedSupport& Support :
+			Capabilities.PrimitiveSupport)
+		{
+			if (Support.Name == Name)
+			{
+				return Support.Support
+					== EOpenMobileHapticSupportState::Supported;
+			}
+		}
+		return Capabilities.Primitives
+			== EOpenMobileHapticSupportState::Supported;
+	}
+}
+
 bool UOpenMobileHapticPlatformPatternAsset::ShouldCookForPlatform(
 	FName PlatformName
 ) const
@@ -84,15 +131,35 @@ bool UOpenMobileHapticAndroidPatternAsset::Supports(
 	switch (Format)
 	{
 	case EOpenMobileHapticAndroidPatternFormat::Primitives:
-		return Capabilities.Primitives
-			== EOpenMobileHapticSupportState::Supported;
+		if (Capabilities.MaximumEventCount.bKnown
+			&& Primitives.Num() > Capabilities.MaximumEventCount.Value)
+		{
+			return false;
+		}
+		for (const FOpenMobileHapticAndroidPrimitiveStep& Step : Primitives)
+		{
+			if (!OpenMobileHapticPlatformAssetsPrivate::SupportsPrimitive(
+				Step.Primitive,
+				Capabilities
+			))
+			{
+				return false;
+			}
+		}
+		return true;
 	case EOpenMobileHapticAndroidPatternFormat::Waveform:
 		return Capabilities.WaveformTiming
-			== EOpenMobileHapticSupportState::Supported;
+				== EOpenMobileHapticSupportState::Supported
+			&& (!Capabilities.MaximumEventCount.bKnown
+				|| WaveformTimingsMilliseconds.Num()
+					<= Capabilities.MaximumEventCount.Value);
 	case EOpenMobileHapticAndroidPatternFormat::BasicEnvelope:
 	case EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope:
 		return Capabilities.Envelopes
-			== EOpenMobileHapticSupportState::Supported;
+				== EOpenMobileHapticSupportState::Supported
+			&& (!Capabilities.MaximumControlPointCount.bKnown
+				|| EnvelopePoints.Num()
+					<= Capabilities.MaximumControlPointCount.Value);
 	default:
 		return false;
 	}

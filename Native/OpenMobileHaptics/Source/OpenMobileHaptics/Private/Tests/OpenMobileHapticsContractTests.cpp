@@ -16,6 +16,7 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
+#include "OpenMobileHapticsFallbackPolicy.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
@@ -227,6 +228,8 @@ namespace OpenMobileHapticsTests
 		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
 		FOpenMobileHapticsSemanticResolution LastSemanticResolution;
 		FOpenMobileHapticsOneShotResolution LastOneShotResolution;
+		FName SubmissionResolvedPath;
+		TArray<FName> SubmissionFallbackAttempts;
 
 	private:
 		struct FPendingCallback
@@ -259,6 +262,8 @@ namespace OpenMobileHapticsTests
 			Submission.Result.Outcome =
 				EOpenMobileHapticPlaybackOutcome::Accepted;
 			Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+			Submission.Result.ResolvedPath = SubmissionResolvedPath;
+			Submission.Result.FallbackAttempts = SubmissionFallbackAttempts;
 			Submission.bCreatesControllablePlayback = bControllable;
 			Submission.bExpectsCallbacks = bExpectsCallbacks;
 			if (bExpectsCallbacks)
@@ -960,6 +965,11 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	TestEqual(TEXT("Prepared pattern reports loaded"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Loaded);
+	Backend.SubmissionResolvedPath = TEXT("PortableRich");
+	Backend.SubmissionFallbackAttempts = {
+		TEXT("ExactOverride:Unsupported"),
+		TEXT("PortableRich:Selected")
+	};
 	const FOpenMobileHapticPlaybackResult Prepared =
 		Subsystem->PlayNamedPattern(TEXT("Weapon_Recoil"));
 	TestTrue(TEXT("Prepared named request reaches the backend"),
@@ -970,6 +980,11 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	TestEqual(TEXT("Diagnostics expose the last loaded lookup"),
 		Subsystem->GetDiagnostics().LastNamedPatternStatus,
 		EOpenMobileHapticNamedPatternStatus::Loaded);
+	TestEqual(TEXT("Diagnostics retain the selected fallback path"),
+		Subsystem->GetDiagnostics().LastResolvedPath,
+		FName(TEXT("PortableRich")));
+	TestEqual(TEXT("Diagnostics retain bounded fallback attempts"),
+		Subsystem->GetDiagnostics().LastFallbackAttempts.Num(), 2);
 
 	Subsystem->ReleaseNamedLibraries();
 	TestEqual(TEXT("Release unloads the prepared registry"),
@@ -1080,6 +1095,20 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::ExactOverride);
 	TestEqual(TEXT("Exact resolution carries the override path"),
 		Resolution.OverrideAsset, FSoftObjectPath(Android));
+	Capabilities.PrimitiveSupport = {{
+		TEXT("Click"),
+		EOpenMobileHapticSupportState::Unsupported
+	}};
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unsupported exact primitive preserves portable fallback"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Capabilities.PrimitiveSupport.Reset();
 
 	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
 	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
@@ -1107,8 +1136,9 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 		Capabilities,
 		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
 	);
-	TestEqual(TEXT("No-effect policy suppresses unsupported overrides"),
-		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::NoEffect);
+	TestEqual(TEXT("No-effect policy still tries the portable pattern"),
+		Resolution.Path,
+		EOpenMobileHapticsPlatformOverridePath::PortablePattern);
 	Portable->AndroidOverride = nullptr;
 	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
 		*Portable,
@@ -1131,6 +1161,29 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 	TestEqual(TEXT("Invalid override uses the portable pattern"),
 		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
 	Portable->AndroidOverride = Android;
+	UOpenMobileHapticAndroidPatternAsset* Envelope =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	Envelope->Format =
+		EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope;
+	FOpenMobileHapticAndroidEnvelopePoint EnvelopeStart;
+	FOpenMobileHapticAndroidEnvelopePoint EnvelopeEnd;
+	EnvelopeEnd.TimeSeconds = 0.1f;
+	Envelope->EnvelopePoints = {EnvelopeStart, EnvelopeEnd};
+	TestTrue(TEXT("Valid Android envelope asset validates"),
+		Envelope->Validate(Errors));
+	Portable->AndroidOverride = Envelope;
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		36,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unsupported envelope preserves portable fallback"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Portable->AndroidOverride = Android;
 	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
 		*Portable,
 		EOpenMobileHapticOverridePlatform::Android,
@@ -1140,6 +1193,158 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 	);
 	TestEqual(TEXT("Older Android versions use portable fallback"),
 		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsFallbackLadderTest,
+	"OpenMobile.Haptics.Pattern.FallbackLadder",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsFallbackLadderTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> Errors;
+	TestTrue(TEXT("Fallback pattern builds"),
+		Pattern->RebuildDerivedData(Errors));
+	Pattern->LowestAllowedFallback =
+		EOpenMobileHapticFallbackFloor::BasicVibration;
+	Pattern->PrimitiveOrPresetFallback = TEXT("Click");
+	Pattern->bAllowSemanticFallback = true;
+	Pattern->SemanticFallback = EOpenMobileHapticSemanticEffect::Click;
+
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Supported;
+	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Supported;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsPlatformOverrideResolution Override;
+	Override.Path = EOpenMobileHapticsPlatformOverridePath::ExactOverride;
+
+	FOpenMobileHapticsFallbackResolution Resolution =
+		FOpenMobileHapticsFallbackPolicy::Resolve(
+			*Pattern,
+			Override,
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Exact rich override is first"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::ExactOverride);
+	TestEqual(TEXT("Exact selection records one trace entry"),
+		Resolution.Attempts.Num(), 1);
+
+	Override.Path = EOpenMobileHapticsPlatformOverridePath::PortablePattern;
+	Override.Reason = TEXT("Capability");
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Portable rich translation is second"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::PortableRich);
+	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Declared primitive or preset is third"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::PrimitiveOrPredefined);
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Declared semantic meaning is fourth"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::Semantic);
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Basic vibration is fifth"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::BasicVibration);
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+	);
+	TestEqual(TEXT("Permitted no effect is the terminal fallback"),
+		Resolution.Path, EOpenMobileHapticsFallbackPath::NoEffect);
+	TestTrue(TEXT("No-effect fallback is not a failure"),
+		Resolution.bSuccessfulOutcome);
+	TestEqual(TEXT("Every skipped and selected rung is traced"),
+		Resolution.Attempts.Num(), 6);
+	const TArray<FName> DiagnosticTrace =
+		FOpenMobileHapticsFallbackPolicy::MakeDiagnosticTrace(Resolution);
+	TestEqual(TEXT("Every ladder attempt has a diagnostic entry"),
+		DiagnosticTrace.Num(), Resolution.Attempts.Num());
+
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unavailable automatic ladder rejects"), Resolution.Path,
+		EOpenMobileHapticsFallbackPath::Rejected);
+	Pattern->LowestAllowedFallback = EOpenMobileHapticFallbackFloor::Semantic;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Asset floor blocks misleading basic vibration"),
+		Resolution.Path, EOpenMobileHapticsFallbackPath::Rejected);
+	Pattern->LowestAllowedFallback =
+		EOpenMobileHapticFallbackFloor::BasicVibration;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PrimitiveSupport = {{
+		TEXT("Click"),
+		EOpenMobileHapticSupportState::Unsupported
+	}};
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unsupported declared primitive falls through safely"),
+		Resolution.Path, EOpenMobileHapticsFallbackPath::BasicVibration);
+	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Supported;
+	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsFallbackPolicy::Resolve(
+		*Pattern,
+		Override,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact-only rejects portable rich translation"),
+		Resolution.Path, EOpenMobileHapticsFallbackPath::Rejected);
+	Pattern->LowestAllowedFallback =
+		static_cast<EOpenMobileHapticFallbackFloor>(MAX_uint8);
+	TestFalse(TEXT("Invalid fallback floor fails asset rebuild"),
+		Pattern->RebuildDerivedData(Errors));
 	return true;
 }
 #endif

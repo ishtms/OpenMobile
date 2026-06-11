@@ -158,6 +158,15 @@ enum class EOpenMobileHapticNamedPatternStatus : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticFallbackFloor : uint8
+{
+	PortableRich,
+	PrimitiveOrPredefined,
+	Semantic,
+	BasicVibration
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticControlOutcome : uint8
 {
 	Rejected,
@@ -794,6 +803,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 	FName ResolvedPath;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FName> FallbackAttempts;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticDurationDiagnostics Duration;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
@@ -947,4 +959,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	int32 PreparedNamedPatternCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName LastResolvedPath;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FName> LastFallbackAttempts;
 };

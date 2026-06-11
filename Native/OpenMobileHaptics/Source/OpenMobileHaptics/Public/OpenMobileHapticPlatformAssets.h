@@ -28,8 +28,6 @@ enum class EOpenMobileHapticAndroidPrimitive : uint8
 	Tick,
 	LowTick,
 	Click,
-	LowClick,
-	HighClick,
 	Thud,
 	Spin,
 	QuickRise,

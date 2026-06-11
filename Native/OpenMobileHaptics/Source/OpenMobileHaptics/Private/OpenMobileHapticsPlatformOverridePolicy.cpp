@@ -12,16 +12,16 @@ namespace OpenMobileHapticsPlatformOverridePolicyPrivate
 	{
 		FOpenMobileHapticsPlatformOverrideResolution Resolution;
 		Resolution.Reason = Reason;
-		if (Policy == EOpenMobileHapticFallbackPolicy::NoEffectAllowed)
-		{
-			Resolution.Path =
-				EOpenMobileHapticsPlatformOverridePath::NoEffect;
-		}
-		else if (Policy != EOpenMobileHapticFallbackPolicy::ExactOnly
+		if (Policy != EOpenMobileHapticFallbackPolicy::ExactOnly
 			&& Pattern.IsDerivedDataCurrent())
 		{
 			Resolution.Path =
 				EOpenMobileHapticsPlatformOverridePath::PortablePattern;
+		}
+		else if (Policy == EOpenMobileHapticFallbackPolicy::NoEffectAllowed)
+		{
+			Resolution.Path =
+				EOpenMobileHapticsPlatformOverridePath::NoEffect;
 		}
 		return Resolution;
 	}

@@ -34,6 +34,8 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticError LastError;
 	FOpenMobileHapticDurationDiagnostics LastDuration;
 	FOpenMobileHapticIntensityDiagnostics LastIntensity;
+	FName LastResolvedPath;
+	TArray<FName> LastFallbackAttempts;
 	FOpenMobileHapticsLibraryResolver LibraryResolver;
 	TSharedPtr<FStreamableHandle> LibraryLoadHandle;
 	TSharedPtr<FStreamableHandle> PatternLoadHandle;
@@ -221,6 +223,8 @@ namespace OpenMobileHapticsSubsystemPrivate
 	{
 		FOpenMobileHapticPlaybackResult Result = MoveTemp(Submission.Result);
 		Result.Channel = Channel;
+		State.LastResolvedPath = Result.ResolvedPath;
+		State.LastFallbackAttempts = Result.FallbackAttempts;
 		if (Result.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed)
 		{
 			Result.Handle = {};
@@ -1862,6 +1866,8 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 		Diagnostics.LastNamedPatternStatus = State->LastNamedPatternStatus;
 		Diagnostics.PreparedNamedPatternCount =
 			State->LibraryResolver.GetPreparedPatternCount();
+		Diagnostics.LastResolvedPath = State->LastResolvedPath;
+		Diagnostics.LastFallbackAttempts = State->LastFallbackAttempts;
 	}
 	return Diagnostics;
 }

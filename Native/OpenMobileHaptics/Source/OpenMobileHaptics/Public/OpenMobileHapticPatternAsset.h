@@ -92,6 +92,20 @@ public:
 	EOpenMobileHapticFallbackPolicy FallbackPolicy =
 		EOpenMobileHapticFallbackPolicy::Automatic;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fallback")
+	EOpenMobileHapticFallbackFloor LowestAllowedFallback =
+		EOpenMobileHapticFallbackFloor::BasicVibration;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fallback")
+	FName PrimitiveOrPresetFallback;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fallback")
+	bool bAllowSemanticFallback = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fallback", meta = (EditCondition = "bAllowSemanticFallback"))
+	EOpenMobileHapticSemanticEffect SemanticFallback =
+		EOpenMobileHapticSemanticEffect::Click;
+
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(EditAnywhere, Category = "Pattern")
 	FOpenMobileHapticPattern SourcePattern;
@@ -129,6 +143,7 @@ public:
 
 private:
 	uint32 ComputeSourceHash() const;
+	bool ValidateMetadata(TArray<FString>& Errors) const;
 
 	UPROPERTY(VisibleAnywhere, Category = "Cooked Pattern")
 	FOpenMobileHapticCookedPatternData CookedPattern;

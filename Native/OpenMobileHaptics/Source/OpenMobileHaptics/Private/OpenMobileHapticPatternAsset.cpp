@@ -2,6 +2,7 @@
 
 #include "Misc/Crc.h"
 #include "OpenMobileHapticsPatternCompiler.h"
+#include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "UObject/ObjectSaveContext.h"
 
@@ -275,12 +276,54 @@ bool UOpenMobileHapticPatternAsset::IsDerivedDataCurrent() const
 		&& CookedPattern.SourceHash == ComputeSourceHash();
 }
 
+bool UOpenMobileHapticPatternAsset::ValidateMetadata(
+	TArray<FString>& Errors
+) const
+{
+	if (DefaultCategory.IsNone())
+	{
+		Errors.Add(TEXT("DefaultCategory cannot be empty."));
+	}
+	if (static_cast<uint8>(Priority) > static_cast<uint8>(
+		EOpenMobileHapticChannelPriority::Critical))
+	{
+		Errors.Add(TEXT("Priority is invalid."));
+	}
+	if (static_cast<uint8>(OverlapPolicy) > static_cast<uint8>(
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported))
+	{
+		Errors.Add(TEXT("OverlapPolicy is invalid."));
+	}
+	if (static_cast<uint8>(FallbackPolicy) > static_cast<uint8>(
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed))
+	{
+		Errors.Add(TEXT("FallbackPolicy is invalid."));
+	}
+	if (static_cast<uint8>(LowestAllowedFallback) > static_cast<uint8>(
+		EOpenMobileHapticFallbackFloor::BasicVibration))
+	{
+		Errors.Add(TEXT("LowestAllowedFallback is invalid."));
+	}
+	if (bAllowSemanticFallback
+		&& static_cast<uint8>(SemanticFallback) > static_cast<uint8>(
+			EOpenMobileHapticSemanticEffect::Achievement))
+	{
+		Errors.Add(TEXT("SemanticFallback is invalid."));
+	}
+	return Errors.IsEmpty();
+}
+
 bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 	TArray<FString>& Errors
 )
 {
 	Errors.Reset();
 #if WITH_EDITORONLY_DATA
+	if (!ValidateMetadata(Errors))
+	{
+		CookedPattern.Reset();
+		return false;
+	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	const FOpenMobileHapticsPatternCompileResult Result =
@@ -297,6 +340,22 @@ bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 			SourcePattern
 		));
 		return false;
+	}
+	if (Loop.bLoop)
+	{
+		const FOpenMobileHapticsRepeatPlanResult Repeat =
+			FOpenMobileHapticsRepeatPolicy::Resolve(
+				Loop,
+				Result.Pattern->GetDurationSeconds(),
+				Settings->MaximumFiniteRepeatCount,
+				Settings->MaximumContinuousDurationSeconds
+			);
+		if (!Repeat.IsSuccess())
+		{
+			CookedPattern.Reset();
+			Errors.Add(TEXT("Loop options are outside the configured limits."));
+			return false;
+		}
 	}
 
 	using namespace OpenMobileHapticPatternAssetPrivate;
@@ -372,6 +431,15 @@ EDataValidationResult UOpenMobileHapticPatternAsset::IsDataValid(
 ) const
 {
 	EDataValidationResult Result = Super::IsDataValid(Context);
+	TArray<FString> MetadataErrors;
+	if (!ValidateMetadata(MetadataErrors))
+	{
+		for (const FString& Error : MetadataErrors)
+		{
+			Context.AddError(FText::FromString(Error));
+		}
+		return EDataValidationResult::Invalid;
+	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	const FOpenMobileHapticsPatternCompileResult CompileResult =
