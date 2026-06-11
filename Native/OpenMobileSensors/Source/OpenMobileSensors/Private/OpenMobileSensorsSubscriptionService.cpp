@@ -335,6 +335,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			OutApplied,
 			OutRateResolution
 		);
+		if (OutApplied.bLowLatency)
+		{
+			OutApplied.MaximumDeliveryLatencySeconds = 0.0;
+		}
 		return IsFiniteInRange(OutApplied.CustomFrequencyHz, 1.0, 1000.0)
 			&& IsFiniteInRange(
 				OutApplied.MaximumDeliveryLatencySeconds,
@@ -1596,6 +1600,12 @@ FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
 			OwnerIdentifier,
 			Entry.Handle,
 			Diagnostics.Rate
+		);
+		FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
+			OwnerIdentifier,
+			Entry.Handle,
+			FPlatformTime::Seconds(),
+			Diagnostics
 		);
 		Diagnostics.Rate.RequestedFrequencyHz =
 			Entry.RateResolution.RequestedFrequencyHz;

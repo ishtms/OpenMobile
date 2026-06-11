@@ -124,6 +124,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 			}
 			SampleCount -= ReturnedSamples;
 		}
+
+		double GetOldestTimestampSeconds() const
+		{
+			return SampleCount > 0
+				? Storage[StartIndex].Header.TimestampSeconds
+				: 0.0;
+		}
 	};
 
 	struct FLatestSlot
@@ -149,8 +156,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 		double RateIntervalSquareSum = 0.0;
 		double LastRateTimestampSeconds = 0.0;
 		double LastRateGapSeconds = 0.0;
+		double LastGameThreadProcessingSeconds = 0.0;
 		int32 RateIntervalStart = 0;
 		int32 RateIntervalCount = 0;
+		int32 EventHighWaterMark = 0;
+		int64 EventDroppedSamples = 0;
 		int32 MaximumPendingSamples = 128;
 		EOpenMobileSensorDeliveryMode DeliveryMode =
 			EOpenMobileSensorDeliveryMode::LatestValue;
@@ -524,6 +534,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.PendingActivity.Reset();
 		Slot.PendingOrientation.Reset();
 		Slot.PendingProximity.Reset();
+		Slot.EventHighWaterMark = 0;
+		Slot.EventDroppedSamples = 0;
 	}
 
 	template <typename SampleType>
@@ -540,6 +552,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		TArray<SampleType>& Pending = Slot.*PendingMember;
 		if (Pending.Num() >= Slot.MaximumPendingSamples)
 		{
+			++Slot.EventDroppedSamples;
 			if (Slot.OverflowPolicy ==
 				EOpenMobileSensorOverflowPolicy::RejectNewest)
 			{
@@ -548,6 +561,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 			Pending.RemoveAt(0, 1, EAllowShrinking::No);
 		}
 		Pending.Add(Sample);
+		Slot.EventHighWaterMark = FMath::Max(
+			Slot.EventHighWaterMark,
+			Pending.Num()
+		);
 		return true;
 	}
 
@@ -846,6 +863,137 @@ namespace OpenMobileSensorsSampleServicePrivate
 		return 0;
 	}
 
+	int32 GetPluginHighWaterMark(const FLatestSlot& Slot)
+	{
+		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches)
+		{
+			return Slot.EventHighWaterMark;
+		}
+		if (Slot.DeliveryMode != EOpenMobileSensorDeliveryMode::Buffered)
+		{
+			return 0;
+		}
+		switch (Slot.ExpectedFamily)
+		{
+		case ELatestSampleFamily::Vector:
+			return Slot.BufferedVector.HighWaterMark;
+		case ELatestSampleFamily::Attitude:
+			return Slot.BufferedAttitude.HighWaterMark;
+		case ELatestSampleFamily::Scalar:
+			return Slot.BufferedScalar.HighWaterMark;
+		case ELatestSampleFamily::Heading:
+			return Slot.BufferedHeading.HighWaterMark;
+		case ELatestSampleFamily::Steps:
+			return Slot.BufferedSteps.HighWaterMark;
+		case ELatestSampleFamily::Activity:
+			return Slot.BufferedActivity.HighWaterMark;
+		case ELatestSampleFamily::Orientation:
+			return Slot.BufferedOrientation.HighWaterMark;
+		case ELatestSampleFamily::Proximity:
+			return Slot.BufferedProximity.HighWaterMark;
+		case ELatestSampleFamily::None:
+		default:
+			return 0;
+		}
+	}
+
+	int64 GetPluginDroppedSamples(const FLatestSlot& Slot)
+	{
+		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches)
+		{
+			return Slot.EventDroppedSamples;
+		}
+		if (Slot.DeliveryMode != EOpenMobileSensorDeliveryMode::Buffered)
+		{
+			return 0;
+		}
+		switch (Slot.ExpectedFamily)
+		{
+		case ELatestSampleFamily::Vector:
+			return Slot.BufferedVector.DroppedSamples;
+		case ELatestSampleFamily::Attitude:
+			return Slot.BufferedAttitude.DroppedSamples;
+		case ELatestSampleFamily::Scalar:
+			return Slot.BufferedScalar.DroppedSamples;
+		case ELatestSampleFamily::Heading:
+			return Slot.BufferedHeading.DroppedSamples;
+		case ELatestSampleFamily::Steps:
+			return Slot.BufferedSteps.DroppedSamples;
+		case ELatestSampleFamily::Activity:
+			return Slot.BufferedActivity.DroppedSamples;
+		case ELatestSampleFamily::Orientation:
+			return Slot.BufferedOrientation.DroppedSamples;
+		case ELatestSampleFamily::Proximity:
+			return Slot.BufferedProximity.DroppedSamples;
+		case ELatestSampleFamily::None:
+		default:
+			return 0;
+		}
+	}
+
+	double GetOldestPluginTimestampSeconds(const FLatestSlot& Slot)
+	{
+		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches)
+		{
+			switch (Slot.ExpectedFamily)
+			{
+			case ELatestSampleFamily::Vector:
+				return Slot.PendingVector.IsEmpty()
+					? 0.0 : Slot.PendingVector[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Attitude:
+				return Slot.PendingAttitude.IsEmpty()
+					? 0.0 : Slot.PendingAttitude[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Scalar:
+				return Slot.PendingScalar.IsEmpty()
+					? 0.0 : Slot.PendingScalar[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Heading:
+				return Slot.PendingHeading.IsEmpty()
+					? 0.0 : Slot.PendingHeading[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Steps:
+				return Slot.PendingSteps.IsEmpty()
+					? 0.0 : Slot.PendingSteps[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Activity:
+				return Slot.PendingActivity.IsEmpty()
+					? 0.0 : Slot.PendingActivity[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Orientation:
+				return Slot.PendingOrientation.IsEmpty()
+					? 0.0 : Slot.PendingOrientation[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::Proximity:
+				return Slot.PendingProximity.IsEmpty()
+					? 0.0 : Slot.PendingProximity[0].Header.TimestampSeconds;
+			case ELatestSampleFamily::None:
+			default:
+				return 0.0;
+			}
+		}
+		if (Slot.DeliveryMode != EOpenMobileSensorDeliveryMode::Buffered)
+		{
+			return 0.0;
+		}
+		switch (Slot.ExpectedFamily)
+		{
+		case ELatestSampleFamily::Vector:
+			return Slot.BufferedVector.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Attitude:
+			return Slot.BufferedAttitude.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Scalar:
+			return Slot.BufferedScalar.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Heading:
+			return Slot.BufferedHeading.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Steps:
+			return Slot.BufferedSteps.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Activity:
+			return Slot.BufferedActivity.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Orientation:
+			return Slot.BufferedOrientation.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::Proximity:
+			return Slot.BufferedProximity.GetOldestTimestampSeconds();
+		case ELatestSampleFamily::None:
+		default:
+			return 0.0;
+		}
+	}
+
 	template <typename SampleType, typename BatchType>
 	void GatherDelivery(
 		FLatestSlot& Slot,
@@ -889,6 +1037,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 	void DrainPendingEvents(double NowSeconds)
 	{
 		check(IsInGameThread());
+#if !UE_BUILD_SHIPPING
+		const double ProcessingStartSeconds = FPlatformTime::Seconds();
+#endif
 		const double SafeNowSeconds = FMath::IsFinite(NowSeconds)
 			? NowSeconds
 			: FPlatformTime::Seconds();
@@ -1045,6 +1196,26 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Batch
 			);
 		}
+#if !UE_BUILD_SHIPPING
+		const double ProcessingSeconds = FMath::Max(
+			0.0,
+			FPlatformTime::Seconds() - ProcessingStartSeconds
+		);
+		FReadScopeLock RegistryLock(SlotsLock);
+		for (TPair<
+			FOpenMobileSensorSubscriptionHandle,
+			TUniquePtr<FLatestSlot>
+		>& Pair : Slots)
+		{
+			FLatestSlot& Slot = *Pair.Value;
+			FScopeLock SlotLock(&Slot.Mutex);
+			if (Slot.bHasCallbackTime
+				&& Slot.LastCallbackTimeSeconds == SafeNowSeconds)
+			{
+				Slot.LastGameThreadProcessingSeconds = ProcessingSeconds;
+			}
+		}
+#endif
 	}
 
 	bool TickPendingEvents(float DeltaSeconds)
@@ -1317,6 +1488,51 @@ bool FOpenMobileSensorsSampleService::GetRateDiagnostics(
 			IntervalVariance / Slot.RateIntervalCount
 		);
 	}
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	double NowSeconds,
+	FOpenMobileSensorStreamDiagnostics& OutDiagnostics
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	if (!OwnerIdentifier.IsValid()
+		|| !Handle.IsValid()
+		|| !FMath::IsFinite(NowSeconds))
+	{
+		return false;
+	}
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	const FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier || Slot.Handle != Handle)
+	{
+		return false;
+	}
+	OutDiagnostics.QueueDepth = GetPluginSampleCount(Slot);
+	OutDiagnostics.BufferHighWaterMark = GetPluginHighWaterMark(Slot);
+	OutDiagnostics.DroppedSamples = GetPluginDroppedSamples(Slot);
+	OutDiagnostics.LatestSampleAgeSeconds = Slot.bHasSample
+		? FMath::Max(0.0, NowSeconds - Slot.LatestTimestampSeconds)
+		: 0.0;
+	const double OldestTimestampSeconds =
+		GetOldestPluginTimestampSeconds(Slot);
+	OutDiagnostics.QueueDelaySeconds =
+		OutDiagnostics.QueueDepth > 0 && OldestTimestampSeconds > 0.0
+		? FMath::Max(0.0, NowSeconds - OldestTimestampSeconds)
+		: 0.0;
+#if !UE_BUILD_SHIPPING
+	OutDiagnostics.GameThreadProcessingSeconds =
+		Slot.LastGameThreadProcessingSeconds;
+#endif
 	return true;
 }
 

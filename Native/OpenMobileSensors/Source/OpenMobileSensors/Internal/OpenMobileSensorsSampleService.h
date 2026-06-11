@@ -90,6 +90,12 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOpenMobileSensorRateDiagnostics& OutRate
 	);
+	static bool GetDeliveryDiagnostics(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		double NowSeconds,
+		FOpenMobileSensorStreamDiagnostics& OutDiagnostics
+	);
 	static bool FlushPluginSamples(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,

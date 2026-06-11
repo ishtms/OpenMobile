@@ -66,6 +66,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double LatestSampleAgeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double QueueDelaySeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double GameThreadProcessingSeconds = 0.0;
 };
 
 USTRUCT(BlueprintType)
