@@ -142,6 +142,32 @@ namespace OpenMobileHapticPatternAssetPrivate
 	}
 }
 
+FSoftObjectPath UOpenMobileHapticPatternAsset::GetOverrideForPlatform(
+	EOpenMobileHapticOverridePlatform Platform
+) const
+{
+	if (Platform == EOpenMobileHapticOverridePlatform::Android)
+	{
+		return AndroidOverride.ToSoftObjectPath();
+	}
+	if (Platform == EOpenMobileHapticOverridePlatform::IOS)
+	{
+		return IOSOverride.ToSoftObjectPath();
+	}
+	return {};
+}
+
+FSoftObjectPath UOpenMobileHapticPatternAsset::GetOverrideForCurrentPlatform() const
+{
+#if PLATFORM_ANDROID
+	return AndroidOverride.ToSoftObjectPath();
+#elif PLATFORM_IOS
+	return IOSOverride.ToSoftObjectPath();
+#else
+	return {};
+#endif
+}
+
 bool FOpenMobileHapticCookedPatternData::Serialize(FArchive& Archive)
 {
 	using namespace OpenMobileHapticPatternAssetPrivate;

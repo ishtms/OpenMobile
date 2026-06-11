@@ -6,6 +6,7 @@
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticLibrary.h"
+#include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
@@ -36,6 +37,7 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticsLibraryResolver LibraryResolver;
 	TSharedPtr<FStreamableHandle> LibraryLoadHandle;
 	TSharedPtr<FStreamableHandle> PatternLoadHandle;
+	TSharedPtr<FStreamableHandle> OverrideLoadHandle;
 	TArray<FSoftObjectPath> LoadingLibraryPaths;
 	TArray<TWeakObjectPtr<UOpenMobileHapticLibrary>> LoadingLibraries;
 	FOpenMobileHapticLibraryPreloadHandle ActiveLibraryPreload;
@@ -724,6 +726,61 @@ void UOpenMobileHapticsSubsystem::HandleNamedPatternsLoaded(
 	{
 		return;
 	}
+	TArray<FSoftObjectPath> OverridePaths;
+	for (const TWeakObjectPtr<UOpenMobileHapticLibrary>& Library :
+		State->LoadingLibraries)
+	{
+		if (!Library.IsValid())
+		{
+			continue;
+		}
+		for (const FOpenMobileHapticLibraryEntry& Entry : Library->Patterns)
+		{
+			const UOpenMobileHapticPatternAsset* Pattern = Entry.Pattern.Get();
+			if (Pattern)
+			{
+				const FSoftObjectPath Override =
+					Pattern->GetOverrideForCurrentPlatform();
+				if (!Override.IsNull())
+				{
+					OverridePaths.AddUnique(Override);
+				}
+			}
+		}
+	}
+	if (OverridePaths.IsEmpty())
+	{
+		HandleNamedOverridesLoaded(Generation, Handle);
+		return;
+	}
+	State->OverrideLoadHandle =
+		UAssetManager::GetStreamableManager().RequestAsyncLoad(
+			MoveTemp(OverridePaths),
+			FStreamableDelegate::CreateUObject(
+				this,
+				&UOpenMobileHapticsSubsystem::HandleNamedOverridesLoaded,
+				Generation,
+				Handle
+			),
+			FStreamableManager::DefaultAsyncLoadPriority,
+			false,
+			false,
+			TEXT("OpenMobile Haptics platform overrides")
+		);
+}
+
+void UOpenMobileHapticsSubsystem::HandleNamedOverridesLoaded(
+	uint64 Generation,
+	FOpenMobileHapticLibraryPreloadHandle Handle
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State
+		|| State->ActiveLibraryPreload != Handle
+		|| State->LibraryResolver.GetGeneration() != Generation)
+	{
+		return;
+	}
 
 	TArray<UOpenMobileHapticLibrary*> LoadedLibraries;
 	LoadedLibraries.Reserve(State->LoadingLibraries.Num());
@@ -781,6 +838,11 @@ void UOpenMobileHapticsSubsystem::FinishNamedLibraryPreload(
 			State->PatternLoadHandle->ReleaseHandle();
 			State->PatternLoadHandle.Reset();
 		}
+		if (State->OverrideLoadHandle)
+		{
+			State->OverrideLoadHandle->ReleaseHandle();
+			State->OverrideLoadHandle.Reset();
+		}
 	}
 	OnNamedLibrariesPrepared.Broadcast(Result);
 }
@@ -806,6 +868,12 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 		State->PatternLoadHandle->CancelHandle();
 		State->PatternLoadHandle->ReleaseHandle();
 		State->PatternLoadHandle.Reset();
+	}
+	if (State->OverrideLoadHandle)
+	{
+		State->OverrideLoadHandle->CancelHandle();
+		State->OverrideLoadHandle->ReleaseHandle();
+		State->OverrideLoadHandle.Reset();
 	}
 	State->ActiveLibraryPreload = {};
 	State->LoadingLibraryPaths.Reset();
@@ -1474,6 +1542,15 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 				);
 			LocalState.LastError = Result.Error;
 			return Result;
+		}
+		const UOpenMobileHapticPatternAsset* Pattern =
+			Cast<UOpenMobileHapticPatternAsset>(
+				ResolvedRequest.PatternAsset.ResolveObject()
+			);
+		if (Pattern)
+		{
+			ResolvedRequest.PlatformOverrideAsset =
+				Pattern->GetOverrideForCurrentPlatform();
 		}
 	}
 

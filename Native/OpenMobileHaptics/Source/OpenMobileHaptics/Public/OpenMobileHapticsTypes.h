@@ -670,6 +670,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedPatternRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FSoftObjectPath PatternAsset;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FSoftObjectPath PlatformOverrideAsset;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Intensity = 1.0f;
 

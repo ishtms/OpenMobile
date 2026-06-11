@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsTypes.h"
 #include "OpenMobileHapticPatternAsset.generated.h"
 
@@ -97,10 +98,15 @@ public:
 #endif
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
-	TSoftObjectPtr<UObject> AndroidOverride;
+	TSoftObjectPtr<UOpenMobileHapticAndroidPatternAsset> AndroidOverride;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
-	TSoftObjectPtr<UObject> IOSOverride;
+	TSoftObjectPtr<UOpenMobileHapticIOSPatternAsset> IOSOverride;
+
+	FSoftObjectPath GetOverrideForPlatform(
+		EOpenMobileHapticOverridePlatform Platform
+	) const;
+	FSoftObjectPath GetOverrideForCurrentPlatform() const;
 
 	const FOpenMobileHapticCookedPatternData& GetCookedPattern() const
 	{

@@ -12,7 +12,13 @@ public class OpenMobileHaptics : ModuleRules
 			"CoreUObject",
 			"DeveloperSettings",
 			"Engine",
+			"Json",
 			"OpenMobileCore"
 		});
+
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("TargetPlatform");
+		}
 	}
 }

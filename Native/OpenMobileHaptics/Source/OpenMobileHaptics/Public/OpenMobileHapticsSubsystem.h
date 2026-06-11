@@ -244,6 +244,10 @@ private:
 		uint64 Generation,
 		FOpenMobileHapticLibraryPreloadHandle Handle
 	);
+	void HandleNamedOverridesLoaded(
+		uint64 Generation,
+		FOpenMobileHapticLibraryPreloadHandle Handle
+	);
 	void FinishNamedLibraryPreload(
 		FOpenMobileHapticLibraryPreloadHandle Handle,
 		EOpenMobileHapticLibraryPreloadOutcome Outcome,

@@ -19,8 +19,10 @@
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
@@ -620,9 +622,11 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 	Continuous.DurationSeconds = 0.04;
 	Continuous.Intensity = 0.75f;
 	Asset->SourcePattern.Events.Add(Continuous);
-	Asset->AndroidOverride = TSoftObjectPtr<UObject>(
-		FSoftObjectPath(TEXT("/Game/Haptics/Android.Pattern")));
-	Asset->IOSOverride = TSoftObjectPtr<UObject>(
+	Asset->AndroidOverride =
+		TSoftObjectPtr<UOpenMobileHapticAndroidPatternAsset>(
+			FSoftObjectPath(TEXT("/Game/Haptics/Android.Pattern"))
+		);
+	Asset->IOSOverride = TSoftObjectPtr<UOpenMobileHapticIOSPatternAsset>(
 		FSoftObjectPath(TEXT("/Game/Haptics/IOS.Pattern")));
 
 	TArray<FString> Errors;
@@ -989,6 +993,153 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticPlatformOverrideAssetTest,
+	"OpenMobile.Haptics.Pattern.PlatformOverrides",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticAndroidPatternAsset* Android =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	Android->Format = EOpenMobileHapticAndroidPatternFormat::Primitives;
+	Android->Primitives = {{
+		EOpenMobileHapticAndroidPrimitive::Click,
+		0.8f,
+		0
+	}};
+	TArray<FString> Errors;
+	TestTrue(TEXT("Valid Android primitive asset validates"),
+		Android->Validate(Errors));
+	TestTrue(TEXT("Android override cooks only for Android"),
+		Android->ShouldCookForPlatform(TEXT("Android")));
+	TestFalse(TEXT("Android override is filtered from iOS cooks"),
+		Android->ShouldCookForPlatform(TEXT("IOS")));
+
+	UOpenMobileHapticAndroidPatternAsset* InvalidWaveform =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	InvalidWaveform->Format =
+		EOpenMobileHapticAndroidPatternFormat::Waveform;
+	InvalidWaveform->WaveformTimingsMilliseconds = {0, 20};
+	InvalidWaveform->WaveformAmplitudes = {255};
+	TestFalse(TEXT("Mismatched Android waveform arrays are invalid"),
+		InvalidWaveform->Validate(Errors));
+
+	UOpenMobileHapticIOSPatternAsset* IOS =
+		NewObject<UOpenMobileHapticIOSPatternAsset>();
+	IOS->AHAPJson = TEXT(
+		"{\"Version\":1.0,\"Pattern\":[{\"Event\":"
+		"{\"EventType\":\"HapticTransient\",\"Time\":0}}]}"
+	);
+	TestTrue(TEXT("Valid AHAP asset validates"), IOS->Validate(Errors));
+	TestTrue(TEXT("iOS override cooks only for iOS"),
+		IOS->ShouldCookForPlatform(TEXT("IOS")));
+	TestFalse(TEXT("iOS override is filtered from Android cooks"),
+		IOS->ShouldCookForPlatform(TEXT("Android")));
+	IOS->AHAPJson = TEXT("{invalid");
+	TestFalse(TEXT("Malformed AHAP JSON is invalid"), IOS->Validate(Errors));
+	IOS->AHAPJson = TEXT(
+		"{\"Version\":1.0,\"Pattern\":[{\"Event\":"
+		"{\"EventType\":\"HapticTransient\",\"Time\":0}}]}"
+	);
+
+	UOpenMobileHapticPatternAsset* Portable =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Portable->SourcePattern.Events.AddDefaulted();
+	TestTrue(TEXT("Portable fallback builds"),
+		Portable->RebuildDerivedData(Errors));
+	Portable->AndroidOverride = Android;
+	Portable->IOSOverride = IOS;
+	TestEqual(TEXT("Android target resolves only the Android override"),
+		Portable->GetOverrideForPlatform(
+			EOpenMobileHapticOverridePlatform::Android),
+		FSoftObjectPath(Android));
+	TestEqual(TEXT("iOS target resolves only the iOS override"),
+		Portable->GetOverrideForPlatform(
+			EOpenMobileHapticOverridePlatform::IOS),
+		FSoftObjectPath(IOS));
+
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsPlatformOverrideResolution Resolution =
+		FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+			*Portable,
+			EOpenMobileHapticOverridePlatform::Android,
+			30,
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Supported primitive override is exact"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::ExactOverride);
+	TestEqual(TEXT("Exact resolution carries the override path"),
+		Resolution.OverrideAsset, FSoftObjectPath(Android));
+
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unsupported override uses the portable pattern"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact-only rejects an unsupported override"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::Rejected);
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+	);
+	TestEqual(TEXT("No-effect policy suppresses unsupported overrides"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::NoEffect);
+	Portable->AndroidOverride = nullptr;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Missing override uses the portable pattern"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Portable->AndroidOverride = InvalidWaveform;
+	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		30,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Invalid override uses the portable pattern"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Portable->AndroidOverride = Android;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		25,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Older Android versions use portable fallback"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
 	return true;
 }
 #endif
