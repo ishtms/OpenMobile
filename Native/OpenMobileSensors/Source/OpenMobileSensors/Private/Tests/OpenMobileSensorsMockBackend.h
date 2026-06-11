@@ -107,6 +107,12 @@ public:
 			InOutRequest.RequestedFrequencyHz =
 				AppliedStartFrequencyForTests.GetValue();
 		}
+		if (StartSensorStreamResult.IsSuccess())
+		{
+			InOutRequest.bNativeBatchingApplied =
+				InOutRequest.bNativeBatchingRequested
+				&& NativeBatchingAppliedForTests.Get(false);
+		}
 		LastStartedPhysicalRequest = InOutRequest;
 		if (StartSensorStreamResult.IsSuccess())
 		{
@@ -132,6 +138,12 @@ public:
 		{
 			InOutRequest.RequestedFrequencyHz =
 				AppliedReconfigureFrequencyForTests.GetValue();
+		}
+		if (ReconfigureSensorStreamResult.IsSuccess())
+		{
+			InOutRequest.bNativeBatchingApplied =
+				InOutRequest.bNativeBatchingRequested
+				&& NativeBatchingAppliedForTests.Get(false);
 		}
 		LastReconfiguredPhysicalRequest = InOutRequest;
 		return ReconfigureSensorStreamResult;
@@ -203,6 +215,11 @@ public:
 	void SetAppliedReconfigureFrequencyForTests(double FrequencyHz)
 	{
 		AppliedReconfigureFrequencyForTests = FrequencyHz;
+	}
+
+	void SetNativeBatchingAppliedForTests(bool bApplied)
+	{
+		NativeBatchingAppliedForTests = bApplied;
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -378,6 +395,7 @@ private:
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
+	TOptional<bool> NativeBatchingAppliedForTests;
 	FOpenMobileSensorBackendStreamHandle LastStartedPhysicalHandle;
 	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
 	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;

@@ -68,11 +68,14 @@ struct FOpenMobileSensorPhysicalStreamRequest
 	bool bAllowDerivedFallback = true;
 	bool bAllowHighSamplingRate = false;
 	bool bLowLatency = false;
+	bool bNativeBatchingRequested = false;
+	bool bNativeBatchingApplied = false;
 
 	bool operator==(
 		const FOpenMobileSensorPhysicalStreamRequest& Other
 	) const
 	{
+		// Applied batching is backend output, not reconfiguration input.
 		return Sensor == Other.Sensor
 			&& RequestedFrequencyHz == Other.RequestedFrequencyHz
 			&& MaximumDeliveryLatencySeconds ==
@@ -80,7 +83,9 @@ struct FOpenMobileSensorPhysicalStreamRequest
 			&& AttitudeReferenceFrame == Other.AttitudeReferenceFrame
 			&& bAllowDerivedFallback == Other.bAllowDerivedFallback
 			&& bAllowHighSamplingRate == Other.bAllowHighSamplingRate
-			&& bLowLatency == Other.bLowLatency;
+			&& bLowLatency == Other.bLowLatency
+			&& bNativeBatchingRequested ==
+				Other.bNativeBatchingRequested;
 	}
 
 	bool operator!=(

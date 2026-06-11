@@ -388,6 +388,50 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		return Snapshot;
 	}
 
+	bool SupportsNativeBatching(
+		const FOpenMobileSensorIdentifier& Sensor
+	)
+	{
+		const FOpenMobileSensorCapabilitySnapshot Snapshot =
+			FOpenMobileSensorsCapabilityService::GetSnapshot();
+		const FOpenMobileSensorCapability* Capability =
+			Snapshot.Sensors.FindByPredicate(
+				[&Sensor](const FOpenMobileSensorCapability& Candidate)
+				{
+					return Candidate.Sensor.Type == Sensor.Type
+						&& (Sensor.InstanceId.IsNone()
+							|| Candidate.Sensor.InstanceId ==
+								Sensor.InstanceId);
+				}
+			);
+		return Capability && Capability->bSupportsNativeBatching;
+	}
+
+	EOpenMobileSensorBatchingMode GetBatchingMode(
+		const FSubscriptionEntry& Entry
+	)
+	{
+		if (Entry.AppliedOptions.bLowLatency
+			|| Entry.AppliedOptions.MaximumDeliveryLatencySeconds <= 0.0)
+		{
+			return EOpenMobileSensorBatchingMode::Disabled;
+		}
+		const FPhysicalStreamEntry* Physical =
+			PhysicalStreams.Find(Entry.PhysicalKey);
+		if (Physical && Physical->Request.bNativeBatchingApplied)
+		{
+			return EOpenMobileSensorBatchingMode::Native;
+		}
+		if (Entry.AppliedOptions.DeliveryMode ==
+				EOpenMobileSensorDeliveryMode::Buffered
+			|| Entry.AppliedOptions.DeliveryMode ==
+				EOpenMobileSensorDeliveryMode::EventBatches)
+		{
+			return EOpenMobileSensorBatchingMode::Plugin;
+		}
+		return EOpenMobileSensorBatchingMode::Unavailable;
+	}
+
 	void BroadcastState(const FSubscriptionEntry& Entry)
 	{
 		const FGuid OwnerIdentifier = Entry.OwnerIdentifier;
@@ -459,6 +503,14 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				Entry.AppliedOptions.bAllowHighSamplingRate;
 			OutRequest.bLowLatency |= Entry.AppliedOptions.bLowLatency;
 		}
+		if (bFound && (OutRequest.bLowLatency
+			|| OutRequest.MaximumDeliveryLatencySeconds <= 0.0))
+		{
+			OutRequest.MaximumDeliveryLatencySeconds = 0.0;
+		}
+		OutRequest.bNativeBatchingRequested = bFound
+			&& OutRequest.MaximumDeliveryLatencySeconds > 0.0
+			&& SupportsNativeBatching(Key.Sensor);
 		return bFound;
 	}
 
@@ -1177,11 +1229,7 @@ FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
 			Entry.RateResolution.RequestedFrequencyHz;
 		Diagnostics.Rate.AppliedFrequencyHz =
 			Entry.RateResolution.AppliedNativeFrequencyHz;
-		Diagnostics.BatchingMode =
-			Entry.AppliedOptions.DeliveryMode ==
-				EOpenMobileSensorDeliveryMode::LatestValue
-			? EOpenMobileSensorBatchingMode::Disabled
-			: EOpenMobileSensorBatchingMode::Plugin;
+		Diagnostics.BatchingMode = GetBatchingMode(Entry);
 	}
 	return Streams;
 }
