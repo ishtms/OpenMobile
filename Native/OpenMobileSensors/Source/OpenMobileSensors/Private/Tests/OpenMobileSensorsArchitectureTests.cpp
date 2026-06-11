@@ -214,6 +214,8 @@ bool FOpenMobileSensorsSubscriptionOwnershipTest::RunTest(
 		FirstSubsystem->StartSubscriptionNative(Request);
 	const FOpenMobileSensorSubscriptionResult Second =
 		SecondSubsystem->StartSubscriptionNative(Request);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
 	TestEqual(
 		TEXT("First owner receives an accepted handle"),
 		First.Operation.Code,

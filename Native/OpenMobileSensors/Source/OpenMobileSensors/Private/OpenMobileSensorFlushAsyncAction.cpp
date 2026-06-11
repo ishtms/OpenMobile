@@ -25,7 +25,7 @@ void UOpenMobileSensorFlushAsyncAction::Activate()
 	}
 
 	TWeakObjectPtr<UOpenMobileSensorFlushAsyncAction> WeakThis(this);
-	GetSensorsSubsystem()->FlushNative(
+	RequestId = GetSensorsSubsystem()->FlushNative(
 		Handle,
 		FOnOpenMobileSensorFlushComplete::CreateLambda(
 			[WeakThis](const FOpenMobileSensorFlushResult& InResult)
@@ -37,6 +37,14 @@ void UOpenMobileSensorFlushAsyncAction::Activate()
 			}
 		)
 	);
+}
+
+void UOpenMobileSensorFlushAsyncAction::CancelNativeOperation()
+{
+	if (RequestId.IsValid() && GetSensorsSubsystem())
+	{
+		GetSensorsSubsystem()->CancelFlushNative(RequestId);
+	}
 }
 
 void UOpenMobileSensorFlushAsyncAction::OnActionSucceeded()

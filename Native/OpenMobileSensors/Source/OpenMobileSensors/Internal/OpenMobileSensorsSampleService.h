@@ -90,6 +90,11 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOpenMobileSensorRateDiagnostics& OutRate
 	);
+	static bool FlushPluginSamples(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int32& OutSampleCount
+	);
 
 	static void PublishVector(const FOpenMobileVectorSensorSample& Sample);
 	static void PublishAttitude(const FOpenMobileAttitudeSensorSample& Sample);

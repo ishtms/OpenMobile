@@ -319,6 +319,7 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOnOpenMobileSensorFlushComplete&& Completion
 	);
+	bool CancelFlushNative(FGuid RequestId);
 	FGuid RecenterNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode,

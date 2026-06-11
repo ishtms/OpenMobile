@@ -45,6 +45,8 @@ public:
 		StartSensorStreamResult.Code = EOpenMobileSensorResultCode::Success;
 		ReconfigureSensorStreamResult.Code =
 			EOpenMobileSensorResultCode::Success;
+		FlushSensorStreamResult.Code =
+			EOpenMobileSensorResultCode::NotSupported;
 	}
 
 	virtual FName GetBackendName() const override
@@ -157,10 +159,32 @@ public:
 		ActiveSensorStreams.Remove(Handle);
 	}
 
+	virtual FOpenMobileSensorOperationResult FlushSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FGuid& RequestId,
+		FOnOpenMobileSensorBackendFlushComplete&& Completion
+	) override
+	{
+		++FlushSensorStreamCount;
+		LastFlushRequestId = RequestId;
+		if (!ActiveSensorStreams.Contains(Handle))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidHandle
+			);
+		}
+		if (FlushSensorStreamResult.IsSuccess())
+		{
+			PendingFlushes.Add(RequestId, MoveTemp(Completion));
+		}
+		return FlushSensorStreamResult;
+	}
+
 	virtual void BeginShutdown() override
 	{
 		bShutdown = true;
 		ActiveSensorStreams.Reset();
+		PendingFlushes.Reset();
 		Script.Reset();
 		NextEventIndex = 0;
 		RemainingDelaySeconds = 0.0;
@@ -205,6 +229,28 @@ public:
 	)
 	{
 		ReconfigureSensorStreamResult = MoveTemp(InResult);
+	}
+
+	void SetFlushSensorStreamResult(
+		FOpenMobileSensorOperationResult InResult
+	)
+	{
+		FlushSensorStreamResult = MoveTemp(InResult);
+	}
+
+	void CompleteFlushForTests(
+		const FGuid& RequestId,
+		const FOpenMobileSensorOperationResult& Result
+	)
+	{
+		FOnOpenMobileSensorBackendFlushComplete Completion;
+		if (FOnOpenMobileSensorBackendFlushComplete* Pending =
+			PendingFlushes.Find(RequestId))
+		{
+			Completion = MoveTemp(*Pending);
+			PendingFlushes.Remove(RequestId);
+		}
+		Completion.ExecuteIfBound(RequestId, Result);
 	}
 
 	void SetAppliedStartFrequencyForTests(double FrequencyHz)
@@ -358,6 +404,16 @@ public:
 		return StopSensorStreamCount;
 	}
 
+	int32 GetFlushSensorStreamCount() const
+	{
+		return FlushSensorStreamCount;
+	}
+
+	const FGuid& GetLastFlushRequestId() const
+	{
+		return LastFlushRequestId;
+	}
+
 	const FOpenMobileSensorPhysicalStreamRequest&
 	GetLastStartedPhysicalRequest() const
 	{
@@ -393,6 +449,7 @@ private:
 	mutable int32 LastMutableSensorMetadataRefreshCount = 0;
 	FOpenMobileSensorOperationResult StartSensorStreamResult;
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
+	FOpenMobileSensorOperationResult FlushSensorStreamResult;
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
 	TOptional<bool> NativeBatchingAppliedForTests;
@@ -400,9 +457,12 @@ private:
 	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
 	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;
 	TSet<FOpenMobileSensorBackendStreamHandle> ActiveSensorStreams;
+	TMap<FGuid, FOnOpenMobileSensorBackendFlushComplete> PendingFlushes;
 	int32 StartSensorStreamCount = 0;
 	int32 ReconfigureSensorStreamCount = 0;
 	int32 StopSensorStreamCount = 0;
+	int32 FlushSensorStreamCount = 0;
+	FGuid LastFlushRequestId;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;
 	double RemainingDelaySeconds = 0.0;

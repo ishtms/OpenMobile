@@ -361,26 +361,26 @@ FGuid UOpenMobileSensorsSubsystem::FlushNative(
 )
 {
 	const FGuid RequestId = FGuid::NewGuid();
-	FOpenMobileSensorFlushResult Result;
-	Result.RequestId = RequestId;
-	Result.Handle = Handle;
-	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+	FOpenMobileSensorsSubscriptionService::FlushSubscription(
 		SubscriptionOwnerIdentifier,
-		Handle
-	);
-	if (Result.Operation.IsSuccess())
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::UnsupportedOperation
-		);
-	}
-	OpenMobile::DispatchToGameThread(
-		[Completion = MoveTemp(Completion), Result]() mutable
+		Handle,
+		RequestId,
+		[Completion = MoveTemp(Completion)](
+			const FOpenMobileSensorFlushResult& Result
+		) mutable
 		{
 			Completion.ExecuteIfBound(Result);
 		}
 	);
 	return RequestId;
+}
+
+bool UOpenMobileSensorsSubsystem::CancelFlushNative(FGuid RequestId)
+{
+	return FOpenMobileSensorsSubscriptionService::CancelFlush(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
 }
 
 FGuid UOpenMobileSensorsSubsystem::RecenterNative(

@@ -1,7 +1,9 @@
 #include "OpenMobileSensorsSubscriptionService.h"
 
 #include "Containers/Ticker.h"
+#include "HAL/PlatformTime.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileAsync.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -62,10 +64,22 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		IOpenMobileSensorsBackend* Backend = nullptr;
 	};
 
+	struct FPendingFlush
+	{
+		FGuid OwnerIdentifier;
+		FOpenMobileSensorSubscriptionHandle Handle;
+		FOpenMobileSensorBackendStreamHandle PhysicalStreamHandle;
+		FOpenMobileSensorsBackendToken BackendToken;
+		double DeadlineSeconds = 0.0;
+		TFunction<void(const FOpenMobileSensorFlushResult&)> Completion;
+	};
+
 	TMap<FGuid, FSubscriptionEntry> Subscriptions;
 	TMap<FPhysicalStreamKey, FPhysicalStreamEntry> PhysicalStreams;
 	FOnOpenMobileSensorSubscriptionServiceStateChanged StateChangedEvent;
 	FTSTicker::FDelegateHandle PendingOperationsTickHandle;
+	FTSTicker::FDelegateHandle FlushTimeoutTickHandle;
+	TMap<FGuid, FPendingFlush> PendingFlushes;
 	uint32 NextHandleGeneration = 1;
 	bool bShuttingDown = false;
 
@@ -388,6 +402,173 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		return Snapshot;
 	}
 
+	void CancelFlushTimeoutTick()
+	{
+		if (FlushTimeoutTickHandle.IsValid())
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(FlushTimeoutTickHandle);
+			FlushTimeoutTickHandle.Reset();
+		}
+	}
+
+	void CompleteFlush(
+		const FGuid& RequestId,
+		FOpenMobileSensorOperationResult Operation
+	)
+	{
+		FPendingFlush Pending;
+		if (!PendingFlushes.RemoveAndCopyValue(RequestId, Pending))
+		{
+			return;
+		}
+		FOpenMobileSensorFlushResult Result;
+		Result.RequestId = RequestId;
+		Result.Handle = Pending.Handle;
+		Result.Operation = MoveTemp(Operation);
+		if (Result.Operation.IsSuccess()
+			&& !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
+				Pending.BackendToken
+			))
+		{
+			Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::Cancelled
+			);
+		}
+		if (Result.Operation.IsSuccess()
+			&& !FOpenMobileSensorsSampleService::FlushPluginSamples(
+				Pending.OwnerIdentifier,
+				Pending.Handle,
+				Result.FlushedSamples
+			))
+		{
+			Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::StaleHandle
+			);
+			Result.FlushedSamples = 0;
+		}
+		if (PendingFlushes.IsEmpty())
+		{
+			CancelFlushTimeoutTick();
+		}
+		if (Pending.Completion)
+		{
+			Pending.Completion(Result);
+		}
+	}
+
+	void ProcessFlushTimeouts(double NowSeconds)
+	{
+		TArray<FGuid> TimedOutRequests;
+		for (const TPair<FGuid, FPendingFlush>& Pair : PendingFlushes)
+		{
+			if (NowSeconds >= Pair.Value.DeadlineSeconds)
+			{
+				TimedOutRequests.Add(Pair.Key);
+			}
+		}
+		for (const FGuid& RequestId : TimedOutRequests)
+		{
+			CompleteFlush(
+				RequestId,
+				FOpenMobileSensorsErrorMapper::Map(
+					EOpenMobileSensorFailureReason::OperationalFailure,
+					TEXT("OpenMobileSensors"),
+					TEXT("FlushTimeout")
+				)
+			);
+		}
+	}
+
+	bool TickFlushTimeouts(float DeltaSeconds)
+	{
+		static_cast<void>(DeltaSeconds);
+		FlushTimeoutTickHandle.Reset();
+		ProcessFlushTimeouts(FPlatformTime::Seconds());
+		if (!PendingFlushes.IsEmpty())
+		{
+			FlushTimeoutTickHandle =
+				FTSTicker::GetCoreTicker().AddTicker(
+					FTickerDelegate::CreateStatic(&TickFlushTimeouts),
+					0.1f
+				);
+		}
+		return false;
+	}
+
+	void EnsureFlushTimeoutTick()
+	{
+		if (!FlushTimeoutTickHandle.IsValid())
+		{
+			FlushTimeoutTickHandle =
+				FTSTicker::GetCoreTicker().AddTicker(
+					FTickerDelegate::CreateStatic(&TickFlushTimeouts),
+					0.1f
+				);
+		}
+	}
+
+	void CancelFlushesForPhysicalStream(
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle
+	)
+	{
+		TArray<FGuid> RequestIds;
+		for (const TPair<FGuid, FPendingFlush>& Pair : PendingFlushes)
+		{
+			if (Pair.Value.PhysicalStreamHandle == PhysicalStreamHandle)
+			{
+				RequestIds.Add(Pair.Key);
+			}
+		}
+		for (const FGuid& RequestId : RequestIds)
+		{
+			CompleteFlush(
+				RequestId,
+				FOpenMobileSensorsErrorMapper::Map(
+					EOpenMobileSensorFailureReason::Cancelled
+				)
+			);
+		}
+	}
+
+	void CancelFlushesForHandle(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	)
+	{
+		TArray<FGuid> RequestIds;
+		for (const TPair<FGuid, FPendingFlush>& Pair : PendingFlushes)
+		{
+			if (Pair.Value.Handle == Handle)
+			{
+				RequestIds.Add(Pair.Key);
+			}
+		}
+		for (const FGuid& RequestId : RequestIds)
+		{
+			CompleteFlush(
+				RequestId,
+				FOpenMobileSensorsErrorMapper::Map(
+					EOpenMobileSensorFailureReason::Cancelled
+				)
+			);
+		}
+	}
+
+	void CancelAllFlushes()
+	{
+		TArray<FGuid> RequestIds;
+		PendingFlushes.GetKeys(RequestIds);
+		for (const FGuid& RequestId : RequestIds)
+		{
+			CompleteFlush(
+				RequestId,
+				FOpenMobileSensorsErrorMapper::Map(
+					EOpenMobileSensorFailureReason::Cancelled
+				)
+			);
+		}
+		CancelFlushTimeoutTick();
+	}
+
 	bool SupportsNativeBatching(
 		const FOpenMobileSensorIdentifier& Sensor
 	)
@@ -451,6 +632,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		{
 			return;
 		}
+		const FOpenMobileSensorSubscriptionHandle EntryHandle = Entry->Handle;
 		Entry->State = State;
 		Entry->Error = Error;
 		FOpenMobileSensorsSampleService::SetSubscriptionState(
@@ -458,6 +640,13 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			State
 		);
 		BroadcastState(*Entry);
+		if (State == EOpenMobileSensorSubscriptionState::Paused
+			|| State == EOpenMobileSensorSubscriptionState::Stopping
+			|| State == EOpenMobileSensorSubscriptionState::Stopped
+			|| State == EOpenMobileSensorSubscriptionState::Failed)
+		{
+			CancelFlushesForHandle(EntryHandle);
+		}
 	}
 
 	bool BuildPhysicalRequest(
@@ -703,10 +892,17 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			}
 			else
 			{
-				Operation = Backend->ReconfigureSensorStream(
-					ExistingPhysical->Handle,
-					DesiredRequest
-				);
+				const FOpenMobileSensorBackendStreamHandle ExistingHandle =
+					ExistingPhysical->Handle;
+				CancelFlushesForPhysicalStream(ExistingHandle);
+				ExistingPhysical = PhysicalStreams.Find(Key);
+				if (ExistingPhysical)
+				{
+					Operation = Backend->ReconfigureSensorStream(
+						ExistingPhysical->Handle,
+						DesiredRequest
+					);
+				}
 			}
 		}
 		else
@@ -817,6 +1013,7 @@ void FOpenMobileSensorsSubscriptionService::Start()
 	check(IsInGameThread());
 	using namespace OpenMobileSensorsSubscriptionServicePrivate;
 	CancelPendingOperationsTick();
+	CancelAllFlushes();
 	bShuttingDown = false;
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
@@ -833,6 +1030,7 @@ void FOpenMobileSensorsSubscriptionService::BeginShutdown()
 	}
 	bShuttingDown = true;
 	CancelPendingOperationsTick();
+	CancelAllFlushes();
 	StopPhysicalStreams();
 	Subscriptions.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
@@ -844,6 +1042,7 @@ void FOpenMobileSensorsSubscriptionService::HandleBackendGenerationChanged()
 	check(IsInGameThread());
 	using namespace OpenMobileSensorsSubscriptionServicePrivate;
 	CancelPendingOperationsTick();
+	CancelAllFlushes();
 	StopPhysicalStreams();
 	Subscriptions.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
@@ -995,6 +1194,19 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 			EOpenMobileSensorFailureReason::UnsupportedOperation
 		);
 	}
+	if (Entry->State == EOpenMobileSensorSubscriptionState::Active)
+	{
+		if (const FPhysicalStreamEntry* Physical =
+			PhysicalStreams.Find(Entry->PhysicalKey))
+		{
+			CancelFlushesForPhysicalStream(Physical->Handle);
+			Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+			if (!Entry)
+			{
+				return MakeHandleFailure(Handle);
+			}
+		}
+	}
 
 	const FOpenMobileSensorStreamOptions PreviousRequested =
 		Entry->Request.Options;
@@ -1087,6 +1299,16 @@ FOpenMobileSensorsSubscriptionService::StopSubscription(
 	if (Entry->State == EOpenMobileSensorSubscriptionState::Stopping)
 	{
 		return MakeSuccess();
+	}
+	if (const FPhysicalStreamEntry* Physical =
+		PhysicalStreams.Find(Entry->PhysicalKey))
+	{
+		CancelFlushesForPhysicalStream(Physical->Handle);
+		Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+		if (!Entry)
+		{
+			return MakeSuccess();
+		}
 	}
 	const FSubscriptionEntry StoppedEntry = *Entry;
 	SetState(
@@ -1196,6 +1418,156 @@ bool FOpenMobileSensorsSubscriptionService::IsHandleCurrent(
 		&& FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
 			Entry->BackendToken
 		);
+}
+
+void FOpenMobileSensorsSubscriptionService::FlushSubscription(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	const FGuid& RequestId,
+	TFunction<void(const FOpenMobileSensorFlushResult&)>&& Completion
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	auto FinishImmediately = [&Completion, &Handle, &RequestId](
+		const FOpenMobileSensorOperationResult& Operation
+	)
+	{
+		FOpenMobileSensorFlushResult Result;
+		Result.RequestId = RequestId;
+		Result.Handle = Handle;
+		Result.Operation = Operation;
+		if (Completion)
+		{
+			Completion(Result);
+		}
+	};
+	if (!RequestId.IsValid() || PendingFlushes.Contains(RequestId))
+	{
+		FinishImmediately(FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
+		));
+		return;
+	}
+	FSubscriptionEntry* Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+	if (!Entry)
+	{
+		FinishImmediately(MakeHandleFailure(Handle));
+		return;
+	}
+	if (Entry->State != EOpenMobileSensorSubscriptionState::Active)
+	{
+		FinishImmediately(FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		));
+		return;
+	}
+	FPhysicalStreamEntry* Physical = PhysicalStreams.Find(Entry->PhysicalKey);
+	if (!Physical
+		|| !Physical->Backend
+		|| !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
+			Physical->BackendToken
+		))
+	{
+		FinishImmediately(FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		));
+		return;
+	}
+	const bool bHasNativeFlush =
+		Physical->Request.bNativeBatchingApplied;
+	const bool bHasPluginFlush =
+		Entry->AppliedOptions.DeliveryMode ==
+			EOpenMobileSensorDeliveryMode::Buffered
+		|| Entry->AppliedOptions.DeliveryMode ==
+			EOpenMobileSensorDeliveryMode::EventBatches;
+	if (!bHasNativeFlush && !bHasPluginFlush)
+	{
+		FinishImmediately(FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		));
+		return;
+	}
+	for (const TPair<FGuid, FPendingFlush>& Pair : PendingFlushes)
+	{
+		if (Pair.Value.PhysicalStreamHandle == Physical->Handle)
+		{
+			FinishImmediately(FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::OperationalFailure,
+				TEXT("OpenMobileSensors"),
+				TEXT("ConcurrentFlush")
+			));
+			return;
+		}
+	}
+	FPendingFlush Pending;
+	Pending.OwnerIdentifier = OwnerIdentifier;
+	Pending.Handle = Handle;
+	Pending.PhysicalStreamHandle = Physical->Handle;
+	Pending.BackendToken = Physical->BackendToken;
+	Pending.DeadlineSeconds = FPlatformTime::Seconds() + 5.0;
+	Pending.Completion = MoveTemp(Completion);
+	PendingFlushes.Add(RequestId, MoveTemp(Pending));
+	if (!bHasNativeFlush)
+	{
+		CompleteFlush(RequestId, MakeSuccess());
+		return;
+	}
+	IOpenMobileSensorsBackend* Backend = Physical->Backend;
+	const FOpenMobileSensorBackendStreamHandle PhysicalHandle = Physical->Handle;
+	const FOpenMobileSensorOperationResult Operation =
+		Backend->FlushSensorStream(
+			PhysicalHandle,
+			RequestId,
+			FOnOpenMobileSensorBackendFlushComplete::CreateLambda(
+				[RequestId](
+					const FGuid& CallbackRequestId,
+					const FOpenMobileSensorOperationResult& CallbackOperation
+				)
+				{
+					if (CallbackRequestId != RequestId)
+					{
+						return;
+					}
+					OpenMobile::DispatchToGameThread(
+						[RequestId, CallbackOperation]()
+						{
+							CompleteFlush(RequestId, CallbackOperation);
+						}
+					);
+				}
+			)
+		);
+	if (!Operation.IsSuccess())
+	{
+		CompleteFlush(RequestId, Operation);
+		return;
+	}
+	if (PendingFlushes.Contains(RequestId))
+	{
+		EnsureFlushTimeoutTick();
+	}
+}
+
+bool FOpenMobileSensorsSubscriptionService::CancelFlush(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	const FPendingFlush* Pending = PendingFlushes.Find(RequestId);
+	if (!Pending || Pending->OwnerIdentifier != OwnerIdentifier)
+	{
+		return false;
+	}
+	CompleteFlush(
+		RequestId,
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::Cancelled
+		)
+	);
+	return true;
 }
 
 TArray<FOpenMobileSensorStreamDiagnostics>
@@ -1337,11 +1709,34 @@ ProcessPendingBackendOperationsForTests()
 		ProcessPendingBackendOperations();
 }
 
+void FOpenMobileSensorsSubscriptionService::ProcessFlushTimeoutsForTests(
+	double NowSeconds
+)
+{
+	check(IsInGameThread());
+	OpenMobileSensorsSubscriptionServicePrivate::ProcessFlushTimeouts(
+		NowSeconds
+	);
+}
+
+void FOpenMobileSensorsSubscriptionService::SetSubscriptionStateForTests(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	EOpenMobileSensorSubscriptionState State
+)
+{
+	check(IsInGameThread());
+	OpenMobileSensorsSubscriptionServicePrivate::SetState(
+		Handle.GetIdentifier(),
+		State
+	);
+}
+
 void FOpenMobileSensorsSubscriptionService::ResetForTests()
 {
 	check(IsInGameThread());
 	using namespace OpenMobileSensorsSubscriptionServicePrivate;
 	CancelPendingOperationsTick();
+	CancelAllFlushes();
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();

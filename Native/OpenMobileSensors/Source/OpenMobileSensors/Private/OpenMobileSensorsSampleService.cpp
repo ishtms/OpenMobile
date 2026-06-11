@@ -819,6 +819,33 @@ namespace OpenMobileSensorsSampleServicePrivate
 			|| !Slot.PendingProximity.IsEmpty();
 	}
 
+	int32 GetPluginSampleCount(const FLatestSlot& Slot)
+	{
+		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches)
+		{
+			return Slot.PendingVector.Num()
+				+ Slot.PendingAttitude.Num()
+				+ Slot.PendingScalar.Num()
+				+ Slot.PendingHeading.Num()
+				+ Slot.PendingSteps.Num()
+				+ Slot.PendingActivity.Num()
+				+ Slot.PendingOrientation.Num()
+				+ Slot.PendingProximity.Num();
+		}
+		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
+		{
+			return Slot.BufferedVector.SampleCount
+				+ Slot.BufferedAttitude.SampleCount
+				+ Slot.BufferedScalar.SampleCount
+				+ Slot.BufferedHeading.SampleCount
+				+ Slot.BufferedSteps.SampleCount
+				+ Slot.BufferedActivity.SampleCount
+				+ Slot.BufferedOrientation.SampleCount
+				+ Slot.BufferedProximity.SampleCount;
+		}
+		return 0;
+	}
+
 	template <typename SampleType, typename BatchType>
 	void GatherDelivery(
 		FLatestSlot& Slot,
@@ -1289,6 +1316,47 @@ bool FOpenMobileSensorsSampleService::GetRateDiagnostics(
 		OutRate.IntervalJitterSeconds = FMath::Sqrt(
 			IntervalVariance / Slot.RateIntervalCount
 		);
+	}
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::FlushPluginSamples(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	int32& OutSampleCount
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	check(IsInGameThread());
+	OutSampleCount = 0;
+	bool bDrainEvents = false;
+	{
+		FReadScopeLock RegistryLock(SlotsLock);
+		const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+		if (!OwnerIdentifier.IsValid()
+			|| !Handle.IsValid()
+			|| !SlotPointer)
+		{
+			return false;
+		}
+		FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+		FLatestSlot& Slot = **SlotPointer;
+		if (Slot.OwnerIdentifier != OwnerIdentifier || Slot.Handle != Handle)
+		{
+			return false;
+		}
+		OutSampleCount = GetPluginSampleCount(Slot);
+		bDrainEvents =
+			Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches
+			&& OutSampleCount > 0;
+		if (bDrainEvents)
+		{
+			Slot.bHasCallbackTime = false;
+		}
+	}
+	if (bDrainEvents)
+	{
+		DrainPendingEvents(FPlatformTime::Seconds());
 	}
 	return true;
 }

@@ -6,6 +6,12 @@
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorsBackendTypes.h"
 
+DECLARE_DELEGATE_TwoParams(
+	FOnOpenMobileSensorBackendFlushComplete,
+	const FGuid&,
+	const FOpenMobileSensorOperationResult&
+);
+
 class IOpenMobileSensorsBackend : public IModularFeature
 {
 public:
@@ -87,6 +93,26 @@ public:
 	)
 	{
 		static_cast<void>(Handle);
+	}
+
+	virtual FOpenMobileSensorOperationResult FlushSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FGuid& RequestId,
+		FOnOpenMobileSensorBackendFlushComplete&& Completion
+	)
+	{
+		static_cast<void>(Handle);
+		static_cast<void>(RequestId);
+		static_cast<void>(Completion);
+		FOpenMobileSensorOperationResult Result;
+		Result.Code = EOpenMobileSensorResultCode::NotSupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The backend cannot flush this sensor stream."),
+			{},
+			TEXT("OpenMobileSensors")
+		);
+		return Result;
 	}
 
 	virtual void BeginShutdown() {}

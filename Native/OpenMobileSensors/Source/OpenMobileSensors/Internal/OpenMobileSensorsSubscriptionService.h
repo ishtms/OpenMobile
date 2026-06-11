@@ -47,6 +47,16 @@ public:
 	static bool IsHandleCurrent(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+	static void FlushSubscription(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FGuid& RequestId,
+		TFunction<void(const FOpenMobileSensorFlushResult&)>&& Completion
+	);
+	static bool CancelFlush(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
 	static TArray<FOpenMobileSensorStreamDiagnostics> GetStreamDiagnostics(
 		const FGuid& OwnerIdentifier
 	);
@@ -68,6 +78,11 @@ public:
 	);
 	static int32 GetPhysicalStreamCountForTests();
 	static void ProcessPendingBackendOperationsForTests();
+	static void ProcessFlushTimeoutsForTests(double NowSeconds);
+	static void SetSubscriptionStateForTests(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		EOpenMobileSensorSubscriptionState State
+	);
 	static void ResetForTests();
 #endif
 };

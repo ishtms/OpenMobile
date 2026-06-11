@@ -35,6 +35,7 @@ public:
 	virtual void Activate() override;
 
 protected:
+	virtual void CancelNativeOperation() override;
 	virtual void OnActionSucceeded() override;
 	virtual void OnActionFailed(const FOpenMobileError& Error) override;
 	virtual void OnActionCancelled(const FOpenMobileError& Error) override;
@@ -46,5 +47,6 @@ private:
 	TObjectPtr<UObject> WorldContextObject;
 
 	FOpenMobileSensorSubscriptionHandle Handle;
+	FGuid RequestId;
 	FOpenMobileSensorFlushResult Result;
 };
