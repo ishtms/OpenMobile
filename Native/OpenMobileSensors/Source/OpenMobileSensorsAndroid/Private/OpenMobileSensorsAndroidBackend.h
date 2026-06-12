@@ -11,6 +11,8 @@ public:
 	virtual ~FOpenMobileSensorsAndroidBackend() override;
 	virtual FName GetBackendName() const override;
 	virtual FOpenMobileCapability GetBackendCapability() const override;
+	virtual bool RequiresHighSamplingRateDeclaration() const override;
+	virtual bool HasHighSamplingRateDeclaration() const override;
 	virtual void BeginShutdown() override;
 
 	bool PublishVectorBatchFromHandler(

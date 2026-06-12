@@ -268,6 +268,20 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 					EOpenMobileSensorRateAdjustmentReason::ProjectPolicy;
 			}
 		}
+		if (OutApplied.CustomFrequencyHz > NormalMaximumFrequencyHz)
+		{
+			const IOpenMobileSensorsBackend* Backend =
+				FOpenMobileSensorsBackendRegistry::FindBackend();
+			if (Backend
+				&& Backend->RequiresHighSamplingRateDeclaration()
+				&& !Backend->HasHighSamplingRateDeclaration())
+			{
+				OutApplied.CustomFrequencyHz = NormalMaximumFrequencyHz;
+				OutResolution.AdjustmentReason =
+					EOpenMobileSensorRateAdjustmentReason::
+						MissingPlatformDeclaration;
+			}
+		}
 		OutApplied.MaximumCallbackFrequencyHz = FMath::Min(
 			OutApplied.MaximumCallbackFrequencyHz,
 			OutApplied.CustomFrequencyHz
@@ -709,9 +723,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 
 	void UpdateAppliedNativeRate(
 		const FPhysicalStreamKey& Key,
-		double AppliedNativeFrequencyHz
+		const FOpenMobileSensorPhysicalStreamRequest& AppliedRequest
 	)
 	{
+		const double AppliedNativeFrequencyHz =
+			AppliedRequest.RequestedFrequencyHz;
 		if (!FMath::IsFinite(AppliedNativeFrequencyHz)
 			|| AppliedNativeFrequencyHz <= 0.0)
 		{
@@ -733,7 +749,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				Entry.RateResolution.ClampedFrequencyHz)
 			{
 				Entry.RateResolution.AdjustmentReason =
-					EOpenMobileSensorRateAdjustmentReason::BackendLimit;
+					AppliedRequest.AppliedRateAdjustmentReason !=
+						EOpenMobileSensorRateAdjustmentReason::None
+					? AppliedRequest.AppliedRateAdjustmentReason
+					: EOpenMobileSensorRateAdjustmentReason::BackendLimit;
 			}
 		}
 	}
@@ -822,7 +841,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			Physical->Request = MoveTemp(AppliedRequest);
 			UpdateAppliedNativeRate(
 				Key,
-				Physical->Request.RequestedFrequencyHz
+				Physical->Request
 			);
 		}
 	}
@@ -940,7 +959,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			}
 			UpdateAppliedNativeRate(
 				Key,
-				DesiredRequest.RequestedFrequencyHz
+				DesiredRequest
 			);
 			for (const FGuid& Identifier : StartingIdentifiers)
 			{
@@ -1252,7 +1271,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	{
 		UpdateAppliedNativeRate(
 			PreviousKey,
-			Physical->Request.RequestedFrequencyHz
+			Physical->Request
 		);
 		FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 			Handle,
@@ -1278,7 +1297,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	Physical->Request = MoveTemp(BackendRequest);
 	UpdateAppliedNativeRate(
 		PreviousKey,
-		Physical->Request.RequestedFrequencyHz
+		Physical->Request
 	);
 	FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 		Handle,

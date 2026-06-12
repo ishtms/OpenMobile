@@ -1,3 +1,4 @@
+using System.IO;
 using UnrealBuildTool;
 
 public class OpenMobileSensorsAndroid : ModuleRules
@@ -12,5 +13,19 @@ public class OpenMobileSensorsAndroid : ModuleRules
 			"Launch",
 			"OpenMobileSensors"
 		});
+
+		PrivateIncludePathModuleNames.Add("Launch");
+
+		string ModulePath = Utils.MakePathRelativeTo(
+			ModuleDirectory,
+			Target.RelativeEnginePath
+		);
+		AdditionalPropertiesForReceipt.Add(
+			"AndroidPlugin",
+			Path.Combine(
+				ModulePath,
+				"Private/Android/OpenMobileSensors_Android_UPL.xml"
+			)
+		);
 	}
 }

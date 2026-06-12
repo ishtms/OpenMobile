@@ -70,12 +70,14 @@ struct FOpenMobileSensorPhysicalStreamRequest
 	bool bLowLatency = false;
 	bool bNativeBatchingRequested = false;
 	bool bNativeBatchingApplied = false;
+	EOpenMobileSensorRateAdjustmentReason AppliedRateAdjustmentReason =
+		EOpenMobileSensorRateAdjustmentReason::None;
 
 	bool operator==(
 		const FOpenMobileSensorPhysicalStreamRequest& Other
 	) const
 	{
-		// Applied batching is backend output, not reconfiguration input.
+		// Backend outputs are not reconfiguration inputs.
 		return Sensor == Other.Sensor
 			&& RequestedFrequencyHz == Other.RequestedFrequencyHz
 			&& MaximumDeliveryLatencySeconds ==

@@ -64,6 +64,16 @@ public:
 		return bAvailable;
 	}
 
+	virtual bool RequiresHighSamplingRateDeclaration() const override
+	{
+		return bHighSamplingRateDeclarationRequired;
+	}
+
+	virtual bool HasHighSamplingRateDeclaration() const override
+	{
+		return bHighSamplingRateDeclarationPresent;
+	}
+
 	virtual FOpenMobileCapability GetBackendCapability() const override
 	{
 		++CapabilityQueryCount;
@@ -114,6 +124,8 @@ public:
 			InOutRequest.bNativeBatchingApplied =
 				InOutRequest.bNativeBatchingRequested
 				&& NativeBatchingAppliedForTests.Get(false);
+			InOutRequest.AppliedRateAdjustmentReason =
+				AppliedRateAdjustmentReasonForTests;
 		}
 		LastStartedPhysicalRequest = InOutRequest;
 		if (StartSensorStreamResult.IsSuccess())
@@ -146,6 +158,8 @@ public:
 			InOutRequest.bNativeBatchingApplied =
 				InOutRequest.bNativeBatchingRequested
 				&& NativeBatchingAppliedForTests.Get(false);
+			InOutRequest.AppliedRateAdjustmentReason =
+				AppliedRateAdjustmentReasonForTests;
 		}
 		LastReconfiguredPhysicalRequest = InOutRequest;
 		return ReconfigureSensorStreamResult;
@@ -266,6 +280,22 @@ public:
 	void SetNativeBatchingAppliedForTests(bool bApplied)
 	{
 		NativeBatchingAppliedForTests = bApplied;
+	}
+
+	void SetHighSamplingRateDeclarationForTests(
+		bool bRequired,
+		bool bPresent
+	)
+	{
+		bHighSamplingRateDeclarationRequired = bRequired;
+		bHighSamplingRateDeclarationPresent = bPresent;
+	}
+
+	void SetAppliedRateAdjustmentReasonForTests(
+		EOpenMobileSensorRateAdjustmentReason Reason
+	)
+	{
+		AppliedRateAdjustmentReasonForTests = Reason;
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -453,6 +483,10 @@ private:
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
 	TOptional<bool> NativeBatchingAppliedForTests;
+	EOpenMobileSensorRateAdjustmentReason AppliedRateAdjustmentReasonForTests =
+		EOpenMobileSensorRateAdjustmentReason::None;
+	bool bHighSamplingRateDeclarationRequired = false;
+	bool bHighSamplingRateDeclarationPresent = true;
 	FOpenMobileSensorBackendStreamHandle LastStartedPhysicalHandle;
 	FOpenMobileSensorPhysicalStreamRequest LastStartedPhysicalRequest;
 	FOpenMobileSensorPhysicalStreamRequest LastReconfiguredPhysicalRequest;

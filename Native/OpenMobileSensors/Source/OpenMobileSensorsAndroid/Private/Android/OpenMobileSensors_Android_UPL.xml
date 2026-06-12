@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<init>
+		<setBoolFromProperty result="OpenMobileSensorsHighSamplingEnabled" ini="Engine" section="/Script/OpenMobileSensors.OpenMobileSensorsSettings" property="bAllowHighSamplingRate" default="false"/>
+	</init>
+
+	<androidManifestUpdates>
+		<if condition="OpenMobileSensorsHighSamplingEnabled">
+			<true>
+				<addPermission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
+			</true>
+		</if>
+	</androidManifestUpdates>
+
+	<gameActivityClassAdditions>
+		<insert>
+	public boolean AndroidThunkJava_OpenMobileSensorsHasHighSamplingRateDeclaration()
+	{
+		if (android.os.Build.VERSION.SDK_INT &lt; 31)
+		{
+			return true;
+		}
+		try
+		{
+			android.content.pm.PackageInfo info;
+			if (android.os.Build.VERSION.SDK_INT &gt;= 33)
+			{
+				info = getPackageManager().getPackageInfo(
+					getPackageName(),
+					android.content.pm.PackageManager.PackageInfoFlags.of(
+						android.content.pm.PackageManager.GET_PERMISSIONS
+					)
+				);
+			}
+			else
+			{
+				info = getPackageManager().getPackageInfo(
+					getPackageName(),
+					android.content.pm.PackageManager.GET_PERMISSIONS
+				);
+			}
+			if (info.requestedPermissions != null)
+			{
+				for (String permission : info.requestedPermissions)
+				{
+					if ("android.permission.HIGH_SAMPLING_RATE_SENSORS".equals(
+						permission
+					))
+					{
+						return true;
+					}
+				}
+			}
+		}
+		catch (Exception exception)
+		{
+			return false;
+		}
+		return false;
+	}
+		</insert>
+	</gameActivityClassAdditions>
+</root>

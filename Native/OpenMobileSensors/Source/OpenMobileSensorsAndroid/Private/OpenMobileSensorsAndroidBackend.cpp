@@ -29,6 +29,50 @@ FOpenMobileSensorsAndroidBackend::GetBackendCapability() const
 	return Capability;
 }
 
+bool FOpenMobileSensorsAndroidBackend::
+RequiresHighSamplingRateDeclaration() const
+{
+	return true;
+}
+
+bool FOpenMobileSensorsAndroidBackend::HasHighSamplingRateDeclaration() const
+{
+#if PLATFORM_ANDROID
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity)
+	{
+		return false;
+	}
+	FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
+	const jmethodID Method = ActivityClass
+		? Env->GetMethodID(
+			*ActivityClass,
+			"AndroidThunkJava_OpenMobileSensorsHasHighSamplingRateDeclaration",
+			"()Z"
+		)
+		: nullptr;
+	if (Env->ExceptionCheck())
+	{
+		Env->ExceptionClear();
+		return false;
+	}
+	if (!Method)
+	{
+		return false;
+	}
+	const bool bDeclared = Env->CallBooleanMethod(Activity, Method) == JNI_TRUE;
+	if (Env->ExceptionCheck())
+	{
+		Env->ExceptionClear();
+		return false;
+	}
+	return bDeclared;
+#else
+	return true;
+#endif
+}
+
 bool FOpenMobileSensorsAndroidBackend::PublishVectorBatchFromHandler(
 	const FOpenMobileSensorsBackendToken& Token,
 	const FOpenMobileSensorBackendStreamHandle& Handle,

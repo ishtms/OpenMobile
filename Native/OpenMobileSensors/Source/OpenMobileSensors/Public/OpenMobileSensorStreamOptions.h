@@ -20,6 +20,8 @@ enum class EOpenMobileSensorRateAdjustmentReason : uint8
 	None,
 	ProjectPolicy,
 	HardwareLimit,
+	MissingPlatformDeclaration,
+	OperatingSystemLimit,
 	BackendLimit
 };
 
