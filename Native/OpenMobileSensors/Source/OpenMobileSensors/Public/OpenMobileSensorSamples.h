@@ -75,6 +75,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 	bool bStatefulProcessingReset = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bUnitsNormalized = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bValid = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

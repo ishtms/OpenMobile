@@ -4,6 +4,7 @@
 
 #include "Misc/ScopeLock.h"
 #include "OpenMobileSensorTimestamp.h"
+#include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsSampleService.h"
 
@@ -45,10 +46,18 @@ bool FOpenMobileSensorsIOSBackend::PublishVectorBatchFromMotionQueue(
 	{
 		return false;
 	}
+	FOpenMobileVectorSensorBatch NormalizedBatch = Batch;
+	for (FOpenMobileVectorSensorSample& Sample : NormalizedBatch.Samples)
+	{
+		FOpenMobileSensorUnitConverter::NormalizeVectorSample(
+			EOpenMobileSensorNativePlatform::IOS,
+			Sample
+		);
+	}
 	return FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
 		Token,
 		Handle,
-		Batch
+		NormalizedBatch
 	);
 }
 

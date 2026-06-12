@@ -677,6 +677,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						Slot.PendingTimestampIssueFlags;
 					Destination.Header.bStatefulProcessingReset =
 						Slot.PendingTimestampIssueFlags != 0;
+					Destination.Header.bUnitsNormalized = true;
 					Slot.PendingTimestampIssueFlags = 0;
 					Slot.LatestTimestampSeconds =
 						Sample.Header.TimestampSeconds;
