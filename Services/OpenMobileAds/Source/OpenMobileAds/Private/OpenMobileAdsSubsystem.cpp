@@ -1372,7 +1372,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
 		FOpenMobileAdsDevelopmentConfiguration::FromMode(
 			Settings->IsDevelopmentTestModeEnabled(),
 			Settings->TestDeviceIdentifiers,
-			Settings->DebugGeography
+			Settings->DebugGeography,
+			Settings->bUseOfficialTestAdUnitIds
 		);
 	ActiveConsentRequest.Privacy = Settings->Privacy;
 	ActiveConsentRequest.Privacy.ChildDirectedTreatment =
@@ -1748,7 +1749,8 @@ UOpenMobileAdsSubsystem::PresentPrivacyOptionsForm()
 		FOpenMobileAdsDevelopmentConfiguration::FromMode(
 			Settings->IsDevelopmentTestModeEnabled(),
 			Settings->TestDeviceIdentifiers,
-			Settings->DebugGeography
+			Settings->DebugGeography,
+			Settings->bUseOfficialTestAdUnitIds
 		);
 	ActiveConsentRequest.Privacy = Settings->Privacy;
 	ActiveConsentRequest.Privacy.ChildDirectedTreatment =
@@ -1875,7 +1877,8 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 		FOpenMobileAdsDevelopmentConfiguration::FromMode(
 			bDevelopmentTestMode,
 			Settings->TestDeviceIdentifiers,
-			Settings->DebugGeography
+			Settings->DebugGeography,
+			Settings->bUseOfficialTestAdUnitIds
 		);
 	Request.Privacy = Settings->Privacy;
 	Request.Privacy.ChildDirectedTreatment =

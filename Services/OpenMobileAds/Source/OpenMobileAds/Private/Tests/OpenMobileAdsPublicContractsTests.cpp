@@ -154,6 +154,21 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Development mode enables official test IDs"), InitializationRequest.Development.bUseTestAdUnitIds);
 	TestTrue(TEXT("Development mode enables consent debug controls"), InitializationRequest.Development.bEnableConsentDebug);
 	TestTrue(TEXT("Development mode enables verbose diagnostics"), InitializationRequest.Development.bEnableVerboseDiagnostics);
+	const FOpenMobileAdsDevelopmentConfiguration MediationTestConfiguration =
+		FOpenMobileAdsDevelopmentConfiguration::FromMode(
+			true,
+			{TEXT("GLOBAL-DEVICE")},
+			EOpenMobileAdsDebugGeography::Disabled,
+			false
+		);
+	TestTrue(
+		TEXT("Mediation test mode keeps test devices enabled"),
+		MediationTestConfiguration.bUseTestDevices
+	);
+	TestFalse(
+		TEXT("Mediation test mode can keep configured ad-unit IDs"),
+		MediationTestConfiguration.bUseTestAdUnitIds
+	);
 	TestEqual(
 		TEXT("Development mode keeps global test-device identifiers"),
 		InitializationRequest.Development.TestDeviceIdentifiers,

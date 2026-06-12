@@ -654,6 +654,19 @@ public:
 		BlueprintReadOnly,
 		Category = "Development",
 		meta = (
+			EditCondition = "bDevelopmentTestMode",
+			DisplayName = "Use Official Test Ad Unit IDs",
+			ToolTip = "Uses provider-owned sample ad-unit IDs in Development/Test Mode. Disable this to test configured mediation ad units while test devices and diagnostics remain enabled."
+		)
+	)
+	bool bUseOfficialTestAdUnitIds = true;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Development",
+		meta = (
 			DisplayName = "Global Test Device Identifiers",
 			ToolTip = "Opaque test-device identifiers shared with the selected ads provider while Development/Test Mode is enabled. Shipping builds reject non-empty values."
 		)

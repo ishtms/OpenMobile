@@ -728,6 +728,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	UOpenMobileAdsSettings* SavedSettings = NewObject<UOpenMobileAdsSettings>();
 	SavedSettings->PreferredProvider = TEXT("ConfiguredAds");
 	SavedSettings->bDevelopmentTestMode = true;
+	SavedSettings->bUseOfficialTestAdUnitIds = false;
 	SavedSettings->TestDeviceIdentifiers.Add(TEXT("GLOBAL-TEST-DEVICE"));
 	SavedSettings->DebugGeography =
 		EOpenMobileAdsDebugGeography::RegulatedUsState;
@@ -791,6 +792,10 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 
 	TestEqual(TEXT("Preferred provider survives restart"), SettingsAfterRestart->PreferredProvider, FName(TEXT("ConfiguredAds")));
 	TestTrue(TEXT("Development test mode survives restart"), SettingsAfterRestart->bDevelopmentTestMode);
+	TestFalse(
+		TEXT("Official test ad-unit policy survives restart"),
+		SettingsAfterRestart->bUseOfficialTestAdUnitIds
+	);
 	TestEqual(
 		TEXT("Global test-device identifiers survive restart"),
 		SettingsAfterRestart->TestDeviceIdentifiers,
@@ -933,6 +938,10 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 	));
 
 	TestFalse(TEXT("Development test mode is off by default"), Settings->bDevelopmentTestMode);
+	TestTrue(
+		TEXT("Development test mode uses official test ad units by default"),
+		Settings->bUseOfficialTestAdUnitIds
+	);
 	TestEqual(
 		TEXT("Consent debug geography is disabled by default"),
 		Settings->DebugGeography,

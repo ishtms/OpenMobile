@@ -87,13 +87,14 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 		bool bEnabled,
 		const TArray<FString>& ConfiguredTestDeviceIdentifiers = {},
 		EOpenMobileAdsDebugGeography ConfiguredDebugGeography =
-			EOpenMobileAdsDebugGeography::Disabled
+			EOpenMobileAdsDebugGeography::Disabled,
+		bool bUseOfficialTestAdUnitIds = true
 	)
 	{
 		FOpenMobileAdsDevelopmentConfiguration Configuration;
 		Configuration.bEnabled = bEnabled;
 		Configuration.bUseTestDevices = bEnabled;
-		Configuration.bUseTestAdUnitIds = bEnabled;
+		Configuration.bUseTestAdUnitIds = bEnabled && bUseOfficialTestAdUnitIds;
 		Configuration.bEnableConsentDebug = bEnabled;
 		Configuration.bEnableVerboseDiagnostics = bEnabled;
 		if (bEnabled)
