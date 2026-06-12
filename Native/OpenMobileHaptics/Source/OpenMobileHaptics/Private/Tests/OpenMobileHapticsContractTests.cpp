@@ -8,6 +8,7 @@
 #include "HAL/FileManager.h"
 #include "IOpenMobileHapticsBackend.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/DataValidation.h"
 #include "Misc/Paths.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
@@ -1345,6 +1346,128 @@ bool FOpenMobileHapticsFallbackLadderTest::RunTest(
 		static_cast<EOpenMobileHapticFallbackFloor>(MAX_uint8);
 	TestFalse(TEXT("Invalid fallback floor fails asset rebuild"),
 		Pattern->RebuildDerivedData(Errors));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsStarterPresetPackTest,
+	"OpenMobile.Haptics.Pattern.StarterPresetPack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsStarterPresetPackTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FSoftObjectPath LibraryPath(TEXT(
+		"/OpenMobileHaptics/StarterPresets/OpenMobileStarterHaptics."
+		"OpenMobileStarterHaptics"
+	));
+	UOpenMobileHapticLibrary* Library = Cast<UOpenMobileHapticLibrary>(
+		LibraryPath.TryLoad()
+	);
+	TestNotNull(TEXT("The built-in starter library is packaged"), Library);
+	if (!Library)
+	{
+		return false;
+	}
+	TestEqual(TEXT("The starter pack has a stable version"),
+		Library->LibraryVersion, 1);
+	TestTrue(TEXT("The starter pack remains small"),
+		Library->Patterns.Num() >= 5 && Library->Patterns.Num() <= 8);
+
+	const TSet<FName> ExpectedNames = {
+		TEXT("OpenMobile.UI.Selection"),
+		TEXT("OpenMobile.UI.Confirm"),
+		TEXT("OpenMobile.Combat.Impact"),
+		TEXT("OpenMobile.Vehicle.Bump"),
+		TEXT("OpenMobile.Reward.Success"),
+		TEXT("OpenMobile.Notification.Warning")
+	};
+	TSet<FName> ActualNames;
+	TSet<FName> ActualCategories;
+	bool bHasFrequencyWarning = false;
+	bool bHasAccessibilityWarning = false;
+	for (const FOpenMobileHapticLibraryEntry& Entry : Library->Patterns)
+	{
+		ActualNames.Add(Entry.Name);
+		UOpenMobileHapticPatternAsset* Pattern = Entry.Pattern.LoadSynchronous();
+		TestNotNull(TEXT("Every starter entry resolves to a pattern"), Pattern);
+		if (!Pattern)
+		{
+			continue;
+		}
+		ActualCategories.Add(Pattern->DefaultCategory);
+		TestEqual(TEXT("Every starter pattern uses format version one"),
+			Pattern->PatternVersion, 1);
+		TestTrue(TEXT("Starter derived data is current"),
+			Pattern->IsDerivedDataCurrent());
+		TestTrue(TEXT("Starter patterns are safe to cook"),
+			!Pattern->GetPackage()->HasAnyPackageFlags(PKG_EditorOnly));
+		TestTrue(TEXT("Starter patterns are foreground only"),
+			!Pattern->bSuitableForBackgroundPlayback);
+		bHasFrequencyWarning |= !Pattern->bSuitableForFrequentRepetition;
+		bHasAccessibilityWarning |=
+			!Pattern->bSuitableForAccessibilitySensitiveUse;
+		const FOpenMobileHapticCookedPatternData& Cooked =
+			Pattern->GetCookedPattern();
+		TestTrue(TEXT("Starter patterns have bounded duration"),
+			Cooked.DurationMicroseconds <= 400000);
+		for (const FOpenMobileHapticCookedPatternEvent& Event : Cooked.Events)
+		{
+			TestTrue(TEXT("Starter intensity remains conservative"),
+				Event.Intensity <= static_cast<uint16>(0.8f * MAX_uint16));
+		}
+#if WITH_EDITOR
+		FDataValidationContext Context;
+		TestEqual(TEXT("Starter asset validation succeeds"),
+			Pattern->IsDataValid(Context), EDataValidationResult::Valid);
+#endif
+	}
+	TestEqual(TEXT("Stable starter names do not drift"),
+		ActualNames.Num(), ExpectedNames.Num());
+	for (const FName ExpectedName : ExpectedNames)
+	{
+		TestTrue(TEXT("Every stable starter name is present"),
+			ActualNames.Contains(ExpectedName));
+	}
+	TestTrue(TEXT("The pack covers UI"), ActualCategories.Contains(TEXT("UI")));
+	TestTrue(TEXT("The pack covers combat and vehicle gameplay"),
+		ActualCategories.Contains(TEXT("Gameplay")));
+	TestTrue(TEXT("The pack covers rewards and notifications"),
+		ActualCategories.Contains(TEXT("Alerts")));
+	TestTrue(TEXT("Frequent repetition cautions are present"),
+		bHasFrequencyWarning);
+	TestTrue(TEXT("Accessibility cautions are present"),
+		bHasAccessibilityWarning);
+	UOpenMobileHapticLibrary* InvalidLibrary = DuplicateObject(
+		Library,
+		GetTransientPackage()
+	);
+	InvalidLibrary->LibraryVersion = 0;
+	TMap<FName, FSoftObjectPath> InvalidLookup;
+	TArray<FString> ValidationErrors;
+	TestFalse(TEXT("Invalid pack versions fail validation"),
+		InvalidLibrary->BuildPatternLookup(InvalidLookup, ValidationErrors));
+	UOpenMobileHapticPatternAsset* InvalidPattern = DuplicateObject(
+		Library->Patterns[0].Pattern.LoadSynchronous(),
+		GetTransientPackage()
+	);
+	InvalidPattern->PatternVersion = 0;
+	TestFalse(TEXT("Invalid pattern versions fail validation"),
+		InvalidPattern->RebuildDerivedData(ValidationErrors));
+
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	TestTrue(TEXT("The starter library is configured by default"),
+		Settings->NamedLibraries.ContainsByPredicate(
+			[&LibraryPath](const FOpenMobileHapticNamedLibrarySettings& Entry)
+			{
+				return Entry.Name == TEXT("OpenMobileStarter")
+					&& Entry.Asset == LibraryPath;
+			}
+		));
 	return true;
 }
 #endif
@@ -3129,6 +3252,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
 
 	FMockBackend Low(TEXT("Low"), 1);
 	Low.Capabilities.Availability =
@@ -3293,6 +3421,7 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(High);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Low);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
 
@@ -3309,6 +3438,11 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
 	FMockBackend Backend(TEXT("Control"));
 	Backend.ControlSupport.bStop = true;
 	Backend.ControlSupport.bStopChannel = true;
@@ -3398,6 +3532,7 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 		Backend.StopAllCount, 2);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
 
@@ -3558,6 +3693,11 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
 	FMockBackend Backend(TEXT("MissingDetails"));
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 
@@ -3625,6 +3765,7 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
 

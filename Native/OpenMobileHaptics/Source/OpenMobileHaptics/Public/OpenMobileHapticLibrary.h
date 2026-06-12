@@ -58,6 +58,9 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticLibrary : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metadata", meta = (ClampMin = "1"))
+	int32 LibraryVersion = 1;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Patterns")
 	TArray<FOpenMobileHapticLibraryEntry> Patterns;
 

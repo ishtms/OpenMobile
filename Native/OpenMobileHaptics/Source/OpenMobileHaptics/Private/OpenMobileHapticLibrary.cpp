@@ -10,6 +10,10 @@ bool UOpenMobileHapticLibrary::BuildPatternLookup(
 ) const
 {
 	Errors.Reset();
+	if (LibraryVersion < 1)
+	{
+		Errors.Add(TEXT("LibraryVersion must be at least one."));
+	}
 	TMap<FName, FSoftObjectPath> ValidPatterns;
 	ValidPatterns.Reserve(Patterns.Num());
 	for (int32 Index = 0; Index < Patterns.Num(); ++Index)

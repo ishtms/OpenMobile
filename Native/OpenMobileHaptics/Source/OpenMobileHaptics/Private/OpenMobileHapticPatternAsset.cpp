@@ -280,6 +280,10 @@ bool UOpenMobileHapticPatternAsset::ValidateMetadata(
 	TArray<FString>& Errors
 ) const
 {
+	if (PatternVersion < 1)
+	{
+		Errors.Add(TEXT("PatternVersion must be at least one."));
+	}
 	if (DefaultCategory.IsNone())
 	{
 		Errors.Add(TEXT("DefaultCategory cannot be empty."));

@@ -74,6 +74,18 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticPatternAsset
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metadata", meta = (ClampMin = "1"))
+	int32 PatternVersion = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Usage")
+	bool bSuitableForFrequentRepetition = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Usage")
+	bool bSuitableForAccessibilitySensitiveUse = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Usage")
+	bool bSuitableForBackgroundPlayback = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Playback")
 	FName DefaultCategory = TEXT("Gameplay");
 

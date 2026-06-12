@@ -17,6 +17,14 @@ namespace OpenMobileHapticsSettingsPrivate
 
 UOpenMobileHapticsSettings::UOpenMobileHapticsSettings()
 {
+	FOpenMobileHapticNamedLibrarySettings StarterLibrary;
+	StarterLibrary.Name = TEXT("OpenMobileStarter");
+	StarterLibrary.Asset = FSoftObjectPath(TEXT(
+		"/OpenMobileHaptics/StarterPresets/OpenMobileStarterHaptics."
+		"OpenMobileStarterHaptics"
+	));
+	NamedLibraries.Add(MoveTemp(StarterLibrary));
+
 	auto AddChannel = [this](
 		FName Name,
 		EOpenMobileHapticChannelPriority Priority,

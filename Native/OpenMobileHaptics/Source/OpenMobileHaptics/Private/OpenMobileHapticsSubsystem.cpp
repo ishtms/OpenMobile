@@ -1514,6 +1514,13 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		LocalState.LastError = Result.Error;
 		return Result;
 	}
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Backend)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedPlaybackResult();
+	}
 
 	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
 	const UOpenMobileHapticsSettings* Settings =
@@ -1556,14 +1563,6 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 			ResolvedRequest.PlatformOverrideAsset =
 				Pattern->GetOverrideForCurrentPlatform();
 		}
-	}
-
-	IOpenMobileHapticsBackend* Backend = bDeinitialized
-		? nullptr
-		: FOpenMobileHapticsBackendRegistry::FindBackend();
-	if (!Backend)
-	{
-		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedPlaybackResult();
 	}
 
 	const FOpenMobileHapticsBackendRequestToken Token =
