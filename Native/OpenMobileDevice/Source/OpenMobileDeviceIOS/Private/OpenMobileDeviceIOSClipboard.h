@@ -1,0 +1,13 @@
+#pragma once
+
+#include "OpenMobileDeviceClipboardTypes.h"
+
+FOpenMobileClipboardOperationResult
+CheckOpenMobileDeviceIOSClipboardContentTypes();
+FOpenMobileClipboardOperationResult WriteOpenMobileDeviceIOSClipboard(
+	const FOpenMobileClipboardWriteRequest& Request
+);
+FOpenMobileClipboardOperationResult ReadOpenMobileDeviceIOSClipboard(
+	EOpenMobileClipboardContentType ContentType
+);
+FOpenMobileClipboardOperationResult ClearOpenMobileDeviceIOSClipboard();

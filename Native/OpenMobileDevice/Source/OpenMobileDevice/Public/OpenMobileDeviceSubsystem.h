@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
+#include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -215,6 +216,22 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Device", meta = (DisplayName = "Get Flashlight Snapshot", ToolTip = "Captures flashlight hardware, state, intensity support, permission, conflict, thermal, and ownership information without prompting or opening a camera capture session."))
 	FOpenMobileFlashlightSnapshot GetFlashlightSnapshot() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Check Clipboard Content Types", ToolTip = "Checks portable clipboard types from metadata without reading clipboard values or triggering a paste notification."))
+	FOpenMobileClipboardOperationResult CheckClipboardContentTypes() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Write Clipboard", ToolTip = "Writes bounded Text or Url content to the foreground system clipboard."))
+	FOpenMobileClipboardOperationResult WriteClipboard(
+		const FOpenMobileClipboardWriteRequest& Request
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Read Clipboard", ToolTip = "Directly reads one portable clipboard type while foregrounded. The OS may show a paste notification or permission prompt."))
+	FOpenMobileClipboardOperationResult ReadClipboard(
+		EOpenMobileClipboardContentType ContentType
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Clear Clipboard", ToolTip = "Removes all clipboard items when the platform provides a guaranteed clear operation."))
+	FOpenMobileClipboardOperationResult ClearClipboard();
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))
 	UOpenMobileBrightnessHandle* RequestBrightnessOverride(

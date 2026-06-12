@@ -31,6 +31,15 @@ public:
 		const FOpenMobileFlashlightRequest& Request
 	) override;
 	virtual void ClearFlashlight() override;
+	virtual FOpenMobileClipboardOperationResult
+	CheckClipboardContentTypes() const override;
+	virtual FOpenMobileClipboardOperationResult WriteClipboard(
+		const FOpenMobileClipboardWriteRequest& Request
+	) override;
+	virtual FOpenMobileClipboardOperationResult ReadClipboard(
+		EOpenMobileClipboardContentType ContentType
+	) override;
+	virtual FOpenMobileClipboardOperationResult ClearClipboard() override;
 	virtual FOpenMobileBrightnessResult ApplyBrightness(
 		const FOpenMobileBrightnessRequest& Request
 	) override;

@@ -1,5 +1,6 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
+#include "OpenMobileDeviceClipboardService.h"
 #include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceMonitoringService.h"
@@ -20,6 +21,7 @@ public:
 		FOpenMobileDeviceRefreshRateControlService::Start();
 		FOpenMobileDeviceBrightnessControlService::Start();
 		FOpenMobileDeviceFlashlightControlService::Start();
+		FOpenMobileDeviceClipboardService::Start();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Start();
 		FOpenMobileDeviceSystemUiControlService::Start();
 	}
@@ -28,6 +30,7 @@ public:
 	{
 		FOpenMobileDeviceSystemUiControlService::Shutdown();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Shutdown();
+		FOpenMobileDeviceClipboardService::Shutdown();
 		FOpenMobileDeviceFlashlightControlService::Shutdown();
 		FOpenMobileDeviceBrightnessControlService::Shutdown();
 		FOpenMobileDeviceRefreshRateControlService::Shutdown();

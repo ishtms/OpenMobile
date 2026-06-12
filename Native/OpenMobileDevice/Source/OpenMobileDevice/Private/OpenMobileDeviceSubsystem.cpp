@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
+#include "OpenMobileDeviceClipboardService.h"
 #include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceMonitoringService.h"
@@ -291,6 +292,71 @@ UOpenMobileDeviceSubsystem::GetFlashlightSnapshot() const
 	return bDeinitialized
 		? FOpenMobileFlashlightSnapshot()
 		: FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot();
+}
+
+FOpenMobileClipboardOperationResult
+UOpenMobileDeviceSubsystem::CheckClipboardContentTypes() const
+{
+	if (!bDeinitialized)
+	{
+		return FOpenMobileDeviceClipboardService::CheckContentTypes();
+	}
+	FOpenMobileClipboardOperationResult Result;
+	Result.State = EOpenMobileClipboardOperationState::Unavailable;
+	Result.Error = FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("The Device subsystem has been deinitialized.")
+	);
+	return Result;
+}
+
+FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::WriteClipboard(
+	const FOpenMobileClipboardWriteRequest& Request
+)
+{
+	if (bDeinitialized)
+	{
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unavailable;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Result;
+	}
+	return FOpenMobileDeviceClipboardService::Write(Request);
+}
+
+FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ReadClipboard(
+	EOpenMobileClipboardContentType ContentType
+)
+{
+	if (bDeinitialized)
+	{
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unavailable;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Result;
+	}
+	return FOpenMobileDeviceClipboardService::Read(ContentType);
+}
+
+FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ClearClipboard()
+{
+	if (bDeinitialized)
+	{
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unavailable;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device subsystem has been deinitialized.")
+		);
+		return Result;
+	}
+	return FOpenMobileDeviceClipboardService::Clear();
 }
 
 UOpenMobileBrightnessHandle*

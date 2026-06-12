@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
+#include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -189,6 +190,56 @@ public:
 	}
 
 	virtual void ClearFlashlight() {}
+
+	virtual FOpenMobileClipboardOperationResult CheckClipboardContentTypes() const
+	{
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support clipboard type checks.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileClipboardOperationResult WriteClipboard(
+		const FOpenMobileClipboardWriteRequest& Request
+	)
+	{
+		static_cast<void>(Request);
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support clipboard writes.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileClipboardOperationResult ReadClipboard(
+		EOpenMobileClipboardContentType ContentType
+	)
+	{
+		static_cast<void>(ContentType);
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support clipboard reads.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileClipboardOperationResult ClearClipboard()
+	{
+		FOpenMobileClipboardOperationResult Result;
+		Result.State = EOpenMobileClipboardOperationState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support clipboard clearing.")
+		);
+		return Result;
+	}
 
 	virtual FOpenMobileBrightnessResult ApplyBrightness(
 		const FOpenMobileBrightnessRequest& Request

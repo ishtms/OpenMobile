@@ -195,6 +195,16 @@ FOpenMobileDeviceSnapshotService::GetFlashlightSnapshot()
 	});
 }
 
+void FOpenMobileDeviceSnapshotService::StampClipboardContent(
+	FOpenMobileClipboardContent& Content
+)
+{
+	check(IsInGameThread());
+	Content.Metadata.CapturedAtUtc = FDateTime::UtcNow();
+	Content.Metadata.Generation =
+		OpenMobileDeviceSnapshotServicePrivate::NextGeneration();
+}
+
 FOpenMobileAppearanceSnapshot FOpenMobileDeviceSnapshotService::GetAppearanceSnapshot()
 {
 	return OpenMobileDeviceSnapshotServicePrivate::Capture<FOpenMobileAppearanceSnapshot>(

@@ -1286,6 +1286,201 @@ import androidx.window.layout.WindowLayoutInfo;
 		return new String[] { timeFormat, measurementSystem };
 	}
 
+	private android.content.ClipboardManager OpenMobileDeviceGetClipboardManager()
+	{
+		return (android.content.ClipboardManager)getSystemService(
+			android.content.Context.CLIPBOARD_SERVICE
+		);
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceCheckClipboardContentTypes()
+	{
+		if (!hasWindowFocus())
+		{
+			return new String[] { "unavailable", "false", "false", "no_focus" };
+		}
+		try
+		{
+			android.content.ClipboardManager manager =
+				OpenMobileDeviceGetClipboardManager();
+			if (manager == null)
+			{
+				return new String[] { "failed", "false", "false", "no_service" };
+			}
+			android.content.ClipDescription description =
+				manager.getPrimaryClipDescription();
+			if (description == null)
+			{
+				return new String[] { "empty", "false", "false", "" };
+			}
+			boolean hasText = description.hasMimeType(
+				android.content.ClipDescription.MIMETYPE_TEXT_PLAIN
+			);
+			boolean hasUrl = description.hasMimeType(
+				android.content.ClipDescription.MIMETYPE_TEXT_URILIST
+			);
+			return new String[] {
+				"succeeded",
+				hasText ? "true" : "false",
+				hasUrl ? "true" : "false",
+				""
+			};
+		}
+		catch (SecurityException exception)
+		{
+			return new String[] { "denied", "false", "false", "security" };
+		}
+		catch (RuntimeException exception)
+		{
+			return new String[] {
+				"failed", "false", "false",
+				exception.getClass().getSimpleName()
+			};
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceWriteClipboard(
+		int contentType,
+		String value
+	)
+	{
+		if (!hasWindowFocus())
+		{
+			return new String[] { "unavailable", "no_focus" };
+		}
+		if (value == null || (contentType != 2 && contentType != 3))
+		{
+			return new String[] { "failed", "invalid_value" };
+		}
+		try
+		{
+			android.content.ClipboardManager manager =
+				OpenMobileDeviceGetClipboardManager();
+			if (manager == null)
+			{
+				return new String[] { "failed", "no_service" };
+			}
+			android.content.ClipData data = contentType == 2
+				? android.content.ClipData.newPlainText("OpenMobile Text", value)
+				: android.content.ClipData.newRawUri(
+					"OpenMobile URL",
+					android.net.Uri.parse(value)
+				);
+			manager.setPrimaryClip(data);
+			return new String[] { "succeeded", "" };
+		}
+		catch (SecurityException exception)
+		{
+			return new String[] { "denied", "security" };
+		}
+		catch (RuntimeException exception)
+		{
+			return new String[] {
+				"failed", exception.getClass().getSimpleName()
+			};
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceReadClipboard(int contentType)
+	{
+		if (!hasWindowFocus())
+		{
+			return new String[] { "unavailable", "", "no_focus" };
+		}
+		if (contentType != 2 && contentType != 3)
+		{
+			return new String[] { "failed", "", "invalid_type" };
+		}
+		try
+		{
+			android.content.ClipboardManager manager =
+				OpenMobileDeviceGetClipboardManager();
+			if (manager == null)
+			{
+				return new String[] { "failed", "", "no_service" };
+			}
+			android.content.ClipDescription description =
+				manager.getPrimaryClipDescription();
+			if (description == null)
+			{
+				return new String[] { "empty", "", "" };
+			}
+			String mimeType = contentType == 2
+				? android.content.ClipDescription.MIMETYPE_TEXT_PLAIN
+				: android.content.ClipDescription.MIMETYPE_TEXT_URILIST;
+			if (!description.hasMimeType(mimeType))
+			{
+				return new String[] { "type_unavailable", "", "" };
+			}
+			android.content.ClipData data = manager.getPrimaryClip();
+			if (data == null)
+			{
+				return new String[] { "unavailable", "", "no_data" };
+			}
+			if (data.getItemCount() == 0)
+			{
+				return new String[] { "empty", "", "" };
+			}
+			android.content.ClipData.Item item = data.getItemAt(0);
+			if (contentType == 2)
+			{
+				CharSequence text = item.getText();
+				return text == null
+					? new String[] { "type_unavailable", "", "" }
+					: new String[] { "succeeded", text.toString(), "" };
+			}
+			android.net.Uri uri = item.getUri();
+			return uri == null
+				? new String[] { "type_unavailable", "", "" }
+				: new String[] { "succeeded", uri.toString(), "" };
+		}
+		catch (SecurityException exception)
+		{
+			return new String[] { "denied", "", "security" };
+		}
+		catch (RuntimeException exception)
+		{
+			return new String[] {
+				"failed", "", exception.getClass().getSimpleName()
+			};
+		}
+	}
+
+	public String[] AndroidThunkJava_OpenMobileDeviceClearClipboard()
+	{
+		if (android.os.Build.VERSION.SDK_INT < 28)
+		{
+			return new String[] { "unsupported", "api_below_28" };
+		}
+		if (!hasWindowFocus())
+		{
+			return new String[] { "unavailable", "no_focus" };
+		}
+		try
+		{
+			android.content.ClipboardManager manager =
+				OpenMobileDeviceGetClipboardManager();
+			if (manager == null)
+			{
+				return new String[] { "failed", "no_service" };
+			}
+			manager.clearPrimaryClip();
+			return manager.hasPrimaryClip()
+				? new String[] { "failed", "clear_not_confirmed" }
+				: new String[] { "succeeded", "" };
+		}
+		catch (SecurityException exception)
+		{
+			return new String[] { "denied", "security" };
+		}
+		catch (RuntimeException exception)
+		{
+			return new String[] {
+				"failed", exception.getClass().getSimpleName()
+			};
+		}
+	}
+
 	private android.hardware.camera2.CameraManager OpenMobileDeviceCameraManager;
 	private android.hardware.camera2.CameraManager.TorchCallback OpenMobileDeviceFlashlightCallback;
 	private String OpenMobileDeviceFlashlightCameraId;

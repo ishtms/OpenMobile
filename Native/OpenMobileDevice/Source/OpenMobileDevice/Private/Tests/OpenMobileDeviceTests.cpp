@@ -24,6 +24,8 @@
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
+#include "OpenMobileDeviceClipboardPolicy.h"
+#include "OpenMobileDeviceClipboardService.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceDisplayCutoutInfo.h"
@@ -218,6 +220,35 @@ namespace OpenMobileDeviceTests
 			++FlashlightClearCount;
 		}
 
+		virtual FOpenMobileClipboardOperationResult
+		CheckClipboardContentTypes() const override
+		{
+			++ClipboardTypeChecks;
+			return ClipboardTypeCheckResult;
+		}
+
+		virtual FOpenMobileClipboardOperationResult WriteClipboard(
+			const FOpenMobileClipboardWriteRequest& Request
+		) override
+		{
+			ClipboardWrites.Add(Request);
+			return ClipboardWriteResult;
+		}
+
+		virtual FOpenMobileClipboardOperationResult ReadClipboard(
+			EOpenMobileClipboardContentType ContentType
+		) override
+		{
+			ClipboardReads.Add(ContentType);
+			return ClipboardReadResult;
+		}
+
+		virtual FOpenMobileClipboardOperationResult ClearClipboard() override
+		{
+			++ClipboardClearCount;
+			return ClipboardClearResult;
+		}
+
 		virtual FOpenMobileBrightnessResult ApplyBrightness(
 			const FOpenMobileBrightnessRequest& Request
 		) override
@@ -369,6 +400,14 @@ namespace OpenMobileDeviceTests
 		FOpenMobileFlashlightOperationResult FlashlightResult;
 		TArray<FOpenMobileFlashlightRequest> FlashlightRequests;
 		int32 FlashlightClearCount = 0;
+		mutable int32 ClipboardTypeChecks = 0;
+		FOpenMobileClipboardOperationResult ClipboardTypeCheckResult;
+		FOpenMobileClipboardOperationResult ClipboardWriteResult;
+		FOpenMobileClipboardOperationResult ClipboardReadResult;
+		FOpenMobileClipboardOperationResult ClipboardClearResult;
+		TArray<FOpenMobileClipboardWriteRequest> ClipboardWrites;
+		TArray<EOpenMobileClipboardContentType> ClipboardReads;
+		int32 ClipboardClearCount = 0;
 		EOpenMobileBrightnessApplyState BrightnessApplyState =
 			EOpenMobileBrightnessApplyState::Applied;
 		float BrightnessEffectiveValue = 0.8f;
@@ -5699,6 +5738,230 @@ bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
 	);
 	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(ChangedHandle);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceClipboardPolicyTest,
+	"OpenMobile.Device.Utility.ClipboardPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceClipboardPolicyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileError Error;
+	FOpenMobileClipboardWriteRequest Request;
+	Request.ContentType = EOpenMobileClipboardContentType::Text;
+	TestTrue(
+		TEXT("Empty text is portable clipboard content"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+
+	Request.Value = FString::ChrN(
+		FOpenMobileDeviceClipboardPolicy::MaximumPayloadBytes,
+		TEXT('a')
+	);
+	TestTrue(
+		TEXT("Payload at UTF-8 byte limit is accepted"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	Request.Value.AppendChar(TEXT('a'));
+	TestFalse(
+		TEXT("Payload above UTF-8 byte limit is rejected"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	TestEqual(
+		TEXT("Large payload has typed state"),
+		Error.Code,
+		EOpenMobileErrorCode::InvalidArgument
+	);
+
+	Request.Value = FString::ChrN(
+		FOpenMobileDeviceClipboardPolicy::MaximumPayloadBytes / 2 + 1,
+		static_cast<TCHAR>(0x00E9)
+	);
+	TestFalse(
+		TEXT("Unicode limit is measured as UTF-8 bytes"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+
+	Request.ContentType = EOpenMobileClipboardContentType::Url;
+	Request.Value = TEXT("https://example.com/path?q=1");
+	TestTrue(
+		TEXT("Absolute URL is accepted"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	Request.Value = TEXT("example.com/path");
+	TestFalse(
+		TEXT("Relative URL is rejected"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	Request.Value = TEXT("https://example.com/has space");
+	TestFalse(
+		TEXT("Malformed URL is rejected"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	Request.Value = TEXT("https://?missing-host");
+	TestFalse(
+		TEXT("URL without an authority is rejected"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+
+	Request.ContentType = static_cast<EOpenMobileClipboardContentType>(255);
+	Request.Value = TEXT("unsupported");
+	TestFalse(
+		TEXT("Unsupported type is rejected"),
+		FOpenMobileDeviceClipboardPolicy::ValidateWrite(Request, Error)
+	);
+	TestFalse(
+		TEXT("Empty is not a readable value type"),
+		FOpenMobileDeviceClipboardPolicy::ValidateReadType(
+			EOpenMobileClipboardContentType::Empty,
+			Error
+		)
+	);
+
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("Clipboard"));
+	Backend.ClipboardTypeCheckResult.State =
+		EOpenMobileClipboardOperationState::Succeeded;
+	Backend.ClipboardTypeCheckResult.Content.bContentTypesAvailable = true;
+	Backend.ClipboardTypeCheckResult.Content.ContentTypes = {
+		EOpenMobileClipboardContentType::Text
+	};
+	Backend.ClipboardTypeCheckResult.Content.Text =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("must not escape"));
+	Backend.ClipboardWriteResult.State =
+		EOpenMobileClipboardOperationState::Succeeded;
+	Backend.ClipboardReadResult.State =
+		EOpenMobileClipboardOperationState::Succeeded;
+	Backend.ClipboardReadResult.Content.Text =
+		FOpenMobileDeviceOptionalString::MakeAvailable(TEXT("hello"));
+	Backend.ClipboardClearResult.State =
+		EOpenMobileClipboardOperationState::Succeeded;
+	TestTrue(
+		TEXT("Clipboard mock backend registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	FOpenMobileDeviceClipboardService::SetApplicationActiveForTests(true);
+
+	const FOpenMobileClipboardOperationResult Types =
+		FOpenMobileDeviceClipboardService::CheckContentTypes();
+	TestEqual(TEXT("Type check reaches backend"), Backend.ClipboardTypeChecks, 1);
+	TestTrue(
+		TEXT("Type check returns metadata"),
+		Types.Content.bContentTypesAvailable
+	);
+	TestFalse(
+		TEXT("Type check never returns clipboard values"),
+		Types.Content.Text.bIsAvailable
+	);
+	TestTrue(
+		TEXT("Clipboard result uses process snapshot generation"),
+		Types.Content.Metadata.Generation > 0
+	);
+
+	Request.ContentType = EOpenMobileClipboardContentType::Text;
+	Request.Value = TEXT("unicode \u00E9 \u4E16\u754C");
+	const FOpenMobileClipboardOperationResult Write =
+		FOpenMobileDeviceClipboardService::Write(Request);
+	TestEqual(
+		TEXT("Unicode write succeeds"),
+		Write.State,
+		EOpenMobileClipboardOperationState::Succeeded
+	);
+	TestEqual(TEXT("Write reaches backend once"), Backend.ClipboardWrites.Num(), 1);
+
+	const FOpenMobileClipboardOperationResult Read =
+		FOpenMobileDeviceClipboardService::Read(
+			EOpenMobileClipboardContentType::Text
+		);
+	TestEqual(
+		TEXT("Read succeeds"),
+		Read.Content.Text.Value,
+		FString(TEXT("hello"))
+	);
+	TestFalse(
+		TEXT("Direct read is not marked user initiated"),
+		Read.Content.bReadWasUserInitiated
+	);
+	Backend.ClipboardReadResult.State =
+		EOpenMobileClipboardOperationState::Denied;
+	Backend.ClipboardReadResult.Content.Text = {};
+	const FOpenMobileClipboardOperationResult DeniedRead =
+		FOpenMobileDeviceClipboardService::Read(
+			EOpenMobileClipboardContentType::Text
+		);
+	TestEqual(
+		TEXT("Native privacy denial remains typed"),
+		DeniedRead.State,
+		EOpenMobileClipboardOperationState::Denied
+	);
+
+	Backend.ClipboardReadResult.State =
+		EOpenMobileClipboardOperationState::Succeeded;
+	Backend.ClipboardReadResult.Content.Text =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			FString::ChrN(
+				FOpenMobileDeviceClipboardPolicy::MaximumPayloadBytes + 1,
+				TEXT('a')
+			)
+		);
+	const FOpenMobileClipboardOperationResult LargeRead =
+		FOpenMobileDeviceClipboardService::Read(
+			EOpenMobileClipboardContentType::Text
+		);
+	TestEqual(
+		TEXT("Oversized native read is rejected"),
+		LargeRead.State,
+		EOpenMobileClipboardOperationState::TooLarge
+	);
+	TestFalse(
+		TEXT("Oversized read value is discarded"),
+		LargeRead.Content.Text.bIsAvailable
+	);
+
+	FOpenMobileDeviceClipboardService::SetApplicationActiveForTests(false);
+	const FOpenMobileClipboardOperationResult BackgroundRead =
+		FOpenMobileDeviceClipboardService::Read(
+			EOpenMobileClipboardContentType::Text
+		);
+	TestEqual(
+		TEXT("Background read is unavailable"),
+		BackgroundRead.State,
+		EOpenMobileClipboardOperationState::Unavailable
+	);
+	TestEqual(
+		TEXT("Background read does not reach backend"),
+		Backend.ClipboardReads.Num(),
+		3
+	);
+	FOpenMobileDeviceClipboardService::SetApplicationActiveForTests(true);
+	TestEqual(
+		TEXT("Clear succeeds"),
+		FOpenMobileDeviceClipboardService::Clear().State,
+		EOpenMobileClipboardOperationState::Succeeded
+	);
+	TestEqual(TEXT("Clear reaches backend"), Backend.ClipboardClearCount, 1);
+	for (const FName FunctionName : {
+		FName(TEXT("CheckClipboardContentTypes")),
+		FName(TEXT("WriteClipboard")),
+		FName(TEXT("ReadClipboard")),
+		FName(TEXT("ClearClipboard"))
+	})
+	{
+		TestNotNull(
+			*FString::Printf(TEXT("%s is reflected"), *FunctionName.ToString()),
+			UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(
+				FunctionName
+			)
+		);
+	}
+
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

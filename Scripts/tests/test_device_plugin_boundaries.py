@@ -307,6 +307,14 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"getDisplayCutout",
 		):
 			self.assertIn(token, android_upl)
+		android_type_check = android_upl.split(
+			"public String[] AndroidThunkJava_OpenMobileDeviceCheckClipboardContentTypes",
+			1,
+		)[1].split(
+			"public String[] AndroidThunkJava_OpenMobileDeviceWriteClipboard",
+			1,
+		)[0]
+		self.assertNotIn("getPrimaryClip()", android_type_check)
 		self.assertIn("ApplyOpenMobileDeviceAndroidWindowInsets", android_display)
 		for token in (
 			"safeAreaInsets",
@@ -2117,6 +2125,92 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(token, ios_flashlight)
 		self.assertNotIn("AVFoundation", action)
+
+	def test_clipboard_operations_are_typed_bounded_and_privacy_aware(self) -> None:
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceClipboardTypes.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"FOpenMobileClipboardWriteRequest",
+			"EOpenMobileClipboardOperationState",
+			"FOpenMobileClipboardOperationResult",
+			"Text",
+			"Url",
+		):
+			self.assertIn(token, public_types)
+
+		policy = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceClipboardPolicy.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("MaximumPayloadBytes", policy)
+		self.assertIn("FTCHARToUTF8", policy)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"getPrimaryClipDescription",
+			"ClipDescription.MIMETYPE_TEXT_PLAIN",
+			"ClipDescription.MIMETYPE_TEXT_URILIST",
+			"getPrimaryClip",
+			"setPrimaryClip",
+			"clearPrimaryClip",
+			"Build.VERSION.SDK_INT < 28",
+		):
+			self.assertIn(token, android_upl)
+
+		ios_clipboard = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSClipboard.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"hasStrings",
+			"hasURLs",
+			"numberOfItems",
+			"Pasteboard.string",
+			"Pasteboard.URL",
+			"Pasteboard.items = @[]",
+			"UIApplicationStateActive",
+		):
+			self.assertIn(token, ios_clipboard)
+		ios_type_check = ios_clipboard.split(
+			"CheckOpenMobileDeviceIOSClipboardContentTypes()",
+			1,
+		)[1].split("WriteOpenMobileDeviceIOSClipboard(", 1)[0]
+		self.assertNotIn("Pasteboard.string", ios_type_check)
+		self.assertNotIn("Pasteboard.URL", ios_type_check)
+		self.assertNotIn("UE_LOG", ios_clipboard)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSubsystem.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"CheckClipboardContentTypes",
+			"WriteClipboard",
+			"ReadClipboard",
+			"ClearClipboard",
+		):
+			self.assertIn(token, subsystem)
 
 
 if __name__ == "__main__":

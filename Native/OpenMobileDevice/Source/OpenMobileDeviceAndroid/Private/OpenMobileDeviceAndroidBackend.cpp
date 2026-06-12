@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidBattery.h"
 #include "OpenMobileDeviceAndroidBrightnessControl.h"
+#include "OpenMobileDeviceAndroidClipboard.h"
 #include "OpenMobileDeviceAndroidFlashlight.h"
 #include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
@@ -257,6 +258,43 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardWrite
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardRead
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardTypeCheck)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardTypeCheck
+			? TEXT("Android checks primary-clip MIME metadata without fetching clipboard values. Clipboard access remains foreground and input-focus scoped on Android 10 or newer.")
+			: TEXT("Android reads or writes bounded Text and Url values through the foreground system clipboard. Cross-app reads may show a system notification on newer Android versions.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardClear)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.BackendName = GetBackendName();
+		if (FAndroidMisc::GetAndroidBuildVersion() >= 28)
+		{
+			Capability.State = EOpenMobileCapabilityState::Available;
+			Capability.Detail = TEXT("Android clears the primary clipboard with clearPrimaryClip on API 28 or newer.");
+		}
+		else
+		{
+			Capability.State = EOpenMobileCapabilityState::NotSupported;
+			Capability.Limit =
+				EOpenMobileDeviceCapabilityLimit::MinimumOsVersion;
+			Capability.MinimumOsVersion =
+				FOpenMobileDeviceOptionalString::MakeAvailable(
+					TEXT("Android 9 (API 28)")
+				);
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -433,6 +471,34 @@ FOpenMobileDeviceAndroidBackend::ApplyFlashlight(
 void FOpenMobileDeviceAndroidBackend::ClearFlashlight()
 {
 	ClearOpenMobileDeviceAndroidFlashlight();
+}
+
+FOpenMobileClipboardOperationResult
+FOpenMobileDeviceAndroidBackend::CheckClipboardContentTypes() const
+{
+	return CheckOpenMobileDeviceAndroidClipboardContentTypes();
+}
+
+FOpenMobileClipboardOperationResult
+FOpenMobileDeviceAndroidBackend::WriteClipboard(
+	const FOpenMobileClipboardWriteRequest& Request
+)
+{
+	return WriteOpenMobileDeviceAndroidClipboard(Request);
+}
+
+FOpenMobileClipboardOperationResult
+FOpenMobileDeviceAndroidBackend::ReadClipboard(
+	EOpenMobileClipboardContentType ContentType
+)
+{
+	return ReadOpenMobileDeviceAndroidClipboard(ContentType);
+}
+
+FOpenMobileClipboardOperationResult
+FOpenMobileDeviceAndroidBackend::ClearClipboard()
+{
+	return ClearOpenMobileDeviceAndroidClipboard();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(

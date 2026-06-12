@@ -5,6 +5,7 @@
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSBattery.h"
 #include "OpenMobileDeviceIOSBrightnessControl.h"
+#include "OpenMobileDeviceIOSClipboard.h"
 #include "OpenMobileDeviceIOSFlashlight.h"
 #include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
@@ -256,6 +257,37 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 #endif
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardWrite
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardRead
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardTypeCheck
+		|| CapabilityName == FOpenMobileDeviceCapabilityNames::ClipboardClear)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		if (CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardTypeCheck)
+		{
+			Capability.Detail = TEXT("iOS checks pasteboard item count, hasStrings, and hasURLs without fetching values or causing a paste access alert.");
+		}
+		else if (CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardRead)
+		{
+			Capability.Detail = TEXT("iOS directly reads bounded Text or Url values from the foreground general pasteboard. UIKit may show a paste notification or permission prompt when user intent is not established.");
+		}
+		else if (CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ClipboardClear)
+		{
+			Capability.Detail = TEXT("iOS clears the general pasteboard by replacing all current items with an empty array.");
+		}
+		else
+		{
+			Capability.Detail = TEXT("iOS writes bounded Text or Url values to the foreground general pasteboard for cross-app use.");
+		}
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -430,6 +462,31 @@ FOpenMobileDeviceIOSBackend::ApplyFlashlight(
 void FOpenMobileDeviceIOSBackend::ClearFlashlight()
 {
 	ClearOpenMobileDeviceIOSFlashlight();
+}
+
+FOpenMobileClipboardOperationResult
+FOpenMobileDeviceIOSBackend::CheckClipboardContentTypes() const
+{
+	return CheckOpenMobileDeviceIOSClipboardContentTypes();
+}
+
+FOpenMobileClipboardOperationResult FOpenMobileDeviceIOSBackend::WriteClipboard(
+	const FOpenMobileClipboardWriteRequest& Request
+)
+{
+	return WriteOpenMobileDeviceIOSClipboard(Request);
+}
+
+FOpenMobileClipboardOperationResult FOpenMobileDeviceIOSBackend::ReadClipboard(
+	EOpenMobileClipboardContentType ContentType
+)
+{
+	return ReadOpenMobileDeviceIOSClipboard(ContentType);
+}
+
+FOpenMobileClipboardOperationResult FOpenMobileDeviceIOSBackend::ClearClipboard()
+{
+	return ClearOpenMobileDeviceIOSClipboard();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(

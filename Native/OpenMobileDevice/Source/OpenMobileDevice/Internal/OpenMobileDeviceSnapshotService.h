@@ -2,6 +2,7 @@
 
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
+#include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
@@ -27,6 +28,7 @@ public:
 	static FOpenMobileWindowDisplaySnapshot GetWindowDisplaySnapshot();
 	static FOpenMobileBrightnessSnapshot GetBrightnessSnapshot();
 	static FOpenMobileFlashlightSnapshot GetFlashlightSnapshot();
+	static void StampClipboardContent(FOpenMobileClipboardContent& Content);
 	static FOpenMobileAppearanceSnapshot GetAppearanceSnapshot();
 	static FOpenMobileAccessibilitySnapshot GetAccessibilitySnapshot();
 };
