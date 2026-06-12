@@ -18,6 +18,7 @@ public:
 	virtual FName GetBackendName() const override;
 	virtual FOpenMobileCapability GetBackendCapability() const override;
 	virtual void BeginShutdown() override;
+	static double ConvertCoreMotionTimestampSeconds(double TimestampSeconds);
 
 	bool PublishVectorBatchFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,

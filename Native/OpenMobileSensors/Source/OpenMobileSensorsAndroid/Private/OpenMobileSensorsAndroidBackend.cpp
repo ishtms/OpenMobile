@@ -1,6 +1,7 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsSampleService.h"
 
@@ -17,6 +18,13 @@ FOpenMobileSensorsAndroidBackend::~FOpenMobileSensorsAndroidBackend()
 FName FOpenMobileSensorsAndroidBackend::GetBackendName() const
 {
 	return TEXT("Android");
+}
+
+double FOpenMobileSensorsAndroidBackend::
+ConvertSensorEventTimestampNanoseconds(int64 TimestampNanoseconds)
+{
+	return FOpenMobileSensorTimestampConverter::
+		FromAndroidSensorEventNanoseconds(TimestampNanoseconds);
 }
 
 FOpenMobileCapability

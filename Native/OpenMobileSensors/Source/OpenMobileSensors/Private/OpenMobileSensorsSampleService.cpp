@@ -161,6 +161,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 RateIntervalCount = 0;
 		int32 EventHighWaterMark = 0;
 		int64 EventDroppedSamples = 0;
+		int32 PendingTimestampIssueFlags = 0;
 		int32 MaximumPendingSamples = 128;
 		EOpenMobileSensorDeliveryMode DeliveryMode =
 			EOpenMobileSensorDeliveryMode::LatestValue;
@@ -278,6 +279,15 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.RateIntervalSquareSum += IntervalSeconds * IntervalSeconds;
 		Slot.LastRateTimestampSeconds = TimestampSeconds;
 		Slot.LastRateGapSeconds = IntervalSeconds;
+	}
+
+	void RecordTimestampIssue(
+		FLatestSlot& Slot,
+		EOpenMobileSensorTimestampIssue Issue
+	)
+	{
+		ResetRateStatistics(Slot);
+		Slot.PendingTimestampIssueFlags |= static_cast<int32>(Issue);
 	}
 
 	ELatestSampleFamily GetExpectedFamily(EOpenMobileSensorType SensorType)
@@ -623,10 +633,20 @@ namespace OpenMobileSensorsSampleServicePrivate
 				for (int32 Index = 0; Index < SampleCount; ++Index)
 				{
 					const SampleType& Sample = Samples[Index];
-					if (!Sample.Header.bValid
-						|| !FMath::IsFinite(Sample.Header.TimestampSeconds)
-						|| Sample.Header.TimestampSeconds < 0.0
-						|| Slot.Sensor != Sample.Header.Sensor)
+					if (Slot.Sensor != Sample.Header.Sensor)
+					{
+						continue;
+					}
+					if (!FMath::IsFinite(Sample.Header.TimestampSeconds)
+						|| Sample.Header.TimestampSeconds < 0.0)
+					{
+						RecordTimestampIssue(
+							Slot,
+							EOpenMobileSensorTimestampIssue::Invalid
+						);
+						continue;
+					}
+					if (!Sample.Header.bValid)
 					{
 						continue;
 					}
@@ -634,11 +654,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 						&& Sample.Header.TimestampSeconds <=
 							Slot.LatestTimestampSeconds)
 					{
-						if (Sample.Header.TimestampSeconds <
-							Slot.LatestTimestampSeconds)
-						{
-							ResetRateStatistics(Slot);
-						}
+						RecordTimestampIssue(
+							Slot,
+							Sample.Header.TimestampSeconds ==
+								Slot.LatestTimestampSeconds
+							? EOpenMobileSensorTimestampIssue::Duplicate
+							: EOpenMobileSensorTimestampIssue::Backward
+						);
 						continue;
 					}
 					UpdateRateStatistics(
@@ -649,6 +671,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Destination = Sample;
 					Destination.Header.Sensor = Slot.Sensor;
 					Destination.Header.Sequence = Slot.NextSequence++;
+					Destination.Header.GameThreadReceiptSeconds = 0.0;
+					Destination.Header.bHasGameThreadReceiptTime = false;
+					Destination.Header.TimestampIssueFlags =
+						Slot.PendingTimestampIssueFlags;
+					Destination.Header.bStatefulProcessingReset =
+						Slot.PendingTimestampIssueFlags != 0;
+					Slot.PendingTimestampIssueFlags = 0;
 					Slot.LatestTimestampSeconds =
 						Sample.Header.TimestampSeconds;
 					Slot.Family = Family;
@@ -998,6 +1027,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	void GatherDelivery(
 		FLatestSlot& Slot,
 		TArray<SampleType> FLatestSlot::* PendingMember,
+		double ReceiptTimeSeconds,
 		TArray<TEventDelivery<BatchType>>& OutDeliveries
 	)
 	{
@@ -1010,6 +1040,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Delivery.OwnerIdentifier = Slot.OwnerIdentifier;
 		Delivery.Handle = Slot.Handle;
 		Delivery.Batch.Samples = MoveTemp(Pending);
+		for (SampleType& Sample : Delivery.Batch.Samples)
+		{
+			Sample.Header.GameThreadReceiptSeconds = ReceiptTimeSeconds;
+			Sample.Header.bHasGameThreadReceiptTime = true;
+		}
 		Pending.Reset();
 	}
 
@@ -1082,41 +1117,49 @@ namespace OpenMobileSensorsSampleServicePrivate
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingVector,
+					SafeNowSeconds,
 					VectorDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingAttitude,
+					SafeNowSeconds,
 					AttitudeDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingScalar,
+					SafeNowSeconds,
 					ScalarDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingHeading,
+					SafeNowSeconds,
 					HeadingDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingSteps,
+					SafeNowSeconds,
 					StepsDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingActivity,
+					SafeNowSeconds,
 					ActivityDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingOrientation,
+					SafeNowSeconds,
 					OrientationDeliveries
 				);
 				GatherDelivery(
 					Slot,
 					&FLatestSlot::PendingProximity,
+					SafeNowSeconds,
 					ProximityDeliveries
 				);
 				Slot.bHasCallbackTime = true;

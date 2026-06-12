@@ -30,6 +30,16 @@ enum class EOpenMobileSensorSourceFlags : uint8
 };
 ENUM_CLASS_FLAGS(EOpenMobileSensorSourceFlags);
 
+UENUM(BlueprintType, meta = (Bitflags))
+enum class EOpenMobileSensorTimestampIssue : uint8
+{
+	None = 0,
+	Invalid = 1 << 0,
+	Duplicate = 1 << 1,
+	Backward = 1 << 2
+};
+ENUM_CLASS_FLAGS(EOpenMobileSensorTimestampIssue);
+
 UENUM(BlueprintType)
 enum class EOpenMobileSensorFusionQuality : uint8
 {
@@ -57,6 +67,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	int64 Sequence = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorTimestampIssue"))
+	int32 TimestampIssueFlags = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bStatefulProcessingReset = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bValid = false;

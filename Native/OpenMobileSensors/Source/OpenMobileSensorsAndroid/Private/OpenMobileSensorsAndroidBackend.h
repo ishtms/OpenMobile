@@ -14,6 +14,9 @@ public:
 	virtual bool RequiresHighSamplingRateDeclaration() const override;
 	virtual bool HasHighSamplingRateDeclaration() const override;
 	virtual void BeginShutdown() override;
+	static double ConvertSensorEventTimestampNanoseconds(
+		int64 TimestampNanoseconds
+	);
 
 	bool PublishVectorBatchFromHandler(
 		const FOpenMobileSensorsBackendToken& Token,

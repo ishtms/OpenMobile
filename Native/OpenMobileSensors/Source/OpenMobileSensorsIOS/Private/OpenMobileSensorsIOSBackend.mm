@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsSampleService.h"
 
@@ -14,6 +15,15 @@ FOpenMobileSensorsIOSBackend::~FOpenMobileSensorsIOSBackend()
 FName FOpenMobileSensorsIOSBackend::GetBackendName() const
 {
 	return TEXT("IOS");
+}
+
+double FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(
+	double TimestampSeconds
+)
+{
+	return FOpenMobileSensorTimestampConverter::FromIOSCoreMotionSeconds(
+		TimestampSeconds
+	);
 }
 
 FOpenMobileCapability FOpenMobileSensorsIOSBackend::GetBackendCapability() const
