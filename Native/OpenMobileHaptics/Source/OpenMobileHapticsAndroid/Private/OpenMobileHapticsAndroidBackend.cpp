@@ -1,7 +1,5 @@
 #include "OpenMobileHapticsAndroidBackend.h"
 
-#include "Android/AndroidApplication.h"
-#include "Android/AndroidJNI.h"
 #include "Misc/ScopeLock.h"
 
 namespace OpenMobileHapticsAndroidBackendPrivate
@@ -20,207 +18,6 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	constexpr int64 HasPrimitiveKnowledge = 1LL << 11;
 	constexpr int64 HasEnvelopeKnowledge = 1LL << 12;
 	constexpr int64 HasFrequencyKnowledge = 1LL << 13;
-
-	struct FHardwareProbe
-	{
-		int64 Flags = ProbeUnavailable;
-		uint64 PresetSupport = 0;
-		uint64 PrimitiveSupport = 0;
-		int64 MaximumControlPointCount = -1;
-		int64 MaximumDurationMillis = -1;
-		int64 MinimumTimingMillis = -1;
-	};
-
-	FHardwareProbe QueryHardware()
-	{
-		FHardwareProbe Probe;
-		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-		jobject Activity = FAndroidApplication::GetGameActivityThis();
-		if (!Env || !Activity)
-		{
-			return Probe;
-		}
-
-		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-		const jmethodID Method = ActivityClass
-			? Env->GetMethodID(
-				*ActivityClass,
-				"AndroidThunkJava_OpenMobileHapticsQueryCapabilities",
-				"()[J"
-			)
-			: nullptr;
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return Probe;
-		}
-		if (!Method)
-		{
-			return Probe;
-		}
-
-		FScopedJavaObject<jlongArray> Values(static_cast<jlongArray>(
-			Env->CallObjectMethod(Activity, Method)
-		));
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return Probe;
-		}
-		if (!Values)
-		{
-			return Probe;
-		}
-
-		const jsize Count = Env->GetArrayLength(*Values);
-		if (Env->ExceptionCheck() || Count < 1)
-		{
-			Env->ExceptionClear();
-			return Probe;
-		}
-		jlong NativeValues[6] = {-1, 0, 0, -1, -1, -1};
-		const jsize CopyCount = FMath::Min<jsize>(Count, 6);
-		Env->GetLongArrayRegion(*Values, 0, CopyCount, NativeValues);
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return Probe;
-		}
-		Probe.Flags = static_cast<int64>(NativeValues[0]);
-		Probe.PresetSupport = static_cast<uint64>(NativeValues[1]);
-		Probe.PrimitiveSupport = static_cast<uint64>(NativeValues[2]);
-		Probe.MaximumControlPointCount =
-			static_cast<int64>(NativeValues[3]);
-		Probe.MaximumDurationMillis = static_cast<int64>(NativeValues[4]);
-		Probe.MinimumTimingMillis = static_cast<int64>(NativeValues[5]);
-		return Probe;
-	}
-
-	int32 PlaySemantic(
-		EOpenMobileHapticsSemanticBehavior Behavior,
-		float Intensity,
-		EOpenMobileHapticsSemanticPath Path,
-		int32 Purpose
-	)
-	{
-		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-		jobject Activity = FAndroidApplication::GetGameActivityThis();
-		if (!Env || !Activity)
-		{
-			return 0;
-		}
-		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-		const jmethodID Method = ActivityClass
-			? Env->GetMethodID(
-				*ActivityClass,
-				"AndroidThunkJava_OpenMobileHapticsPlaySemantic",
-				"(IFII)I"
-			)
-			: nullptr;
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return 0;
-		}
-		if (!Method)
-		{
-			return 0;
-		}
-		const jint Result = Env->CallIntMethod(
-			Activity,
-			Method,
-			static_cast<jint>(Behavior),
-			static_cast<jfloat>(Intensity),
-			static_cast<jint>(Path),
-			static_cast<jint>(Purpose)
-		);
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return 0;
-		}
-		return static_cast<int32>(Result);
-	}
-
-	int32 PlayOneShot(
-		int64 DurationMillis,
-		float Intensity,
-		EOpenMobileHapticsOneShotPath Path,
-		int32 Purpose
-	)
-	{
-		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-		jobject Activity = FAndroidApplication::GetGameActivityThis();
-		if (!Env || !Activity)
-		{
-			return 0;
-		}
-		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-		const jmethodID Method = ActivityClass
-			? Env->GetMethodID(
-				*ActivityClass,
-				"AndroidThunkJava_OpenMobileHapticsPlayOneShot",
-				"(JFII)I"
-			)
-			: nullptr;
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return 0;
-		}
-		if (!Method)
-		{
-			return 0;
-		}
-		const jint Result = Env->CallIntMethod(
-			Activity,
-			Method,
-			static_cast<jlong>(DurationMillis),
-			static_cast<jfloat>(Intensity),
-			static_cast<jint>(Path),
-			static_cast<jint>(Purpose)
-		);
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return 0;
-		}
-		return static_cast<int32>(Result);
-	}
-
-	bool StopAll()
-	{
-		JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-		jobject Activity = FAndroidApplication::GetGameActivityThis();
-		if (!Env || !Activity)
-		{
-			return false;
-		}
-		FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-		const jmethodID Method = ActivityClass
-			? Env->GetMethodID(
-				*ActivityClass,
-				"AndroidThunkJava_OpenMobileHapticsStopAll",
-				"()Z"
-			)
-			: nullptr;
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return false;
-		}
-		if (!Method)
-		{
-			return false;
-		}
-		const jboolean Result = Env->CallBooleanMethod(Activity, Method);
-		if (Env->ExceptionCheck())
-		{
-			Env->ExceptionClear();
-			return false;
-		}
-		return Result == JNI_TRUE;
-	}
 
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
@@ -252,7 +49,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 
 	void AddDetailedSupport(
 		FOpenMobileHapticCapabilities& Capabilities,
-		const FHardwareProbe& Probe
+		const FOpenMobileHapticsAndroidHardwareProbe& Probe
 	)
 	{
 		const bool bPresetKnowledge =
@@ -319,7 +116,7 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
 	FOpenMobileHapticCapabilities Capabilities;
 	Capabilities.BackendName = GetBackendName();
-	const FHardwareProbe Probe = QueryHardware();
+	const FOpenMobileHapticsAndroidHardwareProbe Probe = Bridge.QueryHardware();
 	if (Probe.Flags == ProbeUnavailable)
 	{
 		Capabilities.Availability =
@@ -463,8 +260,6 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
-	static_cast<void>(Token);
-	static_cast<void>(Callback);
 	FOpenMobileHapticsBackendSubmission Submission;
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
@@ -473,15 +268,23 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		: Request.Options.Category == TEXT("Gameplay")
 			? 1
 			: 0;
-	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlaySemantic(
+	const FName ResolvedPath =
+		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
+	const FOpenMobileHapticsAndroidBridgeSubmission BridgeSubmission =
+		Bridge.PlaySemantic(
+		Token,
 		Descriptor.Behavior,
 		Request.Intensity,
 		Resolution.Path,
-		Purpose
+		Purpose,
+		Descriptor.Name,
+		Request.Options.Channel,
+		ResolvedPath,
+		MoveTemp(Callback)
 	);
-	Submission.Result.ResolvedPath =
-		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
-	switch (NativeResult)
+	Submission.Result.ResolvedPath = ResolvedPath;
+	Submission.bExpectsCallbacks = BridgeSubmission.bExpectsCallback;
+	switch (BridgeSubmission.Result)
 	{
 	case 1:
 		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
@@ -501,6 +304,10 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 			TEXT("The Android device has no available vibration path.")
 		);
 		break;
+	case 6:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		break;
 	default:
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::NativeFailure,
@@ -513,7 +320,7 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 
 FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
 {
-	if (!OpenMobileHapticsAndroidBackendPrivate::StopAll())
+	if (!Bridge.StopAll())
 	{
 		return FOpenMobileHapticControlResult::MakeRejected(
 			EOpenMobileErrorCode::NativeFailure,
@@ -533,7 +340,6 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
-	static_cast<void>(Token);
 	static_cast<void>(Callback);
 	FOpenMobileHapticsBackendSubmission Submission;
 	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
@@ -545,7 +351,8 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		1.0,
 		FMath::RoundToDouble(Request.DurationSeconds * 1000.0)
 	));
-	const int32 NativeResult = OpenMobileHapticsAndroidBackendPrivate::PlayOneShot(
+	const int32 NativeResult = Bridge.PlayOneShot(
+		Token,
 		DurationMillis,
 		Request.Intensity,
 		Resolution.Path,

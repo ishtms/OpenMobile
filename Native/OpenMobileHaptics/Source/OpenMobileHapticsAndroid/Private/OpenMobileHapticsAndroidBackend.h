@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HAL/CriticalSection.h"
+#include "OpenMobileHapticsAndroidBridge.h"
 #include "OpenMobileHapticsPlatformBackend.h"
 
 class FOpenMobileHapticsAndroidBackend final
@@ -23,6 +24,7 @@ public:
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
 	virtual FOpenMobileHapticControlResult StopAll() override;
+	virtual void BeginShutdown() override { Bridge.Shutdown(); }
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 		const FOpenMobileHapticOneShotRequest& Request,
 		const FOpenMobileHapticsOneShotResolution& Resolution,
@@ -35,4 +37,5 @@ private:
 
 	mutable FCriticalSection CacheMutex;
 	mutable TOptional<FOpenMobileHapticCapabilities> StableCapabilities;
+	mutable FOpenMobileHapticsAndroidBridge Bridge;
 };

@@ -15,6 +15,21 @@ def load_descriptor() -> dict:
 		return json.load(file)
 
 
+def load_android_bridge() -> str:
+	return (
+		HAPTICS_PLUGIN
+		/ "Source"
+		/ "OpenMobileHapticsAndroid"
+		/ "Private"
+		/ "Android"
+		/ "src"
+		/ "com"
+		/ "openmobile"
+		/ "haptics"
+		/ "OpenMobileHapticsBridgeV1.java"
+	).read_text(encoding="utf-8")
+
+
 class HapticsPluginBoundaryTests(unittest.TestCase):
 	def test_plugin_is_independently_enabled(self) -> None:
 		self.assertTrue((HAPTICS_PLUGIN / "OpenMobileHaptics.uplugin").is_file())
@@ -248,20 +263,15 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			/ "Private"
 			/ "OpenMobileHapticsAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
-		android_bridge = (
-			android_root
-			/ "Private"
-			/ "Android"
-			/ "OpenMobileHaptics_Android_UPL.xml"
-		).read_text(encoding="utf-8")
+		android_bridge = load_android_bridge()
 		self.assertIn("hasVibrator", android_bridge)
 		self.assertIn("hasAmplitudeControl", android_bridge)
 		self.assertIn("areEffectsSupported", android_bridge)
 		self.assertIn("arePrimitivesSupported", android_bridge)
 		self.assertIn("getEnvelopeEffectInfo", android_bridge)
 		android_query = android_bridge.split(
-			"AndroidThunkJava_OpenMobileHapticsQueryCapabilities", 1
-		)[1].split("AndroidThunkJava_OpenMobileHapticsPlaySemantic", 1)[0]
+			"static long[] queryCapabilities", 1
+		)[1].split("static int playSemantic", 1)[0]
 		self.assertNotIn(".vibrate(", android_query)
 		self.assertNotIn("requestPermissions", android_bridge)
 		self.assertIn(
@@ -296,32 +306,25 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		android_backend = (
 			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
-		android_bridge = (
-			android_root
-			/ "Private"
-			/ "Android"
-			/ "OpenMobileHaptics_Android_UPL.xml"
-		).read_text(encoding="utf-8")
+		android_bridge = load_android_bridge()
 		self.assertIn(
-			"AndroidThunkJava_OpenMobileHapticsPlayOneShot",
+			"Bridge.PlayOneShot",
 			android_backend,
 		)
 		self.assertIn("bNativeDurationKnown", android_backend)
 		self.assertIn("bNativeClamped", android_backend)
 		self.assertIn("bNativeIntensityKnown", android_backend)
-		self.assertIn("AndroidThunkJava_OpenMobileHapticsStopAll", android_backend)
+		self.assertIn("Bridge.StopAll", android_backend)
 		one_shot_bridge = android_bridge.split(
-			"AndroidThunkJava_OpenMobileHapticsPlayOneShot", 1
-		)[1].split("private Vibrator OpenMobileHapticsVibrator", 1)[0]
+			"static int playOneShot", 1
+		)[1].split("static boolean stopAll", 1)[0]
 		self.assertIn("VibrationEffect.createOneShot", one_shot_bridge)
 		self.assertIn("VibrationEffect.createPredefined", one_shot_bridge)
-		self.assertIn("HAPTIC_FEEDBACK_ENABLED", one_shot_bridge)
-		self.assertIn("OpenMobileHapticsVibrationUsage", one_shot_bridge)
+		self.assertIn("systemHapticsEnabled", one_shot_bridge)
+		self.assertIn("HAPTIC_FEEDBACK_ENABLED", android_bridge)
+		self.assertIn("vibrate(vibrator", one_shot_bridge)
 		self.assertIn("usedDefaultAmplitude", one_shot_bridge)
-		self.assertIn(
-			"AndroidThunkJava_OpenMobileHapticsStopAll",
-			android_bridge,
-		)
+		self.assertIn("static boolean stopAll", android_bridge)
 		self.assertIn("vibrator.cancel()", android_bridge)
 		self.assertNotIn("FLAG_IGNORE", one_shot_bridge)
 
@@ -340,7 +343,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		)
 
 	def test_semantic_playback_stays_in_platform_backends(self) -> None:
-		android_bridge = (
+		android_bridge = load_android_bridge()
+		android_upl = (
 			HAPTICS_PLUGIN
 			/ "Source"
 			/ "OpenMobileHapticsAndroid"
@@ -354,7 +358,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("VibrationAttributes.USAGE_TOUCH", android_bridge)
 		self.assertIn("VibrationAttributes.USAGE_MEDIA", android_bridge)
 		self.assertIn("VibrationAttributes.USAGE_NOTIFICATION", android_bridge)
-		self.assertIn("android.permission.VIBRATE", android_bridge)
+		self.assertIn("android.permission.VIBRATE", android_upl)
 		for bypass_token in (
 			"FLAG_IGNORE_GLOBAL_SETTING",
 			"FLAG_IGNORE_VIEW_SETTING",
@@ -386,6 +390,60 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("releaseGenerators", ios_backend)
 		self.assertIn("BeginShutdown", ios_backend)
 		self.assertNotIn("CHHapticEngine alloc", ios_backend)
+
+	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		bridge_path = (
+			android_root
+			/ "Private"
+			/ "Android"
+			/ "src"
+			/ "com"
+			/ "openmobile"
+			/ "haptics"
+			/ "OpenMobileHapticsBridgeV1.java"
+		)
+		self.assertTrue(bridge_path.is_file())
+		bridge = bridge_path.read_text(encoding="utf-8")
+		self.assertIn("final class OpenMobileHapticsBridgeV1", bridge)
+		self.assertIn("BRIDGE_VERSION = 1", bridge)
+		self.assertIn("WeakReference<Activity>", bridge)
+		self.assertIn("getApplicationContext()", bridge)
+		self.assertIn("getDefaultVibrator()", bridge)
+		self.assertNotIn("InputDevice", bridge)
+		self.assertIn("private static native void nativeOnBridgeResult", bridge)
+		self.assertIn("AtomicLong", bridge)
+		self.assertIn("snapshotInstrumentation", bridge)
+
+		upl = (
+			android_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileHaptics_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("OpenMobileHapticsBridgeV1.java", upl)
+		self.assertNotIn("gameActivityClassAdditions", upl)
+
+		native_bridge = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FindJavaClassGlobalRef", native_bridge)
+		self.assertIn("GetStaticMethodID", native_bridge)
+		self.assertIn("DeleteGlobalRef", native_bridge)
+		self.assertIn("Token.RequestId", native_bridge)
+		self.assertIn("nativeOnBridgeResult", native_bridge)
+		self.assertIn("PendingCallbacks", native_bridge)
+
+		common_callback = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Private"
+			/ "OpenMobileHapticsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ENamedThreads::GameThread", common_callback)
 
 if __name__ == "__main__":
 	unittest.main()
