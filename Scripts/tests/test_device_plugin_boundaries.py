@@ -2212,6 +2212,77 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(token, subsystem)
 
+	def test_user_initiated_paste_uses_owned_native_consent_paths(self) -> None:
+		action = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceUserInitiatedPasteAsyncAction.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"UOpenMobileDeviceAsyncActionBase",
+			"FOpenMobileUserInitiatedPasteRequest",
+			"FOpenMobileUserInitiatedPasteResult",
+			"RequestUserInitiatedPaste",
+		):
+			self.assertIn(token, action)
+
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceUserInitiatedPasteTypes.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("bCallerConfirmsUserInitiated", public_types)
+		for token in ("Success", "Cancelled", "Denied", "Failed"):
+			self.assertIn(token, public_types)
+
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceUserInitiatedPasteService.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"ApplicationWillEnterBackgroundDelegate",
+			"CancelUserInitiatedPaste",
+			"bReadWasUserInitiated = true",
+			"MaximumPayloadBytes",
+		):
+			self.assertIn(token, service)
+
+		ios_paste = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSUserInitiatedPaste.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"UIPasteControl",
+			"UIPasteConfigurationSupporting",
+			"pasteItemProviders",
+			"loadObjectOfClass",
+			"removeFromSuperview",
+			"NSProgress",
+		):
+			self.assertIn(token, ios_paste)
+		for forbidden_token in ("UIPasteboard.general", "UE_LOG"):
+			self.assertNotIn(forbidden_token, ios_paste)
+
+		android_paste = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidUserInitiatedPaste.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ReadOpenMobileDeviceAndroidClipboard", android_paste)
+		self.assertNotIn("UE_LOG", android_paste)
+
 
 if __name__ == "__main__":
 	unittest.main()

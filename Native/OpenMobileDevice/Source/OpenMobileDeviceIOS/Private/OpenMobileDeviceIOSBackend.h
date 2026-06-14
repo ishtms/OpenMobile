@@ -40,6 +40,15 @@ public:
 		EOpenMobileClipboardContentType ContentType
 	) override;
 	virtual FOpenMobileClipboardOperationResult ClearClipboard() override;
+	virtual bool BeginUserInitiatedPaste(
+		const FOpenMobileUserInitiatedPasteRequest& Request,
+		const FGuid& OperationId,
+		FOpenMobileDeviceUserInitiatedPasteCompletion&& Completion,
+		FOpenMobileError& OutError
+	) override;
+	virtual void CancelUserInitiatedPaste(
+		const FGuid& OperationId
+	) override;
 	virtual FOpenMobileBrightnessResult ApplyBrightness(
 		const FOpenMobileBrightnessRequest& Request
 	) override;

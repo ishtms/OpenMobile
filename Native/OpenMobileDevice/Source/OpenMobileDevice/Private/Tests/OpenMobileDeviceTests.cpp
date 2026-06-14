@@ -69,6 +69,10 @@
 #include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceSystemUiControlPolicy.h"
 #include "OpenMobileDeviceSystemUiControlService.h"
+#include "OpenMobileDeviceUserInitiatedPastePolicy.h"
+#include "OpenMobileDeviceUserInitiatedPasteService.h"
+#include "OpenMobileDeviceUserInitiatedPasteAsyncAction.h"
+#include "OpenMobileDeviceUserInitiatedPasteTypes.h"
 #include "OpenMobileDeviceTimeZoneInfo.h"
 #include "OpenMobileDeviceThermalHeadroom.h"
 #include "OpenMobileDeviceWindowMetrics.h"
@@ -249,6 +253,49 @@ namespace OpenMobileDeviceTests
 			return ClipboardClearResult;
 		}
 
+		virtual bool BeginUserInitiatedPaste(
+			const FOpenMobileUserInitiatedPasteRequest& Request,
+			const FGuid& OperationId,
+			FOpenMobileDeviceUserInitiatedPasteCompletion&& Completion,
+			FOpenMobileError& OutError
+		) override
+		{
+			if (!bAcceptUserInitiatedPaste)
+			{
+				OutError = FOpenMobileError::Make(
+					EOpenMobileErrorCode::Unavailable,
+					TEXT("The mock paste backend rejected the request.")
+				);
+				return false;
+			}
+			UserInitiatedPasteRequests.Add(Request);
+			PendingUserInitiatedPasteId = OperationId;
+			PendingUserInitiatedPasteCompletion = MoveTemp(Completion);
+			OutError = {};
+			return true;
+		}
+
+		virtual void CancelUserInitiatedPaste(
+			const FGuid& OperationId
+		) override
+		{
+			++UserInitiatedPasteCancelCount;
+			LastCancelledUserInitiatedPasteId = OperationId;
+		}
+
+		void CompleteUserInitiatedPaste(
+			FOpenMobileUserInitiatedPasteResult Result
+		)
+		{
+			FOpenMobileDeviceUserInitiatedPasteCompletion Completion =
+				MoveTemp(PendingUserInitiatedPasteCompletion);
+			PendingUserInitiatedPasteId.Invalidate();
+			if (Completion)
+			{
+				Completion(MoveTemp(Result));
+			}
+		}
+
 		virtual FOpenMobileBrightnessResult ApplyBrightness(
 			const FOpenMobileBrightnessRequest& Request
 		) override
@@ -408,6 +455,14 @@ namespace OpenMobileDeviceTests
 		TArray<FOpenMobileClipboardWriteRequest> ClipboardWrites;
 		TArray<EOpenMobileClipboardContentType> ClipboardReads;
 		int32 ClipboardClearCount = 0;
+		bool bAcceptUserInitiatedPaste = true;
+		TArray<FOpenMobileUserInitiatedPasteRequest>
+			UserInitiatedPasteRequests;
+		FGuid PendingUserInitiatedPasteId;
+		FOpenMobileDeviceUserInitiatedPasteCompletion
+			PendingUserInitiatedPasteCompletion;
+		int32 UserInitiatedPasteCancelCount = 0;
+		FGuid LastCancelledUserInitiatedPasteId;
 		EOpenMobileBrightnessApplyState BrightnessApplyState =
 			EOpenMobileBrightnessApplyState::Applied;
 		float BrightnessEffectiveValue = 0.8f;
@@ -4835,6 +4890,38 @@ bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Endpoint action exposes typed completion"), EndpointActionClass->FindPropertyByName(TEXT("Completed")));
 	TestNotNull(TEXT("Endpoint action exposes typed result"), EndpointActionClass->FindPropertyByName(TEXT("Result")));
 	TestNotNull(TEXT("Endpoint action exposes Blueprint factory"), EndpointActionClass->FindFunctionByName(TEXT("TestEndpointReachability")));
+	const UClass* PasteActionClass =
+		UOpenMobileDeviceUserInitiatedPasteAsyncAction::StaticClass();
+	TestNotNull(
+		TEXT("Paste action exposes typed result"),
+		PasteActionClass->FindPropertyByName(TEXT("Result"))
+	);
+	TestNotNull(
+		TEXT("Paste action exposes Blueprint factory"),
+		PasteActionClass->FindFunctionByName(TEXT("RequestUserInitiatedPaste"))
+	);
+	UOpenMobileDeviceUserInitiatedPasteAsyncAction* CancelledPaste =
+		NewObject<UOpenMobileDeviceUserInitiatedPasteAsyncAction>();
+	CancelledPaste->FinishCancelled(FOpenMobileError::Make(
+		EOpenMobileErrorCode::Cancelled,
+		TEXT("cancelled by caller")
+	));
+	TestEqual(
+		TEXT("Base cancellation updates the typed paste result"),
+		CancelledPaste->Result.State,
+		EOpenMobileUserInitiatedPasteState::Cancelled
+	);
+	UOpenMobileDeviceUserInitiatedPasteAsyncAction* FailedPaste =
+		NewObject<UOpenMobileDeviceUserInitiatedPasteAsyncAction>();
+	FailedPaste->FinishFailed(FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("world unavailable")
+	));
+	TestEqual(
+		TEXT("Base failure updates the typed paste result"),
+		FailedPaste->Result.State,
+		EOpenMobileUserInitiatedPasteState::Failed
+	);
 	int32 TerminalCount = 0;
 	EOpenMobileDeviceAsyncTerminalState LastState =
 		EOpenMobileDeviceAsyncTerminalState::Pending;
@@ -5738,6 +5825,338 @@ bool FOpenMobileDeviceFlashlightStateTest::RunTest(const FString& Parameters)
 	);
 	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(ChangedHandle);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceUserInitiatedPastePolicyTest,
+	"OpenMobile.Device.Utility.UserInitiatedPastePolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceUserInitiatedPastePolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileUserInitiatedPasteRequest Request;
+	FOpenMobileError Error;
+	TestFalse(
+		TEXT("Caller confirmation is required"),
+		FOpenMobileDeviceUserInitiatedPastePolicy::Validate(Request, Error)
+	);
+	TestEqual(
+		TEXT("Missing confirmation has typed error"),
+		Error.Code,
+		EOpenMobileErrorCode::InvalidArgument
+	);
+	Request.bCallerConfirmsUserInitiated = true;
+	TestTrue(
+		TEXT("Confirmed text request is valid"),
+		FOpenMobileDeviceUserInitiatedPastePolicy::Validate(Request, Error)
+	);
+	Request.ContentType = EOpenMobileClipboardContentType::Url;
+	TestTrue(
+		TEXT("Confirmed URL request is valid"),
+		FOpenMobileDeviceUserInitiatedPastePolicy::Validate(Request, Error)
+	);
+	Request.ContentType = EOpenMobileClipboardContentType::Empty;
+	TestFalse(
+		TEXT("Unsupported paste type is rejected"),
+		FOpenMobileDeviceUserInitiatedPastePolicy::Validate(Request, Error)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceUserInitiatedPasteLifecycleTest,
+	"OpenMobile.Device.Utility.UserInitiatedPasteLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceUserInitiatedPasteLifecycleTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("UserPaste"));
+	TestTrue(
+		TEXT("Paste mock backend registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	FOpenMobileDeviceUserInitiatedPasteService::SetApplicationActiveForTests(
+		true
+	);
+
+	FOpenMobileUserInitiatedPasteRequest Request;
+	Request.bCallerConfirmsUserInitiated = true;
+	TArray<FOpenMobileUserInitiatedPasteResult> Results;
+	auto CaptureResult = [&Results]()
+	{
+		return FOpenMobileDeviceUserInitiatedPasteCompletion(
+			[&Results](FOpenMobileUserInitiatedPasteResult Result)
+			{
+				Results.Add(MoveTemp(Result));
+			}
+		);
+	};
+	FGuid OperationId;
+	FOpenMobileError Error;
+	const bool bStarted = FOpenMobileDeviceUserInitiatedPasteService::Begin(
+		Request,
+		OperationId,
+		CaptureResult(),
+		Error
+	);
+	TestTrue(TEXT("Confirmed paste starts through the backend"), bStarted);
+	TestTrue(TEXT("Started paste returns an operation ID"), OperationId.IsValid());
+	TestEqual(
+		TEXT("Backend receives one request"),
+		Backend.UserInitiatedPasteRequests.Num(),
+		1
+	);
+	TestEqual(
+		TEXT("Backend owns the service operation ID"),
+		Backend.PendingUserInitiatedPasteId,
+		OperationId
+	);
+	TestEqual(TEXT("Asynchronous paste does not finish inline"), Results.Num(), 0);
+
+	FGuid DuplicateId;
+	TestFalse(
+		TEXT("Only one paste can be active"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			DuplicateId,
+			CaptureResult(),
+			Error
+		)
+	);
+	TestEqual(
+		TEXT("Duplicate paste has a typed Busy error"),
+		Error.Code,
+		EOpenMobileErrorCode::Busy
+	);
+	TestEqual(
+		TEXT("Duplicate paste does not reach the backend"),
+		Backend.UserInitiatedPasteRequests.Num(),
+		1
+	);
+
+	FOpenMobileUserInitiatedPasteResult Success;
+	Success.State = EOpenMobileUserInitiatedPasteState::Success;
+	Success.Content.Text = FOpenMobileDeviceOptionalString::MakeAvailable(
+		TEXT("value present when Paste is tapped")
+	);
+	Backend.CompleteUserInitiatedPaste(MoveTemp(Success));
+	TestEqual(TEXT("Allowed paste completes once"), Results.Num(), 1);
+	TestEqual(
+		TEXT("Allowed paste remains successful"),
+		Results[0].State,
+		EOpenMobileUserInitiatedPasteState::Success
+	);
+	TestEqual(
+		TEXT("Paste returns the value supplied at native completion"),
+		Results[0].Content.Text.Value,
+		FString(TEXT("value present when Paste is tapped"))
+	);
+	TestTrue(
+		TEXT("Paste result records explicit user initiation"),
+		Results[0].Content.bReadWasUserInitiated
+	);
+	TestTrue(
+		TEXT("Paste result receives snapshot metadata"),
+		Results[0].Content.Metadata.Generation > 0
+	);
+	TestEqual(
+		TEXT("Paste service never performs a separate clipboard read"),
+		Backend.ClipboardReads.Num(),
+		0
+	);
+	TestFalse(
+		TEXT("Successful completion releases the active operation"),
+		FOpenMobileDeviceUserInitiatedPasteService::HasActiveOperationForTests()
+	);
+
+	FGuid DeniedId;
+	TestTrue(
+		TEXT("A completed paste can be repeated"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			DeniedId,
+			CaptureResult(),
+			Error
+		)
+	);
+	FOpenMobileUserInitiatedPasteResult Denied;
+	Denied.State = EOpenMobileUserInitiatedPasteState::Denied;
+	Denied.Content.Text = FOpenMobileDeviceOptionalString::MakeAvailable(
+		TEXT("must be discarded")
+	);
+	Backend.CompleteUserInitiatedPaste(MoveTemp(Denied));
+	TestEqual(
+		TEXT("Native denial remains typed"),
+		Results.Last().State,
+		EOpenMobileUserInitiatedPasteState::Denied
+	);
+	TestTrue(
+		TEXT("Native denial always carries a typed error"),
+		Results.Last().Error.IsSet()
+	);
+	TestFalse(
+		TEXT("Denied paste discards temporary content"),
+		Results.Last().Content.Text.bIsAvailable
+	);
+
+	FGuid MalformedId;
+	TestTrue(
+		TEXT("Malformed native result case starts"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			MalformedId,
+			CaptureResult(),
+			Error
+		)
+	);
+	Backend.CompleteUserInitiatedPaste({});
+	TestEqual(
+		TEXT("Unknown native terminal state normalizes to Failed"),
+		Results.Last().State,
+		EOpenMobileUserInitiatedPasteState::Failed
+	);
+	TestTrue(
+		TEXT("Malformed native result carries a typed error"),
+		Results.Last().Error.IsSet()
+	);
+
+	FGuid OversizedId;
+	TestTrue(
+		TEXT("Oversized case starts"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			OversizedId,
+			CaptureResult(),
+			Error
+		)
+	);
+	FOpenMobileUserInitiatedPasteResult Oversized;
+	Oversized.State = EOpenMobileUserInitiatedPasteState::Success;
+	Oversized.Content.Text = FOpenMobileDeviceOptionalString::MakeAvailable(
+		FString::ChrN(
+			FOpenMobileDeviceClipboardPolicy::MaximumPayloadBytes + 1,
+			TEXT('a')
+		)
+	);
+	Backend.CompleteUserInitiatedPaste(MoveTemp(Oversized));
+	TestEqual(
+		TEXT("Oversized paste fails"),
+		Results.Last().State,
+		EOpenMobileUserInitiatedPasteState::Failed
+	);
+	TestFalse(
+		TEXT("Oversized paste content is cleared"),
+		Results.Last().Content.Text.bIsAvailable
+	);
+
+	FGuid CancelledId;
+	TestTrue(
+		TEXT("Cancellation case starts"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			CancelledId,
+			CaptureResult(),
+			Error
+		)
+	);
+	const int32 ResultsBeforeCallerCancel = Results.Num();
+	FOpenMobileDeviceUserInitiatedPasteService::Cancel(CancelledId);
+	TestEqual(
+		TEXT("Caller cancellation reaches the owning backend"),
+		Backend.LastCancelledUserInitiatedPasteId,
+		CancelledId
+	);
+	TestEqual(
+		TEXT("Service cancellation leaves the caller to own its terminal event"),
+		Results.Num(),
+		ResultsBeforeCallerCancel
+	);
+	FOpenMobileUserInitiatedPasteResult LateSuccess;
+	LateSuccess.State = EOpenMobileUserInitiatedPasteState::Success;
+	LateSuccess.Content.Text = FOpenMobileDeviceOptionalString::MakeAvailable(
+		TEXT("late secret")
+	);
+	Backend.CompleteUserInitiatedPaste(MoveTemp(LateSuccess));
+	TestEqual(
+		TEXT("Late native callback after cancellation is discarded"),
+		Results.Num(),
+		ResultsBeforeCallerCancel
+	);
+
+	FGuid BackgroundId;
+	TestTrue(
+		TEXT("Background case starts"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			BackgroundId,
+			CaptureResult(),
+			Error
+		)
+	);
+	FOpenMobileDeviceUserInitiatedPasteService::SetApplicationActiveForTests(
+		false
+	);
+	TestEqual(
+		TEXT("Backgrounding returns Cancelled"),
+		Results.Last().State,
+		EOpenMobileUserInitiatedPasteState::Cancelled
+	);
+	FGuid BackgroundRejectedId;
+	TestFalse(
+		TEXT("Background paste is rejected"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			BackgroundRejectedId,
+			CaptureResult(),
+			Error
+		)
+	);
+	TestEqual(
+		TEXT("Background rejection is typed"),
+		Error.Code,
+		EOpenMobileErrorCode::Unavailable
+	);
+	Backend.CompleteUserInitiatedPaste({});
+	FOpenMobileDeviceUserInitiatedPasteService::SetApplicationActiveForTests(
+		true
+	);
+
+	FGuid ShutdownId;
+	TestTrue(
+		TEXT("Shutdown case starts"),
+		FOpenMobileDeviceUserInitiatedPasteService::Begin(
+			Request,
+			ShutdownId,
+			CaptureResult(),
+			Error
+		)
+	);
+	FOpenMobileDeviceUserInitiatedPasteService::Shutdown();
+	TestEqual(
+		TEXT("Device shutdown returns Cancelled"),
+		Results.Last().State,
+		EOpenMobileUserInitiatedPasteState::Cancelled
+	);
+	TestFalse(
+		TEXT("Shutdown releases temporary native state"),
+		FOpenMobileDeviceUserInitiatedPasteService::HasActiveOperationForTests()
+	);
+	Backend.CompleteUserInitiatedPaste({});
+	FOpenMobileDeviceUserInitiatedPasteService::Start();
+
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

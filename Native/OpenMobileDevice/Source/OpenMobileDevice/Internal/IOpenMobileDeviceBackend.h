@@ -18,6 +18,7 @@
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
+#include "OpenMobileDeviceUserInitiatedPasteCallback.h"
 
 enum class EOpenMobileDeviceBackendDomain : uint8
 {
@@ -239,6 +240,28 @@ public:
 			TEXT("The active Device backend does not support clipboard clearing.")
 		);
 		return Result;
+	}
+
+	virtual bool BeginUserInitiatedPaste(
+		const FOpenMobileUserInitiatedPasteRequest& Request,
+		const FGuid& OperationId,
+		FOpenMobileDeviceUserInitiatedPasteCompletion&& Completion,
+		FOpenMobileError& OutError
+	)
+	{
+		static_cast<void>(Request);
+		static_cast<void>(OperationId);
+		static_cast<void>(Completion);
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support user-initiated paste.")
+		);
+		return false;
+	}
+
+	virtual void CancelUserInitiatedPaste(const FGuid& OperationId)
+	{
+		static_cast<void>(OperationId);
 	}
 
 	virtual FOpenMobileBrightnessResult ApplyBrightness(

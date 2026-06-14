@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
 #include "OpenMobileDeviceSystemUiControlService.h"
+#include "OpenMobileDeviceUserInitiatedPasteService.h"
 
 #include "Modules/ModuleManager.h"
 
@@ -24,10 +25,12 @@ public:
 		FOpenMobileDeviceClipboardService::Start();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Start();
 		FOpenMobileDeviceSystemUiControlService::Start();
+		FOpenMobileDeviceUserInitiatedPasteService::Start();
 	}
 
 	virtual void ShutdownModule() override
 	{
+		FOpenMobileDeviceUserInitiatedPasteService::Shutdown();
 		FOpenMobileDeviceSystemUiControlService::Shutdown();
 		FOpenMobileDeviceKeepScreenAwakeControlService::Shutdown();
 		FOpenMobileDeviceClipboardService::Shutdown();

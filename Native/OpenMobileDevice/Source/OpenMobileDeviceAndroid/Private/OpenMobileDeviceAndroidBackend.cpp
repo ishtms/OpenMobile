@@ -21,6 +21,7 @@
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceAndroidSystemUiControl.h"
+#include "OpenMobileDeviceAndroidUserInitiatedPaste.h"
 #include "OpenMobileDeviceAndroidWindowMonitor.h"
 #include "OpenMobileDeviceMemoryInfo.h"
 #include "OpenMobileDevicePlatformInfo.h"
@@ -499,6 +500,28 @@ FOpenMobileClipboardOperationResult
 FOpenMobileDeviceAndroidBackend::ClearClipboard()
 {
 	return ClearOpenMobileDeviceAndroidClipboard();
+}
+
+bool FOpenMobileDeviceAndroidBackend::BeginUserInitiatedPaste(
+	const FOpenMobileUserInitiatedPasteRequest& Request,
+	const FGuid& OperationId,
+	FOpenMobileDeviceUserInitiatedPasteCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	return BeginOpenMobileDeviceAndroidUserInitiatedPaste(
+		Request,
+		OperationId,
+		MoveTemp(Completion),
+		OutError
+	);
+}
+
+void FOpenMobileDeviceAndroidBackend::CancelUserInitiatedPaste(
+	const FGuid& OperationId
+)
+{
+	CancelOpenMobileDeviceAndroidUserInitiatedPaste(OperationId);
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(

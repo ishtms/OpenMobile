@@ -19,6 +19,7 @@
 #include "OpenMobileDeviceIOSOrientationControl.h"
 #include "OpenMobileDeviceIOSStorage.h"
 #include "OpenMobileDeviceIOSSystemUiControl.h"
+#include "OpenMobileDeviceIOSUserInitiatedPaste.h"
 #include "OpenMobileDevicePlatformInfo.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 
@@ -489,6 +490,28 @@ FOpenMobileClipboardOperationResult FOpenMobileDeviceIOSBackend::ClearClipboard(
 	return ClearOpenMobileDeviceIOSClipboard();
 }
 
+bool FOpenMobileDeviceIOSBackend::BeginUserInitiatedPaste(
+	const FOpenMobileUserInitiatedPasteRequest& Request,
+	const FGuid& OperationId,
+	FOpenMobileDeviceUserInitiatedPasteCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	return BeginOpenMobileDeviceIOSUserInitiatedPaste(
+		Request,
+		OperationId,
+		MoveTemp(Completion),
+		OutError
+	);
+}
+
+void FOpenMobileDeviceIOSBackend::CancelUserInitiatedPaste(
+	const FGuid& OperationId
+)
+{
+	CancelOpenMobileDeviceIOSUserInitiatedPaste(OperationId);
+}
+
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(
 	const FOpenMobileBrightnessRequest& Request
 )
@@ -694,6 +717,7 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 
 void FOpenMobileDeviceIOSBackend::BeginShutdown()
 {
+	ShutdownOpenMobileDeviceIOSUserInitiatedPaste();
 	ClearOpenMobileDeviceIOSFlashlight();
 	ClearOpenMobileDeviceIOSSystemUiMode();
 	ClearOpenMobileDeviceIOSKeepScreenAwake();

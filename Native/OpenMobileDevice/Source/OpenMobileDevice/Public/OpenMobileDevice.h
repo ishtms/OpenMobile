@@ -25,3 +25,5 @@
 #include "OpenMobileDeviceSubsystem.h"
 #include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceTypes.h"
+#include "OpenMobileDeviceUserInitiatedPasteAsyncAction.h"
+#include "OpenMobileDeviceUserInitiatedPasteTypes.h"
