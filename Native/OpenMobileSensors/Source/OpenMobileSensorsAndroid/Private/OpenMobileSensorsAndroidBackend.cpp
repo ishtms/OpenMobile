@@ -1,6 +1,7 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -96,6 +97,10 @@ bool FOpenMobileSensorsAndroidBackend::PublishVectorBatchFromHandler(
 	for (FOpenMobileVectorSensorSample& Sample : NormalizedBatch.Samples)
 	{
 		FOpenMobileSensorUnitConverter::NormalizeVectorSample(
+			EOpenMobileSensorNativePlatform::Android,
+			Sample
+		);
+		FOpenMobileSensorCoordinateConverter::ConvertVectorSample(
 			EOpenMobileSensorNativePlatform::Android,
 			Sample
 		);

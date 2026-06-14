@@ -678,6 +678,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Destination.Header.bStatefulProcessingReset =
 						Slot.PendingTimestampIssueFlags != 0;
 					Destination.Header.bUnitsNormalized = true;
+					Destination.Header.bCoordinatesNormalized = true;
+					Destination.Header.CoordinateSpace =
+						EOpenMobileSensorCoordinateSpace::DeviceFixed;
 					Slot.PendingTimestampIssueFlags = 0;
 					Slot.LatestTimestampSeconds =
 						Sample.Header.TimestampSeconds;

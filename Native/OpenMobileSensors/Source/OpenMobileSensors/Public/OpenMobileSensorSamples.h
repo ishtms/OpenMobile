@@ -78,6 +78,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 	bool bUnitsNormalized = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bCoordinatesNormalized = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bValid = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

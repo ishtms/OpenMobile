@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -50,6 +51,10 @@ bool FOpenMobileSensorsIOSBackend::PublishVectorBatchFromMotionQueue(
 	for (FOpenMobileVectorSensorSample& Sample : NormalizedBatch.Samples)
 	{
 		FOpenMobileSensorUnitConverter::NormalizeVectorSample(
+			EOpenMobileSensorNativePlatform::IOS,
+			Sample
+		);
+		FOpenMobileSensorCoordinateConverter::ConvertVectorSample(
 			EOpenMobileSensorNativePlatform::IOS,
 			Sample
 		);
