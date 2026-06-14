@@ -7,6 +7,7 @@
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorScreenRotationService.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -167,6 +168,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorDeliveryMode::LatestValue;
 		EOpenMobileSensorOverflowPolicy OverflowPolicy =
 			EOpenMobileSensorOverflowPolicy::DropOldest;
+		EOpenMobileSensorCoordinateSpace CoordinateSpace =
+			EOpenMobileSensorCoordinateSpace::DeviceFixed;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
@@ -681,6 +684,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Destination.Header.bCoordinatesNormalized = true;
 					Destination.Header.CoordinateSpace =
 						EOpenMobileSensorCoordinateSpace::DeviceFixed;
+					FOpenMobileSensorsScreenRotationService::ApplyToSample(
+						Slot.OwnerIdentifier,
+						Slot.CoordinateSpace,
+						Destination
+					);
 					Slot.PendingTimestampIssueFlags = 0;
 					Slot.LatestTimestampSeconds =
 						Sample.Header.TimestampSeconds;
@@ -1356,6 +1364,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	);
 	Slot->DeliveryMode = Options.DeliveryMode;
 	Slot->OverflowPolicy = Options.OverflowPolicy;
+	Slot->CoordinateSpace = Options.CoordinateSpace;
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
 		InitializeBufferedStorage(*Slot);
@@ -1447,6 +1456,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	);
 	(*SlotPointer)->DeliveryMode = Options.DeliveryMode;
 	(*SlotPointer)->OverflowPolicy = Options.OverflowPolicy;
+	(*SlotPointer)->CoordinateSpace = Options.CoordinateSpace;
 	if (Options.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
 		if (PreviousDeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)

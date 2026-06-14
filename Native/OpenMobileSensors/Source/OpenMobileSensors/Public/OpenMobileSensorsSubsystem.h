@@ -167,6 +167,13 @@ public:
 		const FOpenMobileSensorSubscriptionRequest& Request
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Update Application Window Rotation", ToolTip = "Supplies a timestamped application-window rotation for current-screen sensor subscriptions."))
+	bool UpdateApplicationWindowRotationNative(
+		EOpenMobileSensorScreenRotation Rotation,
+		double TimestampSeconds,
+		bool bNaturalOrientationLandscape
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Update Sensor Subscription", ToolTip = "Updates an active subscription without replacing its handle when supported."))
 	FOpenMobileSensorOperationResult UpdateSubscriptionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,

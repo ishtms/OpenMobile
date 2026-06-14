@@ -2,6 +2,7 @@
 
 #include "Misc/ScopeLock.h"
 #include "OpenMobileSensorCoordinates.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -27,6 +28,23 @@ ConvertSensorEventTimestampNanoseconds(int64 TimestampNanoseconds)
 {
 	return FOpenMobileSensorTimestampConverter::
 		FromAndroidSensorEventNanoseconds(TimestampNanoseconds);
+}
+
+bool FOpenMobileSensorsAndroidBackend::
+CaptureApplicationWindowRotationFromUIThread(
+	const FGuid& OwnerIdentifier,
+	EOpenMobileSensorScreenRotation Rotation,
+	double TimestampSeconds,
+	bool bNaturalOrientationLandscape
+)
+{
+	return FOpenMobileSensorsScreenRotationService::
+		CaptureApplicationWindowRotation(
+			OwnerIdentifier,
+			Rotation,
+			TimestampSeconds,
+			bNaturalOrientationLandscape
+		);
 }
 
 FOpenMobileCapability

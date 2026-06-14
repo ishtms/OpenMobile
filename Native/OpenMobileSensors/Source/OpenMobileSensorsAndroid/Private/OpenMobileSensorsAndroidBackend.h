@@ -17,6 +17,12 @@ public:
 	static double ConvertSensorEventTimestampNanoseconds(
 		int64 TimestampNanoseconds
 	);
+	static bool CaptureApplicationWindowRotationFromUIThread(
+		const FGuid& OwnerIdentifier,
+		EOpenMobileSensorScreenRotation Rotation,
+		double TimestampSeconds,
+		bool bNaturalOrientationLandscape
+	);
 
 	bool PublishVectorBatchFromHandler(
 		const FOpenMobileSensorsBackendToken& Token,

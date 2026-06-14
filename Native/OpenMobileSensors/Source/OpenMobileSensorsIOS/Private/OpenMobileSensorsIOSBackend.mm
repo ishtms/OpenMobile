@@ -4,6 +4,7 @@
 
 #include "Misc/ScopeLock.h"
 #include "OpenMobileSensorCoordinates.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -26,6 +27,23 @@ double FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(
 	return FOpenMobileSensorTimestampConverter::FromIOSCoreMotionSeconds(
 		TimestampSeconds
 	);
+}
+
+bool FOpenMobileSensorsIOSBackend::
+CaptureApplicationWindowRotationFromMainThread(
+	const FGuid& OwnerIdentifier,
+	EOpenMobileSensorScreenRotation Rotation,
+	double TimestampSeconds,
+	bool bNaturalOrientationLandscape
+)
+{
+	return FOpenMobileSensorsScreenRotationService::
+		CaptureApplicationWindowRotation(
+			OwnerIdentifier,
+			Rotation,
+			TimestampSeconds,
+			bNaturalOrientationLandscape
+		);
 }
 
 FOpenMobileCapability FOpenMobileSensorsIOSBackend::GetBackendCapability() const

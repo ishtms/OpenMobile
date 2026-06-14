@@ -22,13 +22,13 @@ public:
 		EOpenMobileSensorNativePlatform Platform,
 		FOpenMobileAttitudeSensorSample& Sample
 	);
+	static void UpdateEulerAndRotationMatrix(
+		FOpenMobileAttitudeSensorSample& Sample
+	);
 
 private:
 	static FQuat ConvertQuaternion(
 		EOpenMobileSensorNativePlatform Platform,
 		const FQuat& NativeQuaternion
-	);
-	static void UpdateEulerAndRotationMatrix(
-		FOpenMobileAttitudeSensorSample& Sample
 	);
 };

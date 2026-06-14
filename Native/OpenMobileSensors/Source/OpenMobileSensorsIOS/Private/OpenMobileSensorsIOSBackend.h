@@ -19,6 +19,12 @@ public:
 	virtual FOpenMobileCapability GetBackendCapability() const override;
 	virtual void BeginShutdown() override;
 	static double ConvertCoreMotionTimestampSeconds(double TimestampSeconds);
+	static bool CaptureApplicationWindowRotationFromMainThread(
+		const FGuid& OwnerIdentifier,
+		EOpenMobileSensorScreenRotation Rotation,
+		double TimestampSeconds,
+		bool bNaturalOrientationLandscape
+	);
 
 	bool PublishVectorBatchFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,

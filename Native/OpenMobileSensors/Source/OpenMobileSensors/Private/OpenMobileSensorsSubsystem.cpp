@@ -3,6 +3,7 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "HAL/PlatformTime.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -16,6 +17,9 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileSensorsScreenRotationService::RemoveOwner(
 			SubscriptionOwnerIdentifier
 		);
 	}
@@ -35,6 +39,9 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileSensorsScreenRotationService::RemoveOwner(
 			SubscriptionOwnerIdentifier
 		);
 		SubscriptionOwnerIdentifier.Invalidate();
@@ -183,6 +190,25 @@ UOpenMobileSensorsSubsystem::StartSubscriptionNative(
 		GetOrCreateSubscriptionOwnerIdentifier(),
 		Request
 	);
+}
+
+bool UOpenMobileSensorsSubsystem::UpdateApplicationWindowRotationNative(
+	EOpenMobileSensorScreenRotation Rotation,
+	double TimestampSeconds,
+	bool bNaturalOrientationLandscape
+)
+{
+	if (bDeinitialized)
+	{
+		return false;
+	}
+	return FOpenMobileSensorsScreenRotationService::
+		CaptureApplicationWindowRotation(
+			GetOrCreateSubscriptionOwnerIdentifier(),
+			Rotation,
+			TimestampSeconds,
+			bNaturalOrientationLandscape
+		);
 }
 
 FOpenMobileSensorOperationResult

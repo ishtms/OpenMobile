@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorScreenRotation.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSamples.generated.h"
 
@@ -89,6 +90,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorCoordinateSpace CoordinateSpace =
 		EOpenMobileSensorCoordinateSpace::DeviceFixed;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorScreenRotation ScreenRotation =
+		EOpenMobileSensorScreenRotation::Rotation0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double ScreenRotationTimestampSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int64 ScreenRotationSequence = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bNaturalOrientationLandscape = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags"))
 	int32 SourceFlags = 0;
