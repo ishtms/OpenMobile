@@ -74,8 +74,8 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidEnvelopePoint
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Amplitude = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float FrequencyIntent = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", Units = "Hz"))
+	float FrequencyHz = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Sharpness = 0.5f;

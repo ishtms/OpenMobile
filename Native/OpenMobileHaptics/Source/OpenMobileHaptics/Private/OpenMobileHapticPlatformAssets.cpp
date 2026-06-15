@@ -1,6 +1,7 @@
 #include "OpenMobileHapticPlatformAssets.h"
 
 #include "Dom/JsonObject.h"
+#include "OpenMobileHapticsEnvelopePolicy.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -155,11 +156,13 @@ bool UOpenMobileHapticAndroidPatternAsset::Supports(
 					<= Capabilities.MaximumEventCount.Value);
 	case EOpenMobileHapticAndroidPatternFormat::BasicEnvelope:
 	case EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope:
-		return Capabilities.Envelopes
-				== EOpenMobileHapticSupportState::Supported
-			&& (!Capabilities.MaximumControlPointCount.bKnown
-				|| EnvelopePoints.Num()
-					<= Capabilities.MaximumControlPointCount.Value);
+		return FOpenMobileHapticsEnvelopePolicy::Resolve(
+			*this,
+			Capabilities,
+			OSVersion,
+			1.0f,
+			EOpenMobileHapticFallbackPolicy::ExactOnly
+		).Outcome == EOpenMobileHapticsEnvelopeOutcome::Ready;
 	default:
 		return false;
 	}
@@ -261,13 +264,12 @@ bool UOpenMobileHapticAndroidPatternAsset::Validate(
 		{
 			Errors.Add(TEXT("EnvelopePoints must contain at least two points."));
 		}
-		float PreviousTime = -1.0f;
+		float PreviousTime = 0.0f;
 		for (int32 Index = 0; Index < EnvelopePoints.Num(); ++Index)
 		{
 			const FOpenMobileHapticAndroidEnvelopePoint& Point =
 				EnvelopePoints[Index];
 			if (!FMath::IsFinite(Point.TimeSeconds)
-				|| Point.TimeSeconds < 0.0f
 				|| Point.TimeSeconds <= PreviousTime)
 			{
 				Errors.Add(FString::Printf(
@@ -283,17 +285,20 @@ bool UOpenMobileHapticAndroidPatternAsset::Validate(
 					Index
 				));
 			}
-			if (!FMath::IsFinite(Point.FrequencyIntent)
-				|| Point.FrequencyIntent < 0.0f
-				|| Point.FrequencyIntent > 1.0f)
+			if (Format
+					== EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope
+				&& (!FMath::IsFinite(Point.FrequencyHz)
+					|| Point.FrequencyHz <= 0.0f))
 			{
 				Errors.Add(FString::Printf(
-					TEXT("Envelope point %d FrequencyIntent must be normalized."),
+					TEXT("Envelope point %d FrequencyHz must be positive."),
 					Index
 				));
 			}
-			if (!FMath::IsFinite(Point.Sharpness)
-				|| Point.Sharpness < 0.0f || Point.Sharpness > 1.0f)
+			if (Format
+					== EOpenMobileHapticAndroidPatternFormat::BasicEnvelope
+				&& (!FMath::IsFinite(Point.Sharpness)
+					|| Point.Sharpness < 0.0f || Point.Sharpness > 1.0f))
 			{
 				Errors.Add(FString::Printf(
 					TEXT("Envelope point %d Sharpness must be normalized."),
@@ -301,6 +306,12 @@ bool UOpenMobileHapticAndroidPatternAsset::Validate(
 				));
 			}
 			PreviousTime = Point.TimeSeconds;
+		}
+		if (Format == EOpenMobileHapticAndroidPatternFormat::BasicEnvelope
+			&& !EnvelopePoints.IsEmpty()
+			&& !FMath::IsNearlyZero(EnvelopePoints.Last().Amplitude))
+		{
+			Errors.Add(TEXT("Basic envelopes must end at zero intensity."));
 		}
 	}
 	return Errors.IsEmpty();

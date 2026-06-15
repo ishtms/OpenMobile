@@ -13,6 +13,9 @@ struct FOpenMobileHapticsAndroidHardwareProbe
 	int64 MaximumControlPointCount = -1;
 	int64 MaximumDurationMillis = -1;
 	int64 MinimumTimingMillis = -1;
+	int64 MaximumControlPointDurationMillis = -1;
+	int64 MinimumFrequencyMilliHertz = -1;
+	int64 MaximumFrequencyMilliHertz = -1;
 };
 
 struct FOpenMobileHapticsAndroidBridgeSubmission
@@ -53,6 +56,14 @@ public:
 		const TArray<int32>& DelaysMilliseconds,
 		int32 Purpose
 	);
+	int32 PlayEnvelope(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		EOpenMobileHapticAndroidPatternFormat Format,
+		const TArray<float>& Amplitudes,
+		const TArray<float>& ControlValues,
+		const TArray<int64>& DurationsMilliseconds,
+		int32 Purpose
+	);
 	bool StopAll();
 	void Shutdown();
 	void HandleBridgeResult(uint64 RequestId, int32 Result);
@@ -76,6 +87,7 @@ private:
 	jmethodID PlaySemanticMethod = nullptr;
 	jmethodID PlayOneShotMethod = nullptr;
 	jmethodID PlayPrimitivesMethod = nullptr;
+	jmethodID PlayEnvelopeMethod = nullptr;
 	jmethodID StopAllMethod = nullptr;
 	TMap<uint64, FPendingCallback> PendingCallbacks;
 };

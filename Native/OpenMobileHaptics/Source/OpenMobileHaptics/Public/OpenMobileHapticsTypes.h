@@ -420,6 +420,33 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationLimit
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticFrequencyRange
+{
+	GENERATED_BODY()
+
+	FOpenMobileHapticFrequencyRange() = default;
+	FOpenMobileHapticFrequencyRange(
+		bool bInKnown,
+		float InMinimumHertz,
+		float InMaximumHertz
+	)
+		: bKnown(bInKnown)
+		, MinimumHertz(InMinimumHertz)
+		, MaximumHertz(InMaximumHertz)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics", meta = (Units = "Hz"))
+	float MinimumHertz = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics", meta = (Units = "Hz"))
+	float MaximumHertz = 0.0f;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 {
 	GENERATED_BODY()
@@ -528,6 +555,12 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticDurationLimit MinimumTimingGranularitySeconds;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticDurationLimit MaximumControlPointDurationSeconds;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticFrequencyRange FrequencyRange;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FName BackendName;

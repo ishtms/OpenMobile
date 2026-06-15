@@ -269,6 +269,11 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("areEffectsSupported", android_bridge)
 		self.assertIn("arePrimitivesSupported", android_bridge)
 		self.assertIn("getEnvelopeEffectInfo", android_bridge)
+		self.assertIn("getMaxControlPointDurationMillis", android_bridge)
+		self.assertIn("getMinFrequencyHz", android_bridge)
+		self.assertIn("getMaxFrequencyHz", android_bridge)
+		self.assertIn("MaximumControlPointDurationMillis", android_probe)
+		self.assertIn("FrequencyRange", android_probe)
 		android_query = android_bridge.split(
 			"static long[] queryCapabilities", 1
 		)[1].split("static int playSemantic", 1)[0]
@@ -479,6 +484,59 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("SubmitNamedPattern", backend)
 		self.assertIn("PrimitiveCompositionPolicy::Resolve", backend)
+		self.assertIn("Bridge.PlayPrimitives", backend)
+
+	def test_android_envelope_builders_are_guarded(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		bridge = load_android_bridge()
+		self.assertIn("static int playEnvelope", bridge)
+		self.assertIn("areEnvelopeEffectsSupported", bridge)
+		self.assertIn("getEnvelopeEffectInfo", bridge)
+		self.assertIn("getFrequencyProfile", bridge)
+		self.assertIn(
+			"android.os.VibrationEffect$BasicEnvelopeBuilder",
+			bridge,
+		)
+		self.assertIn(
+			"android.os.VibrationEffect$WaveformEnvelopeBuilder",
+			bridge,
+		)
+		self.assertIn(
+			"private static volatile EnvelopeApi36 envelopeApi36",
+			bridge,
+		)
+		self.assertIn("synchronized (OpenMobileHapticsBridgeV1.class)", bridge)
+		self.assertGreaterEqual(bridge.count('"addControlPoint"'), 2)
+		playback = bridge[
+			bridge.index("static int playEnvelope"):
+			bridge.index("static boolean stopAll")
+		]
+		self.assertLess(
+			playback.index("areEnvelopeEffectsSupported.invoke"),
+			playback.index("basicConstructor.newInstance"),
+		)
+		self.assertIn("catch (Exception exception)", playback)
+		self.assertIn("return RESULT_FAILED", playback)
+
+		native_bridge = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("PlayEnvelope", native_bridge)
+		self.assertIn("FScopedJavaObject<jlongArray>", native_bridge)
+		self.assertGreaterEqual(
+			native_bridge.count("FScopedJavaObject<jfloatArray>"),
+			2,
+		)
+
+		backend = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FOpenMobileHapticsEnvelopePolicy::Resolve", backend)
+		self.assertIn("Bridge.PlayEnvelope", backend)
 		self.assertIn("Bridge.PlayPrimitives", backend)
 
 if __name__ == "__main__":

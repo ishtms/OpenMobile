@@ -94,6 +94,11 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		"playPrimitives",
 		"(Landroid/app/Activity;J[I[F[II)I"
 	);
+	PlayEnvelopeMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"playEnvelope",
+		"(Landroid/app/Activity;JI[F[F[JI)I"
+	);
 	StopAllMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"stopAll",
@@ -104,6 +109,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		|| !PlaySemanticMethod
 		|| !PlayOneShotMethod
 		|| !PlayPrimitivesMethod
+		|| !PlayEnvelopeMethod
 		|| !StopAllMethod)
 	{
 		ClearException(Env);
@@ -113,6 +119,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		PlaySemanticMethod = nullptr;
 		PlayOneShotMethod = nullptr;
 		PlayPrimitivesMethod = nullptr;
+		PlayEnvelopeMethod = nullptr;
 		StopAllMethod = nullptr;
 		return false;
 	}
@@ -149,11 +156,11 @@ FOpenMobileHapticsAndroidBridge::QueryHardware()
 		ClearException(Env);
 		return Probe;
 	}
-	jlong NativeValues[6] = {-1, 0, 0, -1, -1, -1};
+	jlong NativeValues[9] = {-1, 0, 0, -1, -1, -1, -1, -1, -1};
 	Env->GetLongArrayRegion(
 		*Values,
 		0,
-		FMath::Min<jsize>(Count, 6),
+		FMath::Min<jsize>(Count, 9),
 		NativeValues
 	);
 	if (Env->ExceptionCheck())
@@ -167,6 +174,10 @@ FOpenMobileHapticsAndroidBridge::QueryHardware()
 	Probe.MaximumControlPointCount = static_cast<int64>(NativeValues[3]);
 	Probe.MaximumDurationMillis = static_cast<int64>(NativeValues[4]);
 	Probe.MinimumTimingMillis = static_cast<int64>(NativeValues[5]);
+	Probe.MaximumControlPointDurationMillis =
+		static_cast<int64>(NativeValues[6]);
+	Probe.MinimumFrequencyMilliHertz = static_cast<int64>(NativeValues[7]);
+	Probe.MaximumFrequencyMilliHertz = static_cast<int64>(NativeValues[8]);
 	return Probe;
 }
 
@@ -343,6 +354,95 @@ int32 FOpenMobileHapticsAndroidBridge::PlayPrimitives(
 	return Result;
 }
 
+int32 FOpenMobileHapticsAndroidBridge::PlayEnvelope(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	EOpenMobileHapticAndroidPatternFormat Format,
+	const TArray<float>& Amplitudes,
+	const TArray<float>& ControlValues,
+	const TArray<int64>& DurationsMilliseconds,
+	int32 Purpose
+)
+{
+	const int32 Count = Amplitudes.Num();
+	if (Count <= 0 || ControlValues.Num() != Count
+		|| DurationsMilliseconds.Num() != Count)
+	{
+		return 0;
+	}
+
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity || !EnsureInitialized(Env))
+	{
+		return 0;
+	}
+
+	FScopedJavaObject<jfloatArray> AmplitudeValues(Env->NewFloatArray(Count));
+	FScopedJavaObject<jfloatArray> ControlValueArray(Env->NewFloatArray(Count));
+	FScopedJavaObject<jlongArray> DurationValues(Env->NewLongArray(Count));
+	if (!AmplitudeValues || !ControlValueArray || !DurationValues
+		|| Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	TArray<jfloat, TInlineAllocator<16>> NativeAmplitudes;
+	TArray<jfloat, TInlineAllocator<16>> NativeControlValues;
+	TArray<jlong, TInlineAllocator<16>> NativeDurations;
+	NativeAmplitudes.Reserve(Count);
+	NativeControlValues.Reserve(Count);
+	NativeDurations.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		NativeAmplitudes.Add(static_cast<jfloat>(Amplitudes[Index]));
+		NativeControlValues.Add(static_cast<jfloat>(ControlValues[Index]));
+		NativeDurations.Add(static_cast<jlong>(DurationsMilliseconds[Index]));
+	}
+	Env->SetFloatArrayRegion(
+		*AmplitudeValues,
+		0,
+		Count,
+		NativeAmplitudes.GetData()
+	);
+	Env->SetFloatArrayRegion(
+		*ControlValueArray,
+		0,
+		Count,
+		NativeControlValues.GetData()
+	);
+	Env->SetLongArrayRegion(
+		*DurationValues,
+		0,
+		Count,
+		NativeDurations.GetData()
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PlayEnvelopeMethod,
+		Activity,
+		static_cast<jlong>(Token.RequestId),
+		static_cast<jint>(Format),
+		*AmplitudeValues,
+		*ControlValueArray,
+		*DurationValues,
+		static_cast<jint>(Purpose)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	return Result;
+}
+
 bool FOpenMobileHapticsAndroidBridge::StopAll()
 {
 	FScopeLock Lock(&Mutex);
@@ -424,5 +524,6 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	PlaySemanticMethod = nullptr;
 	PlayOneShotMethod = nullptr;
 	PlayPrimitivesMethod = nullptr;
+	PlayEnvelopeMethod = nullptr;
 	StopAllMethod = nullptr;
 }

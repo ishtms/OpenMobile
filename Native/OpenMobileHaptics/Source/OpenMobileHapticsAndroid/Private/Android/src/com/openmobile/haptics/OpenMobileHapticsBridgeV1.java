@@ -13,6 +13,7 @@ import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -29,8 +30,109 @@ public final class OpenMobileHapticsBridgeV1 {
     private static final AtomicLong submissionCount = new AtomicLong();
     private static final AtomicLong callbackCount = new AtomicLong();
     private static final AtomicLong lastRequestId = new AtomicLong();
+    private static volatile EnvelopeApi36 envelopeApi36;
+
+    private static final class EnvelopeApi36 {
+        final Method areEnvelopeEffectsSupported;
+        final Method getEnvelopeEffectInfo;
+        final Method getFrequencyProfile;
+        final Method getMaxSize;
+        final Method getMinControlPointDurationMillis;
+        final Method getMaxControlPointDurationMillis;
+        final Method getMaxDurationMillis;
+        final Method getMinFrequencyHz;
+        final Method getMaxFrequencyHz;
+        final Constructor<?> basicConstructor;
+        final Method basicSetInitialSharpness;
+        final Method basicAddControlPoint;
+        final Method basicBuild;
+        final Constructor<?> waveformConstructor;
+        final Method waveformSetInitialFrequencyHz;
+        final Method waveformAddControlPoint;
+        final Method waveformBuild;
+
+        EnvelopeApi36() throws ReflectiveOperationException {
+            areEnvelopeEffectsSupported = Vibrator.class.getMethod(
+                "areEnvelopeEffectsSupported"
+            );
+            getEnvelopeEffectInfo = Vibrator.class.getMethod(
+                "getEnvelopeEffectInfo"
+            );
+            getFrequencyProfile = Vibrator.class.getMethod(
+                "getFrequencyProfile"
+            );
+
+            Class<?> infoClass = Class.forName(
+                "android.os.vibrator.VibratorEnvelopeEffectInfo"
+            );
+            getMaxSize = infoClass.getMethod("getMaxSize");
+            getMinControlPointDurationMillis = infoClass.getMethod(
+                "getMinControlPointDurationMillis"
+            );
+            getMaxControlPointDurationMillis = infoClass.getMethod(
+                "getMaxControlPointDurationMillis"
+            );
+            getMaxDurationMillis = infoClass.getMethod(
+                "getMaxDurationMillis"
+            );
+
+            Class<?> profileClass = Class.forName(
+                "android.os.vibrator.VibratorFrequencyProfile"
+            );
+            getMinFrequencyHz = profileClass.getMethod("getMinFrequencyHz");
+            getMaxFrequencyHz = profileClass.getMethod("getMaxFrequencyHz");
+
+            Class<?> basicClass = Class.forName(
+                "android.os.VibrationEffect$BasicEnvelopeBuilder"
+            );
+            basicConstructor = basicClass.getDeclaredConstructor();
+            basicSetInitialSharpness = basicClass.getMethod(
+                "setInitialSharpness",
+                float.class
+            );
+            basicAddControlPoint = basicClass.getMethod(
+                "addControlPoint",
+                float.class,
+                float.class,
+                long.class
+            );
+            basicBuild = basicClass.getMethod("build");
+
+            Class<?> waveformClass = Class.forName(
+                "android.os.VibrationEffect$WaveformEnvelopeBuilder"
+            );
+            waveformConstructor = waveformClass.getDeclaredConstructor();
+            waveformSetInitialFrequencyHz = waveformClass.getMethod(
+                "setInitialFrequencyHz",
+                float.class
+            );
+            waveformAddControlPoint = waveformClass.getMethod(
+                "addControlPoint",
+                float.class,
+                float.class,
+                long.class
+            );
+            waveformBuild = waveformClass.getMethod("build");
+        }
+    }
 
     private OpenMobileHapticsBridgeV1() {
+    }
+
+    private static EnvelopeApi36 envelopeApi36()
+        throws ReflectiveOperationException {
+        EnvelopeApi36 api = envelopeApi36;
+        if (api != null) {
+            return api;
+        }
+        synchronized (OpenMobileHapticsBridgeV1.class) {
+            api = envelopeApi36;
+            if (api == null) {
+                api = new EnvelopeApi36();
+                envelopeApi36 = api;
+            }
+        }
+        return api;
     }
 
     static long[] queryCapabilities(Activity activity) {
@@ -40,7 +142,9 @@ public final class OpenMobileHapticsBridgeV1 {
                 return new long[] {-1L};
             }
             if (!vibrator.hasVibrator()) {
-                return new long[] {0L, 0L, 0L, -1L, -1L, -1L};
+                return new long[] {
+                    0L, 0L, 0L, -1L, -1L, -1L, -1L, -1L, -1L
+                };
             }
 
             long flags = 1L | 2L;
@@ -55,6 +159,9 @@ public final class OpenMobileHapticsBridgeV1 {
             long maxControlPoints = -1L;
             long maxDurationMillis = -1L;
             long minTimingMillis = -1L;
+            long maxControlPointDurationMillis = -1L;
+            long minFrequencyMilliHertz = -1L;
+            long maxFrequencyMilliHertz = -1L;
             if (Build.VERSION.SDK_INT >= 30) {
                 int[] effects = vibrator.areEffectsSupported(
                     VibrationEffect.EFFECT_TICK,
@@ -107,12 +214,28 @@ public final class OpenMobileHapticsBridgeV1 {
                             minTimingMillis = ((Number)info.getClass()
                                 .getMethod("getMinControlPointDurationMillis")
                                 .invoke(info)).longValue();
+                            maxControlPointDurationMillis = ((Number)info
+                                .getClass()
+                                .getMethod("getMaxControlPointDurationMillis")
+                                .invoke(info)).longValue();
                         }
                         Object frequencyProfile = Vibrator.class.getMethod(
                             "getFrequencyProfile"
                         ).invoke(vibrator);
                         if (frequencyProfile != null) {
                             flags |= 512L;
+                            minFrequencyMilliHertz = Math.round(
+                                ((Number)frequencyProfile.getClass()
+                                    .getMethod("getMinFrequencyHz")
+                                    .invoke(frequencyProfile)).doubleValue()
+                                    * 1000.0
+                            );
+                            maxFrequencyMilliHertz = Math.round(
+                                ((Number)frequencyProfile.getClass()
+                                    .getMethod("getMaxFrequencyHz")
+                                    .invoke(frequencyProfile)).doubleValue()
+                                    * 1000.0
+                            );
                         }
                     }
                 } catch (ReflectiveOperationException ignored) {
@@ -124,7 +247,10 @@ public final class OpenMobileHapticsBridgeV1 {
                 primitiveSupport,
                 maxControlPoints,
                 maxDurationMillis,
-                minTimingMillis
+                minTimingMillis,
+                maxControlPointDurationMillis,
+                minFrequencyMilliHertz,
+                maxFrequencyMilliHertz
             };
         } catch (Exception exception) {
             return new long[] {-1L};
@@ -303,6 +429,165 @@ public final class OpenMobileHapticsBridgeV1 {
         } catch (Exception exception) {
             return RESULT_FAILED;
         }
+    }
+
+    static int playEnvelope(
+        Activity activity,
+        long requestId,
+        int format,
+        float[] amplitudes,
+        float[] controlValues,
+        long[] durationsMilliseconds,
+        int purpose
+    ) {
+        recordSubmission(requestId);
+        if (Build.VERSION.SDK_INT < 36
+            || (format != 2 && format != 3)
+            || amplitudes == null
+            || controlValues == null
+            || durationsMilliseconds == null
+            || amplitudes.length == 0
+            || controlValues.length != amplitudes.length
+            || durationsMilliseconds.length != amplitudes.length) {
+            return RESULT_UNSUPPORTED;
+        }
+        try {
+            return playEnvelopeApi36(
+                activity,
+                format,
+                amplitudes,
+                controlValues,
+                durationsMilliseconds,
+                purpose
+            );
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
+    private static int playEnvelopeApi36(
+        Activity activity,
+        int format,
+        float[] amplitudes,
+        float[] controlValues,
+        long[] durationsMilliseconds,
+        int purpose
+    ) throws ReflectiveOperationException {
+        Vibrator vibrator = vibrator(activity);
+        if (vibrator == null || !vibrator.hasVibrator()) {
+            return RESULT_UNSUPPORTED;
+        }
+        EnvelopeApi36 api = envelopeApi36();
+        boolean envelopeSupported =
+            (Boolean)api.areEnvelopeEffectsSupported.invoke(vibrator);
+        if (!envelopeSupported) {
+            return RESULT_UNSUPPORTED;
+        }
+        Object info = api.getEnvelopeEffectInfo.invoke(vibrator);
+        if (info == null) {
+            return RESULT_UNSUPPORTED;
+        }
+        int maximumSize = ((Number)api.getMaxSize.invoke(info)).intValue();
+        long minimumDuration = ((Number)api.getMinControlPointDurationMillis
+            .invoke(info)).longValue();
+        long maximumDuration = ((Number)api.getMaxControlPointDurationMillis
+            .invoke(info)).longValue();
+        long maximumTotalDuration = ((Number)api.getMaxDurationMillis
+            .invoke(info)).longValue();
+        if (maximumSize <= 0
+            || minimumDuration <= 0L
+            || maximumDuration < minimumDuration
+            || maximumTotalDuration < minimumDuration
+            || amplitudes.length > maximumSize) {
+            return RESULT_UNSUPPORTED;
+        }
+        long totalDuration = 0L;
+        for (int index = 0; index < amplitudes.length; ++index) {
+            float amplitude = amplitudes[index];
+            float control = controlValues[index];
+            long duration = durationsMilliseconds[index];
+            if (Float.isNaN(amplitude)
+                || Float.isInfinite(amplitude)
+                || amplitude < 0.0f
+                || amplitude > 1.0f
+                || Float.isNaN(control)
+                || Float.isInfinite(control)
+                || duration < minimumDuration
+                || duration > maximumDuration
+                || totalDuration > maximumTotalDuration - duration) {
+                return RESULT_UNSUPPORTED;
+            }
+            totalDuration += duration;
+        }
+
+        Context context = applicationContext(activity);
+        if (!systemHapticsEnabled(context)) {
+            return RESULT_SUPPRESSED;
+        }
+
+        VibrationEffect effect;
+        if (format == 2) {
+            if (amplitudes[amplitudes.length - 1] != 0.0f) {
+                return RESULT_UNSUPPORTED;
+            }
+            for (float sharpness : controlValues) {
+                if (sharpness < 0.0f || sharpness > 1.0f) {
+                    return RESULT_UNSUPPORTED;
+                }
+            }
+            Object builder = api.basicConstructor.newInstance();
+            api.basicSetInitialSharpness.invoke(builder, controlValues[0]);
+            for (int index = 0; index < amplitudes.length; ++index) {
+                api.basicAddControlPoint.invoke(
+                    builder,
+                    amplitudes[index],
+                    controlValues[index],
+                    durationsMilliseconds[index]
+                );
+            }
+            effect = (VibrationEffect)api.basicBuild.invoke(builder);
+        } else {
+            Object profile = api.getFrequencyProfile.invoke(vibrator);
+            if (profile == null) {
+                return RESULT_UNSUPPORTED;
+            }
+            float minimumFrequency = ((Number)api.getMinFrequencyHz
+                .invoke(profile)).floatValue();
+            float maximumFrequency = ((Number)api.getMaxFrequencyHz
+                .invoke(profile)).floatValue();
+            if (Float.isNaN(minimumFrequency)
+                || Float.isInfinite(minimumFrequency)
+                || Float.isNaN(maximumFrequency)
+                || Float.isInfinite(maximumFrequency)
+                || minimumFrequency <= 0.0f
+                || maximumFrequency < minimumFrequency) {
+                return RESULT_UNSUPPORTED;
+            }
+            for (float frequency : controlValues) {
+                if (frequency < minimumFrequency
+                    || frequency > maximumFrequency) {
+                    return RESULT_UNSUPPORTED;
+                }
+            }
+            Object builder = api.waveformConstructor.newInstance();
+            api.waveformSetInitialFrequencyHz.invoke(
+                builder,
+                controlValues[0]
+            );
+            for (int index = 0; index < amplitudes.length; ++index) {
+                api.waveformAddControlPoint.invoke(
+                    builder,
+                    amplitudes[index],
+                    controlValues[index],
+                    durationsMilliseconds[index]
+                );
+            }
+            effect = (VibrationEffect)api.waveformBuild.invoke(builder);
+        }
+        vibrate(vibrator, effect, 0L, purpose);
+        return RESULT_ACCEPTED;
     }
 
     static boolean stopAll(Activity activity) {

@@ -16,6 +16,7 @@
 #include "UObject/CoreRedirects.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
+#include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
@@ -28,6 +29,7 @@
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
+#include "OpenMobileHapticsAndroidFallbackPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -1169,10 +1171,31 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 		EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope;
 	FOpenMobileHapticAndroidEnvelopePoint EnvelopeStart;
 	FOpenMobileHapticAndroidEnvelopePoint EnvelopeEnd;
+	EnvelopeStart.TimeSeconds = 0.02f;
+	EnvelopeStart.FrequencyHz = 120.0f;
 	EnvelopeEnd.TimeSeconds = 0.1f;
+	EnvelopeEnd.Amplitude = 0.0f;
+	EnvelopeEnd.FrequencyHz = 120.0f;
 	Envelope->EnvelopePoints = {EnvelopeStart, EnvelopeEnd};
 	TestTrue(TEXT("Valid Android envelope asset validates"),
 		Envelope->Validate(Errors));
+	Envelope->EnvelopePoints[0].FrequencyHz = 0.0f;
+	TestFalse(TEXT("Waveform envelope frequency must be explicit"),
+		Envelope->Validate(Errors));
+	Envelope->EnvelopePoints[0].FrequencyHz = 120.0f;
+	Envelope->Format = EOpenMobileHapticAndroidPatternFormat::BasicEnvelope;
+	Envelope->EnvelopePoints[1].Amplitude = 0.1f;
+	TestFalse(TEXT("Basic envelopes must end at zero intensity"),
+		Envelope->Validate(Errors));
+	Envelope->EnvelopePoints[1].Amplitude = 0.0f;
+	Envelope->EnvelopePoints[0].TimeSeconds = 0.0f;
+	TestFalse(TEXT("Envelope transitions must have positive duration"),
+		Envelope->Validate(Errors));
+	Envelope->EnvelopePoints[0].TimeSeconds = 0.02f;
+	TestTrue(TEXT("Hardware-neutral basic envelope validates"),
+		Envelope->Validate(Errors));
+	Envelope->Format =
+		EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope;
 	Portable->AndroidOverride = Envelope;
 	Capabilities.Envelopes = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Supported;
@@ -1185,6 +1208,32 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 	);
 	TestEqual(TEXT("Unsupported envelope preserves portable fallback"),
 		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Supported;
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.MaximumControlPointCount = {true, 16};
+	Capabilities.MaximumDurationSeconds = {true, 1.0};
+	Capabilities.MinimumTimingGranularitySeconds = {true, 0.02};
+	Capabilities.MaximumControlPointDurationSeconds = {true, 0.5};
+	Capabilities.FrequencyRange = {true, 60.0f, 200.0f};
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		36,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Direct frequency requires explicit hardware support"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+		*Portable,
+		EOpenMobileHapticOverridePlatform::Android,
+		36,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Fully supported direct frequency override is exact"),
+		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::ExactOverride);
 	Portable->AndroidOverride = Android;
 	Resolution = FOpenMobileHapticsPlatformOverridePolicy::Resolve(
 		*Portable,
@@ -1336,6 +1385,331 @@ bool FOpenMobileHapticsPrimitiveCompositionPolicyTest::RunTest(
 	);
 	TestEqual(TEXT("Total delay is bounded before JNI"), Resolution.Outcome,
 		EOpenMobileHapticsPrimitiveCompositionOutcome::Rejected);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsEnvelopePolicyTest,
+	"OpenMobile.Haptics.Pattern.AndroidEnvelopePolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsEnvelopePolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticAndroidPatternAsset* Asset =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	Asset->Format = EOpenMobileHapticAndroidPatternFormat::BasicEnvelope;
+	FOpenMobileHapticAndroidEnvelopePoint Rise;
+	Rise.TimeSeconds = 0.02f;
+	Rise.Amplitude = 0.8f;
+	Rise.Sharpness = 0.25f;
+	FOpenMobileHapticAndroidEnvelopePoint Stop;
+	Stop.TimeSeconds = 0.05f;
+	Stop.Amplitude = 0.0f;
+	Stop.Sharpness = 0.75f;
+	Asset->EnvelopePoints = {Rise, Stop};
+
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Supported;
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Supported;
+	Capabilities.MaximumControlPointCount = {true, 16};
+	Capabilities.MaximumDurationSeconds = {true, 1.0};
+	Capabilities.MinimumTimingGranularitySeconds = {true, 0.02};
+	Capabilities.MaximumControlPointDurationSeconds = {true, 0.5};
+	Capabilities.FrequencyRange = {true, 60.0f, 200.0f};
+
+	FOpenMobileHapticsEnvelopeResolution Resolution =
+		FOpenMobileHapticsEnvelopePolicy::Resolve(
+			*Asset,
+			Capabilities,
+			36,
+			0.5f,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Basic envelope is ready"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::Ready);
+	TestEqual(TEXT("Basic envelope keeps its format"), Resolution.Format,
+		EOpenMobileHapticAndroidPatternFormat::BasicEnvelope);
+	TestEqual(TEXT("Basic intensity is scaled once"),
+		Resolution.Amplitudes[0], 0.4f);
+	TestEqual(TEXT("Basic ending is exactly zero"),
+		Resolution.Amplitudes[1], 0.0f);
+	TestEqual(TEXT("Basic sharpness is hardware-neutral"),
+		Resolution.ControlValues[0], 0.25f);
+	TestEqual(TEXT("First transition starts at zero"),
+		Resolution.DurationsMilliseconds[0], 20LL);
+	TestEqual(TEXT("Cumulative times become segment durations"),
+		Resolution.DurationsMilliseconds[1], 30LL);
+
+	Asset->Format = EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope;
+	Asset->EnvelopePoints[0].FrequencyHz = 80.0f;
+	Asset->EnvelopePoints[1].FrequencyHz = 120.0f;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Direct-frequency envelope is ready"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::Ready);
+	TestEqual(TEXT("Waveform frequency is preserved"),
+		Resolution.ControlValues[1], 120.0f);
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		std::numeric_limits<float>::quiet_NaN(),
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Nonfinite request intensity rejects"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::Rejected);
+
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Unknown;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown frequency control requires fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Supported;
+
+	Capabilities.FrequencyRange = {};
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown frequency range requires fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.FrequencyRange = {true, 60.0f, 200.0f};
+
+	Capabilities.MaximumControlPointCount = {true, 1};
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Hardware point-count limit requires fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.MaximumControlPointCount = {true, 16};
+
+	Asset->EnvelopePoints[1].FrequencyHz = 220.0f;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Out-of-range frequency falls back"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact frequency rejects unsupported hardware"),
+		Resolution.Outcome, EOpenMobileHapticsEnvelopeOutcome::Rejected);
+	Asset->EnvelopePoints[1].FrequencyHz = 120.0f;
+
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Unknown;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown support never reaches the builder"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Supported;
+
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		35,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Older APIs require fallback"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+
+	Capabilities.MinimumTimingGranularitySeconds = {};
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown timing limits require fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.MinimumTimingGranularitySeconds = {true, 0.02};
+
+	Asset->EnvelopePoints[0].TimeSeconds = 0.01f;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Too-short segment requires fallback"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Asset->EnvelopePoints[0].TimeSeconds = 0.02f;
+
+	Capabilities.MaximumControlPointDurationSeconds = {true, 0.025};
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Too-long segment requires fallback"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.MaximumControlPointDurationSeconds = {true, 0.5};
+
+	Capabilities.MaximumDurationSeconds = {true, 0.04};
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Total duration limit requires fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::FallbackRequired);
+	Capabilities.MaximumDurationSeconds = {true, 1.0};
+
+	Asset->Format = EOpenMobileHapticAndroidPatternFormat::BasicEnvelope;
+	Asset->EnvelopePoints[1].Amplitude = 0.1f;
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Invalid endpoint rejects before native code"),
+		Resolution.Outcome, EOpenMobileHapticsEnvelopeOutcome::Rejected);
+	Asset->EnvelopePoints[1].Amplitude = 0.0f;
+	Asset->Format = static_cast<EOpenMobileHapticAndroidPatternFormat>(255);
+	Resolution = FOpenMobileHapticsEnvelopePolicy::Resolve(
+		*Asset,
+		Capabilities,
+		36,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Future format values reject safely"), Resolution.Outcome,
+		EOpenMobileHapticsEnvelopeOutcome::Rejected);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAndroidFallbackPolicyTest,
+	"OpenMobile.Haptics.Pattern.AndroidEnvelopeFallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAndroidFallbackPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->PrimitiveOrPresetFallback = TEXT("Click");
+	Pattern->LowestAllowedFallback =
+		EOpenMobileHapticFallbackFloor::PrimitiveOrPredefined;
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PrimitiveSupport = {{
+		TEXT("Click"),
+		EOpenMobileHapticSupportState::Supported
+	}};
+
+	FOpenMobileHapticsAndroidFallbackResolution Resolution =
+		FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+			*Pattern,
+			Capabilities,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Declared primitive is the first native fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Primitive);
+	TestEqual(TEXT("Stable primitive intent is resolved"),
+		Resolution.Primitive, EOpenMobileHapticAndroidPrimitive::Click);
+
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+	);
+	TestEqual(TEXT("Primitive precedes permitted no-effect"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Primitive);
+
+	Capabilities.PrimitiveSupport[0].Support =
+		EOpenMobileHapticSupportState::Unknown;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+	);
+	TestEqual(TEXT("Unknown primitive support selects no-effect"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::NoEffect);
+
+	Capabilities.PrimitiveSupport[0].Support =
+		EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact-only rejects before fallback"), Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Rejected);
+
+	Pattern->FallbackPolicy = EOpenMobileHapticFallbackPolicy::ExactOnly;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Asset exact-only policy cannot be weakened"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Rejected);
+	Pattern->FallbackPolicy = EOpenMobileHapticFallbackPolicy::Automatic;
+	Pattern->LowestAllowedFallback = EOpenMobileHapticFallbackFloor::PortableRich;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Asset fallback floor blocks primitive degradation"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Rejected);
 	return true;
 }
 
@@ -3294,6 +3668,14 @@ bool FOpenMobileHapticsDetailedCapabilityTest::RunTest(
 		TEXT("Minimum timing granularity defaults to unknown"),
 		Unknown.MinimumTimingGranularitySeconds.bKnown
 	);
+	TestFalse(
+		TEXT("Maximum control-point duration defaults to unknown"),
+		Unknown.MaximumControlPointDurationSeconds.bKnown
+	);
+	TestFalse(
+		TEXT("Frequency range defaults to unknown"),
+		Unknown.FrequencyRange.bKnown
+	);
 
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
@@ -3319,6 +3701,8 @@ bool FOpenMobileHapticsDetailedCapabilityTest::RunTest(
 	Backend.Capabilities.MaximumDurationSeconds = {true, 30.0};
 	Backend.Capabilities.MaximumQueueDepth = {true, 8};
 	Backend.Capabilities.MinimumTimingGranularitySeconds = {true, 0.001};
+	Backend.Capabilities.MaximumControlPointDurationSeconds = {true, 1.0};
+	Backend.Capabilities.FrequencyRange = {true, 60.0f, 300.0f};
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
@@ -3345,6 +3729,21 @@ bool FOpenMobileHapticsDetailedCapabilityTest::RunTest(
 		TEXT("Known duration limit is retained"),
 		First.MaximumDurationSeconds.Seconds,
 		30.0
+	);
+	TestEqual(
+		TEXT("Known segment limit is retained"),
+		First.MaximumControlPointDurationSeconds.Seconds,
+		1.0
+	);
+	TestEqual(
+		TEXT("Known frequency minimum is retained"),
+		First.FrequencyRange.MinimumHertz,
+		60.0f
+	);
+	TestEqual(
+		TEXT("Known frequency maximum is retained"),
+		First.FrequencyRange.MaximumHertz,
+		300.0f
 	);
 
 	Backend.Capabilities.Availability =
