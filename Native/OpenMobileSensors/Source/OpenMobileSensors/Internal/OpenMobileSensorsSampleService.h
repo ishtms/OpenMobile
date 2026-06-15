@@ -56,6 +56,12 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(
 	const FOpenMobileSensorSubscriptionHandle&,
 	const FOpenMobileProximitySensorBatch&
 );
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileSensorAccuracyChangedReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileSensorAccuracySnapshot&
+);
 
 class OPENMOBILESENSORS_API FOpenMobileSensorsSampleService final
 {
@@ -112,6 +118,9 @@ public:
 		const FOpenMobileOrientationSensorSample& Sample
 	);
 	static void PublishProximity(const FOpenMobileProximitySensorSample& Sample);
+	static bool PublishAccuracy(
+		const FOpenMobileSensorAccuracySnapshot& Snapshot
+	);
 	static bool PublishVectorBatch(const FOpenMobileVectorSensorBatch& Batch);
 	static bool PublishAttitudeBatch(
 		const FOpenMobileAttitudeSensorBatch& Batch
@@ -167,6 +176,11 @@ public:
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
 		const FOpenMobileProximitySensorBatch& Batch
+	);
+	static bool PublishAccuracyFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileSensorAccuracySnapshot& Snapshot
 	);
 
 	static bool ReadLatestVector(
@@ -297,6 +311,7 @@ public:
 	static FOnOpenMobileActivitySensorBatchReady& OnActivityBatch();
 	static FOnOpenMobileOrientationSensorBatchReady& OnOrientationBatch();
 	static FOnOpenMobileProximitySensorBatchReady& OnProximityBatch();
+	static FOnOpenMobileSensorAccuracyChangedReady& OnAccuracyChanged();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void DrainPendingEventsForTests(double NowSeconds);

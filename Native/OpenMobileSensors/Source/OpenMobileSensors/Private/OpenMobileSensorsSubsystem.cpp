@@ -61,6 +61,13 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 		);
 		SubscriptionServiceChangedHandle.Reset();
 	}
+	if (AccuracyChangedReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnAccuracyChanged().Remove(
+			AccuracyChangedReadyHandle
+		);
+		AccuracyChangedReadyHandle.Reset();
+	}
 	if (VectorBatchReadyHandle.IsValid())
 	{
 		FOpenMobileSensorsSampleService::OnVectorBatch().Remove(
@@ -135,6 +142,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	}
 	OnCapabilitiesChanged.Clear();
 	OnSubscriptionStateChanged.Clear();
+	OnAccuracyChanged.Clear();
 	OnVectorSamples.Clear();
 	OnAttitudeSamples.Clear();
 	OnScalarSamples.Clear();
@@ -145,6 +153,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	OnProximitySamples.Clear();
 	CapabilitiesChangedEvent.Clear();
 	SubscriptionStateChangedEvent.Clear();
+	AccuracyChangedEvent.Clear();
 	VectorSamplesEvent.Clear();
 	AttitudeSamplesEvent.Clear();
 	ScalarSamplesEvent.Clear();
@@ -657,6 +666,13 @@ UOpenMobileSensorsSubsystem::OnSubscriptionStateChangedNative()
 	return SubscriptionStateChangedEvent;
 }
 
+FOnOpenMobileSensorAccuracyChanged&
+UOpenMobileSensorsSubsystem::OnAccuracyChangedNative()
+{
+	EnsureSampleListeners();
+	return AccuracyChangedEvent;
+}
+
 FOnOpenMobileVectorSensorBatch&
 UOpenMobileSensorsSubsystem::OnVectorSamplesNative()
 {
@@ -760,6 +776,11 @@ void UOpenMobileSensorsSubsystem::EnsureSampleListeners() const
 	}
 	UOpenMobileSensorsSubsystem* MutableThis =
 		const_cast<UOpenMobileSensorsSubsystem*>(this);
+	AccuracyChangedReadyHandle =
+		FOpenMobileSensorsSampleService::OnAccuracyChanged().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleAccuracyChanged
+		);
 	VectorBatchReadyHandle =
 		FOpenMobileSensorsSampleService::OnVectorBatch().AddUObject(
 			MutableThis,
@@ -821,6 +842,20 @@ void UOpenMobileSensorsSubsystem::HandleSubscriptionStateChanged(
 	}
 	OnSubscriptionStateChanged.Broadcast(Snapshot);
 	SubscriptionStateChangedEvent.Broadcast(Snapshot);
+}
+
+void UOpenMobileSensorsSubsystem::HandleAccuracyChanged(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	const FOpenMobileSensorAccuracySnapshot& Snapshot
+)
+{
+	if (bDeinitialized || OwnerIdentifier != SubscriptionOwnerIdentifier)
+	{
+		return;
+	}
+	OnAccuracyChanged.Broadcast(Handle, Snapshot);
+	AccuracyChangedEvent.Broadcast(Handle, Snapshot);
 }
 
 #define OPENMOBILE_IMPLEMENT_BATCH_HANDLER(FamilyName, BatchType) \

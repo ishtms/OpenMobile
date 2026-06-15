@@ -18,6 +18,7 @@ class SensorsPublicContractTests(unittest.TestCase):
 			"OpenMobileSensorMetadata.h",
 			"OpenMobileSensorStreamOptions.h",
 			"OpenMobileSensorSubscription.h",
+			"OpenMobileSensorAccuracy.h",
 			"OpenMobileSensorSamples.h",
 			"OpenMobileSensorPermissions.h",
 			"OpenMobileSensorDiagnostics.h",
@@ -70,6 +71,7 @@ class SensorsPublicContractTests(unittest.TestCase):
 			self.assertIn(operation, subsystem)
 		for delegate in (
 			"FOnOpenMobileSensorSubscriptionStateChanged",
+			"FOnOpenMobileSensorAccuracyChanged",
 			"FOnOpenMobileVectorSensorBatch",
 			"FOnOpenMobileAttitudeSensorBatch",
 			"FOnOpenMobileScalarSensorBatch",
@@ -108,6 +110,7 @@ class SensorsPublicContractTests(unittest.TestCase):
 			"Game-thread affinity",
 			"Sample lifetime",
 			"Coordinate spaces",
+			"Accuracy and calibration",
 			"Standard units",
 			"Monotonic timestamps",
 			"Callback order",

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorErrors.h"

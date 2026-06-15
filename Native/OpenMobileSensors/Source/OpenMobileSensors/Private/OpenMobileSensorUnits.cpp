@@ -6,8 +6,19 @@ namespace OpenMobileSensorUnitsPrivate
 	constexpr double CentimetersToMeters = 0.01;
 	constexpr double KilopascalsToHectopascals = 10.0;
 
+	void NormalizeAccuracyMetadata(FOpenMobileSensorSampleHeader& Header)
+	{
+		if (Header.bHasEstimatedError
+			&& (!FMath::IsFinite(Header.EstimatedError)
+				|| Header.EstimatedError < 0.0))
+		{
+			Header.bHasEstimatedError = false;
+		}
+	}
+
 	void MarkNormalized(FOpenMobileSensorSampleHeader& Header, bool bValid)
 	{
+		NormalizeAccuracyMetadata(Header);
 		Header.bUnitsNormalized = true;
 		Header.bValid &= bValid;
 	}
@@ -200,8 +211,13 @@ bool FOpenMobileSensorUnitConverter::NormalizeHeadingSample(
 		&& !IsFiniteNonnegative(Sample.AccuracyDegrees))
 	{
 		Sample.bHasAccuracyDegrees = false;
-		Sample.AccuracyDegrees = 0.0;
 	}
+	else if (Sample.bHasAccuracyDegrees)
+	{
+		Sample.Header.bHasEstimatedError = true;
+		Sample.Header.EstimatedError = Sample.AccuracyDegrees;
+	}
+	Sample.Header.bCalibrationRequired |= Sample.bCalibrationRequired;
 	MarkNormalized(Sample.Header, bValid);
 	return bValid;
 }

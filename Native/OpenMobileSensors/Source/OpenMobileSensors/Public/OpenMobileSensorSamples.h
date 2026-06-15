@@ -1,20 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorScreenRotation.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSamples.generated.h"
-
-UENUM(BlueprintType)
-enum class EOpenMobileSensorAccuracy : uint8
-{
-	Unknown,
-	Unreliable,
-	Low,
-	Medium,
-	High
-};
 
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileSensorSourceFlags : uint8
@@ -86,6 +77,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorAccuracy Accuracy = EOpenMobileSensorAccuracy::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bCalibrationRequired = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorCoordinateSpace CoordinateSpace =

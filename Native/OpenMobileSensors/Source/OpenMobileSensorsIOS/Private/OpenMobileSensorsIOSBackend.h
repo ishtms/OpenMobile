@@ -31,6 +31,21 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileVectorSensorBatch& Batch
 	);
+	bool PublishMagneticFieldAccuracyFromMotionQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileSensorIdentifier& Sensor,
+		int32 NativeAccuracy,
+		double TimestampSeconds
+	);
+	bool PublishHeadingAccuracyFromLocationCallback(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileSensorIdentifier& Sensor,
+		double AccuracyDegrees,
+		bool bCalibrationRequired,
+		double TimestampSeconds
+	);
 
 private:
 	bool EnsureMotionQueue();

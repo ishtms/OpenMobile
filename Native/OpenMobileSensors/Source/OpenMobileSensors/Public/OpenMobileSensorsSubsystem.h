@@ -23,6 +23,11 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 	const FOpenMobileSensorSubscriptionStateSnapshot&
 );
 DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOnOpenMobileSensorAccuracyChanged,
+	FOpenMobileSensorSubscriptionHandle,
+	const FOpenMobileSensorAccuracySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileVectorSensorBatch,
 	FOpenMobileSensorSubscriptionHandle,
 	const FOpenMobileVectorSensorBatch&
@@ -87,6 +92,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileSensorSubscriptionStateChangedDynamic,
 	FOpenMobileSensorSubscriptionStateSnapshot,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileSensorAccuracyChangedDynamic,
+	FOpenMobileSensorSubscriptionHandle,
+	Handle,
+	FOpenMobileSensorAccuracySnapshot,
 	Snapshot
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -378,6 +390,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Subscription State Changed", ToolTip = "Broadcast when an owned subscription changes state."))
 	FOpenMobileSensorSubscriptionStateChangedDynamic OnSubscriptionStateChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Accuracy Changed", ToolTip = "Broadcast the initial accuracy state and later quality or calibration changes on the game thread."))
+	FOpenMobileSensorAccuracyChangedDynamic OnAccuracyChanged;
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Vector Sensor Samples", ToolTip = "Broadcast a rate-capped batch of vector samples on the game thread."))
 	FOpenMobileVectorSensorBatchDynamic OnVectorSamples;
 
@@ -404,6 +419,7 @@ public:
 
 	FOnOpenMobileSensorCapabilitiesChanged& OnCapabilitiesChangedNative();
 	FOnOpenMobileSensorSubscriptionStateChanged& OnSubscriptionStateChangedNative();
+	FOnOpenMobileSensorAccuracyChanged& OnAccuracyChangedNative();
 	FOnOpenMobileVectorSensorBatch& OnVectorSamplesNative();
 	FOnOpenMobileAttitudeSensorBatch& OnAttitudeSamplesNative();
 	FOnOpenMobileScalarSensorBatch& OnScalarSamplesNative();
@@ -426,6 +442,11 @@ private:
 	void HandleSubscriptionStateChanged(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
+	);
+	void HandleAccuracyChanged(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileSensorAccuracySnapshot& Snapshot
 	);
 	void HandleVectorBatch(
 		const FGuid& OwnerIdentifier,
@@ -472,6 +493,7 @@ private:
 
 	FOnOpenMobileSensorCapabilitiesChanged CapabilitiesChangedEvent;
 	FOnOpenMobileSensorSubscriptionStateChanged SubscriptionStateChangedEvent;
+	FOnOpenMobileSensorAccuracyChanged AccuracyChangedEvent;
 	FOnOpenMobileVectorSensorBatch VectorSamplesEvent;
 	FOnOpenMobileAttitudeSensorBatch AttitudeSamplesEvent;
 	FOnOpenMobileScalarSensorBatch ScalarSamplesEvent;
@@ -483,6 +505,7 @@ private:
 	TSet<TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>> AsyncActions;
 	mutable FDelegateHandle CapabilityServiceChangedHandle;
 	mutable FDelegateHandle SubscriptionServiceChangedHandle;
+	mutable FDelegateHandle AccuracyChangedReadyHandle;
 	mutable FDelegateHandle VectorBatchReadyHandle;
 	mutable FDelegateHandle AttitudeBatchReadyHandle;
 	mutable FDelegateHandle ScalarBatchReadyHandle;

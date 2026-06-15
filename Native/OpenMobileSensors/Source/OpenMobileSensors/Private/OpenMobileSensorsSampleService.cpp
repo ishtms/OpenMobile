@@ -8,9 +8,12 @@
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorScreenRotationService.h"
+#include "OpenMobileSensorValidity.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
+	constexpr int32 MaximumPendingAccuracyChanges = 16;
+
 	enum class ELatestSampleFamily : uint8
 	{
 		None,
@@ -173,6 +176,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
+		bool bHasAccuracyState = false;
+		bool bPendingStatefulProcessingReset = false;
+		int64 NextAccuracySequence = 1;
+		FOpenMobileSensorAccuracySnapshot AccuracyState;
 		FOpenMobileVectorSensorSample Vector;
 		FOpenMobileAttitudeSensorSample Attitude;
 		FOpenMobileScalarSensorSample Scalar;
@@ -189,6 +196,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		TArray<FOpenMobileActivitySensorSample> PendingActivity;
 		TArray<FOpenMobileOrientationSensorSample> PendingOrientation;
 		TArray<FOpenMobileProximitySensorSample> PendingProximity;
+		TArray<FOpenMobileSensorAccuracySnapshot> PendingAccuracyChanges;
 		TFixedSampleRingBuffer<FOpenMobileVectorSensorSample> BufferedVector;
 		TFixedSampleRingBuffer<FOpenMobileAttitudeSensorSample> BufferedAttitude;
 		TFixedSampleRingBuffer<FOpenMobileScalarSensorSample> BufferedScalar;
@@ -217,6 +225,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	FOnOpenMobileActivitySensorBatchReady ActivityBatchEvent;
 	FOnOpenMobileOrientationSensorBatchReady OrientationBatchEvent;
 	FOnOpenMobileProximitySensorBatchReady ProximityBatchEvent;
+	FOnOpenMobileSensorAccuracyChangedReady AccuracyChangedEvent;
 
 	void EnsureEventTicker();
 
@@ -291,6 +300,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	{
 		ResetRateStatistics(Slot);
 		Slot.PendingTimestampIssueFlags |= static_cast<int32>(Issue);
+		Slot.bPendingStatefulProcessingReset = true;
 	}
 
 	ELatestSampleFamily GetExpectedFamily(EOpenMobileSensorType SensorType)
@@ -594,6 +604,151 @@ namespace OpenMobileSensorsSampleServicePrivate
 		}
 	}
 
+	void NormalizeHeaderAccuracy(FOpenMobileSensorSampleHeader& Header)
+	{
+		if (Header.bHasEstimatedError
+			&& (!FMath::IsFinite(Header.EstimatedError)
+				|| Header.EstimatedError < 0.0))
+		{
+			Header.bHasEstimatedError = false;
+		}
+	}
+
+	template <typename SampleType>
+	void NormalizeSampleAccuracyMetadata(SampleType& Sample)
+	{
+		NormalizeHeaderAccuracy(Sample.Header);
+	}
+
+	void NormalizeSampleAccuracyMetadata(
+		FOpenMobileHeadingSensorSample& Sample
+	)
+	{
+		if (Sample.bHasAccuracyDegrees)
+		{
+			if (FMath::IsFinite(Sample.AccuracyDegrees)
+				&& Sample.AccuracyDegrees >= 0.0)
+			{
+				Sample.Header.bHasEstimatedError = true;
+				Sample.Header.EstimatedError = Sample.AccuracyDegrees;
+			}
+			else
+			{
+				Sample.bHasAccuracyDegrees = false;
+			}
+		}
+		Sample.Header.bCalibrationRequired |= Sample.bCalibrationRequired;
+		NormalizeHeaderAccuracy(Sample.Header);
+	}
+
+	template <typename SampleType>
+	void SyncSampleAccuracyMetadata(SampleType& Sample)
+	{
+		static_cast<void>(Sample);
+	}
+
+	void SyncSampleAccuracyMetadata(FOpenMobileHeadingSensorSample& Sample)
+	{
+		Sample.bCalibrationRequired =
+			Sample.Header.bCalibrationRequired;
+		Sample.bHasAccuracyDegrees = Sample.Header.bHasEstimatedError;
+		if (Sample.Header.bHasEstimatedError)
+		{
+			Sample.AccuracyDegrees = Sample.Header.EstimatedError;
+		}
+	}
+
+	bool ObserveAccuracy(
+		FLatestSlot& Slot,
+		const FOpenMobileSensorAccuracySnapshot& Report
+	)
+	{
+		if (!FMath::IsFinite(Report.TimestampSeconds)
+			|| Report.TimestampSeconds < 0.0
+			|| (Slot.bHasAccuracyState
+				&& Report.TimestampSeconds <
+					Slot.AccuracyState.TimestampSeconds))
+		{
+			return false;
+		}
+		FOpenMobileSensorAccuracySnapshot Normalized = Report;
+		Normalized.Sensor = Slot.Sensor;
+		if (Normalized.bHasEstimatedError
+			&& (!FMath::IsFinite(Normalized.EstimatedError)
+				|| Normalized.EstimatedError < 0.0))
+		{
+			Normalized.bHasEstimatedError = false;
+		}
+		const bool bMaterialChange = !Slot.bHasAccuracyState
+			|| Slot.AccuracyState.Accuracy != Normalized.Accuracy
+			|| Slot.AccuracyState.bCalibrationRequired !=
+				Normalized.bCalibrationRequired;
+		if (bMaterialChange)
+		{
+			Normalized.Sequence = Slot.NextAccuracySequence++;
+		}
+		else
+		{
+			Normalized.Sequence = Slot.AccuracyState.Sequence;
+		}
+		Slot.AccuracyState = Normalized;
+		Slot.bHasAccuracyState = true;
+		if (!bMaterialChange)
+		{
+			return false;
+		}
+		if (Slot.PendingAccuracyChanges.Num() >=
+			MaximumPendingAccuracyChanges)
+		{
+			Slot.PendingAccuracyChanges.RemoveAt(
+				0,
+				1,
+				EAllowShrinking::No
+			);
+		}
+		Slot.PendingAccuracyChanges.Add(Normalized);
+		return true;
+	}
+
+	template <typename SampleType>
+	bool ApplyAccuracyState(FLatestSlot& Slot, SampleType& Sample)
+	{
+		NormalizeSampleAccuracyMetadata(Sample);
+		const bool bHasExplicitAccuracy = !Slot.bHasAccuracyState
+			|| Sample.Header.Accuracy != EOpenMobileSensorAccuracy::Unknown
+			|| Sample.Header.bCalibrationRequired
+			|| Sample.Header.bHasEstimatedError;
+		bool bQueuedChange = false;
+		if (bHasExplicitAccuracy)
+		{
+			FOpenMobileSensorAccuracySnapshot Report;
+			Report.Sensor = Slot.Sensor;
+			Report.Accuracy = Sample.Header.Accuracy;
+			Report.bCalibrationRequired =
+				Sample.Header.bCalibrationRequired;
+			Report.bHasEstimatedError =
+				Sample.Header.bHasEstimatedError;
+			Report.EstimatedError = Sample.Header.EstimatedError;
+			Report.TimestampSeconds = Sample.Header.TimestampSeconds;
+			bQueuedChange = ObserveAccuracy(Slot, Report);
+		}
+		if (Slot.bHasAccuracyState)
+		{
+			Sample.Header.Accuracy = Slot.AccuracyState.Accuracy;
+			Sample.Header.bCalibrationRequired =
+				Slot.AccuracyState.bCalibrationRequired;
+			Sample.Header.bHasEstimatedError =
+				Slot.AccuracyState.bHasEstimatedError;
+			if (Slot.AccuracyState.bHasEstimatedError)
+			{
+				Sample.Header.EstimatedError =
+					Slot.AccuracyState.EstimatedError;
+			}
+		}
+		SyncSampleAccuracyMetadata(Sample);
+		return bQueuedChange;
+	}
+
 	template <typename SampleType>
 	bool PublishSamples(
 		const SampleType* Samples,
@@ -635,7 +790,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 				bMatchedStream = true;
 				for (int32 Index = 0; Index < SampleCount; ++Index)
 				{
-					const SampleType& Sample = Samples[Index];
+					SampleType Sample = Samples[Index];
 					if (Slot.Sensor != Sample.Header.Sensor)
 					{
 						continue;
@@ -647,10 +802,6 @@ namespace OpenMobileSensorsSampleServicePrivate
 							Slot,
 							EOpenMobileSensorTimestampIssue::Invalid
 						);
-						continue;
-					}
-					if (!Sample.Header.bValid)
-					{
 						continue;
 					}
 					if (Slot.bHasSample
@@ -666,6 +817,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 						);
 						continue;
 					}
+					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
+					if (!FOpenMobileSensorValidity::
+						IsEligibleForStatefulProcessing(Sample))
+					{
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
 					UpdateRateStatistics(
 						Slot,
 						Sample.Header.TimestampSeconds
@@ -679,7 +837,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Destination.Header.TimestampIssueFlags =
 						Slot.PendingTimestampIssueFlags;
 					Destination.Header.bStatefulProcessingReset =
-						Slot.PendingTimestampIssueFlags != 0;
+						Sample.Header.bStatefulProcessingReset
+						|| Slot.bPendingStatefulProcessingReset
+						|| Slot.PendingTimestampIssueFlags != 0;
 					Destination.Header.bUnitsNormalized = true;
 					Destination.Header.bCoordinatesNormalized = true;
 					Destination.Header.CoordinateSpace =
@@ -690,6 +850,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						Destination
 					);
 					Slot.PendingTimestampIssueFlags = 0;
+					Slot.bPendingStatefulProcessingReset = false;
 					Slot.LatestTimestampSeconds =
 						Sample.Header.TimestampSeconds;
 					Slot.Family = Family;
@@ -708,6 +869,52 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EnsureEventTicker();
 		}
 		return RequiredBackendGeneration == 0 || bMatchedStream;
+	}
+
+	bool PublishAccuracySnapshot(
+		const FOpenMobileSensorAccuracySnapshot& Snapshot,
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
+	)
+	{
+		if (bShuttingDown.Load()
+			|| !Snapshot.Sensor.IsValid()
+			|| !FMath::IsFinite(Snapshot.TimestampSeconds)
+			|| Snapshot.TimestampSeconds < 0.0)
+		{
+			return false;
+		}
+		bool bMatchedStream = false;
+		bool bQueuedEvent = false;
+		{
+			FReadScopeLock RegistryLock(SlotsLock);
+			for (TPair<
+				FOpenMobileSensorSubscriptionHandle,
+				TUniquePtr<FLatestSlot>
+			>& Pair : Slots)
+			{
+				FLatestSlot& Slot = *Pair.Value;
+				FScopeLock SlotLock(&Slot.Mutex);
+				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
+					|| Slot.Sensor != Snapshot.Sensor
+					|| (RequiredBackendGeneration != 0
+						&& (Slot.BackendGeneration !=
+								RequiredBackendGeneration
+							|| !RequiredPhysicalStream
+							|| Slot.PhysicalStreamHandle !=
+								*RequiredPhysicalStream)))
+				{
+					continue;
+				}
+				bMatchedStream = true;
+				bQueuedEvent |= ObserveAccuracy(Slot, Snapshot);
+			}
+		}
+		if (bQueuedEvent)
+		{
+			EnsureEventTicker();
+		}
+		return bMatchedStream;
 	}
 
 	EOpenMobileSensorReadStatus GetUnavailableStatus(
@@ -863,6 +1070,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FGuid OwnerIdentifier;
 		FOpenMobileSensorSubscriptionHandle Handle;
 		BatchType Batch;
+	};
+
+	struct FAccuracyDelivery
+	{
+		FGuid OwnerIdentifier;
+		FOpenMobileSensorSubscriptionHandle Handle;
+		FOpenMobileSensorAccuracySnapshot Snapshot;
 	};
 
 	bool HasPendingSamples(const FLatestSlot& Slot)
@@ -1071,9 +1285,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 			FLatestSlot& Slot = *Pair.Value;
 			FScopeLock SlotLock(&Slot.Mutex);
 			if (Slot.State == EOpenMobileSensorSubscriptionState::Active
-				&& Slot.DeliveryMode ==
-					EOpenMobileSensorDeliveryMode::EventBatches
-				&& HasPendingSamples(Slot))
+				&& (!Slot.PendingAccuracyChanges.IsEmpty()
+					|| (Slot.DeliveryMode ==
+							EOpenMobileSensorDeliveryMode::EventBatches
+						&& HasPendingSamples(Slot))))
 			{
 				return true;
 			}
@@ -1101,6 +1316,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			OrientationDeliveries;
 		TArray<TEventDelivery<FOpenMobileProximitySensorBatch>>
 			ProximityDeliveries;
+		TArray<FAccuracyDelivery> AccuracyDeliveries;
 		{
 			FReadScopeLock RegistryLock(SlotsLock);
 			for (TPair<
@@ -1110,8 +1326,21 @@ namespace OpenMobileSensorsSampleServicePrivate
 			{
 				FLatestSlot& Slot = *Pair.Value;
 				FScopeLock SlotLock(&Slot.Mutex);
-				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
-					|| Slot.DeliveryMode !=
+				if (Slot.State != EOpenMobileSensorSubscriptionState::Active)
+				{
+					continue;
+				}
+				for (FOpenMobileSensorAccuracySnapshot& Snapshot
+					: Slot.PendingAccuracyChanges)
+				{
+					FAccuracyDelivery& Delivery =
+						AccuracyDeliveries.AddDefaulted_GetRef();
+					Delivery.OwnerIdentifier = Slot.OwnerIdentifier;
+					Delivery.Handle = Slot.Handle;
+					Delivery.Snapshot = MoveTemp(Snapshot);
+				}
+				Slot.PendingAccuracyChanges.Reset();
+				if (Slot.DeliveryMode !=
 						EOpenMobileSensorDeliveryMode::EventBatches
 					|| !HasPendingSamples(Slot))
 				{
@@ -1179,6 +1408,14 @@ namespace OpenMobileSensorsSampleServicePrivate
 			}
 		}
 
+		for (const FAccuracyDelivery& Delivery : AccuracyDeliveries)
+		{
+			AccuracyChangedEvent.Broadcast(
+				Delivery.OwnerIdentifier,
+				Delivery.Handle,
+				Delivery.Snapshot
+			);
+		}
 		for (const TEventDelivery<FOpenMobileVectorSensorBatch>& Delivery
 			: VectorDeliveries)
 		{
@@ -1329,6 +1566,7 @@ void FOpenMobileSensorsSampleService::BeginShutdown()
 	ActivityBatchEvent.Clear();
 	OrientationBatchEvent.Clear();
 	ProximityBatchEvent.Clear();
+	AccuracyChangedEvent.Clear();
 }
 
 void FOpenMobileSensorsSampleService::RegisterSubscription(
@@ -1365,6 +1603,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->DeliveryMode = Options.DeliveryMode;
 	Slot->OverflowPolicy = Options.OverflowPolicy;
 	Slot->CoordinateSpace = Options.CoordinateSpace;
+	Slot->PendingAccuracyChanges.Reserve(MaximumPendingAccuracyChanges);
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
 		InitializeBufferedStorage(*Slot);
@@ -1718,6 +1957,17 @@ OPENMOBILE_IMPLEMENT_PUBLISH(
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH
 
+bool FOpenMobileSensorsSampleService::PublishAccuracy(
+	const FOpenMobileSensorAccuracySnapshot& Snapshot
+)
+{
+	return OpenMobileSensorsSampleServicePrivate::PublishAccuracySnapshot(
+		Snapshot,
+		0,
+		nullptr
+	);
+}
+
 #define OPENMOBILE_IMPLEMENT_PUBLISH_BATCH( \
 	MethodName, BatchType, SampleType, FamilyName, Member, \
 	PendingMember, BufferedMember \
@@ -1916,6 +2166,24 @@ OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH
+
+bool FOpenMobileSensorsSampleService::PublishAccuracyFromBackend(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+	const FOpenMobileSensorAccuracySnapshot& Snapshot
+)
+{
+	if (!FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token)
+		|| !PhysicalStreamHandle.IsValid())
+	{
+		return false;
+	}
+	return OpenMobileSensorsSampleServicePrivate::PublishAccuracySnapshot(
+		Snapshot,
+		Token.Generation,
+		&PhysicalStreamHandle
+	);
+}
 
 #define OPENMOBILE_IMPLEMENT_READ(MethodName, SampleType, FamilyName, Member) \
 	bool FOpenMobileSensorsSampleService::MethodName( \
@@ -2121,6 +2389,12 @@ FOpenMobileSensorsSampleService::OnProximityBatch()
 	return OpenMobileSensorsSampleServicePrivate::ProximityBatchEvent;
 }
 
+FOnOpenMobileSensorAccuracyChangedReady&
+FOpenMobileSensorsSampleService::OnAccuracyChanged()
+{
+	return OpenMobileSensorsSampleServicePrivate::AccuracyChangedEvent;
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileSensorsSampleService::DrainPendingEventsForTests(
 	double NowSeconds
@@ -2144,5 +2418,6 @@ void FOpenMobileSensorsSampleService::ResetForTests()
 	ActivityBatchEvent.Clear();
 	OrientationBatchEvent.Clear();
 	ProximityBatchEvent.Clear();
+	AccuracyChangedEvent.Clear();
 }
 #endif

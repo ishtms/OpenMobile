@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorTimestamp.h"
@@ -81,6 +82,52 @@ bool FOpenMobileSensorsIOSBackend::PublishVectorBatchFromMotionQueue(
 		Token,
 		Handle,
 		NormalizedBatch
+	);
+}
+
+bool FOpenMobileSensorsIOSBackend::
+PublishMagneticFieldAccuracyFromMotionQueue(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileSensorIdentifier& Sensor,
+	int32 NativeAccuracy,
+	double TimestampSeconds
+)
+{
+	if (!EnsureMotionQueue())
+	{
+		return false;
+	}
+	return FOpenMobileSensorsSampleService::PublishAccuracyFromBackend(
+		Token,
+		Handle,
+		FOpenMobileSensorAccuracyMapper::FromIOSMagneticFieldAccuracy(
+			Sensor,
+			NativeAccuracy,
+			TimestampSeconds
+		)
+	);
+}
+
+bool FOpenMobileSensorsIOSBackend::
+PublishHeadingAccuracyFromLocationCallback(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileSensorIdentifier& Sensor,
+	double AccuracyDegrees,
+	bool bCalibrationRequired,
+	double TimestampSeconds
+)
+{
+	return FOpenMobileSensorsSampleService::PublishAccuracyFromBackend(
+		Token,
+		Handle,
+		FOpenMobileSensorAccuracyMapper::FromIOSHeadingAccuracy(
+			Sensor,
+			AccuracyDegrees,
+			bCalibrationRequired,
+			TimestampSeconds
+		)
 	);
 }
 

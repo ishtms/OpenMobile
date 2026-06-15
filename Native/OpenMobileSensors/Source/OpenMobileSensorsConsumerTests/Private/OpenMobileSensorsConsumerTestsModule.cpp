@@ -34,6 +34,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	FOpenMobileSensorSubscriptionRequest Request;
 	FOpenMobileSensorSubscriptionHandle Handle;
 	FOpenMobileSensorSubscriptionStateSnapshot State;
+	FOpenMobileSensorAccuracySnapshot Accuracy;
 	FOpenMobileVectorSensorSample Vector;
 	FOpenMobileAttitudeSensorSample Attitude;
 	FOpenMobileScalarSensorSample Scalar;
@@ -62,6 +63,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	static_cast<void>(Request);
 	static_cast<void>(Handle);
 	static_cast<void>(State);
+	static_cast<void>(Accuracy);
 	static_cast<void>(Vector);
 	static_cast<void>(Attitude);
 	static_cast<void>(Scalar);
@@ -101,6 +103,9 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 		FOpenMobileSensorBufferReadResult&,
 		FOpenMobileVectorSensorBatch&
 	);
+	using FGetAccuracyEvent = FOnOpenMobileSensorAccuracyChanged& (
+		UOpenMobileSensorsSubsystem::*
+	)();
 
 	FStartSubscription StartSubscription =
 		&UOpenMobileSensorsSubsystem::StartSubscriptionNative;
@@ -110,10 +115,13 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 		&UOpenMobileSensorsSubsystem::GetLatestVectorSampleNative;
 	FGetBufferedVector GetBufferedVector =
 		&UOpenMobileSensorsSubsystem::GetBufferedVectorSamplesNative;
+	FGetAccuracyEvent GetAccuracyEvent =
+		&UOpenMobileSensorsSubsystem::OnAccuracyChangedNative;
 	TestTrue(TEXT("Subscription API is public"), StartSubscription != nullptr);
 	TestTrue(TEXT("Discovery API is public"), GetCapabilities != nullptr);
 	TestTrue(TEXT("Latest-value API is public"), GetLatestVector != nullptr);
 	TestTrue(TEXT("Buffered API is public"), GetBufferedVector != nullptr);
+	TestTrue(TEXT("Accuracy event API is public"), GetAccuracyEvent != nullptr);
 	TestNotNull(
 		TEXT("Sensors subsystem is reflected"),
 		UOpenMobileSensorsSubsystem::StaticClass()

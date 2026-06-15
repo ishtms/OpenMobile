@@ -1,6 +1,7 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorTimestamp.h"
@@ -127,6 +128,29 @@ bool FOpenMobileSensorsAndroidBackend::PublishVectorBatchFromHandler(
 		Token,
 		Handle,
 		NormalizedBatch
+	);
+}
+
+bool FOpenMobileSensorsAndroidBackend::PublishAccuracyFromHandler(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileSensorIdentifier& Sensor,
+	int32 NativeAccuracy,
+	double TimestampSeconds
+)
+{
+	if (!EnsureSensorHandlerThread())
+	{
+		return false;
+	}
+	return FOpenMobileSensorsSampleService::PublishAccuracyFromBackend(
+		Token,
+		Handle,
+		FOpenMobileSensorAccuracyMapper::FromAndroidAccuracyCallback(
+			Sensor,
+			NativeAccuracy,
+			TimestampSeconds
+		)
 	);
 }
 

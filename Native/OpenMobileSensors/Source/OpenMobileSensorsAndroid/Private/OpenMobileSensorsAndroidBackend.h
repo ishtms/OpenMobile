@@ -29,6 +29,13 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileVectorSensorBatch& Batch
 	);
+	bool PublishAccuracyFromHandler(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileSensorIdentifier& Sensor,
+		int32 NativeAccuracy,
+		double TimestampSeconds
+	);
 
 private:
 	bool EnsureSensorHandlerThread();
