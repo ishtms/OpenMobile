@@ -31,6 +31,11 @@ public:
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
+	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		FOpenMobileHapticsBackendEventCallback Callback
+	) override;
 
 private:
 	FOpenMobileHapticCapabilities ProbeHardwareCapabilities() const;

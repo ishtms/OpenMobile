@@ -445,5 +445,41 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("ENamedThreads::GameThread", common_callback)
 
+	def test_android_primitive_composition_is_guarded(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		bridge = load_android_bridge()
+		self.assertIn("static int playPrimitives", bridge)
+		self.assertIn("arePrimitivesSupported", bridge)
+		self.assertIn("VibrationEffect.startComposition()", bridge)
+		self.assertIn("composition.addPrimitive", bridge)
+		self.assertIn("private static int primitiveId", bridge)
+		self.assertIn("supported == null", bridge)
+		playback = bridge[
+			bridge.index("static int playPrimitives"):
+			bridge.index("static boolean stopAll")
+		]
+		self.assertLess(
+			playback.index("arePrimitivesSupported"),
+			playback.index("VibrationEffect.startComposition()"),
+		)
+
+		native_bridge = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("PlayPrimitives", native_bridge)
+		self.assertIn("FScopedJavaObject<jintArray>", native_bridge)
+		self.assertIn("FScopedJavaObject<jfloatArray>", native_bridge)
+
+		backend = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("SubmitNamedPattern", backend)
+		self.assertIn("PrimitiveCompositionPolicy::Resolve", backend)
+		self.assertIn("Bridge.PlayPrimitives", backend)
+
 if __name__ == "__main__":
 	unittest.main()

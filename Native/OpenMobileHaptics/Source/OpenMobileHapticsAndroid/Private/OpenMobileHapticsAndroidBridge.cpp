@@ -89,6 +89,11 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		"playOneShot",
 		"(Landroid/app/Activity;JJFII)I"
 	);
+	PlayPrimitivesMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"playPrimitives",
+		"(Landroid/app/Activity;J[I[F[II)I"
+	);
 	StopAllMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"stopAll",
@@ -98,6 +103,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		|| !QueryCapabilitiesMethod
 		|| !PlaySemanticMethod
 		|| !PlayOneShotMethod
+		|| !PlayPrimitivesMethod
 		|| !StopAllMethod)
 	{
 		ClearException(Env);
@@ -106,6 +112,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		QueryCapabilitiesMethod = nullptr;
 		PlaySemanticMethod = nullptr;
 		PlayOneShotMethod = nullptr;
+		PlayPrimitivesMethod = nullptr;
 		StopAllMethod = nullptr;
 		return false;
 	}
@@ -249,6 +256,93 @@ int32 FOpenMobileHapticsAndroidBridge::PlayOneShot(
 	return Result;
 }
 
+int32 FOpenMobileHapticsAndroidBridge::PlayPrimitives(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const TArray<EOpenMobileHapticAndroidPrimitive>& Primitives,
+	const TArray<float>& Scales,
+	const TArray<int32>& DelaysMilliseconds,
+	int32 Purpose
+)
+{
+	const int32 Count = Primitives.Num();
+	if (Count <= 0 || Scales.Num() != Count
+		|| DelaysMilliseconds.Num() != Count)
+	{
+		return 0;
+	}
+
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity || !EnsureInitialized(Env))
+	{
+		return 0;
+	}
+
+	FScopedJavaObject<jintArray> PrimitiveValues(Env->NewIntArray(Count));
+	FScopedJavaObject<jfloatArray> ScaleValues(Env->NewFloatArray(Count));
+	FScopedJavaObject<jintArray> DelayValues(Env->NewIntArray(Count));
+	if (!PrimitiveValues || !ScaleValues || !DelayValues
+		|| Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	TArray<jint, TInlineAllocator<16>> NativePrimitives;
+	TArray<jfloat, TInlineAllocator<16>> NativeScales;
+	TArray<jint, TInlineAllocator<16>> NativeDelays;
+	NativePrimitives.Reserve(Count);
+	NativeScales.Reserve(Count);
+	NativeDelays.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		NativePrimitives.Add(static_cast<jint>(Primitives[Index]));
+		NativeScales.Add(static_cast<jfloat>(Scales[Index]));
+		NativeDelays.Add(static_cast<jint>(DelaysMilliseconds[Index]));
+	}
+	Env->SetIntArrayRegion(
+		*PrimitiveValues,
+		0,
+		Count,
+		NativePrimitives.GetData()
+	);
+	Env->SetFloatArrayRegion(
+		*ScaleValues,
+		0,
+		Count,
+		NativeScales.GetData()
+	);
+	Env->SetIntArrayRegion(
+		*DelayValues,
+		0,
+		Count,
+		NativeDelays.GetData()
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PlayPrimitivesMethod,
+		Activity,
+		static_cast<jlong>(Token.RequestId),
+		*PrimitiveValues,
+		*ScaleValues,
+		*DelayValues,
+		static_cast<jint>(Purpose)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	return Result;
+}
+
 bool FOpenMobileHapticsAndroidBridge::StopAll()
 {
 	FScopeLock Lock(&Mutex);
@@ -329,5 +423,6 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	QueryCapabilitiesMethod = nullptr;
 	PlaySemanticMethod = nullptr;
 	PlayOneShotMethod = nullptr;
+	PlayPrimitivesMethod = nullptr;
 	StopAllMethod = nullptr;
 }

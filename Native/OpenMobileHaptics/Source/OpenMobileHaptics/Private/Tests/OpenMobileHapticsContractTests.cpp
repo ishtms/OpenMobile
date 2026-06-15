@@ -25,6 +25,7 @@
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
+#include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsRateLimiter.h"
@@ -1194,6 +1195,147 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 	);
 	TestEqual(TEXT("Older Android versions use portable fallback"),
 		Resolution.Path, EOpenMobileHapticsPlatformOverridePath::PortablePattern);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPrimitiveCompositionPolicyTest,
+	"OpenMobile.Haptics.Pattern.PrimitiveCompositionPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPrimitiveCompositionPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticAndroidPatternAsset* Asset =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	Asset->Format = EOpenMobileHapticAndroidPatternFormat::Primitives;
+	Asset->Primitives = {
+		{EOpenMobileHapticAndroidPrimitive::Click, 0.75f, 0},
+		{EOpenMobileHapticAndroidPrimitive::Tick, 0.5f, 25},
+		{EOpenMobileHapticAndroidPrimitive::Thud, 0.25f, 40},
+		{EOpenMobileHapticAndroidPrimitive::Spin, 1.0f, 10},
+		{EOpenMobileHapticAndroidPrimitive::LowTick, 0.4f, 0}
+	};
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	for (const FName Name : {
+		FName(TEXT("Click")),
+		FName(TEXT("Tick")),
+		FName(TEXT("Thud")),
+		FName(TEXT("Spin")),
+		FName(TEXT("LowTick"))
+	})
+	{
+		Capabilities.PrimitiveSupport.Emplace(
+			Name,
+			EOpenMobileHapticSupportState::Supported
+		);
+	}
+
+	FOpenMobileHapticsPrimitiveCompositionResolution Resolution =
+		FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+			*Asset,
+			Capabilities,
+			30,
+			0.8f,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Fully supported primitives are ready"),
+		Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::Ready);
+	TestEqual(TEXT("Every primitive is preserved"),
+		Resolution.Primitives.Num(), 5);
+	TestEqual(TEXT("Request intensity scales each primitive once"),
+		Resolution.Scales[0], 0.6f);
+	TestEqual(TEXT("Delays are preserved"), Resolution.DelaysMilliseconds[2], 40);
+
+	Capabilities.PrimitiveSupport[2].Support =
+		EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Partial support falls back before composition"),
+		Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact-only partial support rejects"),
+		Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::Rejected);
+
+	Capabilities.PrimitiveSupport[2].Support =
+		EOpenMobileHapticSupportState::Unknown;
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown support never reaches native composition"),
+		Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		29,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Older Android APIs require fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::FallbackRequired);
+
+	Capabilities.PrimitiveSupport[2].Support =
+		EOpenMobileHapticSupportState::Supported;
+	Asset->Primitives[0].Scale = -0.1f;
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Invalid scale rejects before JNI"), Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::Rejected);
+	Asset->Primitives[0].Scale = 0.75f;
+	Asset->Primitives[0].DelayMilliseconds = 10001;
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Excessive delays reject before JNI"), Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::Rejected);
+	Asset->Primitives = {
+		{EOpenMobileHapticAndroidPrimitive::Click, 1.0f, 8000},
+		{EOpenMobileHapticAndroidPrimitive::Click, 1.0f, 8000},
+		{EOpenMobileHapticAndroidPrimitive::Click, 1.0f, 8000},
+		{EOpenMobileHapticAndroidPrimitive::Click, 1.0f, 8000}
+	};
+	Resolution = FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+		*Asset,
+		Capabilities,
+		30,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Total delay is bounded before JNI"), Resolution.Outcome,
+		EOpenMobileHapticsPrimitiveCompositionOutcome::Rejected);
 	return true;
 }
 

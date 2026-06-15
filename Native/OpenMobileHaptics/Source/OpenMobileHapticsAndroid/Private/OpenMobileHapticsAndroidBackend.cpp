@@ -1,6 +1,9 @@
 #include "OpenMobileHapticsAndroidBackend.h"
 
+#include "Android/AndroidPlatformMisc.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileHapticPlatformAssets.h"
+#include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 
 namespace OpenMobileHapticsAndroidBackendPrivate
 {
@@ -432,6 +435,99 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::NativeFailure,
 			TEXT("Android could not submit one-shot Haptics feedback.")
+		);
+		break;
+	}
+	return Submission;
+}
+
+FOpenMobileHapticsBackendSubmission
+FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
+	const FOpenMobileHapticNamedPatternRequest& Request,
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	FOpenMobileHapticsBackendEventCallback Callback
+)
+{
+	static_cast<void>(Callback);
+	FOpenMobileHapticsBackendSubmission Submission;
+	const UOpenMobileHapticAndroidPatternAsset* Asset =
+		Cast<UOpenMobileHapticAndroidPatternAsset>(
+			Request.PlatformOverrideAsset.ResolveObject()
+		);
+	if (!Asset
+		|| Asset->Format != EOpenMobileHapticAndroidPatternFormat::Primitives)
+	{
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Android pattern does not contain a primitive composition.")
+		);
+		return Submission;
+	}
+
+	const FOpenMobileHapticsPrimitiveCompositionResolution Resolution =
+		FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
+			*Asset,
+			GetCapabilities(),
+			FAndroidMisc::GetAndroidBuildVersion(),
+			Request.Intensity,
+			Request.Options.FallbackPolicy
+		);
+	if (Resolution.Outcome
+		!= EOpenMobileHapticsPrimitiveCompositionOutcome::Ready)
+	{
+		if (Resolution.Outcome
+			== EOpenMobileHapticsPrimitiveCompositionOutcome::FallbackRequired
+			&& Request.Options.FallbackPolicy
+				== EOpenMobileHapticFallbackPolicy::NoEffectAllowed)
+		{
+			Submission.Result.Outcome =
+				EOpenMobileHapticPlaybackOutcome::Suppressed;
+			Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
+			Submission.Result.ResolvedPath = TEXT("NoEffect");
+			Submission.Result.FallbackAttempts.Add(Resolution.Reason);
+			return Submission;
+		}
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Android primitive composition is unavailable on this device.")
+		);
+		Submission.Result.FallbackAttempts.Add(Resolution.Reason);
+		return Submission;
+	}
+
+	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
+		? 2
+		: Request.Options.Category == TEXT("Gameplay")
+			? 1
+			: 0;
+	const int32 NativeResult = Bridge.PlayPrimitives(
+		Token,
+		Resolution.Primitives,
+		Resolution.Scales,
+		Resolution.DelaysMilliseconds,
+		Purpose
+	);
+	Submission.Result.ResolvedPath = TEXT("AndroidPrimitiveComposition");
+	switch (NativeResult)
+	{
+	case 1:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+		break;
+	case 2:
+		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Suppressed;
+		Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
+		break;
+	case 4:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Android rejected an unsupported primitive composition.")
+		);
+		break;
+	default:
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android could not submit the primitive composition.")
 		);
 		break;
 	}

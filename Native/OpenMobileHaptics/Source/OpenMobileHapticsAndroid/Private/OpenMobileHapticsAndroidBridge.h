@@ -3,6 +3,7 @@
 #include "Android/AndroidJNI.h"
 #include "HAL/CriticalSection.h"
 #include "IOpenMobileHapticsBackend.h"
+#include "OpenMobileHapticPlatformAssets.h"
 
 struct FOpenMobileHapticsAndroidHardwareProbe
 {
@@ -45,6 +46,13 @@ public:
 		EOpenMobileHapticsOneShotPath Path,
 		int32 Purpose
 	);
+	int32 PlayPrimitives(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const TArray<EOpenMobileHapticAndroidPrimitive>& Primitives,
+		const TArray<float>& Scales,
+		const TArray<int32>& DelaysMilliseconds,
+		int32 Purpose
+	);
 	bool StopAll();
 	void Shutdown();
 	void HandleBridgeResult(uint64 RequestId, int32 Result);
@@ -67,6 +75,7 @@ private:
 	jmethodID QueryCapabilitiesMethod = nullptr;
 	jmethodID PlaySemanticMethod = nullptr;
 	jmethodID PlayOneShotMethod = nullptr;
+	jmethodID PlayPrimitivesMethod = nullptr;
 	jmethodID StopAllMethod = nullptr;
 	TMap<uint64, FPendingCallback> PendingCallbacks;
 };

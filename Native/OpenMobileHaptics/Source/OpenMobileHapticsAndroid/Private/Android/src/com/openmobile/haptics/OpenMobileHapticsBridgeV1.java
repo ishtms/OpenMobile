@@ -227,6 +227,84 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    static int playPrimitives(
+        Activity activity,
+        long requestId,
+        int[] primitives,
+        float[] scales,
+        int[] delaysMilliseconds,
+        int purpose
+    ) {
+        recordSubmission(requestId);
+        if (Build.VERSION.SDK_INT < 30
+            || primitives == null
+            || scales == null
+            || delaysMilliseconds == null
+            || primitives.length == 0
+            || scales.length != primitives.length
+            || delaysMilliseconds.length != primitives.length) {
+            return RESULT_UNSUPPORTED;
+        }
+        try {
+            int[] nativePrimitives = new int[primitives.length];
+            long totalDelayMilliseconds = 0L;
+            for (int index = 0; index < primitives.length; ++index) {
+                int nativePrimitive = primitiveId(primitives[index]);
+                float scale = scales[index];
+                int delayMilliseconds = delaysMilliseconds[index];
+                if (nativePrimitive < 0
+                    || Float.isNaN(scale)
+                    || Float.isInfinite(scale)
+                    || scale < 0.0f
+                    || scale > 1.0f
+                    || delayMilliseconds < 0
+                    || delayMilliseconds > 10000) {
+                    return RESULT_UNSUPPORTED;
+                }
+                totalDelayMilliseconds += delayMilliseconds;
+                if (totalDelayMilliseconds > 30000L) {
+                    return RESULT_UNSUPPORTED;
+                }
+                nativePrimitives[index] = nativePrimitive;
+            }
+
+            Vibrator vibrator = vibrator(activity);
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return RESULT_UNSUPPORTED;
+            }
+            Context context = applicationContext(activity);
+            if (!systemHapticsEnabled(context)) {
+                return RESULT_SUPPRESSED;
+            }
+            boolean[] supported = vibrator.arePrimitivesSupported(nativePrimitives);
+            if (supported == null
+                || supported.length != nativePrimitives.length) {
+                return RESULT_UNSUPPORTED;
+            }
+            for (boolean primitiveSupported : supported) {
+                if (!primitiveSupported) {
+                    return RESULT_UNSUPPORTED;
+                }
+            }
+
+            VibrationEffect.Composition composition =
+                VibrationEffect.startComposition();
+            for (int index = 0; index < nativePrimitives.length; ++index) {
+                composition.addPrimitive(
+                    nativePrimitives[index],
+                    scales[index],
+                    delaysMilliseconds[index]
+                );
+            }
+            vibrate(vibrator, composition.compose(), 0L, purpose);
+            return RESULT_ACCEPTED;
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
     static boolean stopAll(Activity activity) {
         try {
             Vibrator vibrator = vibrator(activity);
@@ -429,6 +507,29 @@ public final class OpenMobileHapticsBridgeV1 {
                 return VibrationEffect.EFFECT_DOUBLE_CLICK;
             default:
                 return VibrationEffect.EFFECT_HEAVY_CLICK;
+        }
+    }
+
+    private static int primitiveId(int primitive) {
+        switch (primitive) {
+            case 0:
+                return VibrationEffect.Composition.PRIMITIVE_TICK;
+            case 1:
+                return VibrationEffect.Composition.PRIMITIVE_LOW_TICK;
+            case 2:
+                return VibrationEffect.Composition.PRIMITIVE_CLICK;
+            case 3:
+                return VibrationEffect.Composition.PRIMITIVE_THUD;
+            case 4:
+                return VibrationEffect.Composition.PRIMITIVE_SPIN;
+            case 5:
+                return VibrationEffect.Composition.PRIMITIVE_QUICK_RISE;
+            case 6:
+                return VibrationEffect.Composition.PRIMITIVE_SLOW_RISE;
+            case 7:
+                return VibrationEffect.Composition.PRIMITIVE_QUICK_FALL;
+            default:
+                return -1;
         }
     }
 
