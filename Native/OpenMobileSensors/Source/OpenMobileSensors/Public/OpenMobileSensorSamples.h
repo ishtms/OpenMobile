@@ -3,24 +3,10 @@
 #include "CoreMinimal.h"
 #include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorQuality.h"
 #include "OpenMobileSensorScreenRotation.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSamples.generated.h"
-
-UENUM(BlueprintType, meta = (Bitflags))
-enum class EOpenMobileSensorSourceFlags : uint8
-{
-	None = 0,
-	Raw = 1 << 0,
-	CalibratedNative = 1 << 1,
-	NativeFused = 1 << 2,
-	PluginDerived = 1 << 3,
-	MagneticNorthReferenced = 1 << 4,
-	TrueNorthReferenced = 1 << 5,
-	Mock = 1 << 6,
-	Replay = 1 << 7
-};
-ENUM_CLASS_FLAGS(EOpenMobileSensorSourceFlags);
 
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileSensorTimestampIssue : uint8
@@ -31,14 +17,6 @@ enum class EOpenMobileSensorTimestampIssue : uint8
 	Backward = 1 << 2
 };
 ENUM_CLASS_FLAGS(EOpenMobileSensorTimestampIssue);
-
-UENUM(BlueprintType)
-enum class EOpenMobileSensorFusionQuality : uint8
-{
-	Unknown,
-	Degraded,
-	Nominal
-};
 
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
@@ -100,6 +78,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags"))
 	int32 SourceFlags = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bSourceChanged = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorFusionContext Fusion;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasEstimatedError = false;

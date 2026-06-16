@@ -35,6 +35,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	FOpenMobileSensorSubscriptionHandle Handle;
 	FOpenMobileSensorSubscriptionStateSnapshot State;
 	FOpenMobileSensorAccuracySnapshot Accuracy;
+	FOpenMobileSensorFusionContext Fusion;
 	FOpenMobileVectorSensorSample Vector;
 	FOpenMobileAttitudeSensorSample Attitude;
 	FOpenMobileScalarSensorSample Scalar;
@@ -64,6 +65,7 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	static_cast<void>(Handle);
 	static_cast<void>(State);
 	static_cast<void>(Accuracy);
+	static_cast<void>(Fusion);
 	static_cast<void>(Vector);
 	static_cast<void>(Attitude);
 	static_cast<void>(Scalar);
@@ -129,6 +131,16 @@ bool FOpenMobileSensorsPublicConsumerCompileTest::RunTest(
 	TestNotNull(
 		TEXT("Sensors settings are reflected"),
 		UOpenMobileSensorsSettings::StaticClass()
+	);
+	TestNotNull(
+		TEXT("Sensor quality helpers are reflected"),
+		UOpenMobileSensorQualityLibrary::StaticClass()
+	);
+	TestTrue(
+		TEXT("Sensor input masks are public"),
+		UOpenMobileSensorQualityLibrary::MakeInputMask(
+			EOpenMobileSensorType::Accelerometer
+		) != 0
 	);
 
 	UGameInstance* GameInstance = NewObject<UGameInstance>();

@@ -9,6 +9,7 @@
 #include "OpenMobileSensorMetadata.h"
 #include "OpenMobileSensorPermissionAsyncAction.h"
 #include "OpenMobileSensorPermissions.h"
+#include "OpenMobileSensorQuality.h"
 #include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorRecordingAsyncAction.h"
 #include "OpenMobileSensorReplayAsyncAction.h"

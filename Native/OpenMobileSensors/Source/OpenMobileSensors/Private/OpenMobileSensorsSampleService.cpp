@@ -7,7 +7,9 @@
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorScreenRotationService.h"
+#include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorValidity.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
@@ -177,7 +179,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
 		bool bHasAccuracyState = false;
+		bool bHasSourceState = false;
 		bool bPendingStatefulProcessingReset = false;
+		int32 LastSourceFlags = 0;
 		int64 NextAccuracySequence = 1;
 		FOpenMobileSensorAccuracySnapshot AccuracyState;
 		FOpenMobileVectorSensorSample Vector;
@@ -658,6 +662,57 @@ namespace OpenMobileSensorsSampleServicePrivate
 		}
 	}
 
+	template <typename SampleType>
+	void NormalizeFusionMetadata(SampleType& Sample)
+	{
+		static_cast<void>(Sample);
+	}
+
+	void NormalizeFusionMetadata(FOpenMobileAttitudeSensorSample& Sample)
+	{
+		if (Sample.Header.Fusion.Quality ==
+				EOpenMobileSensorFusionQuality::Unknown
+			&& Sample.FusionQuality !=
+				EOpenMobileSensorFusionQuality::Unknown)
+		{
+			Sample.Header.Fusion.Quality = Sample.FusionQuality;
+		}
+		for (const EOpenMobileSensorType Sensor : Sample.ContributingSensors)
+		{
+			const int64 SensorMask =
+				UOpenMobileSensorQualityLibrary::MakeInputMask(Sensor);
+			Sample.Header.Fusion.ExpectedInputMask |= SensorMask;
+			Sample.Header.Fusion.ContributingInputMask |= SensorMask;
+		}
+		Sample.FusionQuality = Sample.Header.Fusion.Quality;
+	}
+
+	template <typename SampleType>
+	bool ValidateSourceAndFusion(SampleType& Sample)
+	{
+		NormalizeFusionMetadata(Sample);
+		return FOpenMobileSensorSourcePolicy::ValidateSourceFlags(
+				Sample.Header.SourceFlags)
+			&& FOpenMobileSensorFusionQualityEvaluator::ValidateContext(
+				Sample.Header.Fusion);
+	}
+
+	void ApplySourceTransition(
+		FLatestSlot& Slot,
+		FOpenMobileSensorSampleHeader& Header
+	)
+	{
+		const bool bSourceChanged = Slot.bHasSourceState
+			&& Slot.LastSourceFlags != Header.SourceFlags;
+		Header.bSourceChanged |= bSourceChanged;
+		if (bSourceChanged)
+		{
+			Slot.bPendingStatefulProcessingReset = true;
+		}
+		Slot.LastSourceFlags = Header.SourceFlags;
+		Slot.bHasSourceState = true;
+	}
+
 	bool ObserveAccuracy(
 		FLatestSlot& Slot,
 		const FOpenMobileSensorAccuracySnapshot& Report
@@ -818,12 +873,18 @@ namespace OpenMobileSensorsSampleServicePrivate
 						continue;
 					}
 					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
+					if (!ValidateSourceAndFusion(Sample))
+					{
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
 					if (!FOpenMobileSensorValidity::
 						IsEligibleForStatefulProcessing(Sample))
 					{
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
+					ApplySourceTransition(Slot, Sample.Header);
 					UpdateRateStatistics(
 						Slot,
 						Sample.Header.TimestampSeconds

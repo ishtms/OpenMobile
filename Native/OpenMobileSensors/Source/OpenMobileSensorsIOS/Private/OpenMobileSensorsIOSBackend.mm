@@ -6,6 +6,7 @@
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
+#include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -69,6 +70,13 @@ bool FOpenMobileSensorsIOSBackend::PublishVectorBatchFromMotionQueue(
 	FOpenMobileVectorSensorBatch NormalizedBatch = Batch;
 	for (FOpenMobileVectorSensorSample& Sample : NormalizedBatch.Samples)
 	{
+		if (Sample.Header.SourceFlags == 0)
+		{
+			Sample.Header.SourceFlags =
+				FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
+					Sample.Header.Sensor.Type
+				);
+		}
 		FOpenMobileSensorUnitConverter::NormalizeVectorSample(
 			EOpenMobileSensorNativePlatform::IOS,
 			Sample
