@@ -1,5 +1,6 @@
 #include "OpenMobileDeviceSubsystem.h"
 
+#include "OpenMobileDeviceAndroidPackageCheckService.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
@@ -372,6 +373,24 @@ UOpenMobileDeviceSubsystem::CheckIntentHandler(
 	FOpenMobileIntentHandlerCheckResult Result;
 	Result.Kind = Request.Kind;
 	Result.State = EOpenMobileIntentHandlerCheckState::Failed;
+	Result.Error = FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("The Device subsystem has been deinitialized.")
+	);
+	return Result;
+}
+
+FOpenMobileAndroidPackageCheckResult
+UOpenMobileDeviceSubsystem::CheckAndroidPackage(
+	const FOpenMobileAndroidPackageCheckRequest& Request
+) const
+{
+	if (!bDeinitialized)
+	{
+		return FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	}
+	FOpenMobileAndroidPackageCheckResult Result;
+	Result.State = EOpenMobileAndroidPackageCheckState::Failed;
 	Result.Error = FOpenMobileError::Make(
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")

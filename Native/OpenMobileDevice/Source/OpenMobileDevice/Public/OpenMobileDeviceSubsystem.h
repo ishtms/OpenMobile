@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceAndroidPackageTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
@@ -237,6 +238,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Check Intent Handler", ToolTip = "Checks one declared URL or Android intent action without launching it or enumerating installed applications. A positive result does not guarantee a later launch succeeds."))
 	FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
 		const FOpenMobileIntentHandlerCheckRequest& Request
+	) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Check Android Package", ToolTip = "Checks one exact Android application ID declared for this build. It never enumerates installed applications and returns Unsupported on non-Android platforms."))
+	FOpenMobileAndroidPackageCheckResult CheckAndroidPackage(
+		const FOpenMobileAndroidPackageCheckRequest& Request
 	) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))

@@ -55,6 +55,17 @@ dependencies {
 			<addElement tag="$OpenMobileDeviceIntentQuery" name="OpenMobileDeviceIntentQueryAction"/>
 			<addElement tag="queries" name="OpenMobileDeviceIntentQuery" once="true"/>
 		</while>
+		<setIntFromPropertyArrayNum result="OpenMobileDevicePackageCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidPackages"/>
+		<setInt result="OpenMobileDevicePackageIndex" value="0"/>
+		<setBoolIsLess result="OpenMobileDeviceHasPackage" arg1="$I(OpenMobileDevicePackageIndex)" arg2="$I(OpenMobileDevicePackageCount)"/>
+		<while condition="OpenMobileDeviceHasPackage">
+			<setStringFromPropertyArray result="OpenMobileDevicePackage" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidPackages" index="$I(OpenMobileDevicePackageIndex)"/>
+			<setIntAdd result="OpenMobileDevicePackageIndex" arg1="$I(OpenMobileDevicePackageIndex)" arg2="1"/>
+			<setBoolIsLess result="OpenMobileDeviceHasPackage" arg1="$I(OpenMobileDevicePackageIndex)" arg2="$I(OpenMobileDevicePackageCount)"/>
+			<setElement result="OpenMobileDevicePackageQuery" value="package"/>
+			<addAttribute tag="$OpenMobileDevicePackageQuery" name="android:name" value="$S(OpenMobileDevicePackage)"/>
+			<addElement tag="queries" name="OpenMobileDevicePackageQuery" once="true"/>
+		</while>
 	</androidManifestUpdates>
 	<gameActivityImportAdditions>
 		<insert>
@@ -77,6 +88,61 @@ import androidx.window.layout.WindowLayoutInfo;
 	private android.hardware.display.DisplayManager.DisplayListener
 		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
+
+	public int AndroidThunkJava_OpenMobileDeviceCheckPackage(
+		String packageName
+	)
+	{
+		try
+		{
+			android.content.pm.PackageManager packageManager =
+				getPackageManager();
+			android.content.pm.ApplicationInfo applicationInfo =
+				packageManager.getApplicationInfo(
+					packageName,
+					android.content.pm.PackageManager.MATCH_DISABLED_COMPONENTS
+				);
+			int enabledSetting;
+			try
+			{
+				enabledSetting =
+					packageManager.getApplicationEnabledSetting(packageName);
+			}
+			catch (IllegalArgumentException exception)
+			{
+				return 0;
+			}
+			boolean enabled;
+			switch (enabledSetting)
+			{
+				case android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT:
+					enabled = applicationInfo.enabled;
+					break;
+				case android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
+					enabled = true;
+					break;
+				case android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED:
+				case android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER:
+				case android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED:
+					enabled = false;
+					break;
+				default:
+					return -1;
+			}
+			return enabled ? 1 : 2;
+		}
+		catch (
+			android.content.pm.PackageManager.NameNotFoundException
+				| SecurityException exception
+		)
+		{
+			return 0;
+		}
+		catch (RuntimeException exception)
+		{
+			return -1;
+		}
+	}
 
 	public int AndroidThunkJava_OpenMobileDeviceCheckIntentHandler(
 		String url,

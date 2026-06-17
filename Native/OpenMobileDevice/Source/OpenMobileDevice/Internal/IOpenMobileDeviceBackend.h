@@ -4,6 +4,7 @@
 #include "Features/IModularFeature.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceAndroidPackageTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
@@ -253,6 +254,20 @@ public:
 		Result.Error = FOpenMobileError::Make(
 			EOpenMobileErrorCode::NotSupported,
 			TEXT("The active Device backend does not support intent-handler checks.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileAndroidPackageCheckResult CheckAndroidPackage(
+		const FOpenMobileAndroidPackageCheckRequest& Request
+	)
+	{
+		static_cast<void>(Request);
+		FOpenMobileAndroidPackageCheckResult Result;
+		Result.State = EOpenMobileAndroidPackageCheckState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support Android package checks.")
 		);
 		return Result;
 	}

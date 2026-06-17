@@ -2385,6 +2385,108 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertNotIn("openURL", ios_handler.replace("canOpenURL", ""))
 		self.assertNotIn("UE_LOG", ios_handler)
 
+	def test_android_package_checks_are_declared_and_non_enumerating(self) -> None:
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceAndroidPackageTypes.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"FOpenMobileAndroidPackageCheckRequest",
+			"FOpenMobileAndroidPackageCheckResult",
+			"Installed",
+			"Disabled",
+			"NotFoundOrNotVisible",
+			"NotDeclared",
+			"Unsupported",
+		):
+			self.assertIn(token, public_types)
+
+		settings = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSettings.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("DeclaredAndroidPackages", settings)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSubsystem.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("CheckAndroidPackage", subsystem)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"DeclaredAndroidPackages",
+			'value="package"',
+			"AndroidThunkJava_OpenMobileDeviceCheckPackage",
+			"getApplicationInfo",
+			"MATCH_DISABLED_COMPONENTS",
+			"getApplicationEnabledSetting",
+			"NameNotFoundException",
+			"SecurityException",
+			"IllegalArgumentException",
+			"COMPONENT_ENABLED_STATE_DISABLED_USER",
+			"COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED",
+		):
+			self.assertIn(token, android_upl)
+		for forbidden_token in (
+			"QUERY_ALL_PACKAGES",
+			"getInstalledApplications",
+			"getInstalledPackages",
+			"MATCH_UNINSTALLED_PACKAGES",
+		):
+			self.assertNotIn(forbidden_token, android_upl)
+
+		android_check = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidPackageCheck.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			"AndroidThunkJava_OpenMobileDeviceCheckPackage",
+			android_check,
+		)
+		self.assertNotIn("UE_LOG", android_check)
+
+		backend_contract = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "IOpenMobileDeviceBackend.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("CheckAndroidPackage", backend_contract)
+		self.assertIn(
+			"EOpenMobileAndroidPackageCheckState::Unsupported",
+			backend_contract,
+		)
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("AndroidPackageCheck", ios_backend)
+		self.assertIn("EOpenMobileCapabilityState::NotSupported", ios_backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

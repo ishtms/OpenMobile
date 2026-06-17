@@ -13,6 +13,9 @@
 #include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceApplicationInfo.h"
+#include "OpenMobileDeviceAndroidPackagePolicy.h"
+#include "OpenMobileDeviceAndroidPackageCheckService.h"
+#include "OpenMobileDeviceAndroidPackageTypes.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
@@ -264,6 +267,14 @@ namespace OpenMobileDeviceTests
 			return IntentHandlerResult;
 		}
 
+		virtual FOpenMobileAndroidPackageCheckResult CheckAndroidPackage(
+			const FOpenMobileAndroidPackageCheckRequest& Request
+		) override
+		{
+			AndroidPackageRequests.Add(Request);
+			return AndroidPackageResult;
+		}
+
 		virtual bool BeginUserInitiatedPaste(
 			const FOpenMobileUserInitiatedPasteRequest& Request,
 			const FGuid& OperationId,
@@ -468,6 +479,8 @@ namespace OpenMobileDeviceTests
 		int32 ClipboardClearCount = 0;
 		FOpenMobileIntentHandlerCheckResult IntentHandlerResult;
 		TArray<FOpenMobileIntentHandlerCheckRequest> IntentHandlerRequests;
+		FOpenMobileAndroidPackageCheckResult AndroidPackageResult;
+		TArray<FOpenMobileAndroidPackageCheckRequest> AndroidPackageRequests;
 		bool bAcceptUserInitiatedPaste = true;
 		TArray<FOpenMobileUserInitiatedPasteRequest>
 			UserInitiatedPasteRequests;
@@ -4318,6 +4331,18 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		DeclaredActionsProperty
 			&& DeclaredActionsProperty->HasAnyPropertyFlags(CPF_Config)
 	);
+	const FArrayProperty* DeclaredPackagesProperty = FindFProperty<FArrayProperty>(
+		UOpenMobileDeviceSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileDeviceSettings,
+			DeclaredAndroidPackages
+		)
+	);
+	TestTrue(
+		TEXT("Declared Android packages are serialized to config"),
+		DeclaredPackagesProperty
+			&& DeclaredPackagesProperty->HasAnyPropertyFlags(CPF_Config)
+	);
 
 	const FString ConfigPath = FPaths::CreateTempFilename(
 		*FPaths::ProjectIntermediateDir(),
@@ -4333,6 +4358,9 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->DeclaredUrlSchemes = {TEXT("example-app")};
 	Settings->DeclaredAndroidIntentActions = {
 		TEXT("com.example.device.OPEN")
+	};
+	Settings->DeclaredAndroidPackages = {
+		TEXT("com.example.companion")
 	};
 	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 	UOpenMobileDeviceSettings* Loaded = NewObject<UOpenMobileDeviceSettings>();
@@ -4372,6 +4400,11 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Declared Android actions survive config serialization"),
 		Loaded->DeclaredAndroidIntentActions,
 		TArray<FString>({TEXT("com.example.device.OPEN")})
+	);
+	TestEqual(
+		TEXT("Declared Android packages survive config serialization"),
+		Loaded->DeclaredAndroidPackages,
+		TArray<FString>({TEXT("com.example.companion")})
 	);
 	return true;
 }
@@ -6206,6 +6239,284 @@ bool FOpenMobileDeviceUserInitiatedPasteLifecycleTest::RunTest(
 	FOpenMobileDeviceUserInitiatedPasteService::Start();
 
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAndroidPackagePolicyTest,
+	"OpenMobile.Device.External.AndroidPackagePolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAndroidPackagePolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const TArray<FString> DeclaredPackages = {
+		TEXT("com.example.companion")
+	};
+	FOpenMobileAndroidPackageCheckRequest Request;
+	Request.PackageName = TEXT("com.example.companion");
+	FOpenMobileAndroidPackageCheckResult Failure;
+	TestTrue(
+		TEXT("An exact declared package is accepted"),
+		FOpenMobileDeviceAndroidPackagePolicy::Validate(
+			Request,
+			DeclaredPackages,
+			Failure
+		)
+	);
+
+	Request.PackageName = TEXT("com.example.missing");
+	TestFalse(
+		TEXT("An undeclared package is rejected"),
+		FOpenMobileDeviceAndroidPackagePolicy::Validate(
+			Request,
+			DeclaredPackages,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Undeclared package has distinct state"),
+		Failure.State,
+		EOpenMobileAndroidPackageCheckState::NotDeclared
+	);
+
+	Request.PackageName = TEXT("COM.EXAMPLE.COMPANION");
+	TestFalse(
+		TEXT("Package declarations are case-sensitive"),
+		FOpenMobileDeviceAndroidPackagePolicy::Validate(
+			Request,
+			DeclaredPackages,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Package case mismatch is not declared"),
+		Failure.State,
+		EOpenMobileAndroidPackageCheckState::NotDeclared
+	);
+
+	for (const FString& InvalidPackage : {
+		FString(),
+		FString(TEXT("single")),
+		FString(TEXT(".com.example")),
+		FString(TEXT("com.example.")),
+		FString(TEXT("com..example")),
+		FString(TEXT("com.2example.app")),
+		FString(TEXT("com.example-*")),
+		FString(TEXT("com.example app")),
+		FString(TEXT("com.exámple.app"))
+	})
+	{
+		Request.PackageName = InvalidPackage;
+		TestFalse(
+			TEXT("Malformed package is rejected"),
+			FOpenMobileDeviceAndroidPackagePolicy::Validate(
+				Request,
+				DeclaredPackages,
+				Failure
+			)
+		);
+		TestEqual(
+			TEXT("Malformed package has invalid-request state"),
+			Failure.State,
+			EOpenMobileAndroidPackageCheckState::InvalidRequest
+		);
+	}
+
+	const FString MaximumPackage = TEXT("a.") + FString::ChrN(
+		FOpenMobileDeviceAndroidPackagePolicy::MaximumPackageNameCharacters - 2,
+		TEXT('b')
+	);
+	Request.PackageName = MaximumPackage;
+	TestTrue(
+		TEXT("A declared package at the length limit is accepted"),
+		FOpenMobileDeviceAndroidPackagePolicy::Validate(
+			Request,
+			{MaximumPackage},
+			Failure
+		)
+	);
+	Request.PackageName.AppendChar(TEXT('b'));
+	TestFalse(
+		TEXT("A package above the length limit is rejected"),
+		FOpenMobileDeviceAndroidPackagePolicy::Validate(
+			Request,
+			{Request.PackageName},
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Oversized package has invalid-request state"),
+		Failure.State,
+		EOpenMobileAndroidPackageCheckState::InvalidRequest
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAndroidPackageServiceTest,
+	"OpenMobile.Device.External.AndroidPackageService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAndroidPackageServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("AndroidPackage"));
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::AndroidPackageCheck,
+		EOpenMobileCapabilityState::Available
+	);
+	Backend.AndroidPackageResult.State =
+		EOpenMobileAndroidPackageCheckState::Installed;
+	TestTrue(
+		TEXT("Android package mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UOpenMobileDeviceSettings* Settings =
+		GetMutableDefault<UOpenMobileDeviceSettings>();
+	const TArray<FString> SavedPackages =
+		Settings->DeclaredAndroidPackages;
+	Settings->DeclaredAndroidPackages = {
+		TEXT("com.example.companion")
+	};
+
+	FOpenMobileAndroidPackageCheckRequest Request;
+	Request.PackageName = TEXT("com.example.companion");
+	FOpenMobileAndroidPackageCheckResult Result =
+		FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Declared package reaches the backend"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::Installed
+	);
+	TestEqual(
+		TEXT("Backend receives one exact package query"),
+		Backend.AndroidPackageRequests.Num(),
+		1
+	);
+	TestEqual(
+		TEXT("Backend receives the caller package unchanged"),
+		Backend.AndroidPackageRequests[0].PackageName,
+		Request.PackageName
+	);
+	FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Package checks are not cached"),
+		Backend.AndroidPackageRequests.Num(),
+		2
+	);
+
+	Backend.AndroidPackageResult.State =
+		EOpenMobileAndroidPackageCheckState::Disabled;
+	Result = FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Disabled package remains distinct"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::Disabled
+	);
+	TestFalse(
+		TEXT("Disabled is a query outcome rather than an error"),
+		Result.Error.IsSet()
+	);
+	Backend.AndroidPackageResult.State =
+		EOpenMobileAndroidPackageCheckState::NotFoundOrNotVisible;
+	Result = FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Missing and filtered evidence remains conservative"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::NotFoundOrNotVisible
+	);
+	TestFalse(
+		TEXT("Negative package evidence is not a native failure"),
+		Result.Error.IsSet()
+	);
+
+	const int32 RequestsBeforeRejection =
+		Backend.AndroidPackageRequests.Num();
+	Request.PackageName = TEXT("com.example.undeclared");
+	TestEqual(
+		TEXT("Undeclared package is rejected by the shared layer"),
+		FOpenMobileDeviceAndroidPackageCheckService::Check(Request).State,
+		EOpenMobileAndroidPackageCheckState::NotDeclared
+	);
+	Request.PackageName = TEXT("com.example.*");
+	TestEqual(
+		TEXT("Wildcard package is invalid"),
+		FOpenMobileDeviceAndroidPackageCheckService::Check(Request).State,
+		EOpenMobileAndroidPackageCheckState::InvalidRequest
+	);
+	TestEqual(
+		TEXT("Rejected packages do not reach the backend"),
+		Backend.AndroidPackageRequests.Num(),
+		RequestsBeforeRejection
+	);
+
+	Request.PackageName = TEXT("com.example.companion");
+	Backend.AndroidPackageResult = {};
+	Result = FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Unknown backend state normalizes to Failed"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::Failed
+	);
+	TestTrue(
+		TEXT("Malformed backend result receives a typed error"),
+		Result.Error.IsSet()
+	);
+	Backend.AndroidPackageResult.State =
+		EOpenMobileAndroidPackageCheckState::Unsupported;
+	Result = FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Unsupported backend remains distinct"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::Unsupported
+	);
+	TestTrue(
+		TEXT("Unsupported backend receives a typed error"),
+		Result.Error.IsSet()
+	);
+	const int32 RequestsBeforeUnsupportedPlatform =
+		Backend.AndroidPackageRequests.Num();
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::AndroidPackageCheck,
+		EOpenMobileCapabilityState::NotSupported
+	);
+	Request.PackageName = TEXT("com.example.undeclared");
+	Result = FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+	TestEqual(
+		TEXT("Non-Android backend reports Unsupported before declaration lookup"),
+		Result.State,
+		EOpenMobileAndroidPackageCheckState::Unsupported
+	);
+	TestEqual(
+		TEXT("Unsupported platform never receives a package query"),
+		Backend.AndroidPackageRequests.Num(),
+		RequestsBeforeUnsupportedPlatform
+	);
+	TestNotNull(
+		TEXT("Android package check is reflected"),
+		UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("CheckAndroidPackage")
+		)
+	);
+
+	Request.PackageName = TEXT("com.example.companion");
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	TestEqual(
+		TEXT("Editor and missing backends report Unsupported"),
+		FOpenMobileDeviceAndroidPackageCheckService::Check(Request).State,
+		EOpenMobileAndroidPackageCheckState::Unsupported
+	);
+	Settings->DeclaredAndroidPackages = SavedPackages;
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

@@ -19,6 +19,7 @@
 #include "OpenMobileDeviceAndroidNetwork.h"
 #include "OpenMobileDeviceAndroidNetworkMonitor.h"
 #include "OpenMobileDeviceAndroidOrientationControl.h"
+#include "OpenMobileDeviceAndroidPackageCheck.h"
 #include "OpenMobileDeviceAndroidStorage.h"
 #include "OpenMobileDeviceAndroidStorageMonitor.h"
 #include "OpenMobileDeviceAndroidSystemUiControl.h"
@@ -306,6 +307,16 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android checks one build-declared URL or exact intent action through PackageManager visibility without returning handler identities.");
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::AndroidPackageCheck)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android checks one exact build-declared package through PackageManager visibility without enumerating applications or returning package metadata.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -540,6 +551,14 @@ FOpenMobileDeviceAndroidBackend::CheckIntentHandler(
 )
 {
 	return CheckOpenMobileDeviceAndroidIntentHandler(Request);
+}
+
+FOpenMobileAndroidPackageCheckResult
+FOpenMobileDeviceAndroidBackend::CheckAndroidPackage(
+	const FOpenMobileAndroidPackageCheckRequest& Request
+)
+{
+	return CheckOpenMobileDeviceAndroidPackage(Request);
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(

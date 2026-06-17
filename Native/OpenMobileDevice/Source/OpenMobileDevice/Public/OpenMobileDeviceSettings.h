@@ -134,6 +134,18 @@ public:
 	)
 	TArray<FString> DeclaredAndroidIntentActions;
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "External Apps",
+		meta = (
+			DisplayName = "Declared Android Packages",
+			ToolTip = "Exact Android application IDs allowed for package checks and emitted into package visibility metadata. Wildcards and arbitrary runtime packages are not supported."
+		)
+	)
+	TArray<FString> DeclaredAndroidPackages;
+
 	float GetValidatedFallbackPollingIntervalSeconds() const
 	{
 		if (!FMath::IsFinite(FallbackPollingIntervalSeconds))

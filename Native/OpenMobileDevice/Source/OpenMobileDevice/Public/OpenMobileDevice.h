@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceAndroidPackageTypes.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControl.h"
