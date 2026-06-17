@@ -4,6 +4,9 @@
 #include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorResults.h"
 
+struct FOpenMobileSensorsBackendToken;
+struct FOpenMobileSensorBackendStreamHandle;
+
 DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileSensorSubscriptionServiceStateChanged,
 	const FGuid&,
@@ -67,6 +70,11 @@ public:
 	);
 	static void InvalidateForUnrecoverablePermissionLoss(
 		EOpenMobileSensorType SensorType
+	);
+	static bool FailPhysicalStreamFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+		const FOpenMobileSensorOperationResult& Failure
 	);
 	static FOnOpenMobileSensorSubscriptionServiceStateChanged&
 	OnStateChanged();

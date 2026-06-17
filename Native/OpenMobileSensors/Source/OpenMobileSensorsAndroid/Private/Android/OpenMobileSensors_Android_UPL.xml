@@ -2,6 +2,7 @@
 <root xmlns:android="http://schemas.android.com/apk/res/android">
 	<init>
 		<setBoolFromProperty result="OpenMobileSensorsHighSamplingEnabled" ini="Engine" section="/Script/OpenMobileSensors.OpenMobileSensorsSettings" property="bAllowHighSamplingRate" default="false"/>
+		<setBoolFromProperty result="OpenMobileSensorsPermissionSensitiveEnabled" ini="Engine" section="/Script/OpenMobileSensors.OpenMobileSensorsSettings" property="bEnablePermissionSensitiveSensors" default="false"/>
 	</init>
 
 	<androidManifestUpdates>
@@ -10,54 +11,40 @@
 				<addPermission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
 			</true>
 		</if>
+		<if condition="OpenMobileSensorsPermissionSensitiveEnabled">
+			<true>
+				<addPermission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+			</true>
+		</if>
 	</androidManifestUpdates>
 
-	<gameActivityClassAdditions>
+	<resourceCopies>
+		<copyFile
+			src="$S(PluginDir)/src/com/openmobile/sensors/OpenMobileSensorsBridgeV1.java"
+			dst="$S(BuildDir)/src/com/openmobile/sensors/OpenMobileSensorsBridgeV1.java"/>
+	</resourceCopies>
+
+	<gameActivityOnResumeAdditions>
 		<insert>
-	public boolean AndroidThunkJava_OpenMobileSensorsHasHighSamplingRateDeclaration()
-	{
-		if (android.os.Build.VERSION.SDK_INT &lt; 31)
-		{
-			return true;
-		}
-		try
-		{
-			android.content.pm.PackageInfo info;
-			if (android.os.Build.VERSION.SDK_INT &gt;= 33)
-			{
-				info = getPackageManager().getPackageInfo(
-					getPackageName(),
-					android.content.pm.PackageManager.PackageInfoFlags.of(
-						android.content.pm.PackageManager.GET_PERMISSIONS
-					)
-				);
-			}
-			else
-			{
-				info = getPackageManager().getPackageInfo(
-					getPackageName(),
-					android.content.pm.PackageManager.GET_PERMISSIONS
-				);
-			}
-			if (info.requestedPermissions != null)
-			{
-				for (String permission : info.requestedPermissions)
-				{
-					if ("android.permission.HIGH_SAMPLING_RATE_SENSORS".equals(
-						permission
-					))
-					{
-						return true;
-					}
-				}
-			}
-		}
-		catch (Exception exception)
-		{
-			return false;
-		}
-		return false;
-	}
+	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onActivityResumed(this);
 		</insert>
-	</gameActivityClassAdditions>
+	</gameActivityOnResumeAdditions>
+
+	<gameActivityOnPauseAdditions>
+		<insert>
+	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onActivityPaused(this);
+		</insert>
+	</gameActivityOnPauseAdditions>
+
+	<gameActivityOnDestroyAdditions>
+		<insert>
+	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onActivityDestroyed(this);
+		</insert>
+	</gameActivityOnDestroyAdditions>
+
+	<gameActivityOnRequestPermissionsResultAdditions>
+		<insert>
+	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onPermissionsChanged(this);
+		</insert>
+	</gameActivityOnRequestPermissionsResultAdditions>
 </root>

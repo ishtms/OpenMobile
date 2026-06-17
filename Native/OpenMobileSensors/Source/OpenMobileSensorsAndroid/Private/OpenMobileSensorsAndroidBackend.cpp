@@ -1,23 +1,153 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
-#include "Misc/ScopeLock.h"
+#include "OpenMobileAsync.h"
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
+#include "OpenMobileSensorsAndroidBridge.h"
 #include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsCapabilityService.h"
+#include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorsMetadataService.h"
 #include "OpenMobileSensorsSampleService.h"
+#include "OpenMobileSensorsSubscriptionService.h"
 
-#if PLATFORM_ANDROID
-#include "Android/AndroidApplication.h"
-#include "Android/AndroidJNI.h"
-#endif
+namespace OpenMobileSensorsAndroidBackendPrivate
+{
+	constexpr double MicrosecondsPerSecond = 1000000.0;
+
+	FString FailureCode(EOpenMobileSensorsAndroidBridgeFailure Failure)
+	{
+		switch (Failure)
+		{
+		case EOpenMobileSensorsAndroidBridgeFailure::ActivityUnavailable:
+			return TEXT("ActivityUnavailable");
+		case EOpenMobileSensorsAndroidBridgeFailure::BridgeClassMissing:
+			return TEXT("BridgeClassMissing");
+		case EOpenMobileSensorsAndroidBridgeFailure::BridgeMethodMissing:
+			return TEXT("BridgeMethodMissing");
+		case EOpenMobileSensorsAndroidBridgeFailure::BridgeCreateFailed:
+			return TEXT("BridgeCreateFailed");
+		case EOpenMobileSensorsAndroidBridgeFailure::JavaException:
+			return TEXT("JavaException");
+		case EOpenMobileSensorsAndroidBridgeFailure::InvalidPayload:
+			return TEXT("InvalidPayload");
+		case EOpenMobileSensorsAndroidBridgeFailure::InvalidArgument:
+			return TEXT("InvalidArgument");
+		case EOpenMobileSensorsAndroidBridgeFailure::SensorMissing:
+			return TEXT("SensorMissing");
+		case EOpenMobileSensorsAndroidBridgeFailure::PermissionDenied:
+			return TEXT("PermissionDenied");
+		case EOpenMobileSensorsAndroidBridgeFailure::RegisterFailed:
+			return TEXT("RegisterFailed");
+		case EOpenMobileSensorsAndroidBridgeFailure::StreamMissing:
+			return TEXT("StreamMissing");
+		case EOpenMobileSensorsAndroidBridgeFailure::FlushFailed:
+			return TEXT("FlushFailed");
+		case EOpenMobileSensorsAndroidBridgeFailure::Paused:
+			return TEXT("Paused");
+		case EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown:
+			return TEXT("ShuttingDown");
+		case EOpenMobileSensorsAndroidBridgeFailure::Timeout:
+			return TEXT("Timeout");
+		case EOpenMobileSensorsAndroidBridgeFailure::None:
+		default:
+			return {};
+		}
+	}
+
+	EOpenMobileSensorReportingMode MapReportingMode(int32 NativeMode)
+	{
+		switch (NativeMode)
+		{
+		case 0:
+			return EOpenMobileSensorReportingMode::Continuous;
+		case 1:
+			return EOpenMobileSensorReportingMode::OnChange;
+		case 2:
+			return EOpenMobileSensorReportingMode::OneShot;
+		case 3:
+			return EOpenMobileSensorReportingMode::SpecialTrigger;
+		default:
+			return EOpenMobileSensorReportingMode::Unknown;
+		}
+	}
+
+	int32 AttitudePreference(
+		int32 NativeType,
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame
+	)
+	{
+		switch (ReferenceFrame)
+		{
+		case EOpenMobileAttitudeReferenceFrame::GameRelative:
+		case EOpenMobileAttitudeReferenceFrame::ArbitraryVertical:
+			return NativeType == 15 ? 0 : NativeType == 11 ? 1 : 2;
+		case EOpenMobileAttitudeReferenceFrame::MagneticNorth:
+			return NativeType == 11 ? 0 : NativeType == 20 ? 1 : 100;
+		case EOpenMobileAttitudeReferenceFrame::TrueNorth:
+		default:
+			return 100;
+		}
+	}
+
+	int32 DescriptorPreference(
+		const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor,
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame
+	)
+	{
+		int32 Score = Descriptor.bPreferred ? 0 : 10;
+		Score += Descriptor.bWakeUp ? 2 : 0;
+		if (Descriptor.Sensor.Type == EOpenMobileSensorType::Attitude)
+		{
+			Score += AttitudePreference(
+				Descriptor.NativeType,
+				ReferenceFrame
+			) * 100;
+		}
+		return Score;
+	}
+
+	FOpenMobileSensorSampleHeader MakeHeader(
+		const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor,
+		int64 TimestampNanoseconds,
+		bool bReset
+	)
+	{
+		FOpenMobileSensorSampleHeader Header;
+		Header.Sensor = Descriptor.Sensor;
+		Header.TimestampSeconds =
+			FOpenMobileSensorTimestampConverter::
+				FromAndroidSensorEventNanoseconds(TimestampNanoseconds);
+		Header.bStatefulProcessingReset = bReset;
+		Header.bValid = true;
+		Header.SourceFlags =
+			FOpenMobileSensorSourcePolicy::GetAndroidNativeSourceFlags(
+				Descriptor.Sensor.Type
+			);
+		return Header;
+	}
+
+	template <typename OptionalType, typename ValueType>
+	void SetOptional(
+		OptionalType& Optional,
+		ValueType Value,
+		bool bAvailable
+	)
+	{
+		Optional.bAvailable = bAvailable;
+		Optional.Value = bAvailable ? Value : ValueType{};
+	}
+}
+
+FOpenMobileSensorsAndroidBackend::FOpenMobileSensorsAndroidBackend() = default;
 
 FOpenMobileSensorsAndroidBackend::~FOpenMobileSensorsAndroidBackend()
 {
-	StopSensorHandlerThread();
+	BeginShutdown();
 }
 
 FName FOpenMobileSensorsAndroidBackend::GetBackendName() const
@@ -54,9 +184,224 @@ FOpenMobileSensorsAndroidBackend::GetBackendCapability() const
 {
 	FOpenMobileCapability Capability;
 	Capability.Name = GetModularFeatureName();
-	Capability.State = EOpenMobileCapabilityState::Available;
-	Capability.Detail = TEXT("The Android Sensors backend is registered.");
+	if (bShuttingDown.Load())
+	{
+		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;
+		Capability.Detail = TEXT("The Android Sensors backend is shutting down.");
+		return Capability;
+	}
+	const EOpenMobileSensorsAndroidBridgeFailure Failure =
+		static_cast<EOpenMobileSensorsAndroidBridgeFailure>(
+			LastBridgeFailure.Load()
+		);
+	if (Failure == EOpenMobileSensorsAndroidBridgeFailure::None)
+	{
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.Detail = TEXT("The Android Sensors backend is registered.");
+	}
+	else if (Failure ==
+			EOpenMobileSensorsAndroidBridgeFailure::ActivityUnavailable
+		|| Failure == EOpenMobileSensorsAndroidBridgeFailure::Paused
+		|| Failure == EOpenMobileSensorsAndroidBridgeFailure::Timeout)
+	{
+		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;
+		Capability.Detail = TEXT("Android sensor services are temporarily unavailable.");
+	}
+	else
+	{
+		Capability.State = EOpenMobileCapabilityState::Unavailable;
+		Capability.Detail = TEXT("The packaged Android sensor bridge is unavailable.");
+	}
 	return Capability;
+}
+
+TArray<FOpenMobileSensorCapability>
+FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
+	if (!QuerySensorDescriptors(Descriptors))
+	{
+		return {};
+	}
+	TMap<EOpenMobileSensorType, FOpenMobileSensorsAndroidSensorDescriptor>
+		Preferred;
+	for (const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+		: Descriptors)
+	{
+		FOpenMobileSensorsAndroidSensorDescriptor* Existing =
+			Preferred.Find(Descriptor.Sensor.Type);
+		if (!Existing
+			|| DescriptorPreference(
+				Descriptor,
+				EOpenMobileAttitudeReferenceFrame::GameRelative
+			) < DescriptorPreference(
+				*Existing,
+				EOpenMobileAttitudeReferenceFrame::GameRelative
+			))
+		{
+			Preferred.Add(Descriptor.Sensor.Type, Descriptor);
+		}
+	}
+	TArray<FOpenMobileSensorCapability> Capabilities;
+	Capabilities.Reserve(Preferred.Num());
+	for (const TPair<EOpenMobileSensorType,
+		FOpenMobileSensorsAndroidSensorDescriptor>& Pair : Preferred)
+	{
+		const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor = Pair.Value;
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor = Descriptor.Sensor;
+		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Availability.Name =
+			FOpenMobileSensorTypes::GetStableName(Descriptor.Sensor.Type);
+		Capability.Availability.State =
+			EOpenMobileCapabilityState::Available;
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		if (Descriptor.NativeReportingMode == 0)
+		{
+			if (Descriptor.MaximumDelayMicroseconds > 0)
+			{
+				Capability.MinimumFrequencyHz = MicrosecondsPerSecond
+					/ Descriptor.MaximumDelayMicroseconds;
+			}
+			if (Descriptor.MinimumDelayMicroseconds > 0)
+			{
+				Capability.MaximumFrequencyHz = MicrosecondsPerSecond
+					/ Descriptor.MinimumDelayMicroseconds;
+			}
+		}
+		Capability.bSupportsNativeBatching =
+			Descriptor.FifoCapacitySamples > 0;
+		Capability.BackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Suspended;
+		Capabilities.Add(MoveTemp(Capability));
+	}
+	Capabilities.Sort(
+		[](const FOpenMobileSensorCapability& Left,
+			const FOpenMobileSensorCapability& Right)
+		{
+			return static_cast<uint8>(Left.Sensor.Type)
+				< static_cast<uint8>(Right.Sensor.Type);
+		}
+	);
+	return Capabilities;
+}
+
+TArray<FOpenMobileSensorBackendMetadata>
+FOpenMobileSensorsAndroidBackend::GetSensorMetadata() const
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
+	if (!QuerySensorDescriptors(Descriptors))
+	{
+		return {};
+	}
+	TMap<EOpenMobileSensorType, FString> PreferredIdentifiers;
+	for (const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+		: Descriptors)
+	{
+		const FString* ExistingIdentifier =
+			PreferredIdentifiers.Find(Descriptor.Sensor.Type);
+		const FOpenMobileSensorsAndroidSensorDescriptor* Existing =
+			ExistingIdentifier
+				? Descriptors.FindByPredicate(
+					[ExistingIdentifier](const auto& Candidate)
+					{
+						return Candidate.NativeIdentifier == *ExistingIdentifier;
+					}
+				)
+				: nullptr;
+		if (!Existing
+			|| DescriptorPreference(
+				Descriptor,
+				EOpenMobileAttitudeReferenceFrame::GameRelative
+			) < DescriptorPreference(
+				*Existing,
+				EOpenMobileAttitudeReferenceFrame::GameRelative
+			))
+		{
+			PreferredIdentifiers.Add(
+				Descriptor.Sensor.Type,
+				Descriptor.NativeIdentifier
+			);
+		}
+	}
+	TArray<FOpenMobileSensorBackendMetadata> Metadata;
+	Metadata.Reserve(Descriptors.Num());
+	for (const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+		: Descriptors)
+	{
+		FOpenMobileSensorBackendMetadata Entry;
+		Entry.Metadata.Sensor = Descriptor.Sensor;
+		Entry.Metadata.bPreferred =
+			PreferredIdentifiers.FindRef(Descriptor.Sensor.Type)
+				== Descriptor.NativeIdentifier;
+		Entry.NativeIdentifier = Descriptor.NativeIdentifier;
+		SetOptional(
+			Entry.Metadata.Vendor,
+			Descriptor.Vendor,
+			!Descriptor.Vendor.IsEmpty()
+		);
+		SetOptional(
+			Entry.Metadata.NativeName,
+			Descriptor.NativeName,
+			!Descriptor.NativeName.IsEmpty()
+		);
+		SetOptional(
+			Entry.Metadata.Version,
+			static_cast<int64>(Descriptor.Version),
+			Descriptor.Version >= 0
+		);
+		SetOptional(
+			Entry.Metadata.MaximumRange,
+			Descriptor.MaximumRange,
+			FMath::IsFinite(Descriptor.MaximumRange)
+				&& Descriptor.MaximumRange >= 0.0
+		);
+		SetOptional(
+			Entry.Metadata.Resolution,
+			Descriptor.Resolution,
+			FMath::IsFinite(Descriptor.Resolution)
+				&& Descriptor.Resolution >= 0.0
+		);
+		SetOptional(
+			Entry.Metadata.EstimatedPowerMilliwatts,
+			Descriptor.PowerMilliwatts,
+			FMath::IsFinite(Descriptor.PowerMilliwatts)
+				&& Descriptor.PowerMilliwatts >= 0.0
+		);
+		SetOptional(
+			Entry.Metadata.MinimumIntervalSeconds,
+			static_cast<double>(Descriptor.MinimumDelayMicroseconds),
+			Descriptor.MinimumDelayMicroseconds > 0
+		);
+		SetOptional(
+			Entry.Metadata.MaximumIntervalSeconds,
+			static_cast<double>(Descriptor.MaximumDelayMicroseconds),
+			Descriptor.MaximumDelayMicroseconds > 0
+		);
+		SetOptional(
+			Entry.Metadata.FifoCapacitySamples,
+			static_cast<int64>(Descriptor.FifoCapacitySamples),
+			Descriptor.FifoCapacitySamples >= 0
+		);
+		Entry.Metadata.WakeUpBehavior.bAvailable = true;
+		Entry.Metadata.WakeUpBehavior.bValue = Descriptor.bWakeUp;
+		Entry.Metadata.ReportingMode = MapReportingMode(
+			Descriptor.NativeReportingMode
+		);
+		Entry.Metadata.bReportingModeAvailable =
+			Entry.Metadata.ReportingMode !=
+				EOpenMobileSensorReportingMode::Unknown;
+		Entry.MeasurementUnit = Descriptor.Sensor.Type ==
+			EOpenMobileSensorType::Proximity
+			? EOpenMobileSensorMetadataUnit::Centimeters
+			: EOpenMobileSensorMetadataUnit::Portable;
+		Entry.IntervalUnit =
+			EOpenMobileSensorMetadataTimeUnit::Microseconds;
+		Metadata.Add(MoveTemp(Entry));
+	}
+	return Metadata;
 }
 
 bool FOpenMobileSensorsAndroidBackend::
@@ -67,40 +412,128 @@ RequiresHighSamplingRateDeclaration() const
 
 bool FOpenMobileSensorsAndroidBackend::HasHighSamplingRateDeclaration() const
 {
-#if PLATFORM_ANDROID
-	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-	jobject Activity = FAndroidApplication::GetGameActivityThis();
-	if (!Env || !Activity)
+	return !bShuttingDown.Load()
+		&& GetBridge().HasHighSamplingRateDeclaration();
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::StartSensorStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+)
+{
+	if (bShuttingDown.Load())
 	{
-		return false;
+		return MapBridgeFailure(
+			EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown
+		);
 	}
-	FScopedJavaObject<jclass> ActivityClass(Env->GetObjectClass(Activity));
-	const jmethodID Method = ActivityClass
-		? Env->GetMethodID(
-			*ActivityClass,
-			"AndroidThunkJava_OpenMobileSensorsHasHighSamplingRateDeclaration",
-			"()Z"
-		)
-		: nullptr;
-	if (Env->ExceptionCheck())
+	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
+	FOpenMobileSensorOperationResult Failure;
+	if (!QuerySensorDescriptors(Descriptors, &Failure))
 	{
-		Env->ExceptionClear();
-		return false;
+		return Failure;
 	}
-	if (!Method)
+	FOpenMobileSensorsAndroidSensorDescriptor Descriptor;
+	if (!SelectDescriptor(
+		InOutRequest,
+		Descriptors,
+		Descriptor,
+		Failure
+	))
 	{
-		return false;
+		return Failure;
 	}
-	const bool bDeclared = Env->CallBooleanMethod(Activity, Method) == JNI_TRUE;
-	if (Env->ExceptionCheck())
+	int32 SamplingPeriodMicroseconds = 0;
+	int32 MaximumReportLatencyMicroseconds = 0;
+	ResolveNativeRequest(
+		Descriptor,
+		InOutRequest,
+		SamplingPeriodMicroseconds,
+		MaximumReportLatencyMicroseconds
+	);
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FOpenMobileSensorsAndroidBridgeResult Result =
+		GetBridge().StartStream(
+			Token,
+			Handle,
+			Descriptor,
+			SamplingPeriodMicroseconds,
+			MaximumReportLatencyMicroseconds,
+			InOutRequest.bLowLatency,
+			InOutRequest.AttitudeReferenceFrame
+		);
+	return Result.IsSuccess()
+		? FOpenMobileSensorOperationResult{
+			EOpenMobileSensorResultCode::Success
+		}
+		: MapBridgeFailure(Result.Failure);
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::ReconfigureSensorStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+)
+{
+	FOpenMobileSensorsAndroidSensorDescriptor Descriptor;
+	if (!GetBridge().GetActiveSensorDescriptor(Handle, Descriptor))
 	{
-		Env->ExceptionClear();
-		return false;
+		return MapBridgeFailure(
+			EOpenMobileSensorsAndroidBridgeFailure::StreamMissing
+		);
 	}
-	return bDeclared;
-#else
-	return true;
-#endif
+	int32 SamplingPeriodMicroseconds = 0;
+	int32 MaximumReportLatencyMicroseconds = 0;
+	ResolveNativeRequest(
+		Descriptor,
+		InOutRequest,
+		SamplingPeriodMicroseconds,
+		MaximumReportLatencyMicroseconds
+	);
+	const FOpenMobileSensorsAndroidBridgeResult Result =
+		GetBridge().ReconfigureStream(
+			Handle,
+			SamplingPeriodMicroseconds,
+			MaximumReportLatencyMicroseconds,
+			InOutRequest.bLowLatency
+		);
+	return Result.IsSuccess()
+		? FOpenMobileSensorOperationResult{
+			EOpenMobileSensorResultCode::Success
+		}
+		: MapBridgeFailure(Result.Failure);
+}
+
+void FOpenMobileSensorsAndroidBackend::StopSensorStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle
+)
+{
+	if (Bridge)
+	{
+		Bridge->StopStream(Handle);
+	}
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::FlushSensorStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FGuid& RequestId,
+	FOnOpenMobileSensorBackendFlushComplete&& Completion
+)
+{
+	const FOpenMobileSensorsAndroidBridgeResult Result =
+		GetBridge().FlushStream(
+			Handle,
+			RequestId,
+			MoveTemp(Completion)
+		);
+	return Result.IsSuccess()
+		? FOpenMobileSensorOperationResult{
+			EOpenMobileSensorResultCode::Accepted
+		}
+		: MapBridgeFailure(Result.Failure);
 }
 
 bool FOpenMobileSensorsAndroidBackend::PublishVectorBatchFromHandler(
@@ -109,7 +542,7 @@ bool FOpenMobileSensorsAndroidBackend::PublishVectorBatchFromHandler(
 	const FOpenMobileVectorSensorBatch& Batch
 )
 {
-	if (!EnsureSensorHandlerThread())
+	if (bShuttingDown.Load())
 	{
 		return false;
 	}
@@ -147,7 +580,7 @@ bool FOpenMobileSensorsAndroidBackend::PublishAccuracyFromHandler(
 	double TimestampSeconds
 )
 {
-	if (!EnsureSensorHandlerThread())
+	if (bShuttingDown.Load())
 	{
 		return false;
 	}
@@ -162,141 +595,503 @@ bool FOpenMobileSensorsAndroidBackend::PublishAccuracyFromHandler(
 	);
 }
 
+bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor,
+	int32 SampleCount,
+	int32 ValuesPerSample,
+	int32 ValueStride,
+	TArray<int64>&& TimestampsNanoseconds,
+	TArray<float>&& Values,
+	bool bResetFirstSample,
+	EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame
+)
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	if (bShuttingDown.Load()
+		|| SampleCount <= 0
+		|| SampleCount > 64
+		|| ValuesPerSample <= 0
+		|| ValuesPerSample > 6
+		|| ValueStride < ValuesPerSample
+		|| ValueStride > 6
+		|| TimestampsNanoseconds.Num() != SampleCount
+		|| Values.Num() != SampleCount * ValueStride)
+	{
+		return false;
+	}
+	auto ValueAt = [&Values, ValueStride](int32 Sample, int32 Field)
+	{
+		return static_cast<double>(Values[Sample * ValueStride + Field]);
+	};
+	const EOpenMobileSensorType Type = Descriptor.Sensor.Type;
+	if (Type == EOpenMobileSensorType::Accelerometer
+		|| Type == EOpenMobileSensorType::AccelerometerUncalibrated
+		|| Type == EOpenMobileSensorType::Gyroscope
+		|| Type == EOpenMobileSensorType::GyroscopeUncalibrated
+		|| Type == EOpenMobileSensorType::Magnetometer
+		|| Type == EOpenMobileSensorType::MagnetometerUncalibrated
+		|| Type == EOpenMobileSensorType::Gravity
+		|| Type == EOpenMobileSensorType::LinearAcceleration)
+	{
+		if (ValuesPerSample < 3)
+		{
+			return false;
+		}
+		FOpenMobileVectorSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileVectorSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			Sample.Value = FVector(
+				ValueAt(Index, 0),
+				ValueAt(Index, 1),
+				ValueAt(Index, 2)
+			);
+			Sample.bHasBias = ValuesPerSample >= 6
+				&& (Type == EOpenMobileSensorType::AccelerometerUncalibrated
+					|| Type == EOpenMobileSensorType::GyroscopeUncalibrated
+					|| Type == EOpenMobileSensorType::MagnetometerUncalibrated);
+			if (Sample.bHasBias)
+			{
+				Sample.Bias = FVector(
+					ValueAt(Index, 3),
+					ValueAt(Index, 4),
+					ValueAt(Index, 5)
+				);
+			}
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return PublishVectorBatchFromHandler(Token, Handle, Batch);
+	}
+	if (Type == EOpenMobileSensorType::Attitude)
+	{
+		if (ValuesPerSample < 3)
+		{
+			return false;
+		}
+		FOpenMobileAttitudeSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileAttitudeSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			const double X = ValueAt(Index, 0);
+			const double Y = ValueAt(Index, 1);
+			const double Z = ValueAt(Index, 2);
+			const double W = ValuesPerSample >= 4
+				? ValueAt(Index, 3)
+				: FMath::Sqrt(FMath::Max(0.0, 1.0 - X * X - Y * Y - Z * Z));
+			Sample.Quaternion = FQuat(X, Y, Z, W);
+			Sample.ReferenceFrame = AttitudeReferenceFrame;
+			FOpenMobileSensorUnitConverter::NormalizeAttitudeSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	if (Type == EOpenMobileSensorType::BarometricPressure
+		|| Type == EOpenMobileSensorType::AmbientLight)
+	{
+		FOpenMobileScalarSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileScalarSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			Sample.Value = ValueAt(Index, 0);
+			FOpenMobileSensorUnitConverter::NormalizeScalarSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishScalarBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	if (Type == EOpenMobileSensorType::MagneticHeading)
+	{
+		FOpenMobileHeadingSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileHeadingSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			Sample.HeadingDegrees = ValueAt(Index, 0);
+			Sample.bHasAccuracyDegrees = ValuesPerSample >= 2;
+			if (Sample.bHasAccuracyDegrees)
+			{
+				Sample.AccuracyDegrees = ValueAt(Index, 1);
+			}
+			FOpenMobileSensorUnitConverter::NormalizeHeadingSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishHeadingBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	if (Type == EOpenMobileSensorType::StepCounter
+		|| Type == EOpenMobileSensorType::StepDetector)
+	{
+		FOpenMobileStepsSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileStepsSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			const double Count = ValueAt(Index, 0);
+			Sample.Count = FMath::IsFinite(Count)
+				? FMath::RoundToInt64(Count)
+				: -1;
+			Sample.Origin = Type == EOpenMobileSensorType::StepCounter
+				? EOpenMobileStepCountOrigin::DeviceBoot
+				: EOpenMobileStepCountOrigin::QueryInterval;
+			FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishStepsBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	if (Type == EOpenMobileSensorType::Proximity)
+	{
+		FOpenMobileProximitySensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileProximitySensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			Sample.bHasDistanceMeters = true;
+			Sample.DistanceMeters = ValueAt(Index, 0);
+			Sample.bHasMaximumRangeMeters =
+				FMath::IsFinite(Descriptor.MaximumRange)
+				&& Descriptor.MaximumRange >= 0.0;
+			Sample.MaximumRangeMeters = Descriptor.MaximumRange;
+			Sample.bNear = Sample.bHasMaximumRangeMeters
+				&& Sample.DistanceMeters < Sample.MaximumRangeMeters;
+			FOpenMobileSensorUnitConverter::NormalizeProximitySample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishProximityBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	return false;
+}
+
+void FOpenMobileSensorsAndroidBackend::
+HandlePhysicalStreamFailureFromHandler(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	EOpenMobileSensorsAndroidBridgeFailure Failure,
+	FString NativeCode
+)
+{
+	const FOpenMobileSensorOperationResult Operation = MapBridgeFailure(
+		Failure,
+		MoveTemp(NativeCode)
+	);
+	OpenMobile::DispatchToGameThread(
+		[Token, Handle, Operation]()
+		{
+			FOpenMobileSensorsSubscriptionService::
+				FailPhysicalStreamFromBackend(Token, Handle, Operation);
+			FOpenMobileSensorsCapabilityService::
+				HandleBackendGenerationChanged();
+			FOpenMobileSensorsMetadataService::
+				HandleBackendGenerationChanged();
+		}
+	);
+}
+
+void FOpenMobileSensorsAndroidBackend::HandleSensorsChangedFromHandler()
+{
+	OpenMobile::DispatchToGameThread(
+		[]()
+		{
+			FOpenMobileSensorsCapabilityService::
+				HandleBackendGenerationChanged();
+			FOpenMobileSensorsMetadataService::
+				HandleBackendGenerationChanged();
+		}
+	);
+}
+
 void FOpenMobileSensorsAndroidBackend::BeginShutdown()
 {
-	bShuttingDown.Store(true);
-	StopSensorHandlerThread();
-}
-
-bool FOpenMobileSensorsAndroidBackend::EnsureSensorHandlerThread()
-{
-#if PLATFORM_ANDROID
-	FScopeLock Lock(&HandlerMutex);
-	if (bShuttingDown.Load())
+	if (bShuttingDown.Exchange(true))
 	{
-		return false;
-	}
-	if (SensorHandlerThread && SensorHandler)
-	{
-		return true;
-	}
-	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-	if (!Env)
-	{
-		return false;
-	}
-	jclass HandlerThreadClass = FAndroidApplication::FindJavaClass(
-		"android/os/HandlerThread"
-	);
-	jclass HandlerClass = FAndroidApplication::FindJavaClass(
-		"android/os/Handler"
-	);
-	if (!HandlerThreadClass || !HandlerClass)
-	{
-		return false;
-	}
-	const jmethodID ThreadConstructor = Env->GetMethodID(
-		HandlerThreadClass,
-		"<init>",
-		"(Ljava/lang/String;)V"
-	);
-	const jmethodID StartMethod = Env->GetMethodID(
-		HandlerThreadClass,
-		"start",
-		"()V"
-	);
-	const jmethodID GetLooperMethod = Env->GetMethodID(
-		HandlerThreadClass,
-		"getLooper",
-		"()Landroid/os/Looper;"
-	);
-	const jmethodID HandlerConstructor = Env->GetMethodID(
-		HandlerClass,
-		"<init>",
-		"(Landroid/os/Looper;)V"
-	);
-	if (!ThreadConstructor || !StartMethod || !GetLooperMethod
-		|| !HandlerConstructor)
-	{
-		return false;
-	}
-	jstring ThreadName = Env->NewStringUTF("OpenMobileSensorsHandler");
-	jobject LocalThread = Env->NewObject(
-		HandlerThreadClass,
-		ThreadConstructor,
-		ThreadName
-	);
-	Env->DeleteLocalRef(ThreadName);
-	if (!LocalThread)
-	{
-		return false;
-	}
-	Env->CallVoidMethod(LocalThread, StartMethod);
-	jobject Looper = Env->CallObjectMethod(LocalThread, GetLooperMethod);
-	jobject LocalHandler = Looper
-		? Env->NewObject(HandlerClass, HandlerConstructor, Looper)
-		: nullptr;
-	if (Looper)
-	{
-		Env->DeleteLocalRef(Looper);
-	}
-	if (!LocalHandler || Env->ExceptionCheck())
-	{
-		Env->ExceptionClear();
-		if (LocalHandler)
-		{
-			Env->DeleteLocalRef(LocalHandler);
-		}
-		Env->DeleteLocalRef(LocalThread);
-		return false;
-	}
-	SensorHandlerThread = Env->NewGlobalRef(LocalThread);
-	SensorHandler = Env->NewGlobalRef(LocalHandler);
-	Env->DeleteLocalRef(LocalHandler);
-	Env->DeleteLocalRef(LocalThread);
-	return SensorHandlerThread && SensorHandler;
-#else
-	return false;
-#endif
-}
-
-void FOpenMobileSensorsAndroidBackend::StopSensorHandlerThread()
-{
-#if PLATFORM_ANDROID
-	FScopeLock Lock(&HandlerMutex);
-	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
-	if (!Env)
-	{
-		SensorHandlerThread = nullptr;
-		SensorHandler = nullptr;
 		return;
 	}
-	if (SensorHandlerThread)
+	if (Bridge)
 	{
-		jclass HandlerThreadClass = FAndroidApplication::FindJavaClass(
-			"android/os/HandlerThread"
+		Bridge->Shutdown();
+		Bridge.Reset();
+	}
+}
+
+FOpenMobileSensorsAndroidBridge&
+FOpenMobileSensorsAndroidBackend::GetBridge() const
+{
+	if (!Bridge)
+	{
+		Bridge = MakeUnique<FOpenMobileSensorsAndroidBridge>(
+			const_cast<FOpenMobileSensorsAndroidBackend&>(*this)
 		);
-		const jmethodID QuitSafelyMethod = HandlerThreadClass
-			? Env->GetMethodID(
-				HandlerThreadClass,
-				"quitSafely",
-				"()Z"
-			)
-			: nullptr;
-		if (QuitSafelyMethod)
-		{
-			Env->CallBooleanMethod(
-				static_cast<jobject>(SensorHandlerThread),
-				QuitSafelyMethod
-			);
-		}
-		Env->DeleteGlobalRef(static_cast<jobject>(SensorHandlerThread));
-		SensorHandlerThread = nullptr;
 	}
-	if (SensorHandler)
+	return *Bridge;
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::MapBridgeFailure(
+	EOpenMobileSensorsAndroidBridgeFailure Failure,
+	FString NativeCode
+) const
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	EOpenMobileSensorFailureReason Reason =
+		EOpenMobileSensorFailureReason::OperationalFailure;
+	switch (Failure)
 	{
-		Env->DeleteGlobalRef(static_cast<jobject>(SensorHandler));
-		SensorHandler = nullptr;
+	case EOpenMobileSensorsAndroidBridgeFailure::InvalidArgument:
+		Reason = EOpenMobileSensorFailureReason::InvalidRequest;
+		break;
+	case EOpenMobileSensorsAndroidBridgeFailure::SensorMissing:
+		Reason = EOpenMobileSensorFailureReason::MissingHardware;
+		break;
+	case EOpenMobileSensorsAndroidBridgeFailure::PermissionDenied:
+		Reason = EOpenMobileSensorFailureReason::PermissionDenied;
+		break;
+	case EOpenMobileSensorsAndroidBridgeFailure::StreamMissing:
+		Reason = EOpenMobileSensorFailureReason::InvalidHandle;
+		break;
+	case EOpenMobileSensorsAndroidBridgeFailure::ActivityUnavailable:
+	case EOpenMobileSensorsAndroidBridgeFailure::Paused:
+	case EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown:
+	case EOpenMobileSensorsAndroidBridgeFailure::Timeout:
+		Reason = EOpenMobileSensorFailureReason::TemporarilyUnavailable;
+		break;
+	case EOpenMobileSensorsAndroidBridgeFailure::None:
+	{
+		FOpenMobileSensorOperationResult Success;
+		Success.Code = EOpenMobileSensorResultCode::Success;
+		return Success;
 	}
-#endif
+	case EOpenMobileSensorsAndroidBridgeFailure::BridgeClassMissing:
+	case EOpenMobileSensorsAndroidBridgeFailure::BridgeMethodMissing:
+	case EOpenMobileSensorsAndroidBridgeFailure::BridgeCreateFailed:
+	case EOpenMobileSensorsAndroidBridgeFailure::JavaException:
+	case EOpenMobileSensorsAndroidBridgeFailure::InvalidPayload:
+	case EOpenMobileSensorsAndroidBridgeFailure::RegisterFailed:
+	case EOpenMobileSensorsAndroidBridgeFailure::FlushFailed:
+	default:
+		break;
+	}
+	return FOpenMobileSensorsErrorMapper::Map(
+		Reason,
+		TEXT("Android"),
+		NativeCode.IsEmpty() ? FailureCode(Failure) : MoveTemp(NativeCode)
+	);
+}
+
+bool FOpenMobileSensorsAndroidBackend::QuerySensorDescriptors(
+	TArray<FOpenMobileSensorsAndroidSensorDescriptor>& OutDescriptors,
+	FOpenMobileSensorOperationResult* OutFailure
+) const
+{
+	if (bShuttingDown.Load())
+	{
+		const FOpenMobileSensorOperationResult Failure = MapBridgeFailure(
+			EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown
+		);
+		if (OutFailure)
+		{
+			*OutFailure = Failure;
+		}
+		return false;
+	}
+	const FOpenMobileSensorsAndroidBridgeResult Result =
+		GetBridge().QuerySensors(OutDescriptors);
+	LastBridgeFailure.Store(static_cast<uint8>(Result.Failure));
+	if (!Result.IsSuccess())
+	{
+		if (OutFailure)
+		{
+			*OutFailure = MapBridgeFailure(Result.Failure);
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FOpenMobileSensorsAndroidBackend::SelectDescriptor(
+	const FOpenMobileSensorPhysicalStreamRequest& Request,
+	const TArray<FOpenMobileSensorsAndroidSensorDescriptor>& Descriptors,
+	FOpenMobileSensorsAndroidSensorDescriptor& OutDescriptor,
+	FOpenMobileSensorOperationResult& OutFailure
+) const
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	if (Request.Sensor.Type == EOpenMobileSensorType::Attitude
+		&& Request.AttitudeReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::TrueNorth)
+	{
+		OutFailure = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidReferenceFrame,
+			TEXT("Android"),
+			TEXT("TrueNorthUnavailable")
+		);
+		return false;
+	}
+	const bool bSpecificInstance = !Request.Sensor.InstanceId.IsNone()
+		&& Request.Sensor.InstanceId != TEXT("Default");
+	const FOpenMobileSensorsAndroidSensorDescriptor* Best = nullptr;
+	int32 BestScore = TNumericLimits<int32>::Max();
+	for (const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+		: Descriptors)
+	{
+		if (Descriptor.Sensor.Type != Request.Sensor.Type
+			|| (bSpecificInstance
+				&& Descriptor.Sensor.InstanceId != Request.Sensor.InstanceId))
+		{
+			continue;
+		}
+		const int32 Score = DescriptorPreference(
+			Descriptor,
+			Request.AttitudeReferenceFrame
+		);
+		if (Score >= 10000)
+		{
+			continue;
+		}
+		if (!Best
+			|| Score < BestScore
+			|| (Score == BestScore
+				&& Descriptor.NativeIdentifier < Best->NativeIdentifier))
+		{
+			Best = &Descriptor;
+			BestScore = Score;
+		}
+	}
+	if (!Best)
+	{
+		OutFailure = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::MissingHardware,
+			TEXT("Android"),
+			TEXT("SensorMissing")
+		);
+		return false;
+	}
+	OutDescriptor = *Best;
+	return true;
+}
+
+void FOpenMobileSensorsAndroidBackend::ResolveNativeRequest(
+	const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor,
+	FOpenMobileSensorPhysicalStreamRequest& InOutRequest,
+	int32& OutSamplingPeriodMicroseconds,
+	int32& OutMaximumReportLatencyMicroseconds
+) const
+{
+	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	const int64 RequestedPeriod = FMath::Clamp<int64>(
+		FMath::RoundToInt64(
+			MicrosecondsPerSecond / InOutRequest.RequestedFrequencyHz
+		),
+		1,
+		MAX_int32
+	);
+	int64 AppliedPeriod = RequestedPeriod;
+	if (Descriptor.MinimumDelayMicroseconds > 0)
+	{
+		AppliedPeriod = FMath::Max<int64>(
+			AppliedPeriod,
+			Descriptor.MinimumDelayMicroseconds
+		);
+	}
+	if (Descriptor.MaximumDelayMicroseconds > 0)
+	{
+		AppliedPeriod = FMath::Min<int64>(
+			AppliedPeriod,
+			Descriptor.MaximumDelayMicroseconds
+		);
+	}
+	OutSamplingPeriodMicroseconds = static_cast<int32>(AppliedPeriod);
+	if (AppliedPeriod != RequestedPeriod)
+	{
+		InOutRequest.AppliedRateAdjustmentReason =
+			EOpenMobileSensorRateAdjustmentReason::HardwareLimit;
+	}
+	InOutRequest.RequestedFrequencyHz =
+		MicrosecondsPerSecond / AppliedPeriod;
+	InOutRequest.bNativeBatchingApplied =
+		InOutRequest.bNativeBatchingRequested
+		&& !InOutRequest.bLowLatency
+		&& InOutRequest.MaximumDeliveryLatencySeconds > 0.0
+		&& Descriptor.FifoCapacitySamples > 0;
+	OutMaximumReportLatencyMicroseconds =
+		InOutRequest.bNativeBatchingApplied
+		? static_cast<int32>(FMath::Clamp<int64>(
+			FMath::RoundToInt64(
+				InOutRequest.MaximumDeliveryLatencySeconds
+					* MicrosecondsPerSecond
+			),
+			0,
+			MAX_int32
+		))
+		: 0;
 }

@@ -41,20 +41,32 @@ class SensorsGameThreadCallbackTests(unittest.TestCase):
 		self.assertIn('"Launch"', rules)
 
 	def test_android_uses_a_dedicated_handler_thread(self) -> None:
-		implementation = (
+		backend = (
 			SENSORS_ROOT
 			/ "Source"
 			/ "OpenMobileSensorsAndroid"
 			/ "Private"
 			/ "OpenMobileSensorsAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
+		bridge = (
+			SENSORS_ROOT
+			/ "Source"
+			/ "OpenMobileSensorsAndroid"
+			/ "Private"
+			/ "Android"
+			/ "src"
+			/ "com"
+			/ "openmobile"
+			/ "sensors"
+			/ "OpenMobileSensorsBridgeV1.java"
+		).read_text(encoding="utf-8")
 		for behavior in (
-			"android/os/HandlerThread",
+			"HandlerThread",
 			"getLooper",
 			"quitSafely",
-			"PublishVectorBatchFromBackend",
 		):
-			self.assertIn(behavior, implementation)
+			self.assertIn(behavior, bridge)
+		self.assertIn("PublishVectorBatchFromBackend", backend)
 		rules = (
 			SENSORS_ROOT
 			/ "Source"

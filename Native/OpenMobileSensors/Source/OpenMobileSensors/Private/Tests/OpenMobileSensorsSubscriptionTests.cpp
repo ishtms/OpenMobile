@@ -471,4 +471,89 @@ bool FOpenMobileSensorsSubscriptionIndependentFanoutTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsPhysicalStreamFailureTest,
+	"OpenMobile.Sensors.Subscriptions.PhysicalStreamFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsPhysicalStreamFailureTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsSubscriptionTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("PhysicalFailure"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FGuid FirstOwner = FGuid::NewGuid();
+	const FGuid SecondOwner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult First =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			FirstOwner,
+			MakeRequest()
+		);
+	const FOpenMobileSensorSubscriptionResult Second =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			SecondOwner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FOpenMobileSensorOperationResult Failure =
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable,
+			TEXT("Android"),
+			TEXT("SensorDisconnected")
+		);
+	TestTrue(TEXT("The active physical generation accepts its failure"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			Token,
+			Backend.GetLastStartedPhysicalHandle(),
+			Failure
+		));
+	FOpenMobileSensorSubscriptionStateSnapshot FirstState;
+	FOpenMobileSensorSubscriptionStateSnapshot SecondState;
+	TestTrue(TEXT("The first failed handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			FirstOwner,
+			First.Handle,
+			FirstState
+		));
+	TestTrue(TEXT("The second failed handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SecondOwner,
+			Second.Handle,
+			SecondState
+		));
+	TestEqual(TEXT("All shared subscribers fail"),
+		FirstState.State,
+		EOpenMobileSensorSubscriptionState::Failed);
+	TestEqual(TEXT("The shared failure is preserved"),
+		SecondState.Error.NativeCode,
+		FString(TEXT("SensorDisconnected")));
+	TestEqual(TEXT("The lost physical stream is removed"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		0);
+	TestFalse(TEXT("A repeated physical failure is rejected"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			Token,
+			Backend.GetLastStartedPhysicalHandle(),
+			Failure
+		));
+	FOpenMobileSensorsSubscriptionService::StopSubscription(
+		FirstOwner,
+		First.Handle
+	);
+	FOpenMobileSensorsSubscriptionService::StopSubscription(
+		SecondOwner,
+		Second.Handle
+	);
+	FinishBackend(Backend);
+	return true;
+}
+
 #endif

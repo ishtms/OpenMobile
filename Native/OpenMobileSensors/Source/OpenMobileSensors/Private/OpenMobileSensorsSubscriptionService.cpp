@@ -1691,6 +1691,62 @@ InvalidateForUnrecoverablePermissionLoss(EOpenMobileSensorType SensorType)
 	}
 }
 
+bool FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+	const FOpenMobileSensorOperationResult& Failure
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	if (!PhysicalStreamHandle.IsValid()
+		|| !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token))
+	{
+		return false;
+	}
+	FPhysicalStreamKey FailedKey;
+	bool bFound = false;
+	for (const TPair<FPhysicalStreamKey, FPhysicalStreamEntry>& Pair
+		: PhysicalStreams)
+	{
+		if (Pair.Value.Handle == PhysicalStreamHandle
+			&& Pair.Value.BackendToken.Generation == Token.Generation)
+		{
+			FailedKey = Pair.Key;
+			bFound = true;
+			break;
+		}
+	}
+	if (!bFound)
+	{
+		return false;
+	}
+	CancelFlushesForPhysicalStream(PhysicalStreamHandle);
+	PhysicalStreams.Remove(FailedKey);
+	const FOpenMobileError Error = Failure.Error.IsSet()
+		? Failure.Error
+		: GetOperationError(Failure);
+	TArray<FGuid> FailedSubscriptions;
+	for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+	{
+		if (Pair.Value.PhysicalKey == FailedKey
+			&& Pair.Value.BackendToken.Generation == Token.Generation
+			&& Pair.Value.State != EOpenMobileSensorSubscriptionState::Stopped)
+		{
+			FailedSubscriptions.Add(Pair.Key);
+		}
+	}
+	for (const FGuid& Identifier : FailedSubscriptions)
+	{
+		SetState(
+			Identifier,
+			EOpenMobileSensorSubscriptionState::Failed,
+			Error
+		);
+	}
+	return true;
+}
+
 FOnOpenMobileSensorSubscriptionServiceStateChanged&
 FOpenMobileSensorsSubscriptionService::OnStateChanged()
 {

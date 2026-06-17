@@ -28,12 +28,23 @@ class SensorsHighSamplingTests(unittest.TestCase):
         backend = (
             ANDROID / "Private" / "OpenMobileSensorsAndroidBackend.cpp"
         ).read_text()
+        bridge = (
+            ANDROID
+            / "Private"
+            / "Android"
+            / "src"
+            / "com"
+            / "openmobile"
+            / "sensors"
+            / "OpenMobileSensorsBridgeV1.java"
+        ).read_text()
         subscription = (
             SENSORS / "Private" / "OpenMobileSensorsSubscriptionService.cpp"
         ).read_text()
 
         self.assertIn("HasHighSamplingRateDeclaration", backend)
-        self.assertIn("AndroidThunkJava_OpenMobileSensorsHasHighSamplingRateDeclaration", backend)
+        self.assertIn("hasHighSamplingRateDeclaration", bridge)
+        self.assertIn("PackageManager.GET_PERMISSIONS", bridge)
         self.assertIn("MissingPlatformDeclaration", subscription)
 
     def test_high_sampling_scenarios_are_covered(self):
