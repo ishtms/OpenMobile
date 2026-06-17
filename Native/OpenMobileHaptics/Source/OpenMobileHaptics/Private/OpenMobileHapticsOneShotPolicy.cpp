@@ -1,5 +1,24 @@
 #include "OpenMobileHapticsOneShotPolicy.h"
 
+namespace OpenMobileHapticsOneShotPolicyPrivate
+{
+	bool SupportsClick(const FOpenMobileHapticCapabilities& Capabilities)
+	{
+		for (const FOpenMobileHapticNamedSupport& Entry :
+			Capabilities.PresetSupport)
+		{
+			if (Entry.Name == TEXT("Click"))
+			{
+				return Entry.Support
+					== EOpenMobileHapticSupportState::Supported;
+			}
+		}
+		return Capabilities.PresetSupport.IsEmpty()
+			&& Capabilities.PredefinedEffects
+				== EOpenMobileHapticSupportState::Supported;
+	}
+}
+
 FOpenMobileHapticsOneShotResolution
 FOpenMobileHapticsOneShotPolicy::Resolve(
 	const FOpenMobileHapticCapabilities& Capabilities,
@@ -21,8 +40,7 @@ FOpenMobileHapticsOneShotPolicy::Resolve(
 	}
 	if (FallbackPolicy != EOpenMobileHapticFallbackPolicy::ExactOnly
 		&& bShortPulse
-		&& Capabilities.PredefinedEffects
-			== EOpenMobileHapticSupportState::Supported)
+		&& OpenMobileHapticsOneShotPolicyPrivate::SupportsClick(Capabilities))
 	{
 		Resolution.Path = EOpenMobileHapticsOneShotPath::PredefinedEffect;
 		return Resolution;

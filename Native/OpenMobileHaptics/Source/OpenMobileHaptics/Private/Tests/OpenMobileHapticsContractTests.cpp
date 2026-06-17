@@ -30,6 +30,7 @@
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
+#include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -1627,6 +1628,192 @@ bool FOpenMobileHapticsEnvelopePolicyTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAndroidWaveformPolicyTest,
+	"OpenMobile.Haptics.Pattern.AndroidWaveformPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAndroidWaveformPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticAndroidPatternAsset* Asset =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	Asset->Format = EOpenMobileHapticAndroidPatternFormat::Waveform;
+	Asset->WaveformTimingsMilliseconds = {0, 10, 20, 30};
+	Asset->WaveformAmplitudes = {0, 255, 128, 64};
+	Asset->WaveformRepeatIndex = 1;
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Supported;
+	Capabilities.AmplitudeControl = EOpenMobileHapticSupportState::Supported;
+
+	FOpenMobileHapticsAndroidWaveformResolution Resolution =
+		FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+			*Asset,
+			Capabilities,
+			26,
+			0.5f,
+			EOpenMobileHapticFallbackPolicy::Automatic
+		);
+	TestEqual(TEXT("Supported waveform is ready"), Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::Ready);
+	TestEqual(TEXT("Every timing pair is preserved"),
+		Resolution.TimingsMilliseconds,
+		TArray<int64>({0, 10, 20, 30}));
+	TestEqual(TEXT("Silence remains zero amplitude"),
+		Resolution.Amplitudes[0], 0);
+	TestEqual(TEXT("Active amplitudes are scaled once"),
+		Resolution.Amplitudes[1], 128);
+	TestEqual(TEXT("Repeat index is preserved"), Resolution.RepeatIndex, 1);
+
+	Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+		*Asset,
+		Capabilities,
+		26,
+		0.5f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Basic hardware keeps silence explicit"),
+		Resolution.Amplitudes[0], 0);
+	TestEqual(TEXT("Basic hardware uses default amplitude for active pairs"),
+		Resolution.Amplitudes[1], -1);
+	TestTrue(TEXT("Default amplitude use is reported"),
+		Resolution.bUsesDefaultAmplitude);
+
+	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Unknown;
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+		*Asset,
+		Capabilities,
+		26,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unknown waveform support requires fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+		*Asset,
+		Capabilities,
+		26,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::ExactOnly
+	);
+	TestEqual(TEXT("Exact-only rejects unknown support"), Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::Rejected);
+	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Supported;
+
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+		*Asset,
+		Capabilities,
+		25,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Android 25 requires fallback"), Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+		*Asset,
+		Capabilities,
+		26,
+		std::numeric_limits<float>::quiet_NaN(),
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Nonfinite intensity rejects before JNI"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::Rejected);
+
+#if WITH_EDITORONLY_DATA
+	UOpenMobileHapticPatternAsset* Portable =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	FOpenMobileHapticPatternEvent Continuous;
+	Continuous.Type = EOpenMobileHapticPatternEventType::Continuous;
+	Continuous.StartTimeSeconds = 0.01;
+	Continuous.DurationSeconds = 0.02;
+	Continuous.Intensity = 0.8f;
+	FOpenMobileHapticPatternEvent Silence;
+	Silence.Type = EOpenMobileHapticPatternEventType::Silence;
+	Silence.StartTimeSeconds = 0.03;
+	Silence.DurationSeconds = 0.01;
+	FOpenMobileHapticPatternEvent Transient;
+	Transient.Type = EOpenMobileHapticPatternEventType::Transient;
+	Transient.StartTimeSeconds = 0.05;
+	Portable->SourcePattern.Events = {Continuous, Silence, Transient};
+	Portable->Loop.bLoop = true;
+	Portable->Loop.RepeatCount = 0;
+	Portable->Loop.RepeatStartTimeSeconds = 0.03;
+	Portable->Loop.MaximumDurationSeconds = 1.0;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Portable waveform source builds"),
+		Portable->RebuildDerivedData(Errors));
+
+	Capabilities.AmplitudeControl = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+		*Portable,
+		Capabilities,
+		0.5f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Portable pattern is ready"), Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::Ready);
+	TestEqual(TEXT("Portable gaps and silence become explicit timing pairs"),
+		Resolution.TimingsMilliseconds,
+		TArray<int64>({10, 20, 20, 1}));
+	TestEqual(TEXT("Portable active and silent amplitudes are preserved"),
+		Resolution.Amplitudes,
+		TArray<int32>({0, 102, 0, 128}));
+	TestEqual(TEXT("Portable repeat start becomes an exact pair index"),
+		Resolution.RepeatIndex, 2);
+
+	Portable->Loop.RepeatCount = 1;
+	Errors.Reset();
+	TestTrue(TEXT("Finite repeat source rebuilds"),
+		Portable->RebuildDerivedData(Errors));
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+		*Portable,
+		Capabilities,
+		0.5f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Finite repeats are unrolled once"),
+		Resolution.TimingsMilliseconds,
+		TArray<int64>({10, 20, 20, 1, 20, 1}));
+	TestEqual(TEXT("Unrolled repeats preserve every amplitude"),
+		Resolution.Amplitudes,
+		TArray<int32>({0, 102, 0, 128, 0, 128}));
+	TestEqual(TEXT("Finite native waveforms do not keep a repeat index"),
+		Resolution.RepeatIndex, INDEX_NONE);
+
+	Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+		*Portable,
+		Capabilities,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Portable silence stays off on basic hardware"),
+		Resolution.Amplitudes[0], 0);
+	TestEqual(TEXT("Portable activity uses default amplitude"),
+		Resolution.Amplitudes[1], -1);
+
+	Portable->FallbackPolicy = EOpenMobileHapticFallbackPolicy::ExactOnly;
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+		*Portable,
+		Capabilities,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Asset exact-only policy blocks portable translation"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::Rejected);
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsAndroidFallbackPolicyTest,
 	"OpenMobile.Haptics.Pattern.AndroidEnvelopeFallback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -1661,6 +1848,111 @@ bool FOpenMobileHapticsAndroidFallbackPolicyTest::RunTest(
 	TestEqual(TEXT("Stable primitive intent is resolved"),
 		Resolution.Primitive, EOpenMobileHapticAndroidPrimitive::Click);
 
+	Pattern->LowestAllowedFallback =
+		EOpenMobileHapticFallbackFloor::BasicVibration;
+	Pattern->PrimitiveOrPresetFallback = TEXT("HeavyClick");
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PresetSupport = {{
+		TEXT("HeavyClick"),
+		EOpenMobileHapticSupportState::Supported
+	}};
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Supported declared preset follows primitives"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Predefined);
+	TestEqual(TEXT("Stable preset intent is resolved"),
+		Resolution.PredefinedEffect,
+		EOpenMobileHapticAndroidPredefinedEffect::HeavyClick);
+	TestEqual(TEXT("Selection semantics map to the tick preset"),
+		FOpenMobileHapticsAndroidFallbackPolicy::PredefinedForSemantic(
+			EOpenMobileHapticsSemanticBehavior::Selection
+		),
+		EOpenMobileHapticAndroidPredefinedEffect::Tick);
+	TestEqual(TEXT("Success semantics map to the double-click preset"),
+		FOpenMobileHapticsAndroidFallbackPolicy::PredefinedForSemantic(
+			EOpenMobileHapticsSemanticBehavior::NotificationSuccess
+		),
+		EOpenMobileHapticAndroidPredefinedEffect::DoubleClick);
+	TestTrue(TEXT("Detailed preset support accepts the exact preset"),
+		FOpenMobileHapticsAndroidFallbackPolicy::SupportsPredefined(
+			EOpenMobileHapticAndroidPredefinedEffect::HeavyClick,
+			Capabilities
+		));
+	TestFalse(TEXT("Aggregate preset support cannot substitute another preset"),
+		FOpenMobileHapticsAndroidFallbackPolicy::SupportsPredefined(
+			EOpenMobileHapticAndroidPredefinedEffect::Click,
+			Capabilities
+		));
+
+	Capabilities.PresetSupport[0].Support =
+		EOpenMobileHapticSupportState::Unsupported;
+	Pattern->bAllowSemanticFallback = true;
+	Pattern->SemanticFallback = EOpenMobileHapticSemanticEffect::ImpactHeavy;
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unavailable preset follows the asset semantic policy"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Semantic);
+	TestEqual(TEXT("Semantic fallback meaning is preserved"),
+		Resolution.SemanticEffect,
+		EOpenMobileHapticSemanticEffect::ImpactHeavy);
+
+	Pattern->bAllowSemanticFallback = false;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Unavailable preset can fall back to basic vibration"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::BasicVibration);
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+	);
+	TestEqual(TEXT("Permitted no-effect follows every unavailable native path"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::NoEffect);
+
+	Pattern->PrimitiveOrPresetFallback = TEXT("Click");
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PrimitiveSupport[0].Support =
+		EOpenMobileHapticSupportState::Supported;
+	Capabilities.PresetSupport = {{
+		TEXT("Click"),
+		EOpenMobileHapticSupportState::Supported
+	}};
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Supported primitive precedes an equivalent preset"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Primitive);
+	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+		*Pattern,
+		Capabilities,
+		EOpenMobileHapticFallbackPolicy::Automatic,
+		false,
+		true
+	);
+	TestEqual(TEXT("A stale primitive capability can retry the preset"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidFallbackOutcome::Predefined);
+
 	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
 		*Pattern,
 		Capabilities,
@@ -1672,12 +1964,14 @@ bool FOpenMobileHapticsAndroidFallbackPolicyTest::RunTest(
 
 	Capabilities.PrimitiveSupport[0].Support =
 		EOpenMobileHapticSupportState::Unknown;
+	Capabilities.PresetSupport[0].Support =
+		EOpenMobileHapticSupportState::Unknown;
 	Resolution = FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
 		*Pattern,
 		Capabilities,
 		EOpenMobileHapticFallbackPolicy::NoEffectAllowed
 	);
-	TestEqual(TEXT("Unknown primitive support selects no-effect"),
+	TestEqual(TEXT("Unknown primitive and preset support select no-effect"),
 		Resolution.Outcome,
 		EOpenMobileHapticsAndroidFallbackOutcome::NoEffect);
 
@@ -2006,6 +2300,23 @@ bool FOpenMobileHapticsOneShotPolicyTest::RunTest(const FString& Parameters)
 		EOpenMobileHapticsOneShotPath::SystemSemantic);
 	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
 	TestEqual(TEXT("Short pulse falls back to a predefined effect"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
+		EOpenMobileHapticsOneShotPath::PredefinedEffect);
+	Capabilities.PresetSupport = {{
+		TEXT("Click"),
+		EOpenMobileHapticSupportState::Unsupported
+	}};
+	TestEqual(TEXT("Unsupported Click never uses another supported preset"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
+		EOpenMobileHapticsOneShotPath::BasicVibration);
+	Capabilities.PresetSupport[0].Support =
+		EOpenMobileHapticSupportState::Unknown;
+	TestEqual(TEXT("Unknown Click support uses a deterministic basic pulse"),
+		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
+		EOpenMobileHapticsOneShotPath::BasicVibration);
+	Capabilities.PresetSupport[0].Support =
+		EOpenMobileHapticSupportState::Supported;
+	TestEqual(TEXT("Detailed Click support selects the preset"),
 		FOpenMobileHapticsOneShotPolicy::Resolve(Capabilities, 0.03).Path,
 		EOpenMobileHapticsOneShotPath::PredefinedEffect);
 	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Unsupported;

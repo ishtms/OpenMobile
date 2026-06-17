@@ -5,8 +5,12 @@
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
+#include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
+#include "OpenMobileHapticsFallbackPolicy.h"
+#include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
+#include "OpenMobileHapticsSemanticPolicy.h"
 
 namespace OpenMobileHapticsAndroidBackendPrivate
 {
@@ -135,7 +139,10 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		switch (NativeResult)
 		{
 		case 1:
+		case 3:
+		case 5:
 			Submission.Result.Outcome = bFallback
+				|| NativeResult == 3 || NativeResult == 5
 				? EOpenMobileHapticPlaybackOutcome::Fallback
 				: EOpenMobileHapticPlaybackOutcome::Accepted;
 			Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
@@ -158,6 +165,273 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			);
 			break;
 		}
+		return Submission;
+	}
+
+	void AppendAttempts(
+		FOpenMobileHapticsBackendSubmission& Submission,
+		const TArray<FName>& Attempts
+	)
+	{
+		Submission.Result.FallbackAttempts.Append(Attempts);
+	}
+
+	FName Attempt(FName Path, FName Reason)
+	{
+		return *FString::Printf(
+			TEXT("%s:%s"),
+			*Path.ToString(),
+			*Reason.ToString()
+		);
+	}
+
+	FOpenMobileHapticsBackendSubmission SubmitPortableAndFallback(
+		FOpenMobileHapticsAndroidBridge& Bridge,
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const UOpenMobileHapticPatternAsset& Pattern,
+		const FOpenMobileHapticCapabilities& Capabilities,
+		int32 Purpose,
+		FOpenMobileHapticsBackendEventCallback Callback,
+		TArray<FName> Attempts
+	)
+	{
+		const FOpenMobileHapticsAndroidWaveformResolution Portable =
+			FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+				Pattern,
+				Capabilities,
+				Request.Intensity,
+				Request.Options.FallbackPolicy
+			);
+		if (Portable.Outcome
+			== EOpenMobileHapticsAndroidWaveformOutcome::Ready)
+		{
+			const int32 NativeResult = Bridge.PlayWaveform(
+				Token,
+				Portable.TimingsMilliseconds,
+				Portable.Amplitudes,
+				Portable.RepeatIndex,
+				Purpose
+			);
+			if (NativeResult != 4)
+			{
+				FOpenMobileHapticsBackendSubmission Submission =
+					MakeNativeSubmission(
+						NativeResult,
+						Portable.bUsesDefaultAmplitude
+							? FName(TEXT("AndroidPortableWaveformDefaultAmplitude"))
+							: FName(TEXT("AndroidPortableWaveform")),
+						true,
+						TEXT("Android rejected the portable waveform."),
+						TEXT("Android could not submit the portable waveform.")
+					);
+				if (Portable.bUsesDefaultAmplitude || NativeResult == 5)
+				{
+					Submission.Result.Intensity.bNativeClamped = true;
+					Attempts.Add(TEXT("AmplitudeControl:Default"));
+				}
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			Attempts.Add(TEXT("PortableRich:NativeSupportChanged"));
+		}
+		else
+		{
+			Attempts.Add(Attempt(TEXT("PortableRich"), Portable.Reason));
+			if (Portable.Reason == TEXT("InvalidIntensity"))
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						EOpenMobileErrorCode::InvalidArgument,
+						TEXT("The portable Android pattern intensity is invalid.")
+					);
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+		}
+
+		bool bAllowPrimitive = true;
+		bool bAllowPredefined = true;
+		for (int32 Retry = 0; Retry < 3; ++Retry)
+		{
+			const FOpenMobileHapticsAndroidFallbackResolution Fallback =
+				FOpenMobileHapticsAndroidFallbackPolicy::Resolve(
+					Pattern,
+					Capabilities,
+					Request.Options.FallbackPolicy,
+					bAllowPrimitive,
+					bAllowPredefined
+				);
+			Attempts.Append(Fallback.Attempts);
+			if (Fallback.Outcome
+				== EOpenMobileHapticsAndroidFallbackOutcome::Primitive)
+			{
+				const int32 NativeResult = Bridge.PlayPrimitives(
+					Token,
+					{Fallback.Primitive},
+					{Request.Intensity},
+					{0},
+					Purpose
+				);
+				if (NativeResult == 4)
+				{
+					bAllowPrimitive = false;
+					Attempts.Add(TEXT("Primitive:NativeSupportChanged"));
+					continue;
+				}
+				FOpenMobileHapticsBackendSubmission Submission =
+					MakeNativeSubmission(
+						NativeResult,
+						TEXT("AndroidPrimitiveFallback"),
+						true,
+						TEXT("Android rejected the declared primitive fallback."),
+						TEXT("Android could not submit the primitive fallback.")
+					);
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			if (Fallback.Outcome
+				== EOpenMobileHapticsAndroidFallbackOutcome::Predefined)
+			{
+				const int32 NativeResult = Bridge.PlayPredefined(
+					Token,
+					static_cast<int32>(Fallback.PredefinedEffect),
+					Purpose
+				);
+				if (NativeResult == 4)
+				{
+					bAllowPredefined = false;
+					Attempts.Add(TEXT("Predefined:NativeSupportChanged"));
+					continue;
+				}
+				FOpenMobileHapticsBackendSubmission Submission =
+					MakeNativeSubmission(
+						NativeResult,
+						TEXT("AndroidPredefinedFallback"),
+						true,
+						TEXT("Android rejected the declared predefined fallback."),
+						TEXT("Android could not submit the predefined fallback.")
+					);
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			if (Fallback.Outcome
+				== EOpenMobileHapticsAndroidFallbackOutcome::Semantic)
+			{
+				const FOpenMobileHapticsSemanticDescriptor Descriptor =
+					FOpenMobileHapticsSemanticPolicy::Describe(
+						Fallback.SemanticEffect
+					);
+				const FOpenMobileHapticsAndroidBridgeSubmission Native =
+					Bridge.PlaySemantic(
+						Token,
+						Descriptor.Behavior,
+						Request.Intensity,
+						EOpenMobileHapticsSemanticPath::SystemSemantic,
+						Purpose,
+						Descriptor.Name,
+						Request.Options.Channel,
+						TEXT("AndroidSemanticFallback"),
+						MoveTemp(Callback)
+					);
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.bExpectsCallbacks = Native.bExpectsCallback;
+				Submission.Result.ResolvedPath =
+					TEXT("AndroidSemanticFallback");
+				if (Native.Result == 1 || Native.Result == 3
+					|| Native.Result == 6)
+				{
+					Submission.Result.Outcome =
+						EOpenMobileHapticPlaybackOutcome::Fallback;
+					Submission.Result.State =
+						EOpenMobileHapticPlaybackState::Accepted;
+				}
+				else if (Native.Result == 2)
+				{
+					Submission.Result.Outcome =
+						EOpenMobileHapticPlaybackOutcome::Suppressed;
+					Submission.Result.State =
+						EOpenMobileHapticPlaybackState::Completed;
+				}
+				else
+				{
+					Submission.Result =
+						FOpenMobileHapticPlaybackResult::MakeRejected(
+							EOpenMobileErrorCode::NativeFailure,
+							TEXT("Android could not submit the semantic fallback.")
+						);
+				}
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			if (Fallback.Outcome
+				== EOpenMobileHapticsAndroidFallbackOutcome::BasicVibration)
+			{
+				const int64 DurationMilliseconds = FMath::Max<int64>(
+					1,
+					static_cast<int64>(FMath::RoundToDouble(
+						static_cast<double>(Pattern.GetCookedPattern()
+							.DurationMicroseconds) / 1000.0
+					))
+				);
+				const int32 NativeResult = Bridge.PlayOneShot(
+					Token,
+					DurationMilliseconds,
+					Request.Intensity,
+					EOpenMobileHapticsOneShotPath::BasicVibration,
+					Purpose
+				);
+				if (NativeResult == 4
+					&& (Request.Options.FallbackPolicy
+							== EOpenMobileHapticFallbackPolicy::NoEffectAllowed
+						|| Pattern.FallbackPolicy
+							== EOpenMobileHapticFallbackPolicy::NoEffectAllowed))
+				{
+					FOpenMobileHapticsBackendSubmission Submission;
+					Submission.Result.Outcome =
+						EOpenMobileHapticPlaybackOutcome::Suppressed;
+					Submission.Result.State =
+						EOpenMobileHapticPlaybackState::Completed;
+					Submission.Result.ResolvedPath = TEXT("NoEffect");
+					Attempts.Add(TEXT("NoEffect:Selected"));
+					AppendAttempts(Submission, Attempts);
+					return Submission;
+				}
+				FOpenMobileHapticsBackendSubmission Submission =
+					MakeNativeSubmission(
+						NativeResult,
+						NativeResult == 5
+							? FName(TEXT("AndroidBasicVibrationDefaultAmplitude"))
+							: FName(TEXT("AndroidBasicVibrationFallback")),
+						true,
+						TEXT("Android rejected the basic vibration fallback."),
+						TEXT("Android could not submit the basic vibration fallback.")
+					);
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			if (Fallback.Outcome
+				== EOpenMobileHapticsAndroidFallbackOutcome::NoEffect)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result.Outcome =
+					EOpenMobileHapticPlaybackOutcome::Suppressed;
+				Submission.Result.State =
+					EOpenMobileHapticPlaybackState::Completed;
+				Submission.Result.ResolvedPath = TEXT("NoEffect");
+				AppendAttempts(Submission, Attempts);
+				return Submission;
+			}
+			break;
+		}
+
+		FOpenMobileHapticsBackendSubmission Submission;
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The Android pattern and its declared fallbacks are unavailable.")
+		);
+		AppendAttempts(Submission, Attempts);
 		return Submission;
 	}
 }
@@ -338,26 +612,98 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		: Request.Options.Category == TEXT("Gameplay")
 			? 1
 			: 0;
-	const FName ResolvedPath =
-		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
-	const FOpenMobileHapticsAndroidBridgeSubmission BridgeSubmission =
+	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
+	const bool bAllowBasic = Request.Options.FallbackPolicy
+		!= EOpenMobileHapticFallbackPolicy::NoBasicVibration
+		&& Request.Options.FallbackPolicy
+			!= EOpenMobileHapticFallbackPolicy::ExactOnly;
+	EOpenMobileHapticsSemanticPath SubmittedPath = Resolution.Path;
+	bool bUsedFallback = Resolution.bFallback;
+	if (SubmittedPath == EOpenMobileHapticsSemanticPath::PredefinedEffect)
+	{
+		const EOpenMobileHapticAndroidPredefinedEffect PredefinedEffect =
+			FOpenMobileHapticsAndroidFallbackPolicy::PredefinedForSemantic(
+				Descriptor.Behavior
+			);
+		if (!FOpenMobileHapticsAndroidFallbackPolicy::SupportsPredefined(
+			PredefinedEffect,
+			Capabilities
+		))
+		{
+			if (bAllowBasic
+				&& Capabilities.BasicVibration
+					== EOpenMobileHapticSupportState::Supported)
+			{
+				SubmittedPath = EOpenMobileHapticsSemanticPath::BasicVibration;
+			}
+			else if (Resolution.bSuppressWhenUnavailable)
+			{
+				Submission.Result.Outcome =
+					EOpenMobileHapticPlaybackOutcome::Suppressed;
+				Submission.Result.State =
+					EOpenMobileHapticPlaybackState::Completed;
+				Submission.Result.ResolvedPath = TEXT("NoEffect");
+				return Submission;
+			}
+			else
+			{
+				Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+					EOpenMobileErrorCode::NotSupported,
+					TEXT("The requested Android predefined effect is unavailable.")
+				);
+				return Submission;
+			}
+		}
+	}
+	FName ResolvedPath =
+		FOpenMobileHapticsSemanticPolicy::PathName(SubmittedPath);
+	FOpenMobileHapticsBackendEventCallback RetryCallback = Callback;
+	FOpenMobileHapticsAndroidBridgeSubmission BridgeSubmission =
 		Bridge.PlaySemantic(
 		Token,
 		Descriptor.Behavior,
 		Request.Intensity,
-		Resolution.Path,
+		SubmittedPath,
 		Purpose,
 		Descriptor.Name,
 		Request.Options.Channel,
 		ResolvedPath,
 		MoveTemp(Callback)
 	);
+	if (SubmittedPath == EOpenMobileHapticsSemanticPath::PredefinedEffect
+		&& BridgeSubmission.Result == 4
+		&& bAllowBasic
+		&& Capabilities.BasicVibration
+			== EOpenMobileHapticSupportState::Supported)
+	{
+		SubmittedPath = EOpenMobileHapticsSemanticPath::BasicVibration;
+		ResolvedPath = FOpenMobileHapticsSemanticPolicy::PathName(SubmittedPath);
+		BridgeSubmission = Bridge.PlaySemantic(
+			Token,
+			Descriptor.Behavior,
+			Request.Intensity,
+			SubmittedPath,
+			Purpose,
+			Descriptor.Name,
+			Request.Options.Channel,
+			ResolvedPath,
+			MoveTemp(RetryCallback)
+		);
+		bUsedFallback = true;
+	}
+	if (BridgeSubmission.Result == 4 && Resolution.bSuppressWhenUnavailable)
+	{
+		BridgeSubmission.Result = 2;
+		ResolvedPath = TEXT("NoEffect");
+	}
 	Submission.Result.ResolvedPath = ResolvedPath;
 	Submission.bExpectsCallbacks = BridgeSubmission.bExpectsCallback;
 	switch (BridgeSubmission.Result)
 	{
 	case 1:
-		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.Outcome = bUsedFallback
+			? EOpenMobileHapticPlaybackOutcome::Fallback
+			: EOpenMobileHapticPlaybackOutcome::Accepted;
 		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
 		break;
 	case 2:
@@ -421,16 +767,49 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		1.0,
 		FMath::RoundToDouble(Request.DurationSeconds * 1000.0)
 	));
-	const int32 NativeResult = Bridge.PlayOneShot(
+	EOpenMobileHapticsOneShotPath SubmittedPath = Resolution.Path;
+	int32 NativeResult = Bridge.PlayOneShot(
 		Token,
 		DurationMillis,
 		Request.Intensity,
-		Resolution.Path,
+		SubmittedPath,
 		Purpose
 	);
+	bool bUsedFallback = false;
+	bool bSelectedNoEffect = false;
+	if (Resolution.Path == EOpenMobileHapticsOneShotPath::PredefinedEffect
+		&& NativeResult == 4)
+	{
+		const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
+		const bool bAllowBasic = Request.Options.FallbackPolicy
+			!= EOpenMobileHapticFallbackPolicy::NoBasicVibration
+			&& Request.Options.FallbackPolicy
+				!= EOpenMobileHapticFallbackPolicy::ExactOnly;
+		if (bAllowBasic
+			&& Capabilities.BasicVibration
+				== EOpenMobileHapticSupportState::Supported)
+		{
+			SubmittedPath = EOpenMobileHapticsOneShotPath::BasicVibration;
+			NativeResult = Bridge.PlayOneShot(
+				Token,
+				DurationMillis,
+				Request.Intensity,
+				SubmittedPath,
+				Purpose
+			);
+			bUsedFallback = NativeResult != 4;
+		}
+		if (NativeResult == 4 && Resolution.bSuppressWhenUnavailable)
+		{
+			NativeResult = 2;
+			bSelectedNoEffect = true;
+		}
+	}
 	Submission.Result.ResolvedPath =
-		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
-	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration
+		bSelectedNoEffect
+			? FName(TEXT("NoEffect"))
+			: FOpenMobileHapticsOneShotPolicy::PathName(SubmittedPath);
+	if (SubmittedPath == EOpenMobileHapticsOneShotPath::BasicVibration
 		|| NativeResult == 3
 		|| NativeResult == 5)
 	{
@@ -475,7 +854,9 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 	switch (NativeResult)
 	{
 	case 1:
-		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Accepted;
+		Submission.Result.Outcome = bUsedFallback
+			? EOpenMobileHapticPlaybackOutcome::Fallback
+			: EOpenMobileHapticPlaybackOutcome::Accepted;
 		Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
 		break;
 	case 2:
@@ -516,13 +897,70 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 )
 {
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
-	static_cast<void>(Callback);
+	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
+	const int32 Purpose = PurposeFor(Request.Options.Category);
+	const int32 AndroidAPI = FAndroidMisc::GetAndroidBuildVersion();
+	const UOpenMobileHapticPatternAsset* PortablePattern =
+		Cast<UOpenMobileHapticPatternAsset>(
+			Request.PatternAsset.ResolveObject()
+		);
+	TArray<FName> RichAttempts;
 	const UOpenMobileHapticAndroidPatternAsset* Asset =
 		Cast<UOpenMobileHapticAndroidPatternAsset>(
 			Request.PlatformOverrideAsset.ResolveObject()
 		);
+	if (PortablePattern)
+	{
+		const FOpenMobileHapticsPlatformOverrideResolution Override =
+			FOpenMobileHapticsPlatformOverridePolicy::Resolve(
+				*PortablePattern,
+				EOpenMobileHapticOverridePlatform::Android,
+				AndroidAPI,
+				Capabilities,
+				Request.Options.FallbackPolicy
+			);
+		const FOpenMobileHapticsFallbackResolution Ladder =
+			FOpenMobileHapticsFallbackPolicy::Resolve(
+				*PortablePattern,
+				Override,
+				Capabilities,
+				Request.Options.FallbackPolicy
+			);
+		RichAttempts =
+			FOpenMobileHapticsFallbackPolicy::MakeDiagnosticTrace(Ladder);
+		if (Ladder.Path != EOpenMobileHapticsFallbackPath::ExactOverride)
+		{
+			return SubmitPortableAndFallback(
+				Bridge,
+				Request,
+				Token,
+				*PortablePattern,
+				Capabilities,
+				Purpose,
+				MoveTemp(Callback),
+				MoveTemp(RichAttempts)
+			);
+		}
+		Asset = Cast<UOpenMobileHapticAndroidPatternAsset>(
+			Override.OverrideAsset.ResolveObject()
+		);
+	}
 	if (!Asset)
 	{
+		if (PortablePattern)
+		{
+			RichAttempts.Add(TEXT("ExactOverride:MissingLoadedAsset"));
+			return SubmitPortableAndFallback(
+				Bridge,
+				Request,
+				Token,
+				*PortablePattern,
+				Capabilities,
+				Purpose,
+				MoveTemp(Callback),
+				MoveTemp(RichAttempts)
+			);
+		}
 		FOpenMobileHapticsBackendSubmission Submission;
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::NotSupported,
@@ -531,21 +969,36 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		return Submission;
 	}
 
-	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
-	const int32 Purpose = PurposeFor(Request.Options.Category);
 	if (Asset->Format == EOpenMobileHapticAndroidPatternFormat::Primitives)
 	{
 		const FOpenMobileHapticsPrimitiveCompositionResolution Resolution =
 			FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
 				*Asset,
 				Capabilities,
-				FAndroidMisc::GetAndroidBuildVersion(),
+				AndroidAPI,
 				Request.Intensity,
 				Request.Options.FallbackPolicy
 			);
 		if (Resolution.Outcome
 			!= EOpenMobileHapticsPrimitiveCompositionOutcome::Ready)
 		{
+			if (PortablePattern)
+			{
+				RichAttempts.Add(Attempt(
+					TEXT("ExactOverride"),
+					Resolution.Reason
+				));
+				return SubmitPortableAndFallback(
+					Bridge,
+					Request,
+					Token,
+					*PortablePattern,
+					Capabilities,
+					Purpose,
+					MoveTemp(Callback),
+					MoveTemp(RichAttempts)
+				);
+			}
 			FOpenMobileHapticsBackendSubmission Submission;
 			if (Resolution.Outcome
 				== EOpenMobileHapticsPrimitiveCompositionOutcome::FallbackRequired
@@ -567,18 +1020,108 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			Submission.Result.FallbackAttempts.Add(Resolution.Reason);
 			return Submission;
 		}
-		return MakeNativeSubmission(
-			Bridge.PlayPrimitives(
+		const int32 NativeResult = Bridge.PlayPrimitives(
 				Token,
 				Resolution.Primitives,
 				Resolution.Scales,
 				Resolution.DelaysMilliseconds,
 				Purpose
-			),
+			);
+		if (NativeResult == 4 && PortablePattern)
+		{
+			RichAttempts.Add(TEXT("ExactOverride:NativeSupportChanged"));
+			return SubmitPortableAndFallback(
+				Bridge,
+				Request,
+				Token,
+				*PortablePattern,
+				Capabilities,
+				Purpose,
+				MoveTemp(Callback),
+				MoveTemp(RichAttempts)
+			);
+		}
+		return MakeNativeSubmission(
+			NativeResult,
 			TEXT("AndroidPrimitiveComposition"),
 			false,
 			TEXT("Android rejected an unsupported primitive composition."),
 			TEXT("Android could not submit the primitive composition.")
+		);
+	}
+	if (Asset->Format == EOpenMobileHapticAndroidPatternFormat::Waveform)
+	{
+		const FOpenMobileHapticsAndroidWaveformResolution Waveform =
+			FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
+				*Asset,
+				Capabilities,
+				AndroidAPI,
+				Request.Intensity,
+				Request.Options.FallbackPolicy
+			);
+		if (Waveform.Outcome
+			== EOpenMobileHapticsAndroidWaveformOutcome::Ready)
+		{
+			const int32 NativeResult = Bridge.PlayWaveform(
+				Token,
+				Waveform.TimingsMilliseconds,
+				Waveform.Amplitudes,
+				Waveform.RepeatIndex,
+				Purpose
+			);
+			if (NativeResult != 4 || !PortablePattern)
+			{
+				FOpenMobileHapticsBackendSubmission Submission =
+					MakeNativeSubmission(
+						NativeResult,
+						Waveform.bUsesDefaultAmplitude
+							? FName(TEXT("AndroidWaveformDefaultAmplitude"))
+							: FName(TEXT("AndroidWaveform")),
+						Waveform.bUsesDefaultAmplitude || NativeResult == 5,
+						TEXT("Android rejected the waveform override."),
+						TEXT("Android could not submit the waveform override.")
+					);
+				if (Waveform.bUsesDefaultAmplitude || NativeResult == 5)
+				{
+					Submission.Result.Intensity.bNativeClamped = true;
+					Submission.Result.FallbackAttempts.Add(
+						TEXT("AmplitudeControl:Default")
+					);
+				}
+				return Submission;
+			}
+			RichAttempts.Add(TEXT("ExactOverride:NativeSupportChanged"));
+		}
+		else
+		{
+			RichAttempts.Add(Attempt(
+				TEXT("ExactOverride"),
+				Waveform.Reason
+			));
+			if (!PortablePattern)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						Waveform.Outcome
+							== EOpenMobileHapticsAndroidWaveformOutcome::Rejected
+								? EOpenMobileErrorCode::InvalidArgument
+								: EOpenMobileErrorCode::NotSupported,
+						TEXT("The Android waveform override is unavailable.")
+					);
+				AppendAttempts(Submission, RichAttempts);
+				return Submission;
+			}
+		}
+		return SubmitPortableAndFallback(
+			Bridge,
+			Request,
+			Token,
+			*PortablePattern,
+			Capabilities,
+			Purpose,
+			MoveTemp(Callback),
+			MoveTemp(RichAttempts)
 		);
 	}
 
@@ -598,7 +1141,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		FOpenMobileHapticsEnvelopePolicy::Resolve(
 			*Asset,
 			Capabilities,
-			FAndroidMisc::GetAndroidBuildVersion(),
+			AndroidAPI,
 			Request.Intensity,
 			Request.Options.FallbackPolicy
 		);
@@ -631,6 +1174,23 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 
 	if (Envelope.Outcome == EOpenMobileHapticsEnvelopeOutcome::Rejected)
 	{
+		if (PortablePattern && Envelope.Reason != TEXT("InvalidIntensity"))
+		{
+			RichAttempts.Add(Attempt(
+				TEXT("ExactOverride"),
+				EnvelopeFailureReason
+			));
+			return SubmitPortableAndFallback(
+				Bridge,
+				Request,
+				Token,
+				*PortablePattern,
+				Capabilities,
+				Purpose,
+				MoveTemp(Callback),
+				MoveTemp(RichAttempts)
+			);
+		}
 		FOpenMobileHapticsBackendSubmission Submission;
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			Envelope.Reason == TEXT("InvalidIntensity")
@@ -645,78 +1205,25 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		Submission.Result.FallbackAttempts.Add(EnvelopeFailureReason);
 		return Submission;
 	}
-
-	const UOpenMobileHapticPatternAsset* Pattern =
-		Cast<UOpenMobileHapticPatternAsset>(Request.PatternAsset.ResolveObject());
-	if (Pattern)
+	if (PortablePattern)
 	{
-		const FOpenMobileHapticsAndroidFallbackResolution Fallback =
-			FOpenMobileHapticsAndroidFallbackPolicy::ResolvePrimitive(
-				*Pattern,
-				Capabilities,
-				Request.Options.FallbackPolicy
-			);
-		if (Fallback.Outcome
-			== EOpenMobileHapticsAndroidFallbackOutcome::Primitive)
-		{
-			const TArray<EOpenMobileHapticAndroidPrimitive> Primitives = {
-				Fallback.Primitive
-			};
-			const TArray<float> Scales = {Request.Intensity};
-			const TArray<int32> Delays = {0};
-			FOpenMobileHapticsBackendSubmission Submission =
-				MakeNativeSubmission(
-					Bridge.PlayPrimitives(
-						Token,
-						Primitives,
-						Scales,
-						Delays,
-						Purpose
-					),
-					TEXT("AndroidPrimitiveFallback"),
-					true,
-					TEXT("Android rejected the declared primitive fallback."),
-					TEXT("Android could not submit the primitive fallback.")
-				);
-			Submission.Result.FallbackAttempts.Add(EnvelopeFailureReason);
-			Submission.Result.FallbackAttempts.Append(Fallback.Attempts);
-			if (Submission.Result.Error.CommonCode
-					== EOpenMobileErrorCode::NotSupported
-				&& (Request.Options.FallbackPolicy
-						== EOpenMobileHapticFallbackPolicy::NoEffectAllowed
-					|| Pattern->FallbackPolicy
-						== EOpenMobileHapticFallbackPolicy::NoEffectAllowed))
-			{
-				Submission.Result = {};
-				Submission.Result.Outcome =
-					EOpenMobileHapticPlaybackOutcome::Suppressed;
-				Submission.Result.State =
-					EOpenMobileHapticPlaybackState::Completed;
-				Submission.Result.ResolvedPath = TEXT("NoEffect");
-				Submission.Result.FallbackAttempts.Add(
-					EnvelopeFailureReason
-				);
-				Submission.Result.FallbackAttempts.Append(Fallback.Attempts);
-				Submission.Result.FallbackAttempts.Add(
-					TEXT("NoEffect:Selected")
-				);
-			}
-			return Submission;
-		}
-		if (Fallback.Outcome
-			== EOpenMobileHapticsAndroidFallbackOutcome::NoEffect)
-		{
-			FOpenMobileHapticsBackendSubmission Submission;
-			Submission.Result.Outcome =
-				EOpenMobileHapticPlaybackOutcome::Suppressed;
-			Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
-			Submission.Result.ResolvedPath = TEXT("NoEffect");
-			Submission.Result.FallbackAttempts.Add(EnvelopeFailureReason);
-			Submission.Result.FallbackAttempts.Append(Fallback.Attempts);
-			return Submission;
-		}
+		RichAttempts.Add(Attempt(
+			TEXT("ExactOverride"),
+			EnvelopeFailureReason
+		));
+		return SubmitPortableAndFallback(
+			Bridge,
+			Request,
+			Token,
+			*PortablePattern,
+			Capabilities,
+			Purpose,
+			MoveTemp(Callback),
+			MoveTemp(RichAttempts)
+		);
 	}
-	else if (Request.Options.FallbackPolicy
+
+	if (Request.Options.FallbackPolicy
 		== EOpenMobileHapticFallbackPolicy::NoEffectAllowed)
 	{
 		FOpenMobileHapticsBackendSubmission Submission;

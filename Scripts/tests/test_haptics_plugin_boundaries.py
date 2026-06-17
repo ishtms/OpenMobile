@@ -539,5 +539,90 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("Bridge.PlayEnvelope", backend)
 		self.assertIn("Bridge.PlayPrimitives", backend)
 
+	def test_android_waveforms_and_predefined_effects_are_guarded(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		bridge = load_android_bridge()
+		self.assertIn("static int playWaveform", bridge)
+		self.assertIn("VibrationEffect.createWaveform", bridge)
+		self.assertIn("repeatIndex < -1", bridge)
+		self.assertIn("repeatIndex >= timingsMilliseconds.length", bridge)
+		self.assertIn("amplitude != VibrationEffect.DEFAULT_AMPLITUDE", bridge)
+		self.assertIn("amplitude == 0", bridge)
+		self.assertIn("nativeAmplitudes[index] =", bridge)
+		waveform = bridge[
+			bridge.index("static int playWaveform"):
+			bridge.index("static int playPredefined")
+		]
+		self.assertIn("Build.VERSION.SDK_INT < 26", waveform)
+		self.assertIn("catch (SecurityException exception)", waveform)
+		self.assertIn("catch (Exception exception)", waveform)
+		self.assertIn("static int playPredefined", bridge)
+		self.assertIn("vibrator.areEffectsSupported", bridge)
+		self.assertIn("Vibrator.VIBRATION_EFFECT_SUPPORT_YES", bridge)
+		self.assertIn("VibrationEffect.createPredefined", bridge)
+		one_shot = bridge[
+			bridge.index("static int playOneShot"):
+			bridge.index("static int playWaveform")
+		]
+		self.assertIn("vibrator.areEffectsSupported", one_shot)
+		self.assertLess(
+			one_shot.index("vibrator.areEffectsSupported"),
+			one_shot.index("VibrationEffect.createPredefined"),
+		)
+		predefined = bridge[
+			bridge.index("static int playPredefined"):
+			bridge.index("static int playPrimitives")
+		]
+		self.assertLess(
+			predefined.index("vibrator.areEffectsSupported"),
+			predefined.index("VibrationEffect.createPredefined"),
+		)
+		self.assertIn("Build.VERSION.SDK_INT < 29", predefined)
+		self.assertIn("catch (SecurityException exception)", predefined)
+		self.assertIn("catch (Exception exception)", predefined)
+		semantic_vibration = bridge[
+			bridge.index("private static int playVibration"):
+			bridge.index("private static int performSemantic")
+		]
+		self.assertIn("vibrator.areEffectsSupported", semantic_vibration)
+		self.assertLess(
+			semantic_vibration.index("vibrator.areEffectsSupported"),
+			semantic_vibration.index("VibrationEffect.createPredefined"),
+		)
+		self.assertIn("else if (path != 3)", semantic_vibration)
+		self.assertIn("VibrationAttributes.USAGE_MEDIA", bridge)
+		self.assertIn("VibrationAttributes.USAGE_NOTIFICATION", bridge)
+		self.assertIn("VibrationAttributes.USAGE_TOUCH", bridge)
+		self.assertNotIn("VibrationAttributes.USAGE_ALARM", bridge)
+
+		native_header = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBridge.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("PlayWaveform", native_header)
+		self.assertIn("PlayPredefined", native_header)
+		self.assertIn("PlayWaveformMethod", native_header)
+		self.assertIn("PlayPredefinedMethod", native_header)
+
+		native_bridge = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn('"(Landroid/app/Activity;J[J[III)I"', native_bridge)
+		self.assertIn('"(Landroid/app/Activity;JII)I"', native_bridge)
+		self.assertIn("FScopedJavaObject<jlongArray>", native_bridge)
+		self.assertIn("FScopedJavaObject<jintArray>", native_bridge)
+
+		backend = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("AndroidWaveformPolicy::ResolveOverride", backend)
+		self.assertIn("AndroidWaveformPolicy::ResolvePortable", backend)
+		self.assertIn("Bridge.PlayWaveform", backend)
+		self.assertIn("Bridge.PlayPredefined", backend)
+		self.assertIn(
+			"Resolution.Path == EOpenMobileHapticsOneShotPath::PredefinedEffect",
+			backend,
+		)
+		self.assertIn("SupportsPredefined", backend)
+
 if __name__ == "__main__":
 	unittest.main()

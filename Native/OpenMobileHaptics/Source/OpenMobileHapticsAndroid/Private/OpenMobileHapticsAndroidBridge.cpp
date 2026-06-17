@@ -89,6 +89,16 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		"playOneShot",
 		"(Landroid/app/Activity;JJFII)I"
 	);
+	PlayWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"playWaveform",
+		"(Landroid/app/Activity;J[J[III)I"
+	);
+	PlayPredefinedMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"playPredefined",
+		"(Landroid/app/Activity;JII)I"
+	);
 	PlayPrimitivesMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playPrimitives",
@@ -108,6 +118,8 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		|| !QueryCapabilitiesMethod
 		|| !PlaySemanticMethod
 		|| !PlayOneShotMethod
+		|| !PlayWaveformMethod
+		|| !PlayPredefinedMethod
 		|| !PlayPrimitivesMethod
 		|| !PlayEnvelopeMethod
 		|| !StopAllMethod)
@@ -118,6 +130,8 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		QueryCapabilitiesMethod = nullptr;
 		PlaySemanticMethod = nullptr;
 		PlayOneShotMethod = nullptr;
+		PlayWaveformMethod = nullptr;
+		PlayPredefinedMethod = nullptr;
 		PlayPrimitivesMethod = nullptr;
 		PlayEnvelopeMethod = nullptr;
 		StopAllMethod = nullptr;
@@ -257,6 +271,110 @@ int32 FOpenMobileHapticsAndroidBridge::PlayOneShot(
 		static_cast<jlong>(DurationMillis),
 		static_cast<jfloat>(Intensity),
 		static_cast<jint>(Path),
+		static_cast<jint>(Purpose)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::PlayWaveform(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const TArray<int64>& TimingsMilliseconds,
+	const TArray<int32>& Amplitudes,
+	int32 RepeatIndex,
+	int32 Purpose
+)
+{
+	const int32 Count = TimingsMilliseconds.Num();
+	if (Count <= 0 || Amplitudes.Num() != Count)
+	{
+		return 0;
+	}
+
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity || !EnsureInitialized(Env))
+	{
+		return 0;
+	}
+
+	FScopedJavaObject<jlongArray> TimingValues(Env->NewLongArray(Count));
+	FScopedJavaObject<jintArray> AmplitudeValues(Env->NewIntArray(Count));
+	if (!TimingValues || !AmplitudeValues || Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	TArray<jlong, TInlineAllocator<32>> NativeTimings;
+	TArray<jint, TInlineAllocator<32>> NativeAmplitudes;
+	NativeTimings.Reserve(Count);
+	NativeAmplitudes.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		NativeTimings.Add(static_cast<jlong>(TimingsMilliseconds[Index]));
+		NativeAmplitudes.Add(static_cast<jint>(Amplitudes[Index]));
+	}
+	Env->SetLongArrayRegion(
+		*TimingValues,
+		0,
+		Count,
+		NativeTimings.GetData()
+	);
+	Env->SetIntArrayRegion(
+		*AmplitudeValues,
+		0,
+		Count,
+		NativeAmplitudes.GetData()
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PlayWaveformMethod,
+		Activity,
+		static_cast<jlong>(Token.RequestId),
+		*TimingValues,
+		*AmplitudeValues,
+		static_cast<jint>(RepeatIndex),
+		static_cast<jint>(Purpose)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::PlayPredefined(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	int32 Effect,
+	int32 Purpose
+)
+{
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity || !EnsureInitialized(Env))
+	{
+		return 0;
+	}
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PlayPredefinedMethod,
+		Activity,
+		static_cast<jlong>(Token.RequestId),
+		static_cast<jint>(Effect),
 		static_cast<jint>(Purpose)
 	));
 	if (Env->ExceptionCheck())
@@ -523,6 +641,8 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	QueryCapabilitiesMethod = nullptr;
 	PlaySemanticMethod = nullptr;
 	PlayOneShotMethod = nullptr;
+	PlayWaveformMethod = nullptr;
+	PlayPredefinedMethod = nullptr;
 	PlayPrimitivesMethod = nullptr;
 	PlayEnvelopeMethod = nullptr;
 	StopAllMethod = nullptr;

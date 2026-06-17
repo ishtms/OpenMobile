@@ -321,16 +321,22 @@ public final class OpenMobileHapticsBridgeV1 {
                 return RESULT_SUPPRESSED;
             }
             VibrationEffect effect = null;
-            boolean usedFallback = false;
             boolean usedDefaultAmplitude = false;
             if (path == 2) {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    effect = VibrationEffect.createPredefined(
-                        VibrationEffect.EFFECT_CLICK
-                    );
-                } else {
-                    usedFallback = true;
+                if (Build.VERSION.SDK_INT < 30) {
+                    return RESULT_UNSUPPORTED;
                 }
+                int[] support = vibrator.areEffectsSupported(
+                    VibrationEffect.EFFECT_CLICK
+                );
+                if (support == null
+                    || support.length != 1
+                    || support[0] != Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
+                    return RESULT_UNSUPPORTED;
+                }
+                effect = VibrationEffect.createPredefined(
+                    VibrationEffect.EFFECT_CLICK
+                );
             } else if (path != 3) {
                 return RESULT_UNSUPPORTED;
             }
@@ -345,7 +351,118 @@ public final class OpenMobileHapticsBridgeV1 {
             vibrate(vibrator, effect, durationMillis, purpose);
             return usedDefaultAmplitude
                 ? RESULT_DEFAULT_AMPLITUDE
-                : usedFallback ? RESULT_FALLBACK : RESULT_ACCEPTED;
+                : RESULT_ACCEPTED;
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
+    static int playWaveform(
+        Activity activity,
+        long requestId,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        int purpose
+    ) {
+        recordSubmission(requestId);
+        if (Build.VERSION.SDK_INT < 26
+            || timingsMilliseconds == null
+            || amplitudes == null
+            || timingsMilliseconds.length == 0
+            || timingsMilliseconds.length != amplitudes.length
+            || repeatIndex < -1
+            || repeatIndex >= timingsMilliseconds.length) {
+            return RESULT_UNSUPPORTED;
+        }
+        try {
+            boolean hasPositiveTiming = false;
+            for (int index = 0; index < timingsMilliseconds.length; ++index) {
+                long timing = timingsMilliseconds[index];
+                int amplitude = amplitudes[index];
+                if (timing < 0L
+                    || (amplitude != VibrationEffect.DEFAULT_AMPLITUDE
+                        && (amplitude < 0 || amplitude > 255))) {
+                    return RESULT_UNSUPPORTED;
+                }
+                hasPositiveTiming |= timing > 0L;
+            }
+            if (!hasPositiveTiming) {
+                return RESULT_UNSUPPORTED;
+            }
+
+            Vibrator vibrator = vibrator(activity);
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return RESULT_UNSUPPORTED;
+            }
+            Context context = applicationContext(activity);
+            if (!systemHapticsEnabled(context)) {
+                return RESULT_SUPPRESSED;
+            }
+
+            boolean amplitudeControl = vibrator.hasAmplitudeControl();
+            boolean usedDefaultAmplitude = false;
+            int[] nativeAmplitudes = new int[amplitudes.length];
+            for (int index = 0; index < amplitudes.length; ++index) {
+                int amplitude = amplitudes[index];
+                nativeAmplitudes[index] = amplitude == 0
+                    ? 0
+                    : amplitudeControl
+                        ? amplitude
+                        : VibrationEffect.DEFAULT_AMPLITUDE;
+                usedDefaultAmplitude |= !amplitudeControl && amplitude > 0;
+            }
+            VibrationEffect effect = VibrationEffect.createWaveform(
+                timingsMilliseconds,
+                nativeAmplitudes,
+                repeatIndex
+            );
+            vibrate(vibrator, effect, 0L, purpose);
+            return usedDefaultAmplitude
+                ? RESULT_DEFAULT_AMPLITUDE
+                : RESULT_ACCEPTED;
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
+    static int playPredefined(
+        Activity activity,
+        long requestId,
+        int effect,
+        int purpose
+    ) {
+        recordSubmission(requestId);
+        if (Build.VERSION.SDK_INT < 29) {
+            return RESULT_UNSUPPORTED;
+        }
+        try {
+            int nativeEffect = predefinedEffectFromIntent(effect);
+            if (nativeEffect < 0 || Build.VERSION.SDK_INT < 30) {
+                return RESULT_UNSUPPORTED;
+            }
+            Vibrator vibrator = vibrator(activity);
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return RESULT_UNSUPPORTED;
+            }
+            int[] support = vibrator.areEffectsSupported(nativeEffect);
+            if (support == null
+                || support.length != 1
+                || support[0] != Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
+                return RESULT_UNSUPPORTED;
+            }
+            Context context = applicationContext(activity);
+            if (!systemHapticsEnabled(context)) {
+                return RESULT_SUPPRESSED;
+            }
+            VibrationEffect effectValue =
+                VibrationEffect.createPredefined(nativeEffect);
+            vibrate(vibrator, effectValue, 0L, purpose);
+            return RESULT_ACCEPTED;
         } catch (SecurityException exception) {
             return RESULT_FAILED;
         } catch (Exception exception) {
@@ -631,10 +748,22 @@ public final class OpenMobileHapticsBridgeV1 {
                 return RESULT_SUPPRESSED;
             }
             VibrationEffect effect = null;
-            if (path == 2 && Build.VERSION.SDK_INT >= 29) {
+            if (path == 2) {
+                if (Build.VERSION.SDK_INT < 30) {
+                    return RESULT_UNSUPPORTED;
+                }
+                int nativeEffect = semanticPredefinedEffect(behavior);
+                int[] support = vibrator.areEffectsSupported(nativeEffect);
+                if (support == null
+                    || support.length != 1
+                    || support[0] != Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
+                    return RESULT_UNSUPPORTED;
+                }
                 effect = VibrationEffect.createPredefined(
-                    predefinedEffect(behavior)
+                    nativeEffect
                 );
+            } else if (path != 3) {
+                return RESULT_UNSUPPORTED;
             }
             long durationMillis = durationMillis(behavior);
             if (effect == null && Build.VERSION.SDK_INT >= 26) {
@@ -780,7 +909,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
-    private static int predefinedEffect(int behavior) {
+    private static int semanticPredefinedEffect(int behavior) {
         switch (behavior) {
             case 0:
             case 4:
@@ -792,6 +921,21 @@ public final class OpenMobileHapticsBridgeV1 {
                 return VibrationEffect.EFFECT_DOUBLE_CLICK;
             default:
                 return VibrationEffect.EFFECT_HEAVY_CLICK;
+        }
+    }
+
+    private static int predefinedEffectFromIntent(int effect) {
+        switch (effect) {
+            case 0:
+                return VibrationEffect.EFFECT_TICK;
+            case 1:
+                return VibrationEffect.EFFECT_CLICK;
+            case 2:
+                return VibrationEffect.EFFECT_HEAVY_CLICK;
+            case 3:
+                return VibrationEffect.EFFECT_DOUBLE_CLICK;
+            default:
+                return -1;
         }
     }
 

@@ -49,6 +49,18 @@ public:
 		EOpenMobileHapticsOneShotPath Path,
 		int32 Purpose
 	);
+	int32 PlayWaveform(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int32 Purpose
+	);
+	int32 PlayPredefined(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		int32 Effect,
+		int32 Purpose
+	);
 	int32 PlayPrimitives(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const TArray<EOpenMobileHapticAndroidPrimitive>& Primitives,
@@ -86,6 +98,8 @@ private:
 	jmethodID QueryCapabilitiesMethod = nullptr;
 	jmethodID PlaySemanticMethod = nullptr;
 	jmethodID PlayOneShotMethod = nullptr;
+	jmethodID PlayWaveformMethod = nullptr;
+	jmethodID PlayPredefinedMethod = nullptr;
 	jmethodID PlayPrimitivesMethod = nullptr;
 	jmethodID PlayEnvelopeMethod = nullptr;
 	jmethodID StopAllMethod = nullptr;
