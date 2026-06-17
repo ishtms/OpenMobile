@@ -705,12 +705,13 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"AndroidThunkJava_OpenMobileDeviceClearBrightness",
 			"WindowManager.LayoutParams",
 			"screenBrightness",
-			"getBrightnessInfo",
 			"Settings.System.SCREEN_BRIGHTNESS",
 			"CountDownLatch",
 		):
 			self.assertIn(token, android_upl)
 		for forbidden_token in (
+			"getBrightnessInfo",
+			"BrightnessInfo",
 			"WRITE_SETTINGS",
 			"Settings.System.put",
 		):
@@ -2282,6 +2283,107 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("ReadOpenMobileDeviceAndroidClipboard", android_paste)
 		self.assertNotIn("UE_LOG", android_paste)
+
+	def test_intent_handler_checks_use_declared_visibility_only(self) -> None:
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceIntentHandlerTypes.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"FOpenMobileIntentHandlerCheckRequest",
+			"FOpenMobileIntentHandlerCheckResult",
+			"CanHandle",
+			"CannotHandle",
+			"NotDeclared",
+			"ConfigurationLimitExceeded",
+		):
+			self.assertIn(token, public_types)
+
+		settings = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSettings.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("DeclaredUrlSchemes", settings)
+		self.assertIn("DeclaredAndroidIntentActions", settings)
+
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSubsystem.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("CheckIntentHandler", subsystem)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for token in (
+			"<queries>",
+			"android.intent.action.VIEW",
+			"android.intent.category.BROWSABLE",
+			"DeclaredUrlSchemes",
+			"DeclaredAndroidIntentActions",
+			"resolveActivity",
+			"MATCH_DEFAULT_ONLY",
+		):
+			self.assertIn(token, android_upl)
+		self.assertGreaterEqual(android_upl.count('once="true"'), 3)
+		for forbidden_token in (
+			"QUERY_ALL_PACKAGES",
+			"queryIntentActivities",
+			"getInstalledApplications",
+			"getInstalledPackages",
+		):
+			self.assertNotIn(forbidden_token, android_upl)
+
+		android_handler = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidIntentHandler.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("AndroidThunkJava_OpenMobileDeviceCheckIntentHandler", android_handler)
+		for forbidden_token in (
+			"queryIntentActivities",
+			"getInstalledApplications",
+			"getInstalledPackages",
+			"UE_LOG",
+		):
+			self.assertNotIn(forbidden_token, android_handler)
+
+		ios_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileDevice_IOS_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("LSApplicationQueriesSchemes", ios_upl)
+		self.assertIn("DeclaredUrlSchemes", ios_upl)
+		ios_handler = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSIntentHandler.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("canOpenURL", ios_handler)
+		self.assertNotIn("openURL", ios_handler.replace("canOpenURL", ""))
+		self.assertNotIn("UE_LOG", ios_handler)
 
 
 if __name__ == "__main__":

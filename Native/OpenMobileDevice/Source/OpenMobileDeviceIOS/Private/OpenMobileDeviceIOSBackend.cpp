@@ -9,6 +9,7 @@
 #include "OpenMobileDeviceIOSFlashlight.h"
 #include "OpenMobileDeviceIOSDisplay.h"
 #include "OpenMobileDeviceIOSIdentity.h"
+#include "OpenMobileDeviceIOSIntentHandler.h"
 #include "OpenMobileDeviceIOSKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceIOSLocale.h"
 #include "OpenMobileDeviceIOSLocaleMonitor.h"
@@ -289,6 +290,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::UrlHandlerCheck)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS checks one build-declared URL with canOpenURL. Android-style intent actions remain unsupported, and universal-link association is not guaranteed by a positive result.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -510,6 +520,14 @@ void FOpenMobileDeviceIOSBackend::CancelUserInitiatedPaste(
 )
 {
 	CancelOpenMobileDeviceIOSUserInitiatedPaste(OperationId);
+}
+
+FOpenMobileIntentHandlerCheckResult
+FOpenMobileDeviceIOSBackend::CheckIntentHandler(
+	const FOpenMobileIntentHandlerCheckRequest& Request
+)
+{
+	return CheckOpenMobileDeviceIOSIntentHandler(Request);
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(

@@ -13,6 +13,7 @@
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceFlashlightAsyncAction.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceIntentHandlerTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"

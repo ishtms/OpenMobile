@@ -110,6 +110,30 @@ public:
 	)
 	int32 EndpointReachabilityMaximumConcurrentRequests = 4;
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "External Apps",
+		meta = (
+			DisplayName = "Declared Custom URL Schemes",
+			ToolTip = "Custom URL schemes allowed for handler checks and emitted into platform visibility metadata. HTTP and HTTPS are built in. At most 50 custom schemes are supported."
+		)
+	)
+	TArray<FString> DeclaredUrlSchemes;
+
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "External Apps",
+		meta = (
+			DisplayName = "Declared Android Intent Actions",
+			ToolTip = "Exact Android intent actions allowed for handler checks and emitted into package visibility metadata. iOS does not support these queries."
+		)
+	)
+	TArray<FString> DeclaredAndroidIntentActions;
+
 	float GetValidatedFallbackPollingIntervalSeconds() const
 	{
 		if (!FMath::IsFinite(FallbackPollingIntervalSeconds))

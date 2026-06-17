@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<iosPListUpdates>
+		<setIntFromPropertyArrayNum result="OpenMobileDeviceUrlSchemeCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes"/>
+		<setBoolIsGreater result="OpenMobileDeviceHasUrlSchemes" arg1="$I(OpenMobileDeviceUrlSchemeCount)" arg2="0"/>
+		<if condition="OpenMobileDeviceHasUrlSchemes">
+			<true>
+				<setBool result="OpenMobileDeviceQueriesArrayFound" value="false"/>
+				<loopElements tag="dict">
+					<setBool result="OpenMobileDeviceQueriesKeyFound" value="false"/>
+					<loopElements tag="$">
+						<setStringFromTag result="OpenMobileDevicePlistTag" tag="$"/>
+						<if condition="OpenMobileDeviceQueriesKeyFound">
+							<true>
+								<setBoolIsEqual result="OpenMobileDevicePlistTagIsArray" arg1="$S(OpenMobileDevicePlistTag)" arg2="array"/>
+								<if condition="OpenMobileDevicePlistTagIsArray">
+									<true>
+										<setInt result="OpenMobileDeviceUrlSchemeIndex" value="0"/>
+										<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+										<while condition="OpenMobileDeviceHasUrlScheme">
+											<setStringFromPropertyArray result="OpenMobileDeviceUrlScheme" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes" index="$I(OpenMobileDeviceUrlSchemeIndex)"/>
+											<setIntAdd result="OpenMobileDeviceUrlSchemeIndex" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="1"/>
+											<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+											<setElement result="OpenMobileDeviceUrlSchemeEntry" value="string" text="$S(OpenMobileDeviceUrlScheme)"/>
+											<addElement tag="$" name="OpenMobileDeviceUrlSchemeEntry"/>
+										</while>
+										<setBool result="OpenMobileDeviceQueriesArrayFound" value="true"/>
+									</true>
+								</if>
+							</true>
+						</if>
+						<if condition="OpenMobileDeviceQueriesArrayFound">
+							<false>
+								<setBoolIsEqual result="OpenMobileDevicePlistTagIsKey" arg1="$S(OpenMobileDevicePlistTag)" arg2="key"/>
+								<if condition="OpenMobileDevicePlistTagIsKey">
+									<true>
+										<setStringFromTagText result="OpenMobileDevicePlistKey" tag="$"/>
+										<setBoolIsEqual result="OpenMobileDeviceQueriesKeyFound" arg1="$S(OpenMobileDevicePlistKey)" arg2="LSApplicationQueriesSchemes"/>
+									</true>
+								</if>
+							</false>
+						</if>
+					</loopElements>
+				</loopElements>
+				<setBoolNot result="OpenMobileDeviceNeedsQueriesArray" source="$B(OpenMobileDeviceQueriesArrayFound)"/>
+				<if condition="OpenMobileDeviceNeedsQueriesArray">
+					<true>
+						<addElements tag="dict" once="true">
+							<key>LSApplicationQueriesSchemes</key>
+						</addElements>
+						<setElement result="OpenMobileDeviceQueriesArray" value="array"/>
+						<setInt result="OpenMobileDeviceUrlSchemeIndex" value="0"/>
+						<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+						<while condition="OpenMobileDeviceHasUrlScheme">
+							<setStringFromPropertyArray result="OpenMobileDeviceUrlScheme" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes" index="$I(OpenMobileDeviceUrlSchemeIndex)"/>
+							<setIntAdd result="OpenMobileDeviceUrlSchemeIndex" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="1"/>
+							<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+							<setElement result="OpenMobileDeviceUrlSchemeEntry" value="string" text="$S(OpenMobileDeviceUrlScheme)"/>
+							<addElement tag="$OpenMobileDeviceQueriesArray" name="OpenMobileDeviceUrlSchemeEntry"/>
+						</while>
+						<addElement tag="dict" name="OpenMobileDeviceQueriesArray" once="true"/>
+					</true>
+				</if>
+			</true>
+		</if>
+	</iosPListUpdates>
+</root>

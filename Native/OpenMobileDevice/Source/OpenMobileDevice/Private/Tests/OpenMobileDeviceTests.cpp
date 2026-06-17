@@ -43,6 +43,9 @@
 #include "OpenMobileDeviceIdentityTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
+#include "OpenMobileDeviceIntentHandlerPolicy.h"
+#include "OpenMobileDeviceIntentHandlerService.h"
+#include "OpenMobileDeviceIntentHandlerTypes.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceLocaleInfo.h"
 #include "OpenMobileDeviceMemoryInfo.h"
@@ -253,6 +256,14 @@ namespace OpenMobileDeviceTests
 			return ClipboardClearResult;
 		}
 
+		virtual FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
+			const FOpenMobileIntentHandlerCheckRequest& Request
+		) override
+		{
+			IntentHandlerRequests.Add(Request);
+			return IntentHandlerResult;
+		}
+
 		virtual bool BeginUserInitiatedPaste(
 			const FOpenMobileUserInitiatedPasteRequest& Request,
 			const FGuid& OperationId,
@@ -455,6 +466,8 @@ namespace OpenMobileDeviceTests
 		TArray<FOpenMobileClipboardWriteRequest> ClipboardWrites;
 		TArray<EOpenMobileClipboardContentType> ClipboardReads;
 		int32 ClipboardClearCount = 0;
+		FOpenMobileIntentHandlerCheckResult IntentHandlerResult;
+		TArray<FOpenMobileIntentHandlerCheckRequest> IntentHandlerRequests;
 		bool bAcceptUserInitiatedPaste = true;
 		TArray<FOpenMobileUserInitiatedPasteRequest>
 			UserInitiatedPasteRequests;
@@ -4284,6 +4297,27 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Endpoint concurrency has a safe minimum"), Settings->GetValidatedEndpointReachabilityMaximumConcurrentRequests(), 1);
 	Settings->EndpointReachabilityMaximumConcurrentRequests = 99;
 	TestEqual(TEXT("Endpoint concurrency has a safe maximum"), Settings->GetValidatedEndpointReachabilityMaximumConcurrentRequests(), 16);
+	const FArrayProperty* DeclaredSchemesProperty = FindFProperty<FArrayProperty>(
+		UOpenMobileDeviceSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileDeviceSettings, DeclaredUrlSchemes)
+	);
+	TestTrue(
+		TEXT("Declared URL schemes are serialized to config"),
+		DeclaredSchemesProperty
+			&& DeclaredSchemesProperty->HasAnyPropertyFlags(CPF_Config)
+	);
+	const FArrayProperty* DeclaredActionsProperty = FindFProperty<FArrayProperty>(
+		UOpenMobileDeviceSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileDeviceSettings,
+			DeclaredAndroidIntentActions
+		)
+	);
+	TestTrue(
+		TEXT("Declared Android actions are serialized to config"),
+		DeclaredActionsProperty
+			&& DeclaredActionsProperty->HasAnyPropertyFlags(CPF_Config)
+	);
 
 	const FString ConfigPath = FPaths::CreateTempFilename(
 		*FPaths::ProjectIntermediateDir(),
@@ -4296,6 +4330,10 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->LowStorageRecoveryHysteresisBytes = 96ll * 1024 * 1024;
 	Settings->LowStorageFallbackPollingIntervalSeconds = 45.0f;
 	Settings->EndpointReachabilityMaximumConcurrentRequests = 6;
+	Settings->DeclaredUrlSchemes = {TEXT("example-app")};
+	Settings->DeclaredAndroidIntentActions = {
+		TEXT("com.example.device.OPEN")
+	};
 	Settings->SaveConfig(CPF_Config, *ConfigPath, GConfig, false);
 	UOpenMobileDeviceSettings* Loaded = NewObject<UOpenMobileDeviceSettings>();
 	Loaded->LoadConfig(UOpenMobileDeviceSettings::StaticClass(), *ConfigPath);
@@ -4325,6 +4363,16 @@ bool FOpenMobileDeviceSettingsContractTest::RunTest(const FString& Parameters)
 		45.0f
 	);
 	TestEqual(TEXT("Endpoint concurrency survives config serialization"), Loaded->EndpointReachabilityMaximumConcurrentRequests, 6);
+	TestEqual(
+		TEXT("Declared URL schemes survive config serialization"),
+		Loaded->DeclaredUrlSchemes,
+		TArray<FString>({TEXT("example-app")})
+	);
+	TestEqual(
+		TEXT("Declared Android actions survive config serialization"),
+		Loaded->DeclaredAndroidIntentActions,
+		TArray<FString>({TEXT("com.example.device.OPEN")})
+	);
 	return true;
 }
 
@@ -6158,6 +6206,432 @@ bool FOpenMobileDeviceUserInitiatedPasteLifecycleTest::RunTest(
 	FOpenMobileDeviceUserInitiatedPasteService::Start();
 
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceIntentHandlerPolicyTest,
+	"OpenMobile.Device.External.IntentHandlerPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceIntentHandlerPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const TArray<FString> DeclaredSchemes = {TEXT("example-app")};
+	const TArray<FString> DeclaredActions = {
+		TEXT("com.example.device.OPEN")
+	};
+	FOpenMobileIntentHandlerCheckRequest Request;
+	Request.Url = TEXT("https://example.com/app/path");
+	FName Scheme;
+	FOpenMobileIntentHandlerCheckResult Failure;
+	TestTrue(
+		TEXT("HTTPS URL is implicitly declared"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(TEXT("URL scheme is normalized"), Scheme, FName(TEXT("https")));
+	const FString WebPrefix = TEXT("https://example.com/");
+	Request.Url = WebPrefix + FString::ChrN(
+		FOpenMobileDeviceIntentHandlerPolicy::MaximumUrlBytes
+			- WebPrefix.Len(),
+		TEXT('a')
+	);
+	TestTrue(
+		TEXT("A URL at the byte limit is accepted"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	Request.Url.AppendChar(TEXT('a'));
+	TestFalse(
+		TEXT("A URL above the byte limit is rejected"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Oversized URL has invalid-request state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::InvalidRequest
+	);
+
+	Request.Url = TEXT("EXAMPLE-APP://open/item");
+	TestTrue(
+		TEXT("Configured custom scheme is case-insensitive"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Custom URL scheme is normalized"),
+		Scheme,
+		FName(TEXT("example-app"))
+	);
+	Request.DeclaredIntentAction = TEXT("com.example.device.OPEN");
+	TestFalse(
+		TEXT("URL and action fields cannot be mixed"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Mixed fields have invalid-request state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::InvalidRequest
+	);
+	Request.DeclaredIntentAction.Reset();
+	Request.Url = TEXT("missing-app://open/item");
+	TestFalse(
+		TEXT("Undeclared custom scheme is rejected"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Undeclared scheme has distinct state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::NotDeclared
+	);
+
+	for (const FString& InvalidUrl : {
+		FString(TEXT("relative/path")),
+		FString(TEXT("https://")),
+		FString(TEXT("https://example.com/has space")),
+		FString(TEXT("file:///private/data")),
+		FString(TEXT("intent://unsafe#Intent;end"))
+	})
+	{
+		Request.Url = InvalidUrl;
+		TestFalse(
+			*FString::Printf(TEXT("Unsafe URL is rejected: %s"), *InvalidUrl),
+			FOpenMobileDeviceIntentHandlerPolicy::Validate(
+				Request,
+				DeclaredSchemes,
+				DeclaredActions,
+				Scheme,
+				Failure
+			)
+		);
+		TestEqual(
+			TEXT("Unsafe URL has invalid-request state"),
+			Failure.State,
+			EOpenMobileIntentHandlerCheckState::InvalidRequest
+		);
+	}
+
+	Request = {};
+	Request.Kind = EOpenMobileIntentHandlerQueryKind::DeclaredIntent;
+	Request.DeclaredIntentAction = TEXT("com.example.device.OPEN");
+	TestTrue(
+		TEXT("Exact configured intent action is accepted"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	Request.DeclaredIntentAction = TEXT("com.example.device.MISSING");
+	TestFalse(
+		TEXT("Undeclared intent action is rejected"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Undeclared action has distinct state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::NotDeclared
+	);
+	Request.DeclaredIntentAction = TEXT("com.example.*");
+	TestFalse(
+		TEXT("Wildcard intent action is unsafe"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Wildcard action has invalid-request state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::InvalidRequest
+	);
+	Request.DeclaredIntentAction = TEXT("com.example.device.open");
+	TestFalse(
+		TEXT("Intent action declarations are case-sensitive"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Action case mismatch is not declared"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::NotDeclared
+	);
+
+	TArray<FString> MaximumSchemes;
+	for (int32 Index = 0;
+		Index < FOpenMobileDeviceIntentHandlerPolicy::MaximumDeclaredUrlSchemes;
+		++Index)
+	{
+		MaximumSchemes.Add(FString::Printf(TEXT("scheme%d"), Index));
+	}
+	Request = {};
+	Request.Url = TEXT("scheme49://open");
+	TestTrue(
+		TEXT("The exact platform scheme limit is accepted"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			MaximumSchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TArray<FString> TooManySchemes = MaximumSchemes;
+	TooManySchemes.Add(TEXT("scheme50"));
+	Request.Url = TEXT("scheme0://open");
+	TestFalse(
+		TEXT("Platform scheme limit is enforced before native work"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			TooManySchemes,
+			DeclaredActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Scheme limit has distinct configuration state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::ConfigurationLimitExceeded
+	);
+
+	TArray<FString> MaximumActions;
+	for (int32 Index = 0;
+		Index < FOpenMobileDeviceIntentHandlerPolicy::MaximumDeclaredIntentActions;
+		++Index)
+	{
+		MaximumActions.Add(FString::Printf(
+			TEXT("com.example.device.ACTION_%d"),
+			Index
+		));
+	}
+	Request = {};
+	Request.Kind = EOpenMobileIntentHandlerQueryKind::DeclaredIntent;
+	Request.DeclaredIntentAction = TEXT("com.example.device.ACTION_49");
+	TestTrue(
+		TEXT("The exact declared-action limit is accepted"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			MaximumActions,
+			Scheme,
+			Failure
+		)
+	);
+	TArray<FString> TooManyActions = MaximumActions;
+	TooManyActions.Add(TEXT("com.example.device.ACTION_50"));
+	Request.DeclaredIntentAction = TEXT("com.example.device.ACTION_0");
+	TestFalse(
+		TEXT("Declared actions above the limit are rejected"),
+		FOpenMobileDeviceIntentHandlerPolicy::Validate(
+			Request,
+			DeclaredSchemes,
+			TooManyActions,
+			Scheme,
+			Failure
+		)
+	);
+	TestEqual(
+		TEXT("Action limit has distinct configuration state"),
+		Failure.State,
+		EOpenMobileIntentHandlerCheckState::ConfigurationLimitExceeded
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceIntentHandlerServiceTest,
+	"OpenMobile.Device.External.IntentHandlerService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceIntentHandlerServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("IntentHandler"));
+	Backend.IntentHandlerResult.State =
+		EOpenMobileIntentHandlerCheckState::CanHandle;
+	TestTrue(
+		TEXT("Intent-handler mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UOpenMobileDeviceSettings* Settings =
+		GetMutableDefault<UOpenMobileDeviceSettings>();
+	const TArray<FString> SavedSchemes = Settings->DeclaredUrlSchemes;
+	const TArray<FString> SavedActions =
+		Settings->DeclaredAndroidIntentActions;
+	Settings->DeclaredUrlSchemes = {TEXT("example-app")};
+	Settings->DeclaredAndroidIntentActions = {
+		TEXT("com.example.device.OPEN")
+	};
+
+	FOpenMobileIntentHandlerCheckRequest Request;
+	Request.Url = TEXT("https://example.com/app");
+	const FOpenMobileIntentHandlerCheckResult Result =
+		FOpenMobileDeviceIntentHandlerService::Check(Request);
+	TestEqual(
+		TEXT("Valid URL reaches the backend"),
+		Result.State,
+		EOpenMobileIntentHandlerCheckState::CanHandle
+	);
+	TestEqual(
+		TEXT("Handler result exposes only the normalized scheme"),
+		Result.Scheme,
+		FString(TEXT("https"))
+	);
+	TestEqual(
+		TEXT("Backend receives one exact URL query"),
+		Backend.IntentHandlerRequests.Num(),
+		1
+	);
+	TestEqual(
+		TEXT("Backend receives the caller URL unchanged"),
+		Backend.IntentHandlerRequests[0].Url,
+		Request.Url
+	);
+	FOpenMobileDeviceIntentHandlerService::Check(Request);
+	TestEqual(
+		TEXT("Handler checks are not cached"),
+		Backend.IntentHandlerRequests.Num(),
+		2
+	);
+
+	Backend.IntentHandlerResult.State =
+		EOpenMobileIntentHandlerCheckState::CannotHandle;
+	TestEqual(
+		TEXT("Missing handler remains distinct"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::CannotHandle
+	);
+	const int32 RequestsBeforeRejection =
+		Backend.IntentHandlerRequests.Num();
+	Request.Url = TEXT("undeclared-app://open");
+	TestEqual(
+		TEXT("Undeclared scheme is rejected by the shared layer"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::NotDeclared
+	);
+	TestEqual(
+		TEXT("Undeclared scheme does not reach the platform"),
+		Backend.IntentHandlerRequests.Num(),
+		RequestsBeforeRejection
+	);
+
+	Request.Url = TEXT("example-app://open");
+	TestEqual(
+		TEXT("Declared custom scheme reaches the platform"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::CannotHandle
+	);
+	Request = {};
+	Request.Kind = EOpenMobileIntentHandlerQueryKind::DeclaredIntent;
+	Request.DeclaredIntentAction = TEXT("com.example.device.OPEN");
+	TestEqual(
+		TEXT("Declared action reaches the platform"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::CannotHandle
+	);
+
+	Backend.IntentHandlerResult = {};
+	const FOpenMobileIntentHandlerCheckResult MalformedBackend =
+		FOpenMobileDeviceIntentHandlerService::Check(Request);
+	TestEqual(
+		TEXT("Unknown backend state normalizes to Failed"),
+		MalformedBackend.State,
+		EOpenMobileIntentHandlerCheckState::Failed
+	);
+	TestTrue(
+		TEXT("Malformed backend state receives a typed error"),
+		MalformedBackend.Error.IsSet()
+	);
+
+	Request = {};
+	Request.Url = TEXT("https://bad host");
+	const int32 RequestsBeforeInvalid = Backend.IntentHandlerRequests.Num();
+	TestEqual(
+		TEXT("Malformed URL is invalid"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::InvalidRequest
+	);
+	TestEqual(
+		TEXT("Malformed URL does not reach the platform"),
+		Backend.IntentHandlerRequests.Num(),
+		RequestsBeforeInvalid
+	);
+	TestNotNull(
+		TEXT("Intent-handler check is reflected"),
+		UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("CheckIntentHandler")
+		)
+	);
+
+	Settings->DeclaredUrlSchemes = SavedSchemes;
+	Settings->DeclaredAndroidIntentActions = SavedActions;
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	Request.Url = TEXT("https://example.com");
+	TestEqual(
+		TEXT("Editor and missing backends report Unsupported"),
+		FOpenMobileDeviceIntentHandlerService::Check(Request).State,
+		EOpenMobileIntentHandlerCheckState::Unsupported
+	);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

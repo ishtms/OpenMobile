@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceIntentHandlerTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoringCallback.h"
@@ -238,6 +239,20 @@ public:
 		Result.Error = FOpenMobileError::Make(
 			EOpenMobileErrorCode::NotSupported,
 			TEXT("The active Device backend does not support clipboard clearing.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
+		const FOpenMobileIntentHandlerCheckRequest& Request
+	)
+	{
+		FOpenMobileIntentHandlerCheckResult Result;
+		Result.Kind = Request.Kind;
+		Result.State = EOpenMobileIntentHandlerCheckState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support intent-handler checks.")
 		);
 		return Result;
 	}

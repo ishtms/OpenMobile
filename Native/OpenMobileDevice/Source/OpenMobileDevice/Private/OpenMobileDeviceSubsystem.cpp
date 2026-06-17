@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceClipboardService.h"
 #include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
+#include "OpenMobileDeviceIntentHandlerService.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDeviceRefreshRateControlService.h"
@@ -357,6 +358,25 @@ FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ClearClipboard()
 		return Result;
 	}
 	return FOpenMobileDeviceClipboardService::Clear();
+}
+
+FOpenMobileIntentHandlerCheckResult
+UOpenMobileDeviceSubsystem::CheckIntentHandler(
+	const FOpenMobileIntentHandlerCheckRequest& Request
+) const
+{
+	if (!bDeinitialized)
+	{
+		return FOpenMobileDeviceIntentHandlerService::Check(Request);
+	}
+	FOpenMobileIntentHandlerCheckResult Result;
+	Result.Kind = Request.Kind;
+	Result.State = EOpenMobileIntentHandlerCheckState::Failed;
+	Result.Error = FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("The Device subsystem has been deinitialized.")
+	);
+	return Result;
 }
 
 UOpenMobileBrightnessHandle*

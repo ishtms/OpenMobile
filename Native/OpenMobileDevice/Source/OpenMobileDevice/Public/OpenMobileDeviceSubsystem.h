@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
 #include "OpenMobileDeviceIdentityTypes.h"
+#include "OpenMobileDeviceIntentHandlerTypes.h"
 #include "OpenMobileDeviceKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceLocaleTypes.h"
 #include "OpenMobileDeviceMonitoring.h"
@@ -232,6 +233,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Clear Clipboard", ToolTip = "Removes all clipboard items when the platform provides a guaranteed clear operation."))
 	FOpenMobileClipboardOperationResult ClearClipboard();
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Check Intent Handler", ToolTip = "Checks one declared URL or Android intent action without launching it or enumerating installed applications. A positive result does not guarantee a later launch succeeds."))
+	FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
+		const FOpenMobileIntentHandlerCheckRequest& Request
+	) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))
 	UOpenMobileBrightnessHandle* RequestBrightnessOverride(

@@ -11,6 +11,7 @@
 #include "OpenMobileDeviceAndroidFlashlight.h"
 #include "OpenMobileDeviceAndroidDisplay.h"
 #include "OpenMobileDeviceAndroidIdentity.h"
+#include "OpenMobileDeviceAndroidIntentHandler.h"
 #include "OpenMobileDeviceAndroidKeepScreenAwakeControl.h"
 #include "OpenMobileDeviceAndroidLocale.h"
 #include "OpenMobileDeviceAndroidLocaleMonitor.h"
@@ -296,6 +297,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		}
 		return Capability;
 	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::UrlHandlerCheck)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android checks one build-declared URL or exact intent action through PackageManager visibility without returning handler identities.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -522,6 +532,14 @@ void FOpenMobileDeviceAndroidBackend::CancelUserInitiatedPaste(
 )
 {
 	CancelOpenMobileDeviceAndroidUserInitiatedPaste(OperationId);
+}
+
+FOpenMobileIntentHandlerCheckResult
+FOpenMobileDeviceAndroidBackend::CheckIntentHandler(
+	const FOpenMobileIntentHandlerCheckRequest& Request
+)
+{
+	return CheckOpenMobileDeviceAndroidIntentHandler(Request);
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(

@@ -40,6 +40,9 @@ public:
 		EOpenMobileClipboardContentType ContentType
 	) override;
 	virtual FOpenMobileClipboardOperationResult ClearClipboard() override;
+	virtual FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
+		const FOpenMobileIntentHandlerCheckRequest& Request
+	) override;
 	virtual bool BeginUserInitiatedPaste(
 		const FOpenMobileUserInitiatedPasteRequest& Request,
 		const FGuid& OperationId,

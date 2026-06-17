@@ -9,6 +9,52 @@ dependencies {
 	</buildGradleAdditions>
 	<androidManifestUpdates>
 		<addPermission android:name="android.permission.ACCESS_NETWORK_STATE" />
+		<addElements tag="manifest" once="true">
+			<queries>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<category android:name="android.intent.category.BROWSABLE" />
+					<data android:scheme="http" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<category android:name="android.intent.category.BROWSABLE" />
+					<data android:scheme="https" />
+				</intent>
+			</queries>
+		</addElements>
+		<setIntFromPropertyArrayNum result="OpenMobileDeviceUrlSchemeCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes"/>
+		<setInt result="OpenMobileDeviceUrlSchemeIndex" value="0"/>
+		<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+		<while condition="OpenMobileDeviceHasUrlScheme">
+			<setStringFromPropertyArray result="OpenMobileDeviceUrlScheme" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes" index="$I(OpenMobileDeviceUrlSchemeIndex)"/>
+			<setIntAdd result="OpenMobileDeviceUrlSchemeIndex" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="1"/>
+			<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
+			<setElement result="OpenMobileDeviceUrlQuery" value="intent"/>
+			<setElement result="OpenMobileDeviceUrlQueryAction" value="action"/>
+			<addAttribute tag="$OpenMobileDeviceUrlQueryAction" name="android:name" value="android.intent.action.VIEW"/>
+			<setElement result="OpenMobileDeviceUrlQueryCategory" value="category"/>
+			<addAttribute tag="$OpenMobileDeviceUrlQueryCategory" name="android:name" value="android.intent.category.BROWSABLE"/>
+			<setElement result="OpenMobileDeviceUrlQueryData" value="data"/>
+			<addAttribute tag="$OpenMobileDeviceUrlQueryData" name="android:scheme" value="$S(OpenMobileDeviceUrlScheme)"/>
+			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryAction"/>
+			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryCategory"/>
+			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryData"/>
+			<addElement tag="queries" name="OpenMobileDeviceUrlQuery" once="true"/>
+		</while>
+		<setIntFromPropertyArrayNum result="OpenMobileDeviceIntentActionCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidIntentActions"/>
+		<setInt result="OpenMobileDeviceIntentActionIndex" value="0"/>
+		<setBoolIsLess result="OpenMobileDeviceHasIntentAction" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="$I(OpenMobileDeviceIntentActionCount)"/>
+		<while condition="OpenMobileDeviceHasIntentAction">
+			<setStringFromPropertyArray result="OpenMobileDeviceIntentAction" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidIntentActions" index="$I(OpenMobileDeviceIntentActionIndex)"/>
+			<setIntAdd result="OpenMobileDeviceIntentActionIndex" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="1"/>
+			<setBoolIsLess result="OpenMobileDeviceHasIntentAction" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="$I(OpenMobileDeviceIntentActionCount)"/>
+			<setElement result="OpenMobileDeviceIntentQuery" value="intent"/>
+			<setElement result="OpenMobileDeviceIntentQueryAction" value="action"/>
+			<addAttribute tag="$OpenMobileDeviceIntentQueryAction" name="android:name" value="$S(OpenMobileDeviceIntentAction)"/>
+			<addElement tag="$OpenMobileDeviceIntentQuery" name="OpenMobileDeviceIntentQueryAction"/>
+			<addElement tag="queries" name="OpenMobileDeviceIntentQuery" once="true"/>
+		</while>
 	</androidManifestUpdates>
 	<gameActivityImportAdditions>
 		<insert>
@@ -31,6 +77,42 @@ import androidx.window.layout.WindowLayoutInfo;
 	private android.hardware.display.DisplayManager.DisplayListener
 		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
+
+	public int AndroidThunkJava_OpenMobileDeviceCheckIntentHandler(
+		String url,
+		String action,
+		int queryKind
+	)
+	{
+		try
+		{
+			android.content.Intent intent;
+			if (queryKind == 0)
+			{
+				intent = new android.content.Intent(
+					android.content.Intent.ACTION_VIEW,
+					android.net.Uri.parse(url)
+				);
+				intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+			}
+			else if (queryKind == 1)
+			{
+				intent = new android.content.Intent(action);
+			}
+			else
+			{
+				return -1;
+			}
+			return getPackageManager().resolveActivity(
+				intent,
+				android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+			) == null ? 0 : 1;
+		}
+		catch (RuntimeException exception)
+		{
+			return -1;
+		}
+	}
 
 	public native void nativeOpenMobileDeviceWindowChanged();
 
@@ -455,24 +537,6 @@ import androidx.window.layout.WindowLayoutInfo;
 		if (windowBrightness >= 0.0f)
 		{
 			return Math.max(0.0f, Math.min(1.0f, windowBrightness));
-		}
-		if (android.os.Build.VERSION.SDK_INT >= 31)
-		{
-			android.view.View decorView = window.getDecorView();
-			android.view.Display display = decorView == null
-				? null
-				: decorView.getDisplay();
-			android.hardware.display.BrightnessInfo brightnessInfo =
-				display == null ? null : display.getBrightnessInfo();
-			if (brightnessInfo != null
-				&& !Float.isNaN(brightnessInfo.brightness)
-				&& !Float.isInfinite(brightnessInfo.brightness))
-			{
-				return Math.max(
-					0.0f,
-					Math.min(1.0f, brightnessInfo.brightness)
-				);
-			}
 		}
 		int systemBrightness = android.provider.Settings.System.getInt(
 			getContentResolver(),
