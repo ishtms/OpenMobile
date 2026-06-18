@@ -80,6 +80,7 @@ public:
 	virtual int32 GetPriority() const { return 0; }
 	virtual bool IsAvailable() const { return true; }
 	virtual FOpenMobileHapticCapabilities GetCapabilities() const = 0;
+	virtual bool IsCustomPlaybackConfigured() const { return true; }
 	virtual EOpenMobileHapticsBackendPreparationState
 	GetPreparationState() const = 0;
 	virtual FOpenMobileHapticsBackendControlSupport

@@ -29,6 +29,7 @@
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsAsyncAction.h"
+#include "OpenMobileHapticsAndroidConfigurationPolicy.h"
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
 #include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
@@ -57,6 +58,10 @@ namespace OpenMobileHapticsTests
 		virtual FOpenMobileHapticCapabilities GetCapabilities() const override
 		{
 			return Capabilities;
+		}
+		virtual bool IsCustomPlaybackConfigured() const override
+		{
+			return bCustomPlaybackConfigured;
 		}
 		virtual void HandleLifecycleChange() override
 		{
@@ -210,6 +215,7 @@ namespace OpenMobileHapticsTests
 			EOpenMobileHapticsBackendPreparationState::Unprepared;
 		FOpenMobileHapticsBackendControlSupport ControlSupport;
 		bool bAvailable = true;
+		bool bCustomPlaybackConfigured = true;
 		bool bFailSubmissions = false;
 		bool bFailSubmissionsWithoutError = false;
 		bool bNativePolicySuppressesSemantic = false;
@@ -1628,6 +1634,88 @@ bool FOpenMobileHapticsEnvelopePolicyTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAndroidConfigurationPolicyTest,
+	"OpenMobile.Haptics.Android.ConfigurationPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAndroidConfigurationPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.Availability = EOpenMobileHapticAvailability::RichHaptics;
+	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Supported;
+	Capabilities.SemanticFeedback = EOpenMobileHapticSupportState::Supported;
+	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Supported;
+	Capabilities.AmplitudeControl = EOpenMobileHapticSupportState::Supported;
+	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Supported;
+	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Supported;
+	Capabilities.Looping = EOpenMobileHapticSupportState::Supported;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Supported;
+	Capabilities.Envelopes = EOpenMobileHapticSupportState::Supported;
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Supported;
+	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Supported;
+	Capabilities.ContinuousEvents = EOpenMobileHapticSupportState::Supported;
+	Capabilities.PresetSupport = {{
+		TEXT("Click"), EOpenMobileHapticSupportState::Supported
+	}};
+	Capabilities.PrimitiveSupport = {{
+		TEXT("Tick"), EOpenMobileHapticSupportState::Supported
+	}};
+	Capabilities.MaximumControlPointCount = {true, 16};
+	Capabilities.MaximumDurationSeconds = {true, 1.0};
+	Capabilities.MinimumTimingGranularitySeconds = {true, 0.01};
+	Capabilities.MaximumControlPointDurationSeconds = {true, 0.1};
+	Capabilities.FrequencyRange = {true, 40.0f, 200.0f};
+
+	FOpenMobileHapticsAndroidConfigurationPolicy::ApplyCapabilityMask(
+		false,
+		Capabilities
+	);
+	TestEqual(TEXT("Semantic view feedback remains available"),
+		Capabilities.SemanticEffects,
+		EOpenMobileHapticSupportState::Supported);
+	TestEqual(TEXT("Semantic-only builds report semantic availability"),
+		Capabilities.Availability,
+		EOpenMobileHapticAvailability::SemanticFeedback);
+	for (const EOpenMobileHapticSupportState Support : {
+		Capabilities.BasicVibration,
+		Capabilities.RichHaptics,
+		Capabilities.AmplitudeControl,
+		Capabilities.PredefinedEffects,
+		Capabilities.WaveformTiming,
+		Capabilities.Looping,
+		Capabilities.Primitives,
+		Capabilities.Envelopes,
+		Capabilities.FrequencyControl,
+		Capabilities.TransientEvents,
+		Capabilities.ContinuousEvents
+	})
+	{
+		TestEqual(TEXT("Custom vibration capability is masked"),
+			Support, EOpenMobileHapticSupportState::Unsupported);
+	}
+	TestEqual(TEXT("Named preset support is masked"),
+		Capabilities.PresetSupport[0].Support,
+		EOpenMobileHapticSupportState::Unsupported);
+	TestEqual(TEXT("Named primitive support is masked"),
+		Capabilities.PrimitiveSupport[0].Support,
+		EOpenMobileHapticSupportState::Unsupported);
+	TestFalse(TEXT("Custom native limits are hidden"),
+		Capabilities.MaximumControlPointCount.bKnown
+		|| Capabilities.MaximumDurationSeconds.bKnown
+		|| Capabilities.MinimumTimingGranularitySeconds.bKnown
+		|| Capabilities.MaximumControlPointDurationSeconds.bKnown
+		|| Capabilities.FrequencyRange.bKnown);
+	TestTrue(TEXT("Capability detail explains the build configuration"),
+		Capabilities.Detail.Contains(TEXT("not packaged")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsAndroidWaveformPolicyTest,
 	"OpenMobile.Haptics.Pattern.AndroidWaveformPolicy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -2517,6 +2605,20 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 	TestEqual(TEXT("Unsupported pulse has a typed error"),
 		Unsupported.Error.Code,
 		EOpenMobileHapticErrorCode::UnsupportedFeature);
+	Backend.bCustomPlaybackConfigured = false;
+	const FOpenMobileHapticPlaybackResult NotConfigured =
+		Subsystem->Vibrate(0.2f, 1.0f, TEXT("UnpackagedPulse"));
+	TestEqual(TEXT("Unpackaged custom vibration is distinguished"),
+		NotConfigured.Error.Code,
+		EOpenMobileHapticErrorCode::NotConfigured);
+	FOpenMobileHapticOneShotRequest OptionalRequest;
+	OptionalRequest.DurationSeconds = 0.2f;
+	OptionalRequest.Options.Channel = TEXT("OptionalUnpackagedPulse");
+	OptionalRequest.Options.FallbackPolicy =
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed;
+	TestEqual(TEXT("No-effect policy still suppresses unpackaged vibration"),
+		Subsystem->SubmitOneShot(OptionalRequest).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
 
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
@@ -2861,6 +2963,32 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	TestEqual(TEXT("Unavailable exact feedback is typed as unsupported"),
 		Unsupported.Error.Code,
 		EOpenMobileHapticErrorCode::UnsupportedFeature);
+	Backend.bCustomPlaybackConfigured = false;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Unsupported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	Options.Channel = TEXT("UnpackagedSemanticFallback");
+	Options.FallbackPolicy = EOpenMobileHapticFallbackPolicy::Automatic;
+	const FOpenMobileHapticPlaybackResult NotConfigured =
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::Damage,
+			1.0f,
+			Options
+		});
+	TestEqual(TEXT("Unpackaged semantic fallback is distinguished"),
+		NotConfigured.Error.Code,
+		EOpenMobileHapticErrorCode::NotConfigured);
+	Options.Channel = TEXT("OptionalUnpackagedSemanticFallback");
+	Options.FallbackPolicy = EOpenMobileHapticFallbackPolicy::NoEffectAllowed;
+	TestEqual(TEXT("Optional unpackaged semantic fallback is suppressed"),
+		Subsystem->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::Damage,
+			1.0f,
+			Options
+		}).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	Backend.bCustomPlaybackConfigured = true;
+	Options.FallbackPolicy = EOpenMobileHapticFallbackPolicy::Automatic;
 
 	UOpenMobileHapticsSubsystem* DebounceSubsystem =
 		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
@@ -3440,10 +3568,18 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->DefaultChannel,
 		FName(TEXT("Gameplay"))
 	);
-	TestTrue(
-		TEXT("Custom Android vibration packaging is enabled by default"),
-		Settings->Android.bPackageCustomVibration
+	TestTrue(TEXT("Android custom vibration is packaged by default"),
+		Settings->bEnableAndroidCustomVibration);
+	const FBoolProperty* AndroidCustomProperty = FindFProperty<FBoolProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileHapticsSettings,
+			bEnableAndroidCustomVibration
+		)
 	);
+	TestTrue(TEXT("Android custom vibration is a config property"),
+		AndroidCustomProperty
+			&& AndroidCustomProperty->HasAnyPropertyFlags(CPF_Config));
 	TestEqual(TEXT("Portable patterns have a bounded event count"),
 		Settings->MaximumPatternEventCount, 128);
 	TestEqual(TEXT("Portable timing has a stable minimum granularity"),
@@ -3488,7 +3624,7 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 
 	Settings->bEnableCustomPlayback = false;
 	TestFalse(TEXT("Disabled custom playback cannot package Android vibration"), Settings->Validate(Errors));
-	Settings->Android.bPackageCustomVibration = false;
+	Settings->bEnableAndroidCustomVibration = false;
 	Settings->IOS.bEnableCoreHaptics = false;
 	TestFalse(TEXT("Disabled Core Haptics cannot package AHAP"), Settings->Validate(Errors));
 	Settings->IOS.bPackageAHAPResources = false;
@@ -3539,7 +3675,7 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	);
 	TestFalse(
 		TEXT("Android packaging override survives serialization"),
-		Loaded->Android.bPackageCustomVibration
+		Loaded->bEnableAndroidCustomVibration
 	);
 	TestFalse(
 		TEXT("Apple engine override survives serialization"),

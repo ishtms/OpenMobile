@@ -4,6 +4,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
+#include "OpenMobileHapticsAndroidConfigurationPolicy.h"
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
 #include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
@@ -11,6 +12,7 @@
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
+#include "OpenMobileHapticsSettings.h"
 
 namespace OpenMobileHapticsAndroidBackendPrivate
 {
@@ -165,6 +167,16 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			);
 			break;
 		}
+		return Submission;
+	}
+
+	FOpenMobileHapticsBackendSubmission MakeNotConfiguredSubmission()
+	{
+		FOpenMobileHapticsBackendSubmission Submission;
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotConfigured,
+			TEXT("Custom Android vibration was not included in this build.")
+		);
 		return Submission;
 	}
 
@@ -426,6 +438,14 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			break;
 		}
 
+		if (!GetDefault<UOpenMobileHapticsSettings>()
+			->bEnableAndroidCustomVibration)
+		{
+			FOpenMobileHapticsBackendSubmission Submission =
+				MakeNotConfiguredSubmission();
+			AppendAttempts(Submission, Attempts);
+			return Submission;
+		}
 		FOpenMobileHapticsBackendSubmission Submission;
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::NotSupported,
@@ -434,6 +454,20 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		AppendAttempts(Submission, Attempts);
 		return Submission;
 	}
+}
+
+bool FOpenMobileHapticsAndroidBackend::IsCustomPlaybackConfigured() const
+{
+	return GetDefault<UOpenMobileHapticsSettings>()
+		->bEnableAndroidCustomVibration;
+}
+
+FOpenMobileHapticsBackendControlSupport
+FOpenMobileHapticsAndroidBackend::GetControlSupport() const
+{
+	FOpenMobileHapticsBackendControlSupport Support;
+	Support.bStopAll = IsCustomPlaybackConfigured();
+	return Support;
 }
 
 FOpenMobileHapticCapabilities
@@ -576,6 +610,10 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 		};
 	}
 	Capabilities.Detail = TEXT("Android vibrator capabilities were queried without playback.");
+	FOpenMobileHapticsAndroidConfigurationPolicy::ApplyCapabilityMask(
+		IsCustomPlaybackConfigured(),
+		Capabilities
+	);
 	return Capabilities;
 }
 
@@ -605,6 +643,12 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 )
 {
 	FOpenMobileHapticsBackendSubmission Submission;
+	if (Resolution.Path != EOpenMobileHapticsSemanticPath::SystemSemantic
+		&& !IsCustomPlaybackConfigured())
+	{
+		return OpenMobileHapticsAndroidBackendPrivate::
+			MakeNotConfiguredSubmission();
+	}
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
 	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
@@ -736,6 +780,13 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 
 FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
 {
+	if (!IsCustomPlaybackConfigured())
+	{
+		return FOpenMobileHapticControlResult::MakeRejected(
+			EOpenMobileErrorCode::NotConfigured,
+			TEXT("Custom Android vibration was not included in this build.")
+		);
+	}
 	if (!Bridge.StopAll())
 	{
 		return FOpenMobileHapticControlResult::MakeRejected(
@@ -757,6 +808,12 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 )
 {
 	static_cast<void>(Callback);
+	if (Resolution.Path != EOpenMobileHapticsOneShotPath::SystemSemantic
+		&& !IsCustomPlaybackConfigured())
+	{
+		return OpenMobileHapticsAndroidBackendPrivate::
+			MakeNotConfiguredSubmission();
+	}
 	FOpenMobileHapticsBackendSubmission Submission;
 	const int32 Purpose = Request.Options.Category == TEXT("Alerts")
 		? 2
@@ -897,6 +954,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 )
 {
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
+	const bool bCustomPlaybackConfigured = IsCustomPlaybackConfigured();
 	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
 	const int32 Purpose = PurposeFor(Request.Options.Category);
 	const int32 AndroidAPI = FAndroidMisc::GetAndroidBuildVersion();
@@ -909,6 +967,10 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		Cast<UOpenMobileHapticAndroidPatternAsset>(
 			Request.PlatformOverrideAsset.ResolveObject()
 		);
+	if (!bCustomPlaybackConfigured && !PortablePattern)
+	{
+		return MakeNotConfiguredSubmission();
+	}
 	if (PortablePattern)
 	{
 		const FOpenMobileHapticsPlatformOverrideResolution Override =

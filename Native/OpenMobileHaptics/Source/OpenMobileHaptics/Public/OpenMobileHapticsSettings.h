@@ -70,9 +70,6 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidSettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
 	bool bEnableSemanticFeedback = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (DisplayName = "Package Custom Vibration"))
-	bool bPackageCustomVibration = true;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
 	bool bPreferPredefinedEffects = true;
 };
@@ -189,6 +186,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Platform", meta = (ToolTip = "Enables portable custom pattern playback. Platform packaging options must agree with this setting."))
 	bool bEnableCustomPlayback = true;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Platform|Android", meta = (DisplayName = "Enable Android Custom Vibration", ToolTip = "Packages android.permission.VIBRATE and enables custom Android vibration. Rebuild and repackage after changing this setting."))
+	bool bEnableAndroidCustomVibration = true;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Platform")
 	FOpenMobileHapticAndroidSettings Android;

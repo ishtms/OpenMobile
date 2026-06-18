@@ -253,7 +253,7 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Unrestricted background gameplay haptics are unsafe."));
 	}
-	if (!bEnableCustomPlayback && Android.bPackageCustomVibration)
+	if (!bEnableCustomPlayback && bEnableAndroidCustomVibration)
 	{
 		AddError(TEXT("Android custom vibration cannot be packaged when custom playback is disabled."));
 	}

@@ -1,7 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root xmlns:android="http://schemas.android.com/apk/res/android">
+    <init>
+        <setBoolFromProperty
+            result="OpenMobileHapticsCustomVibrationEnabled"
+            ini="Game"
+            section="/Script/OpenMobileHaptics.OpenMobileHapticsSettings"
+            property="bEnableAndroidCustomVibration"
+            default="true" />
+    </init>
+
     <androidManifestUpdates>
-        <addPermission android:name="android.permission.VIBRATE" />
+        <if condition="OpenMobileHapticsCustomVibrationEnabled">
+            <true>
+                <addPermission android:name="android.permission.VIBRATE" />
+            </true>
+            <false>
+                <removePermission android:name="android.permission.VIBRATE" />
+            </false>
+        </if>
     </androidManifestUpdates>
 
     <resourceCopies>

@@ -1153,6 +1153,17 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 				TEXT("Unavailable")
 			);
 		}
+		if (!Backend->IsCustomPlaybackConfigured()
+			&& Request.Options.FallbackPolicy
+				!= EOpenMobileHapticFallbackPolicy::ExactOnly)
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::NotConfigured,
+				EOpenMobileHapticFailureStage::Capability,
+				Descriptor.Name,
+				Request.Options.Channel
+			);
+		}
 		FOpenMobileHapticPlaybackResult Unsupported =
 			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
 				EOpenMobileHapticsFailureReason::UnsupportedFeature,
@@ -1382,6 +1393,15 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 				Request.Options.Channel,
 				TEXT("Unavailable")
+			);
+		}
+		if (!Backend->IsCustomPlaybackConfigured())
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::NotConfigured,
+				EOpenMobileHapticFailureStage::Capability,
+				TEXT("OneShot"),
+				Request.Options.Channel
 			);
 		}
 		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(

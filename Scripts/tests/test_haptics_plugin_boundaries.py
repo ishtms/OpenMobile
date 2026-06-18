@@ -396,6 +396,55 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("BeginShutdown", ios_backend)
 		self.assertNotIn("CHHapticEngine alloc", ios_backend)
 
+	def test_android_custom_vibration_configuration_is_canonical(self) -> None:
+		settings = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Public"
+			/ "OpenMobileHapticsSettings.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("bEnableAndroidCustomVibration", settings)
+		self.assertNotIn("bPackageCustomVibration", settings)
+
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		upl = (
+			android_root
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileHaptics_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		self.assertIn("<setBoolFromProperty", upl)
+		self.assertIn('ini="Game"', upl)
+		self.assertIn(
+			'property="bEnableAndroidCustomVibration"',
+			upl,
+		)
+		self.assertIn(
+			'<if condition="OpenMobileHapticsCustomVibrationEnabled">',
+			upl,
+		)
+		self.assertIn("<addPermission", upl)
+		self.assertIn("<removePermission", upl)
+		self.assertEqual(2, upl.count("android.permission.VIBRATE"))
+
+		backend = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ApplyCapabilityMask", backend)
+		self.assertIn("IsCustomPlaybackConfigured", backend)
+		self.assertIn("bEnableAndroidCustomVibration", backend)
+		self.assertIn("EOpenMobileErrorCode::NotConfigured", backend)
+
+		common_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Internal"
+			/ "IOpenMobileHapticsBackend.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("IsCustomPlaybackConfigured", common_backend)
+
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
 		bridge_path = (
