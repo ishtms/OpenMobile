@@ -4,6 +4,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSApplicationSettings.h"
+#include "OpenMobileDeviceIOSAppearance.h"
 #include "OpenMobileDeviceIOSBattery.h"
 #include "OpenMobileDeviceIOSBrightnessControl.h"
 #include "OpenMobileDeviceIOSClipboard.h"
@@ -158,6 +159,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 				);
 		}
 #endif
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::SystemAppearance
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::AppearanceChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reads the active Unreal scene's user-interface-style trait and observes that trait only while Appearance monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
@@ -706,6 +718,12 @@ FOpenMobileDeviceIOSBackend::GetMediaVolumeSnapshot() const
 	return Snapshot;
 }
 
+FOpenMobileAppearanceSnapshot
+FOpenMobileDeviceIOSBackend::GetAppearanceSnapshot() const
+{
+	return GetOpenMobileDeviceIOSAppearanceSnapshot();
+}
+
 bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	EOpenMobileDeviceMonitoringGroup Group,
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -726,6 +744,10 @@ bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	if (Group == EOpenMobileDeviceMonitoringGroup::Network)
 	{
 		return StartOpenMobileDeviceIOSNetworkMonitoring(CallbackToken);
+	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
+	{
+		return StartOpenMobileDeviceIOSAppearanceMonitoring(CallbackToken);
 	}
 	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
@@ -754,6 +776,10 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceIOSNetworkMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
+	{
+		StopOpenMobileDeviceIOSAppearanceMonitoring();
+	}
 	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
 		StopOpenMobileDeviceIOSFlashlightMonitoring();
@@ -772,5 +798,6 @@ void FOpenMobileDeviceIOSBackend::BeginShutdown()
 	StopOpenMobileDeviceIOSBatteryMonitoring();
 	StopOpenMobileDeviceIOSMemoryMonitoring();
 	StopOpenMobileDeviceIOSNetworkMonitoring();
+	StopOpenMobileDeviceIOSAppearanceMonitoring();
 	StopOpenMobileDeviceIOSFlashlightMonitoring();
 }

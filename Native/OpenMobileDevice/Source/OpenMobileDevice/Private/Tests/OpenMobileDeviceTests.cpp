@@ -74,6 +74,7 @@
 #include "OpenMobileDeviceStorageInfo.h"
 #include "OpenMobileDeviceStorageQueryAsyncAction.h"
 #include "OpenMobileDeviceSubsystem.h"
+#include "OpenMobileDeviceSystemAppearance.h"
 #include "OpenMobileDeviceSystemUiControl.h"
 #include "OpenMobileDeviceSystemUiControlPolicy.h"
 #include "OpenMobileDeviceSystemUiControlService.h"
@@ -215,6 +216,13 @@ namespace OpenMobileDeviceTests
 		{
 			++FlashlightQueries;
 			return Flashlight;
+		}
+
+		virtual FOpenMobileAppearanceSnapshot
+		GetAppearanceSnapshot() const override
+		{
+			++AppearanceQueries;
+			return Appearance;
 		}
 
 		virtual FOpenMobileFlashlightOperationResult ApplyFlashlight(
@@ -462,6 +470,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 NetworkQueries = 0;
 		mutable int32 BrightnessQueries = 0;
 		mutable int32 FlashlightQueries = 0;
+		mutable int32 AppearanceQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -475,6 +484,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobileWindowDisplaySnapshot WindowDisplay;
 		FOpenMobileBrightnessSnapshot Brightness;
 		FOpenMobileFlashlightSnapshot Flashlight;
+		FOpenMobileAppearanceSnapshot Appearance;
 		FOpenMobileFlashlightOperationResult FlashlightResult;
 		TArray<FOpenMobileFlashlightRequest> FlashlightRequests;
 		int32 FlashlightClearCount = 0;
@@ -6689,6 +6699,148 @@ bool FOpenMobileDeviceApplicationSettingsServiceTest::RunTest(
 		EOpenMobileApplicationSettingsOpenState::Unsupported
 	);
 	FOpenMobileDeviceApplicationSettingsService::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSystemAppearanceMappingTest,
+	"OpenMobile.Device.Appearance.SystemAppearanceMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSystemAppearanceMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	TestEqual(
+		TEXT("Android undefined night mode stays unknown"),
+		FOpenMobileDeviceSystemAppearance::FromAndroidNightMode(0x00),
+		EOpenMobileSystemAppearance::Unknown
+	);
+	TestEqual(
+		TEXT("Android not-night maps to light"),
+		FOpenMobileDeviceSystemAppearance::FromAndroidNightMode(0x10),
+		EOpenMobileSystemAppearance::Light
+	);
+	TestEqual(
+		TEXT("Android night maps to dark"),
+		FOpenMobileDeviceSystemAppearance::FromAndroidNightMode(0x20),
+		EOpenMobileSystemAppearance::Dark
+	);
+	TestEqual(
+		TEXT("Future Android night mode stays unknown"),
+		FOpenMobileDeviceSystemAppearance::FromAndroidNightMode(0x30),
+		EOpenMobileSystemAppearance::Unknown
+	);
+	TestEqual(
+		TEXT("iOS unspecified style stays unknown"),
+		FOpenMobileDeviceSystemAppearance::FromIOSUserInterfaceStyle(0),
+		EOpenMobileSystemAppearance::Unknown
+	);
+	TestEqual(
+		TEXT("iOS light style maps to light"),
+		FOpenMobileDeviceSystemAppearance::FromIOSUserInterfaceStyle(1),
+		EOpenMobileSystemAppearance::Light
+	);
+	TestEqual(
+		TEXT("iOS dark style maps to dark"),
+		FOpenMobileDeviceSystemAppearance::FromIOSUserInterfaceStyle(2),
+		EOpenMobileSystemAppearance::Dark
+	);
+	TestEqual(
+		TEXT("Future iOS style stays unknown"),
+		FOpenMobileDeviceSystemAppearance::FromIOSUserInterfaceStyle(3),
+		EOpenMobileSystemAppearance::Unknown
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceSystemAppearanceMonitoringTest,
+	"OpenMobile.Device.Appearance.SystemAppearanceMonitoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceSystemAppearanceMonitoringTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+
+	FMockBackend Backend(TEXT("AppearanceMock"));
+	Backend.NativeMonitoringGroups.Add(Group::Appearance);
+	Backend.Appearance.Appearance = EOpenMobileSystemAppearance::Light;
+	TestTrue(
+		TEXT("Appearance mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileAppearanceSnapshot> Changes;
+	Subsystem->OnNativeAppearanceSnapshotChanged().AddLambda(
+		[&Changes](const FOpenMobileAppearanceSnapshot& Snapshot)
+		{
+			Changes.Add(Snapshot);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Appearance},
+			1.0f
+		);
+	TestNotNull(TEXT("Appearance monitoring starts"), Subscription);
+	TestEqual(
+		TEXT("Appearance observer starts once"),
+		Backend.MonitoringStarts.FindRef(Group::Appearance),
+		1
+	);
+
+	Backend.Appearance.Appearance = EOpenMobileSystemAppearance::Dark;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Appearance
+	);
+	TestEqual(TEXT("Dark appearance emits once"), Changes.Num(), 1);
+	TestEqual(
+		TEXT("Appearance refresh precedes broadcast"),
+		Changes[0].Appearance,
+		EOpenMobileSystemAppearance::Dark
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Appearance
+	);
+	TestEqual(TEXT("Equal appearance coalesces"), Changes.Num(), 1);
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	Backend.Appearance.Appearance = EOpenMobileSystemAppearance::Light;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Appearance
+	);
+	TestEqual(TEXT("Background appearance does not emit"), Changes.Num(), 1);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh emits appearance"), Changes.Num(), 2);
+	TestEqual(
+		TEXT("Foreground refresh contains latest appearance"),
+		Changes[1].Appearance,
+		EOpenMobileSystemAppearance::Light
+	);
+
+	Subscription->Stop();
+	TestEqual(
+		TEXT("Appearance observer stops with final listener"),
+		Backend.MonitoringStops.FindRef(Group::Appearance),
+		1
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceMonitoringService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;

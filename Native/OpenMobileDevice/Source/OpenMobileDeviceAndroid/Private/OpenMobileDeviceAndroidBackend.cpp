@@ -6,6 +6,7 @@
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidApplicationSettings.h"
+#include "OpenMobileDeviceAndroidAppearance.h"
 #include "OpenMobileDeviceAndroidBattery.h"
 #include "OpenMobileDeviceAndroidBrightnessControl.h"
 #include "OpenMobileDeviceAndroidClipboard.h"
@@ -181,6 +182,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 					TEXT("Android 7.0 (API 24)")
 				);
 		}
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::SystemAppearance
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::AppearanceChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reads the current application's night resource qualifier and reports configuration changes while Appearance monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
@@ -769,6 +781,12 @@ FOpenMobileDeviceAndroidBackend::GetMediaVolumeSnapshot() const
 	return Snapshot;
 }
 
+FOpenMobileAppearanceSnapshot
+FOpenMobileDeviceAndroidBackend::GetAppearanceSnapshot() const
+{
+	return GetOpenMobileDeviceAndroidAppearanceSnapshot();
+}
+
 bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	EOpenMobileDeviceMonitoringGroup Group,
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -797,6 +815,10 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	if (Group == EOpenMobileDeviceMonitoringGroup::WindowDisplay)
 	{
 		return StartOpenMobileDeviceAndroidWindowMonitoring(CallbackToken);
+	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
+	{
+		return StartOpenMobileDeviceAndroidAppearanceMonitoring(CallbackToken);
 	}
 	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
@@ -833,6 +855,10 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidWindowMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
+	{
+		StopOpenMobileDeviceAndroidAppearanceMonitoring();
+	}
 	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
 		StopOpenMobileDeviceAndroidFlashlightMonitoring();
@@ -864,5 +890,6 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidStorageMonitoring();
 	StopOpenMobileDeviceAndroidNetworkMonitoring();
 	StopOpenMobileDeviceAndroidWindowMonitoring();
+	StopOpenMobileDeviceAndroidAppearanceMonitoring();
 	StopOpenMobileDeviceAndroidFlashlightMonitoring();
 }

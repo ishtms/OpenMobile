@@ -2622,6 +2622,88 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("OpenApplicationSettings", ios_backend)
 		self.assertIn("EOpenMobileCapabilityState::Available", ios_backend)
 
+	def test_system_appearance_uses_platform_configuration_not_unreal_theme(self) -> None:
+		appearance_policy = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "OpenMobileDeviceSystemAppearance.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("FromAndroidNightMode", appearance_policy)
+		self.assertIn("FromIOSUserInterfaceStyle", appearance_policy)
+
+		android_appearance = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidAppearance.cpp"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"AndroidThunkJava_OpenMobileDeviceGetSystemAppearance",
+			"nativeOpenMobileDeviceAppearanceChanged",
+			"NotifyNativeChange",
+		):
+			self.assertIn(required_token, android_appearance)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"Configuration.UI_MODE_NIGHT_MASK",
+			"Configuration.UI_MODE_NIGHT_NO",
+			"Configuration.UI_MODE_NIGHT_YES",
+			"AndroidThunkJava_OpenMobileDeviceStartAppearanceMonitoring",
+			"AndroidThunkJava_OpenMobileDeviceStopAppearanceMonitoring",
+			"nativeOpenMobileDeviceAppearanceChanged",
+			"gameActivityonConfigurationChangedAdditions",
+		):
+			self.assertIn(required_token, android_upl)
+
+		ios_appearance = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSAppearance.mm"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"IOSController",
+			"windowScene",
+			"traitCollection.userInterfaceStyle",
+			"traitCollectionDidChange",
+			"registerForTraitChanges",
+			"NotifyNativeChange",
+		):
+			self.assertIn(required_token, ios_appearance)
+		self.assertNotIn("connectedScenes", ios_appearance)
+
+		for source in (android_appearance, ios_appearance):
+			for forbidden_token in (
+				"FSlateApplication",
+				"FAppStyle",
+				"GetColorScheme",
+			):
+				self.assertNotIn(forbidden_token, source)
+
+		for backend_name in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{backend_name}"
+				/ "Private"
+				/ f"OpenMobileDevice{backend_name}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("SystemAppearance", backend)
+			self.assertIn("AppearanceChangeEvents", backend)
+			self.assertIn("EOpenMobileDeviceMonitoringGroup::Appearance", backend)
+
 
 if __name__ == "__main__":
 	unittest.main()

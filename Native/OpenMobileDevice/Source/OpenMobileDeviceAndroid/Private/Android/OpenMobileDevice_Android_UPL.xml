@@ -70,6 +70,7 @@ dependencies {
 	<gameActivityImportAdditions>
 		<insert>
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.net.Uri;
 import android.provider.Settings;
 import androidx.core.util.Consumer;
@@ -91,6 +92,44 @@ import androidx.window.layout.WindowLayoutInfo;
 	private android.hardware.display.DisplayManager.DisplayListener
 		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
+	private boolean OpenMobileDeviceAppearanceMonitoring = false;
+
+	public native void nativeOpenMobileDeviceAppearanceChanged();
+
+	public int AndroidThunkJava_OpenMobileDeviceGetSystemAppearance()
+	{
+		try
+		{
+			Configuration configuration = getResources().getConfiguration();
+			if (configuration == null)
+			{
+				return Configuration.UI_MODE_NIGHT_UNDEFINED;
+			}
+			int nightMode =
+				configuration.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+			if (nightMode == Configuration.UI_MODE_NIGHT_NO
+				|| nightMode == Configuration.UI_MODE_NIGHT_YES)
+			{
+				return nightMode;
+			}
+			return Configuration.UI_MODE_NIGHT_UNDEFINED;
+		}
+		catch (RuntimeException exception)
+		{
+			return -1;
+		}
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartAppearanceMonitoring()
+	{
+		OpenMobileDeviceAppearanceMonitoring = true;
+		return true;
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopAppearanceMonitoring()
+	{
+		OpenMobileDeviceAppearanceMonitoring = false;
+	}
 
 	public int AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings()
 	{
@@ -2683,6 +2722,10 @@ import androidx.window.layout.WindowLayoutInfo;
 	<gameActivityonConfigurationChangedAdditions>
 		<insert><![CDATA[
 		OpenMobileDeviceNotifyWindowChanged();
+		if (OpenMobileDeviceAppearanceMonitoring)
+		{
+			nativeOpenMobileDeviceAppearanceChanged();
+		}
 ]]></insert>
 	</gameActivityonConfigurationChangedAdditions>
 </root>

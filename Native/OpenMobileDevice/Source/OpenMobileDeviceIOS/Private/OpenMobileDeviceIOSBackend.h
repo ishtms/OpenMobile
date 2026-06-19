@@ -77,6 +77,7 @@ public:
 	) const override;
 	virtual FOpenMobilePowerSnapshot GetPowerSnapshot() const override;
 	virtual FOpenMobileMediaVolumeSnapshot GetMediaVolumeSnapshot() const override;
+	virtual FOpenMobileAppearanceSnapshot GetAppearanceSnapshot() const override;
 	virtual bool StartMonitoring(
 		EOpenMobileDeviceMonitoringGroup Group,
 		const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
