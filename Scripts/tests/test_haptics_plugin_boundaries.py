@@ -30,6 +30,16 @@ def load_android_bridge() -> str:
 	).read_text(encoding="utf-8")
 
 
+def load_ios_bridge() -> str:
+	return (
+		HAPTICS_PLUGIN
+		/ "Source"
+		/ "OpenMobileHapticsIOS"
+		/ "Private"
+		/ "OpenMobileHapticsIOSBridge.mm"
+	).read_text(encoding="utf-8")
+
+
 class HapticsPluginBoundaryTests(unittest.TestCase):
 	def test_plugin_is_independently_enabled(self) -> None:
 		self.assertTrue((HAPTICS_PLUGIN / "OpenMobileHaptics.uplugin").is_file())
@@ -292,11 +302,15 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		ios_probe = (
 			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
 		).read_text(encoding="utf-8")
-		self.assertIn("capabilitiesForHardware", ios_probe)
-		self.assertIn("supportsHaptics", ios_probe)
-		self.assertIn("supportsAudio", ios_probe)
-		self.assertNotIn("CHHapticEngine alloc", ios_probe)
-		self.assertNotIn("startAndReturnError", ios_probe)
+		ios_bridge = load_ios_bridge()
+		ios_hardware_query = ios_bridge.split(
+			"QueryHardware() override", 1
+		)[1].split("CreateEngine() override", 1)[0]
+		self.assertIn("capabilitiesForHardware", ios_hardware_query)
+		self.assertIn("supportsHaptics", ios_hardware_query)
+		self.assertIn("supportsAudio", ios_hardware_query)
+		self.assertNotIn("initAndReturnError", ios_hardware_query)
+		self.assertNotIn("startAndReturnError", ios_hardware_query)
 		self.assertIn(
 			"FOpenMobileHapticsBackendRegistry::RegisterBackend",
 			(ios_probe + (
@@ -341,7 +355,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileHapticsIOSBackend.mm"
 		).read_text(encoding="utf-8")
 		self.assertIn("FOpenMobileHapticsIOSBackend::SubmitOneShot", ios_backend)
-		self.assertIn("kSystemSoundID_Vibrate", ios_backend)
+		self.assertIn("PlaySystemVibration", ios_backend)
+		self.assertIn("kSystemSoundID_Vibrate", load_ios_bridge())
 		self.assertIn(
 			"EOpenMobileHapticsSemanticBehavior::ImpactMedium",
 			ios_backend,
@@ -386,15 +401,29 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			/ "Private"
 			/ "OpenMobileHapticsIOSBackend.mm"
 		).read_text(encoding="utf-8")
-		self.assertIn("UISelectionFeedbackGenerator", ios_backend)
-		self.assertIn("UIImpactFeedbackGenerator", ios_backend)
-		self.assertIn("UINotificationFeedbackGenerator", ios_backend)
-		self.assertIn("ImpactGenerators", ios_backend)
-		self.assertIn("[ImpactGenerators[Index] prepare]", ios_backend)
-		self.assertIn("dispatch_after", ios_backend)
-		self.assertIn("releaseGenerators", ios_backend)
+		ios_bridge = load_ios_bridge()
+		self.assertIn("UISelectionFeedbackGenerator", ios_bridge)
+		self.assertIn("UIImpactFeedbackGenerator", ios_bridge)
+		self.assertIn("UINotificationFeedbackGenerator", ios_bridge)
+		self.assertIn("ImpactGenerators", ios_bridge)
+		self.assertIn("[ImpactGenerators[Index] prepare]", ios_bridge)
+		self.assertIn("dispatch_after", ios_bridge)
+		self.assertIn("RunOnMainQueue", ios_bridge)
+		self.assertIn("releaseObjects", ios_bridge)
+		self.assertIn("initAndReturnError", ios_bridge)
+		self.assertEqual(1, ios_bridge.count("[[CHHapticEngine alloc]"))
+		self.assertIn("stoppedHandler", ios_bridge)
+		self.assertIn("resetHandler", ios_bridge)
+		apple_service = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Private"
+			/ "OpenMobileHapticsAppleBridgeService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("EnsureEngine", apple_service)
 		self.assertIn("BeginShutdown", ios_backend)
-		self.assertNotIn("CHHapticEngine alloc", ios_backend)
+		self.assertNotIn("#import <CoreHaptics", ios_backend)
 
 	def test_android_custom_vibration_configuration_is_canonical(self) -> None:
 		settings = (

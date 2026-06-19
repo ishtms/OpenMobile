@@ -1,14 +1,19 @@
 #pragma once
 
-#include "HAL/CriticalSection.h"
 #include "OpenMobileHapticsPlatformBackend.h"
+
+class FOpenMobileHapticsAppleBridgeService;
 
 class FOpenMobileHapticsIOSBackend final
 	: public FOpenMobileHapticsPlatformBackend
 {
 public:
+	FOpenMobileHapticsIOSBackend();
+	virtual ~FOpenMobileHapticsIOSBackend() override;
+
 	virtual FName GetBackendName() const override { return TEXT("IOS"); }
 	virtual FOpenMobileHapticCapabilities GetCapabilities() const override;
+	virtual void HandleLifecycleChange() override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
 		const FOpenMobileHapticsSemanticResolution& Resolution,
@@ -26,7 +31,5 @@ public:
 private:
 	FOpenMobileHapticCapabilities ProbeHardwareCapabilities() const;
 
-	mutable FCriticalSection CacheMutex;
-	mutable TOptional<FOpenMobileHapticCapabilities> StableCapabilities;
-	void* SemanticGeneratorCache = nullptr;
+	TUniquePtr<FOpenMobileHapticsAppleBridgeService> BridgeService;
 };

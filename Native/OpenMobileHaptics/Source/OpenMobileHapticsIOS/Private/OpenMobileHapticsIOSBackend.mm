@@ -1,302 +1,109 @@
 #include "OpenMobileHapticsIOSBackend.h"
 
-#include "Misc/ScopeLock.h"
+#include "OpenMobileHapticsAppleBridgeService.h"
+#include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
+#include "OpenMobileHapticsIOSBridge.h"
 
-#import <AudioToolbox/AudioToolbox.h>
-#import <CoreHaptics/CoreHaptics.h>
-#import <TargetConditionals.h>
-#import <UIKit/UIKit.h>
-
-@interface OpenMobileHapticsSemanticGeneratorCache : NSObject
+namespace OpenMobileHapticsIOSBackendPrivate
 {
-	UISelectionFeedbackGenerator* SelectionGenerator;
-	UIImpactFeedbackGenerator* ImpactGenerators[5];
-	UINotificationFeedbackGenerator* NotificationGenerator;
-	NSUInteger ActivityGeneration;
+	FOpenMobileHapticsBackendSubmission MakeBridgeFailure(
+		EOpenMobileHapticsAppleSubmissionResult Result
+	)
+	{
+		FOpenMobileHapticsBackendSubmission Submission;
+		const bool bUnsupported = Result
+			== EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			bUnsupported
+				? EOpenMobileErrorCode::NotSupported
+				: EOpenMobileErrorCode::NativeFailure,
+			bUnsupported
+				? TEXT("The Apple feedback path is unavailable.")
+				: TEXT("Apple could not submit Haptics feedback.")
+		);
+		return Submission;
+	}
 }
 
-- (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
-	intensity:(CGFloat)Intensity;
-- (void)releaseGenerators;
-
-@end
-
-@implementation OpenMobileHapticsSemanticGeneratorCache
-
-- (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
-	intensity:(CGFloat)Intensity
+FOpenMobileHapticsIOSBackend::FOpenMobileHapticsIOSBackend()
+	: BridgeService(MakeUnique<FOpenMobileHapticsAppleBridgeService>(
+		CreateOpenMobileHapticsIOSBridge()
+	))
 {
-	switch (Behavior)
-	{
-	case EOpenMobileHapticsSemanticBehavior::Selection:
-		if (!SelectionGenerator)
+	BridgeService->SetEventCallback(
+		[this](EOpenMobileHapticsAppleBridgeEvent Event)
 		{
-			SelectionGenerator = [[UISelectionFeedbackGenerator alloc] init];
-		}
-		[SelectionGenerator prepare];
-		[SelectionGenerator selectionChanged];
-		[SelectionGenerator prepare];
-		break;
-	case EOpenMobileHapticsSemanticBehavior::ImpactLight:
-	case EOpenMobileHapticsSemanticBehavior::ImpactMedium:
-	case EOpenMobileHapticsSemanticBehavior::ImpactHeavy:
-	case EOpenMobileHapticsSemanticBehavior::ImpactSoft:
-	case EOpenMobileHapticsSemanticBehavior::ImpactRigid:
-	{
-		const int32 Index = static_cast<int32>(Behavior)
-			- static_cast<int32>(EOpenMobileHapticsSemanticBehavior::ImpactLight);
-		if (!ImpactGenerators[Index])
-		{
-			const UIImpactFeedbackStyle Styles[] = {
-				UIImpactFeedbackStyleLight,
-				UIImpactFeedbackStyleMedium,
-				UIImpactFeedbackStyleHeavy,
-				UIImpactFeedbackStyleSoft,
-				UIImpactFeedbackStyleRigid
-			};
-			ImpactGenerators[Index] =
-				[[UIImpactFeedbackGenerator alloc] initWithStyle:Styles[Index]];
-		}
-		[ImpactGenerators[Index] prepare];
-		[ImpactGenerators[Index] impactOccurredWithIntensity:Intensity];
-		[ImpactGenerators[Index] prepare];
-		break;
-	}
-	case EOpenMobileHapticsSemanticBehavior::NotificationSuccess:
-	case EOpenMobileHapticsSemanticBehavior::NotificationWarning:
-	case EOpenMobileHapticsSemanticBehavior::NotificationError:
-	{
-		if (!NotificationGenerator)
-		{
-			NotificationGenerator =
-				[[UINotificationFeedbackGenerator alloc] init];
-		}
-		UINotificationFeedbackType Type = UINotificationFeedbackTypeSuccess;
-		if (Behavior
-			== EOpenMobileHapticsSemanticBehavior::NotificationWarning)
-		{
-			Type = UINotificationFeedbackTypeWarning;
-		}
-		else if (Behavior
-			== EOpenMobileHapticsSemanticBehavior::NotificationError)
-		{
-			Type = UINotificationFeedbackTypeError;
-		}
-		[NotificationGenerator prepare];
-		[NotificationGenerator notificationOccurred:Type];
-		[NotificationGenerator prepare];
-		break;
-	}
-	}
-
-	const NSUInteger ExpectedGeneration = ++ActivityGeneration;
-	dispatch_after(
-		dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
-		dispatch_get_main_queue(),
-		^{
-			if (ActivityGeneration == ExpectedGeneration)
-			{
-				[self releaseGenerators];
-			}
+			static_cast<void>(Event);
+			BridgeService->InvalidateHardwareProbe();
+			FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 		}
 	);
 }
 
-- (void)releaseGenerators
-{
-	[SelectionGenerator release];
-	SelectionGenerator = nil;
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ImpactGenerators); ++Index)
-	{
-		[ImpactGenerators[Index] release];
-		ImpactGenerators[Index] = nil;
-	}
-	[NotificationGenerator release];
-	NotificationGenerator = nil;
-}
-
-- (void)dealloc
-{
-	[self releaseGenerators];
-	[super dealloc];
-}
-
-@end
-
-namespace OpenMobileHapticsIOSBackendPrivate
-{
-	void PlaySystemSemantic(
-		OpenMobileHapticsSemanticGeneratorCache* Cache,
-		EOpenMobileHapticsSemanticBehavior Behavior,
-		float Intensity
-	)
-	{
-		[Cache retain];
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[Cache playBehavior:Behavior intensity:Intensity];
-			[Cache release];
-		});
-	}
-}
+FOpenMobileHapticsIOSBackend::~FOpenMobileHapticsIOSBackend() = default;
 
 FOpenMobileHapticCapabilities
 FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 {
 	FOpenMobileHapticCapabilities Capabilities;
 	Capabilities.BackendName = GetBackendName();
-#if TARGET_OS_SIMULATOR
-	Capabilities.Availability = EOpenMobileHapticAvailability::NoActuator;
-	Capabilities.BasicVibration = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.SemanticFeedback = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.RichHaptics = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.AmplitudeControl = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.SemanticEffects = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.PredefinedEffects = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Looping = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Envelopes = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.ContinuousEvents = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.DynamicParameters = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Scheduling = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Pause = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Resume = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Seek = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Detail = TEXT("The iOS Simulator has no phone haptic actuator.");
-#else
-	@autoreleasepool
+	const FOpenMobileHapticsAppleHardwareProbe Probe =
+		BridgeService->GetHardwareProbe();
+	if (Probe.RichHaptics
+		== EOpenMobileHapticsAppleHardwareState::TemporarilyUnavailable)
 	{
-		if (@available(iOS 13.0, *))
-		{
-			id<CHHapticDeviceCapability> Hardware =
-				[CHHapticEngine capabilitiesForHardware];
-			if (!Hardware)
-			{
-				Capabilities.Availability =
-					EOpenMobileHapticAvailability::TemporarilyUnavailable;
-				Capabilities.Detail =
-					TEXT("Apple haptic capabilities are temporarily unavailable.");
-				return Capabilities;
-			}
-			if (Hardware.supportsHaptics)
-			{
-				Capabilities.Availability =
-					EOpenMobileHapticAvailability::RichHaptics;
-				Capabilities.BasicVibration =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.SemanticFeedback =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.RichHaptics =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.AmplitudeControl =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.SemanticEffects =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.PredefinedEffects =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.WaveformTiming =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.Looping =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.Primitives =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Envelopes =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.FrequencyControl =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.TransientEvents =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.ContinuousEvents =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.DynamicParameters =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.AudioEvents = Hardware.supportsAudio
-					? EOpenMobileHapticSupportState::Supported
-					: EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.AHAP = EOpenMobileHapticSupportState::Supported;
-				Capabilities.Scheduling =
-					EOpenMobileHapticSupportState::Supported;
-				Capabilities.Pause = EOpenMobileHapticSupportState::Supported;
-				Capabilities.Resume = EOpenMobileHapticSupportState::Supported;
-				Capabilities.Seek = EOpenMobileHapticSupportState::Supported;
-				Capabilities.Detail =
-					TEXT("Apple reports Core Haptics hardware support.");
-			}
-			else
-			{
-				Capabilities.Availability =
-					EOpenMobileHapticAvailability::NoActuator;
-				Capabilities.BasicVibration =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.SemanticFeedback =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.RichHaptics =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.AmplitudeControl =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.SemanticEffects =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.PredefinedEffects =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.WaveformTiming =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Looping =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Primitives =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Envelopes =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.FrequencyControl =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.TransientEvents =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.ContinuousEvents =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.DynamicParameters =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.AudioEvents =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Scheduling =
-					EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Pause = EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Resume = EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Seek = EOpenMobileHapticSupportState::Unsupported;
-				Capabilities.Detail =
-					TEXT("Apple reports no Core Haptics actuator.");
-			}
-		}
-		else
-		{
-			Capabilities.Availability =
-				EOpenMobileHapticAvailability::UnsupportedPlatform;
-			Capabilities.Detail =
-				TEXT("Core Haptics requires iOS or iPadOS 13 or newer.");
-		}
+		Capabilities.Availability =
+			EOpenMobileHapticAvailability::TemporarilyUnavailable;
+		Capabilities.Detail =
+			TEXT("Apple haptic capabilities are temporarily unavailable.");
+		return Capabilities;
 	}
-#endif
+
+	const bool bSupported = Probe.RichHaptics
+		== EOpenMobileHapticsAppleHardwareState::Supported;
+	const EOpenMobileHapticSupportState Support = bSupported
+		? EOpenMobileHapticSupportState::Supported
+		: EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.Availability = bSupported
+		? EOpenMobileHapticAvailability::RichHaptics
+		: EOpenMobileHapticAvailability::NoActuator;
+	Capabilities.BasicVibration = Support;
+	Capabilities.SemanticFeedback = Support;
+	Capabilities.RichHaptics = Support;
+	Capabilities.AmplitudeControl = Support;
+	Capabilities.SemanticEffects = Support;
+	Capabilities.PredefinedEffects = Support;
+	Capabilities.WaveformTiming = Support;
+	Capabilities.Looping = Support;
+	Capabilities.Primitives = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.Envelopes = Support;
+	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.TransientEvents = Support;
+	Capabilities.ContinuousEvents = Support;
+	Capabilities.DynamicParameters = Support;
+	Capabilities.AudioEvents = bSupported && Probe.bSupportsAudio
+		? EOpenMobileHapticSupportState::Supported
+		: EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.AHAP = Support;
+	Capabilities.Scheduling = Support;
+	Capabilities.Pause = Support;
+	Capabilities.Resume = Support;
+	Capabilities.Seek = Support;
+	Capabilities.Detail = bSupported
+		? TEXT("Apple reports Core Haptics hardware support.")
+		: TEXT("Apple reports no Core Haptics actuator.");
 	return Capabilities;
 }
 
 FOpenMobileHapticCapabilities FOpenMobileHapticsIOSBackend::GetCapabilities() const
 {
-	FScopeLock Lock(&CacheMutex);
-	if (StableCapabilities.IsSet())
-	{
-		return StableCapabilities.GetValue();
-	}
-	FOpenMobileHapticCapabilities Capabilities = ProbeHardwareCapabilities();
-	if (Capabilities.Availability
-		!= EOpenMobileHapticAvailability::TemporarilyUnavailable)
-	{
-		StableCapabilities = Capabilities;
-	}
-	return Capabilities;
+	return ProbeHardwareCapabilities();
+}
+
+void FOpenMobileHapticsIOSBackend::HandleLifecycleChange()
+{
+	BridgeService->InvalidateHardwareProbe();
 }
 
 FOpenMobileHapticsBackendSubmission
@@ -318,27 +125,25 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 		);
 		return Submission;
 	}
+	EOpenMobileHapticsAppleSubmissionResult BridgeResult =
+		EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	if (Resolution.Path == EOpenMobileHapticsSemanticPath::BasicVibration)
 	{
-		dispatch_async(dispatch_get_main_queue(), ^{
-			AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
-		});
+		BridgeResult = BridgeService->PlaySystemVibration();
 	}
 	else
 	{
-		if (!SemanticGeneratorCache)
-		{
-			SemanticGeneratorCache =
-				[[OpenMobileHapticsSemanticGeneratorCache alloc] init];
-		}
 		const FOpenMobileHapticsSemanticDescriptor Descriptor =
 			FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
-		OpenMobileHapticsIOSBackendPrivate::PlaySystemSemantic(
-			static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
-				SemanticGeneratorCache
-			),
+		BridgeResult = BridgeService->PlaySemantic(
 			Descriptor.Behavior,
 			Request.Intensity
+		);
+	}
+	if (BridgeResult != EOpenMobileHapticsAppleSubmissionResult::Accepted)
+	{
+		return OpenMobileHapticsIOSBackendPrivate::MakeBridgeFailure(
+			BridgeResult
 		);
 	}
 	Submission.Result.Outcome = Resolution.bFallback
@@ -395,9 +200,15 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 			);
 			return Submission;
 		}
-		dispatch_async(dispatch_get_main_queue(), ^{
-			AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
-		});
+		const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
+			BridgeService->PlaySystemVibration();
+		if (BridgeResult
+			!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+		{
+			return OpenMobileHapticsIOSBackendPrivate::MakeBridgeFailure(
+				BridgeResult
+			);
+		}
 		Submission.Result.Intensity.bNativeIntensityKnown =
 			IntensityResolution.bNativeIntensityKnown;
 		Submission.Result.Intensity.Native =
@@ -415,18 +226,18 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 	}
 	else
 	{
-		if (!SemanticGeneratorCache)
-		{
-			SemanticGeneratorCache =
-				[[OpenMobileHapticsSemanticGeneratorCache alloc] init];
-		}
-		OpenMobileHapticsIOSBackendPrivate::PlaySystemSemantic(
-			static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
-				SemanticGeneratorCache
-			),
+		const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
+			BridgeService->PlaySemantic(
 			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
 			Request.Intensity
 		);
+		if (BridgeResult
+			!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+		{
+			return OpenMobileHapticsIOSBackendPrivate::MakeBridgeFailure(
+				BridgeResult
+			);
+		}
 		Submission.Result.Intensity.bNativeIntensityKnown = true;
 		Submission.Result.Intensity.Native = Request.Intensity;
 	}
@@ -446,16 +257,5 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 
 void FOpenMobileHapticsIOSBackend::BeginShutdown()
 {
-	OpenMobileHapticsSemanticGeneratorCache* Cache =
-		static_cast<OpenMobileHapticsSemanticGeneratorCache*>(
-			SemanticGeneratorCache
-		);
-	SemanticGeneratorCache = nullptr;
-	if (Cache)
-	{
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[Cache releaseGenerators];
-			[Cache release];
-		});
-	}
+	BridgeService->Shutdown();
 }
