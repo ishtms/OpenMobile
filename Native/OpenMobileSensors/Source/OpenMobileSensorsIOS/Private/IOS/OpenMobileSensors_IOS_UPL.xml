@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<init>
+		<setStringFromProperty
+			result="OpenMobileSensorsIOSMotionUsageDescription"
+			ini="Engine"
+			section="/Script/OpenMobileSensors.OpenMobileSensorsSettings"
+			property="IOSMotionUsageDescription"
+			default="This app uses motion sensors for gameplay features."/>
+	</init>
+
+	<iosPListUpdates>
+		<setBool result="OpenMobileSensorsIOSMotionUsageFound" value="false"/>
+		<loopElements tag="$">
+			<loopElements tag="$">
+				<setStringFromTag result="OpenMobileSensorsIOSPlistTag" tag="$"/>
+				<setBoolIsEqual
+					result="OpenMobileSensorsIOSPlistTagIsKey"
+					arg1="$S(OpenMobileSensorsIOSPlistTag)"
+					arg2="key"/>
+				<if condition="OpenMobileSensorsIOSPlistTagIsKey">
+					<true>
+						<setStringFromTagText result="OpenMobileSensorsIOSPlistKey" tag="$"/>
+						<setBoolIsEqual
+							result="OpenMobileSensorsIOSCurrentKeyIsMotionUsage"
+							arg1="$S(OpenMobileSensorsIOSPlistKey)"
+							arg2="NSMotionUsageDescription"/>
+						<if condition="OpenMobileSensorsIOSCurrentKeyIsMotionUsage">
+							<true>
+								<setBool result="OpenMobileSensorsIOSMotionUsageFound" value="true"/>
+							</true>
+						</if>
+					</true>
+				</if>
+			</loopElements>
+		</loopElements>
+		<setBoolNot
+			result="OpenMobileSensorsIOSNeedsMotionUsage"
+			source="$B(OpenMobileSensorsIOSMotionUsageFound)"/>
+		<if condition="OpenMobileSensorsIOSNeedsMotionUsage">
+			<true>
+				<addElements tag="dict" once="true">
+					<key>NSMotionUsageDescription</key>
+				</addElements>
+				<setElement
+					result="OpenMobileSensorsIOSMotionUsageValue"
+					value="string"
+					text="$S(OpenMobileSensorsIOSMotionUsageDescription)"/>
+				<addElement
+					tag="dict"
+					name="OpenMobileSensorsIOSMotionUsageValue"
+					once="true"/>
+			</true>
+		</if>
+	</iosPListUpdates>
+</root>

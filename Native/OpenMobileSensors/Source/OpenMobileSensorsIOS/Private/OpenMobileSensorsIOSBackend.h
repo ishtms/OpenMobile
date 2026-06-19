@@ -4,19 +4,35 @@
 #include "IOpenMobileSensorsBackend.h"
 
 struct FOpenMobileSensorsBackendToken;
-
-#if __OBJC__
-@class NSOperationQueue;
-#else
-class NSOperationQueue;
-#endif
+class FOpenMobileSensorsIOSBridge;
+enum class EOpenMobileSensorsIOSBridgeFailure : uint8;
+struct FOpenMobileSensorsIOSAvailability;
 
 class FOpenMobileSensorsIOSBackend final : public IOpenMobileSensorsBackend
 {
 public:
+	FOpenMobileSensorsIOSBackend();
 	virtual ~FOpenMobileSensorsIOSBackend() override;
 	virtual FName GetBackendName() const override;
 	virtual FOpenMobileCapability GetBackendCapability() const override;
+	virtual TArray<FOpenMobileSensorCapability> GetSensorCapabilities() const override;
+	virtual TArray<FOpenMobileSensorBackendMetadata> GetSensorMetadata() const override;
+	virtual FOpenMobileSensorOperationResult StartSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	) override;
+	virtual FOpenMobileSensorOperationResult ReconfigureSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	) override;
+	virtual void StopSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle
+	) override;
+	virtual FOpenMobileSensorOperationResult FlushSensorStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FGuid& RequestId,
+		FOnOpenMobileSensorBackendFlushComplete&& Completion
+	) override;
 	virtual void BeginShutdown() override;
 	static double ConvertCoreMotionTimestampSeconds(double TimestampSeconds);
 	static bool CaptureApplicationWindowRotationFromMainThread(
@@ -30,6 +46,21 @@ public:
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileVectorSensorBatch& Batch
+	);
+	bool PublishAttitudeBatchFromMotionQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileAttitudeSensorBatch& Batch
+	);
+	bool PublishScalarBatchFromMotionQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileScalarSensorBatch& Batch
+	);
+	bool PublishHeadingBatchFromMotionQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileHeadingSensorBatch& Batch
 	);
 	bool PublishMagneticFieldAccuracyFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,
@@ -46,12 +77,26 @@ public:
 		bool bCalibrationRequired,
 		double TimestampSeconds
 	);
+	void FailPhysicalStreamFromBackend(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		EOpenMobileSensorsIOSBridgeFailure Failure,
+		FString NativeDomain,
+		FString NativeCode
+	);
 
 private:
-	bool EnsureMotionQueue();
-	void StopMotionQueue();
+	friend class FOpenMobileSensorsIOSBridge;
 
-	FCriticalSection MotionQueueMutex;
-	NSOperationQueue* MotionQueue = nullptr;
+	FOpenMobileSensorsIOSBridge& GetBridge() const;
+	FOpenMobileSensorsIOSAvailability QueryAvailability() const;
+	FOpenMobileSensorOperationResult MapBridgeFailure(
+		EOpenMobileSensorsIOSBridgeFailure Failure,
+		FString NativeDomain = {},
+		FString NativeCode = {}
+	) const;
+
+	mutable TUniquePtr<FOpenMobileSensorsIOSBridge> Bridge;
+	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };

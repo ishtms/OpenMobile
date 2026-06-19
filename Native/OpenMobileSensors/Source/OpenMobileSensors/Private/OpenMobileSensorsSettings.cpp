@@ -160,10 +160,9 @@ bool UOpenMobileSensorsSettings::Validate(
 	{
 		OutErrors.Add(TEXT("Maximum buffered recording batches must be between 1 and 4096."));
 	}
-	if (bEnablePermissionSensitiveSensors
-		&& IOSMotionUsageDescription.TrimStartAndEnd().IsEmpty())
+	if (IOSMotionUsageDescription.TrimStartAndEnd().IsEmpty())
 	{
-		OutErrors.Add(TEXT("IOSMotionUsageDescription is required for permission-sensitive sensors."));
+		OutErrors.Add(TEXT("IOSMotionUsageDescription is required for the iOS sensor backend."));
 	}
 	if (bEnablePermissionSensitiveSensors
 		&& AndroidActivityRecognitionRationale.TrimStartAndEnd().IsEmpty())

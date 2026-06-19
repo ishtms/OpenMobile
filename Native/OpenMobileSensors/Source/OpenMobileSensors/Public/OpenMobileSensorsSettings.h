@@ -119,7 +119,8 @@ public:
 	bool bEnablePermissionSensitiveSensors = false;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Permissions", meta = (MultiLine = "true", DisplayName = "iOS Motion Usage Description"))
-	FString IOSMotionUsageDescription;
+	FString IOSMotionUsageDescription =
+		TEXT("This app uses motion sensors for gameplay features.");
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Permissions", meta = (MultiLine = "true", DisplayName = "Android Activity Recognition Rationale"))
 	FString AndroidActivityRecognitionRationale;

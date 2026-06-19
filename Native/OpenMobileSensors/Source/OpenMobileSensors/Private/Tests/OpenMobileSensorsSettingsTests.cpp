@@ -118,6 +118,8 @@ bool FOpenMobileSensorsSettingsDefaultsTest::RunTest(
 		Settings->bAllowHighSamplingRate);
 	TestFalse(TEXT("Background delivery is opt-in"),
 		Settings->bAllowBackgroundSensorDelivery);
+	TestFalse(TEXT("iOS motion usage text is packaged by default"),
+		Settings->IOSMotionUsageDescription.IsEmpty());
 	TestEqual(TEXT("Recording duration is bounded"),
 		Settings->MaximumRecordingDurationSeconds, 300.0);
 	TestEqual(TEXT("Recording size is bounded"),
@@ -208,12 +210,21 @@ bool FOpenMobileSensorsSettingsValidationTest::RunTest(
 	UOpenMobileSensorsSettings* Permissions =
 		NewObject<UOpenMobileSensorsSettings>();
 	Permissions->bEnablePermissionSensitiveSensors = true;
+	Permissions->IOSMotionUsageDescription.Reset();
 	TestFalse(TEXT("Missing permission usage text is rejected"),
 		Permissions->Validate(Errors, false));
 	TestTrue(TEXT("iOS usage failure is explicit"),
 		HasErrorContaining(Errors, TEXT("IOSMotionUsageDescription")));
 	TestTrue(TEXT("Android rationale failure is explicit"),
 		HasErrorContaining(Errors, TEXT("AndroidActivityRecognitionRationale")));
+
+	UOpenMobileSensorsSettings* MotionUsage =
+		NewObject<UOpenMobileSensorsSettings>();
+	MotionUsage->IOSMotionUsageDescription.Reset();
+	TestFalse(TEXT("Raw iOS motion also requires usage text"),
+		MotionUsage->Validate(Errors, false));
+	TestTrue(TEXT("Raw iOS motion usage failure is explicit"),
+		HasErrorContaining(Errors, TEXT("IOSMotionUsageDescription")));
 
 	UOpenMobileSensorsSettings* Background =
 		NewObject<UOpenMobileSensorsSettings>();

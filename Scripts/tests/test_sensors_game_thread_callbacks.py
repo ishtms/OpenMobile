@@ -73,16 +73,24 @@ class SensorsGameThreadCallbackTests(unittest.TestCase):
 			/ "OpenMobileSensorsIOS"
 			/ "OpenMobileSensorsIOS.Build.cs"
 		).read_text(encoding="utf-8")
-		self.assertIn('PublicFrameworks.Add("Foundation")', rules)
+		self.assertIn('"Foundation"', rules)
 
 	def test_ios_uses_a_serial_core_motion_queue(self) -> None:
-		implementation = (
+		backend = (
 			SENSORS_ROOT
 			/ "Source"
 			/ "OpenMobileSensorsIOS"
 			/ "Private"
 			/ "OpenMobileSensorsIOSBackend.mm"
 		).read_text(encoding="utf-8")
+		bridge = (
+			SENSORS_ROOT
+			/ "Source"
+			/ "OpenMobileSensorsIOS"
+			/ "Private"
+			/ "OpenMobileSensorsIOSBridge.mm"
+		).read_text(encoding="utf-8")
+		implementation = backend + bridge
 		for behavior in (
 			"NSOperationQueue",
 			"maxConcurrentOperationCount = 1",
