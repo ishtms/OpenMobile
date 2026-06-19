@@ -3137,6 +3137,61 @@ bool FOpenMobileAdsAdMobFixedBannerContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAdMobConfiguredMediationInitializationTest,
+	"OpenMobile.Ads.AdMob.TestAds.ConfiguredMediationInitialization",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAdMobConfiguredMediationInitializationTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsAdMobTestAdTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->AndroidAppId =
+		TEXT("ca-app-pub-1234567890123456~1234567890");
+	FMockBackend Backend;
+	FScopedBackendRegistration BackendRegistration(Backend);
+	IOpenMobileAdsProvider* Provider = FindProvider();
+	TestNotNull(TEXT("The AdMob provider is registered"), Provider);
+	if (!Provider)
+	{
+		return false;
+	}
+
+	FOpenMobileAdsInitializationRequest Request;
+	Request.Platform = EOpenMobileAdsPlatform::Android;
+	Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(
+		true,
+		{},
+		EOpenMobileAdsDebugGeography::Disabled,
+		false
+	);
+	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> Sink =
+		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
+	FOpenMobileAdsError Error;
+	const bool bStarted = Provider->Initialize(Request, Sink, Error);
+	TestTrue(
+		TEXT("Development mediation mode accepts configured ad-unit IDs while legacy sample defaults remain unused"),
+		bStarted
+	);
+	TestEqual(
+		TEXT("Configured mediation initialization reaches the native SDK"),
+		Backend.InitializationCalls,
+		1
+	);
+	if (bStarted)
+	{
+		FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(
+			Backend.InitializationRequestId
+		);
+		TestEqual(TEXT("Initialization completes once"), Sink->CompletionCalls, 1);
+		Provider->Shutdown();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsAdMobTestAdFlowTest,
 	"OpenMobile.Ads.AdMob.TestAds.RewardedFlow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

@@ -343,7 +343,7 @@ namespace OpenMobileAdsAdMobPrivate
 			FString ConfigurationError;
 			if (!Settings->IsConfigurationCompatibleWithMode(
 				Request.Platform,
-				Request.Development.bUseTestAdUnitIds,
+				Request.Development.bEnabled,
 				ConfigurationError
 			))
 			{

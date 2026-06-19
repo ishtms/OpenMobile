@@ -126,11 +126,11 @@ public:
 
 	bool IsConfigurationCompatibleWithMode(
 		EOpenMobileAdsPlatform Platform,
-		bool bUseTestAds,
+		bool bDevelopmentTestMode,
 		FString& OutError
 	) const
 	{
-		if (bUseTestAds)
+		if (bDevelopmentTestMode)
 		{
 			return true;
 		}
