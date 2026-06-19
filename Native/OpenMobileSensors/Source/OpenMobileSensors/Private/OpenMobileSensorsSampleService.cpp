@@ -11,6 +11,7 @@
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorValidity.h"
+#include "OpenMobileSensorVectorFilter.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -175,6 +176,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorOverflowPolicy::DropOldest;
 		EOpenMobileSensorCoordinateSpace CoordinateSpace =
 			EOpenMobileSensorCoordinateSpace::DeviceFixed;
+		FOpenMobileSensorFilterOptions FilterOptions;
+		FOpenMobileSensorVectorFilter VectorFilter;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
@@ -713,6 +716,22 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.bHasSourceState = true;
 	}
 
+	template <typename SampleType>
+	bool ApplySubscriptionFilters(FLatestSlot& Slot, SampleType& Sample)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+		return true;
+	}
+
+	bool ApplySubscriptionFilters(
+		FLatestSlot& Slot,
+		FOpenMobileVectorSensorSample& Sample
+	)
+	{
+		return Slot.VectorFilter.Apply(Slot.FilterOptions, Sample);
+	}
+
 	bool ObserveAccuracy(
 		FLatestSlot& Slot,
 		const FOpenMobileSensorAccuracySnapshot& Report
@@ -885,6 +904,16 @@ namespace OpenMobileSensorsSampleServicePrivate
 						continue;
 					}
 					ApplySourceTransition(Slot, Sample.Header);
+					Sample.Header.TimestampIssueFlags =
+						Slot.PendingTimestampIssueFlags;
+					Sample.Header.bStatefulProcessingReset |=
+						Slot.bPendingStatefulProcessingReset
+						|| Slot.PendingTimestampIssueFlags != 0;
+					if (!ApplySubscriptionFilters(Slot, Sample))
+					{
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
 					UpdateRateStatistics(
 						Slot,
 						Sample.Header.TimestampSeconds
@@ -896,11 +925,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Destination.Header.GameThreadReceiptSeconds = 0.0;
 					Destination.Header.bHasGameThreadReceiptTime = false;
 					Destination.Header.TimestampIssueFlags =
-						Slot.PendingTimestampIssueFlags;
+						Sample.Header.TimestampIssueFlags;
 					Destination.Header.bStatefulProcessingReset =
-						Sample.Header.bStatefulProcessingReset
-						|| Slot.bPendingStatefulProcessingReset
-						|| Slot.PendingTimestampIssueFlags != 0;
+						Sample.Header.bStatefulProcessingReset;
 					Destination.Header.bUnitsNormalized = true;
 					Destination.Header.bCoordinatesNormalized = true;
 					Destination.Header.CoordinateSpace =
@@ -1664,6 +1691,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->DeliveryMode = Options.DeliveryMode;
 	Slot->OverflowPolicy = Options.OverflowPolicy;
 	Slot->CoordinateSpace = Options.CoordinateSpace;
+	Slot->FilterOptions = Options.Filters;
 	Slot->PendingAccuracyChanges.Reserve(MaximumPendingAccuracyChanges);
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
@@ -1716,6 +1744,7 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 		if (State != EOpenMobileSensorSubscriptionState::Active)
 		{
 			ResetRateStatistics(**SlotPointer);
+			(*SlotPointer)->VectorFilter.Reset();
 		}
 		bSchedulePendingEvents =
 			State == EOpenMobileSensorSubscriptionState::Active
@@ -1757,6 +1786,8 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->DeliveryMode = Options.DeliveryMode;
 	(*SlotPointer)->OverflowPolicy = Options.OverflowPolicy;
 	(*SlotPointer)->CoordinateSpace = Options.CoordinateSpace;
+	(*SlotPointer)->FilterOptions = Options.Filters;
+	(*SlotPointer)->VectorFilter.Reset();
 	if (Options.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
 		if (PreviousDeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)

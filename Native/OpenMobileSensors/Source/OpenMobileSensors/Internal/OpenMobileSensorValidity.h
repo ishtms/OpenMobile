@@ -6,6 +6,10 @@
 class OPENMOBILESENSORS_API FOpenMobileSensorValidity final
 {
 public:
+	static bool IsWithinMaximumRange(
+		const FVector& Value,
+		double MaximumRange
+	);
 	static bool IsEligibleForStatefulProcessing(
 		const FOpenMobileVectorSensorSample& Sample
 	);

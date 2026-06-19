@@ -13,6 +13,19 @@ namespace OpenMobileSensorValidityPrivate
 	}
 }
 
+bool FOpenMobileSensorValidity::IsWithinMaximumRange(
+	const FVector& Value,
+	double MaximumRange
+)
+{
+	return !Value.ContainsNaN()
+		&& FMath::IsFinite(MaximumRange)
+		&& MaximumRange >= 0.0
+		&& FMath::Abs(Value.X) <= MaximumRange
+		&& FMath::Abs(Value.Y) <= MaximumRange
+		&& FMath::Abs(Value.Z) <= MaximumRange;
+}
+
 bool FOpenMobileSensorValidity::IsEligibleForStatefulProcessing(
 	const FOpenMobileVectorSensorSample& Sample
 )

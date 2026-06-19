@@ -7,6 +7,7 @@
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
 #include "OpenMobileSensorUnits.h"
+#include "OpenMobileSensorValidity.h"
 #include "OpenMobileSensorsAndroidBridge.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
@@ -654,6 +655,15 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 				ValueAt(Index, 1),
 				ValueAt(Index, 2)
 			);
+			if (FMath::IsFinite(Descriptor.MaximumRange)
+				&& Descriptor.MaximumRange > 0.0)
+			{
+				Sample.Header.bValid &=
+					FOpenMobileSensorValidity::IsWithinMaximumRange(
+						Sample.Value,
+						Descriptor.MaximumRange
+					);
+			}
 			Sample.bHasBias = ValuesPerSample >= 6
 				&& (Type == EOpenMobileSensorType::AccelerometerUncalibrated
 					|| Type == EOpenMobileSensorType::GyroscopeUncalibrated
