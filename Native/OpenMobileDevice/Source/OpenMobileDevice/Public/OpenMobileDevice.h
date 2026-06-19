@@ -2,6 +2,7 @@
 
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceAndroidPackageTypes.h"
+#include "OpenMobileDeviceApplicationSettingsTypes.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControl.h"

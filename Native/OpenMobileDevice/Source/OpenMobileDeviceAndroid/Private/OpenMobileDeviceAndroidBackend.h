@@ -46,6 +46,8 @@ public:
 	virtual FOpenMobileAndroidPackageCheckResult CheckAndroidPackage(
 		const FOpenMobileAndroidPackageCheckRequest& Request
 	) override;
+	virtual FOpenMobileApplicationSettingsOpenResult
+	OpenApplicationSettings() override;
 	virtual bool BeginUserInitiatedPaste(
 		const FOpenMobileUserInitiatedPasteRequest& Request,
 		const FGuid& OperationId,

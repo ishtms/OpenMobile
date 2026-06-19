@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceSubsystem.h"
 
 #include "OpenMobileDeviceAndroidPackageCheckService.h"
+#include "OpenMobileDeviceApplicationSettingsService.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBlueprintLibrary.h"
@@ -106,6 +107,11 @@ void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection
 {
 	Super::Initialize(Collection);
 	bDeinitialized = false;
+	ApplicationSettingsReturnedHandle =
+		FOpenMobileDeviceApplicationSettingsService::OnReturned().AddUObject(
+			this,
+			&UOpenMobileDeviceSubsystem::HandleApplicationSettingsReturned
+		);
 
 	LatestStatus = UOpenMobileDeviceBlueprintLibrary::GetDeviceStatus();
 }
@@ -113,6 +119,13 @@ void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection
 void UOpenMobileDeviceSubsystem::Deinitialize()
 {
 	bDeinitialized = true;
+	if (ApplicationSettingsReturnedHandle.IsValid())
+	{
+		FOpenMobileDeviceApplicationSettingsService::OnReturned().Remove(
+			ApplicationSettingsReturnedHandle
+		);
+		ApplicationSettingsReturnedHandle.Reset();
+	}
 	FOpenMobileDeviceFlashlightControlService::HandleGameInstanceTeardown();
 	TArray<TObjectPtr<UOpenMobileOrientationPolicyHandle>> OrientationHandles =
 		OrientationPolicyHandles;
@@ -391,6 +404,22 @@ UOpenMobileDeviceSubsystem::CheckAndroidPackage(
 	}
 	FOpenMobileAndroidPackageCheckResult Result;
 	Result.State = EOpenMobileAndroidPackageCheckState::Failed;
+	Result.Error = FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("The Device subsystem has been deinitialized.")
+	);
+	return Result;
+}
+
+FOpenMobileApplicationSettingsOpenResult
+UOpenMobileDeviceSubsystem::OpenApplicationSettings()
+{
+	if (!bDeinitialized)
+	{
+		return FOpenMobileDeviceApplicationSettingsService::Open();
+	}
+	FOpenMobileApplicationSettingsOpenResult Result;
+	Result.State = EOpenMobileApplicationSettingsOpenState::NativeFailure;
 	Result.Error = FOpenMobileError::Make(
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")
@@ -859,6 +888,18 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringMaintenance()
 			Subscription->Stop();
 		}
 	}
+}
+
+void UOpenMobileDeviceSubsystem::HandleApplicationSettingsReturned()
+{
+	if (bDeinitialized)
+	{
+		return;
+	}
+	const FOpenMobileDeviceCapabilityReport CapabilityReport =
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapabilityReport();
+	OnApplicationSettingsReturned.Broadcast(CapabilityReport);
+	NativeApplicationSettingsReturned.Broadcast(CapabilityReport);
 }
 
 void UOpenMobileDeviceSubsystem::PrimeMonitoringGroup(

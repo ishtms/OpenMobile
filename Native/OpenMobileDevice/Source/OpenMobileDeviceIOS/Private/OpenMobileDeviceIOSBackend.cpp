@@ -3,6 +3,7 @@
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceIOSApplication.h"
+#include "OpenMobileDeviceIOSApplicationSettings.h"
 #include "OpenMobileDeviceIOSBattery.h"
 #include "OpenMobileDeviceIOSBrightnessControl.h"
 #include "OpenMobileDeviceIOSClipboard.h"
@@ -309,6 +310,16 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.Detail = TEXT("iOS does not expose Android package checks.");
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::OpenApplicationSettings)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS submits UIApplicationOpenSettingsURLString only while the application and Unreal presenter are active.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -538,6 +549,12 @@ FOpenMobileDeviceIOSBackend::CheckIntentHandler(
 )
 {
 	return CheckOpenMobileDeviceIOSIntentHandler(Request);
+}
+
+FOpenMobileApplicationSettingsOpenResult
+FOpenMobileDeviceIOSBackend::OpenApplicationSettings()
+{
+	return OpenOpenMobileDeviceIOSApplicationSettings();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceIOSBackend::ApplyBrightness(

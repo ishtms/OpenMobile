@@ -69,6 +69,9 @@ dependencies {
 	</androidManifestUpdates>
 	<gameActivityImportAdditions>
 		<insert>
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import androidx.core.util.Consumer;
 import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter;
 import androidx.window.layout.DisplayFeature;
@@ -88,6 +91,36 @@ import androidx.window.layout.WindowLayoutInfo;
 	private android.hardware.display.DisplayManager.DisplayListener
 		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
+
+	public int AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings()
+	{
+		if (isFinishing()
+			|| (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed()))
+		{
+			return 2;
+		}
+		Intent intent = new Intent(
+			Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+		);
+		intent.setData(Uri.fromParts("package", getPackageName(), null));
+		try
+		{
+			startActivity(intent);
+			return 1;
+		}
+		catch (android.content.ActivityNotFoundException exception)
+		{
+			return 0;
+		}
+		catch (SecurityException exception)
+		{
+			return -1;
+		}
+		catch (RuntimeException exception)
+		{
+			return -1;
+		}
+	}
 
 	public int AndroidThunkJava_OpenMobileDeviceCheckPackage(
 		String packageName

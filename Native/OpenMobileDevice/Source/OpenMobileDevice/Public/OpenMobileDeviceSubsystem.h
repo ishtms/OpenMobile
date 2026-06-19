@@ -3,7 +3,9 @@
 #include "CoreMinimal.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceAndroidPackageTypes.h"
+#include "OpenMobileDeviceApplicationSettingsTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
+#include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
@@ -25,6 +27,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileDeviceStatusChangedEvent,
 	const FOpenMobileDeviceStatus&,
 	Status
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileApplicationSettingsReturnedEvent,
+	const FOpenMobileDeviceCapabilityReport&,
+	CapabilityReport
 );
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
@@ -101,6 +108,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileDeviceStatusChangedNativeEvent,
 	const FOpenMobileDeviceStatus&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileApplicationSettingsReturnedNativeEvent,
+	const FOpenMobileDeviceCapabilityReport&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileLocaleSnapshotChangedNativeEvent,
@@ -245,6 +256,9 @@ public:
 		const FOpenMobileAndroidPackageCheckRequest& Request
 	) const;
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Open Application Settings", ToolTip = "Submits one request to open only this application's system-settings page. Accepted does not mean the user changed a setting."))
+	FOpenMobileApplicationSettingsOpenResult OpenApplicationSettings();
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Device", meta = (DisplayName = "Request Brightness Override", ToolTip = "Overrides active app window or screen brightness until the returned handle is released."))
 	UOpenMobileBrightnessHandle* RequestBrightnessOverride(
 		const FOpenMobileBrightnessRequest& Request
@@ -298,6 +312,12 @@ public:
 	FOpenMobileDeviceStatusChangedNativeEvent& OnNativeDeviceStatusChanged()
 	{
 		return NativeDeviceStatusChanged;
+	}
+
+	FOpenMobileApplicationSettingsReturnedNativeEvent&
+	OnNativeApplicationSettingsReturned()
+	{
+		return NativeApplicationSettingsReturned;
 	}
 
 	FOpenMobileLocaleSnapshotChangedNativeEvent& OnNativeLocaleSnapshotChanged()
@@ -381,6 +401,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Device Status Changed", ToolTip = "Broadcasts when monitored legacy battery or media-volume status changes."))
 	FOpenMobileDeviceStatusChangedEvent OnDeviceStatusChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Application Settings Returned", ToolTip = "Broadcasts a freshly queried Device capability report after an accepted settings request returns to the foreground. Requery explicit permission statuses in this event."))
+	FOpenMobileApplicationSettingsReturnedEvent OnApplicationSettingsReturned;
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Locale Snapshot Changed", ToolTip = "Broadcasts the previous and current locale snapshots after a monitored value changes."))
 	FOpenMobileLocaleSnapshotChangedEvent OnLocaleSnapshotChanged;
 
@@ -457,6 +480,7 @@ private:
 		const FOpenMobileNetworkPathSnapshot& Snapshot
 	);
 	void HandleMonitoringMaintenance();
+	void HandleApplicationSettingsReturned();
 	void PrimeMonitoringGroup(EOpenMobileDeviceMonitoringGroup Group);
 	void RequestStorageRefreshForMonitoring();
 	void HandleStorageMonitoringQueryTerminal(
@@ -498,6 +522,7 @@ private:
 	FDelegateHandle MonitoringChangedHandle;
 	FDelegateHandle MonitoredNetworkChangedHandle;
 	FDelegateHandle MonitoringMaintenanceHandle;
+	FDelegateHandle ApplicationSettingsReturnedHandle;
 	TOptional<FOpenMobileLocaleSnapshot> LastLocaleSnapshot;
 	TOptional<FOpenMobilePowerSnapshot> LastPowerSnapshot;
 	TOptional<FOpenMobileMediaVolumeSnapshot> LastMediaVolumeSnapshot;
@@ -513,6 +538,8 @@ private:
 	TOptional<FOpenMobileAccessibilitySnapshot> LastAccessibilitySnapshot;
 	TOptional<FOpenMobileFlashlightSnapshot> LastFlashlightSnapshot;
 	FOpenMobileDeviceStatusChangedNativeEvent NativeDeviceStatusChanged;
+	FOpenMobileApplicationSettingsReturnedNativeEvent
+		NativeApplicationSettingsReturned;
 	FOpenMobileLocaleSnapshotChangedNativeEvent NativeLocaleSnapshotChanged;
 	FOpenMobilePowerSnapshotChangedNativeEvent NativePowerSnapshotChanged;
 	FOpenMobileBatteryChangedNativeEvent NativeBatteryChanged;

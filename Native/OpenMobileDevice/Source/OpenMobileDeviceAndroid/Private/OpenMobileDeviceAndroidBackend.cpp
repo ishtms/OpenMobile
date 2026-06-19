@@ -5,6 +5,7 @@
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
 #include "OpenMobileDeviceAndroidApplication.h"
+#include "OpenMobileDeviceAndroidApplicationSettings.h"
 #include "OpenMobileDeviceAndroidBattery.h"
 #include "OpenMobileDeviceAndroidBrightnessControl.h"
 #include "OpenMobileDeviceAndroidClipboard.h"
@@ -317,6 +318,16 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.Detail = TEXT("Android checks one exact build-declared package through PackageManager visibility without enumerating applications or returning package metadata.");
 		return Capability;
 	}
+	if (CapabilityName
+		== FOpenMobileDeviceCapabilityNames::OpenApplicationSettings)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android opens only this package's application-details settings activity from an active GameActivity.");
+		return Capability;
+	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::MemoryPressureEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
@@ -559,6 +570,12 @@ FOpenMobileDeviceAndroidBackend::CheckAndroidPackage(
 )
 {
 	return CheckOpenMobileDeviceAndroidPackage(Request);
+}
+
+FOpenMobileApplicationSettingsOpenResult
+FOpenMobileDeviceAndroidBackend::OpenApplicationSettings()
+{
+	return OpenOpenMobileDeviceAndroidApplicationSettings();
 }
 
 FOpenMobileBrightnessResult FOpenMobileDeviceAndroidBackend::ApplyBrightness(

@@ -43,6 +43,8 @@ public:
 	virtual FOpenMobileIntentHandlerCheckResult CheckIntentHandler(
 		const FOpenMobileIntentHandlerCheckRequest& Request
 	) override;
+	virtual FOpenMobileApplicationSettingsOpenResult
+	OpenApplicationSettings() override;
 	virtual bool BeginUserInitiatedPaste(
 		const FOpenMobileUserInitiatedPasteRequest& Request,
 		const FGuid& OperationId,

@@ -5,6 +5,7 @@
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
 #include "OpenMobileDeviceAndroidPackageTypes.h"
+#include "OpenMobileDeviceApplicationSettingsTypes.h"
 #include "OpenMobileDeviceBrightnessControl.h"
 #include "OpenMobileDeviceCapabilities.h"
 #include "OpenMobileDeviceClipboardTypes.h"
@@ -268,6 +269,18 @@ public:
 		Result.Error = FOpenMobileError::Make(
 			EOpenMobileErrorCode::NotSupported,
 			TEXT("The active Device backend does not support Android package checks.")
+		);
+		return Result;
+	}
+
+	virtual FOpenMobileApplicationSettingsOpenResult OpenApplicationSettings()
+	{
+		FOpenMobileApplicationSettingsOpenResult Result;
+		Result.State =
+			EOpenMobileApplicationSettingsOpenState::Unsupported;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The active Device backend does not support the application settings page.")
 		);
 		return Result;
 	}

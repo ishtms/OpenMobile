@@ -12,6 +12,8 @@
 #include "Misc/CoreDelegates.h"
 #include "Misc/Paths.h"
 #include "OpenMobileDeviceAccessibilityTypes.h"
+#include "OpenMobileDeviceApplicationSettingsService.h"
+#include "OpenMobileDeviceApplicationSettingsTypes.h"
 #include "OpenMobileDeviceApplicationInfo.h"
 #include "OpenMobileDeviceAndroidPackagePolicy.h"
 #include "OpenMobileDeviceAndroidPackageCheckService.h"
@@ -275,6 +277,13 @@ namespace OpenMobileDeviceTests
 			return AndroidPackageResult;
 		}
 
+		virtual FOpenMobileApplicationSettingsOpenResult
+		OpenApplicationSettings() override
+		{
+			++ApplicationSettingsOpenCount;
+			return ApplicationSettingsResult;
+		}
+
 		virtual bool BeginUserInitiatedPaste(
 			const FOpenMobileUserInitiatedPasteRequest& Request,
 			const FGuid& OperationId,
@@ -481,6 +490,8 @@ namespace OpenMobileDeviceTests
 		TArray<FOpenMobileIntentHandlerCheckRequest> IntentHandlerRequests;
 		FOpenMobileAndroidPackageCheckResult AndroidPackageResult;
 		TArray<FOpenMobileAndroidPackageCheckRequest> AndroidPackageRequests;
+		FOpenMobileApplicationSettingsOpenResult ApplicationSettingsResult;
+		int32 ApplicationSettingsOpenCount = 0;
 		bool bAcceptUserInitiatedPaste = true;
 		TArray<FOpenMobileUserInitiatedPasteRequest>
 			UserInitiatedPasteRequests;
@@ -6517,6 +6528,168 @@ bool FOpenMobileDeviceAndroidPackageServiceTest::RunTest(
 		EOpenMobileAndroidPackageCheckState::Unsupported
 	);
 	Settings->DeclaredAndroidPackages = SavedPackages;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceApplicationSettingsServiceTest,
+	"OpenMobile.Device.External.ApplicationSettingsService",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceApplicationSettingsServiceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceApplicationSettingsService::ResetForTests();
+
+	FMockBackend Backend(TEXT("ApplicationSettingsMock"));
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::OpenApplicationSettings,
+		EOpenMobileCapabilityState::Available
+	);
+	Backend.ApplicationSettingsResult.State =
+		EOpenMobileApplicationSettingsOpenState::Accepted;
+	TestTrue(
+		TEXT("Application settings mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	const FGuid MonitoringId =
+		FOpenMobileDeviceMonitoringService::AddSubscription(
+			{EOpenMobileDeviceMonitoringGroup::Power},
+			5.0f
+		);
+	TestTrue(TEXT("Return refresh monitoring starts"), MonitoringId.IsValid());
+	int32 ReturnCount = 0;
+	int32 PowerRefreshCount = 0;
+	const FDelegateHandle ReturnedHandle =
+		FOpenMobileDeviceApplicationSettingsService::OnReturned().AddLambda(
+			[&ReturnCount]()
+			{
+				++ReturnCount;
+			}
+		);
+	const FDelegateHandle PowerRefreshHandle =
+		FOpenMobileDeviceMonitoringService::OnGroupChanged().AddLambda(
+			[&PowerRefreshCount](EOpenMobileDeviceMonitoringGroup Group)
+			{
+				if (Group == EOpenMobileDeviceMonitoringGroup::Power)
+				{
+					++PowerRefreshCount;
+				}
+			}
+		);
+
+	FOpenMobileApplicationSettingsOpenResult Result =
+		FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Foreground request is accepted"),
+		Result.State,
+		EOpenMobileApplicationSettingsOpenState::Accepted
+	);
+	TestFalse(TEXT("Accepted request has no error"), Result.Error.IsSet());
+	FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Repeat calls are submitted independently"),
+		Backend.ApplicationSettingsOpenCount,
+		2
+	);
+
+	FOpenMobileDeviceApplicationSettingsService::SetApplicationActiveForTests(
+		false
+	);
+	Result = FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Background request has no presenter"),
+		Result.State,
+		EOpenMobileApplicationSettingsOpenState::NoPresenter
+	);
+	TestEqual(
+		TEXT("Background request never reaches the backend"),
+		Backend.ApplicationSettingsOpenCount,
+		2
+	);
+	const int32 PowerRefreshesBeforeReturn = PowerRefreshCount;
+	FOpenMobileDeviceApplicationSettingsService::SetApplicationActiveForTests(
+		true
+	);
+	TestEqual(TEXT("Accepted settings return broadcasts once"), ReturnCount, 1);
+	TestTrue(
+		TEXT("Accepted settings return refreshes active snapshots"),
+		PowerRefreshCount > PowerRefreshesBeforeReturn
+	);
+	FOpenMobileDeviceApplicationSettingsService::SetApplicationActiveForTests(
+		true
+	);
+	TestEqual(TEXT("Duplicate foreground signal is coalesced"), ReturnCount, 1);
+
+	Backend.ApplicationSettingsResult = {};
+	Result = FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Unknown backend state becomes native failure"),
+		Result.State,
+		EOpenMobileApplicationSettingsOpenState::NativeFailure
+	);
+	TestTrue(TEXT("Native failure receives a typed error"), Result.Error.IsSet());
+	Backend.ApplicationSettingsResult.State =
+		EOpenMobileApplicationSettingsOpenState::NoPresenter;
+	Result = FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Missing native presenter remains distinct"),
+		Result.State,
+		EOpenMobileApplicationSettingsOpenState::NoPresenter
+	);
+	TestTrue(TEXT("Missing presenter receives a typed error"), Result.Error.IsSet());
+
+	const int32 CallsBeforeUnsupported = Backend.ApplicationSettingsOpenCount;
+	Backend.SetCapability(
+		FOpenMobileDeviceCapabilityNames::OpenApplicationSettings,
+		EOpenMobileCapabilityState::NotSupported
+	);
+	Result = FOpenMobileDeviceApplicationSettingsService::Open();
+	TestEqual(
+		TEXT("Unsupported backend is reported before opening"),
+		Result.State,
+		EOpenMobileApplicationSettingsOpenState::Unsupported
+	);
+	TestEqual(
+		TEXT("Unsupported capability does not reach the backend"),
+		Backend.ApplicationSettingsOpenCount,
+		CallsBeforeUnsupported
+	);
+	TestNotNull(
+		TEXT("Application settings operation is reflected"),
+		UOpenMobileDeviceSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("OpenApplicationSettings")
+		)
+	);
+	TestNotNull(
+		TEXT("Application settings return event is reflected"),
+		UOpenMobileDeviceSubsystem::StaticClass()->FindPropertyByName(
+			TEXT("OnApplicationSettingsReturned")
+		)
+	);
+
+	FOpenMobileDeviceApplicationSettingsService::OnReturned().Remove(
+		ReturnedHandle
+	);
+	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(
+		PowerRefreshHandle
+	);
+	FOpenMobileDeviceMonitoringService::RemoveSubscription(MonitoringId);
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	TestEqual(
+		TEXT("Editor and missing backends report unsupported"),
+		FOpenMobileDeviceApplicationSettingsService::Open().State,
+		EOpenMobileApplicationSettingsOpenState::Unsupported
+	);
+	FOpenMobileDeviceApplicationSettingsService::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }

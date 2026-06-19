@@ -668,6 +668,28 @@ void FOpenMobileDeviceMonitoringService::NotifyWindowSettled()
 	}
 }
 
+void FOpenMobileDeviceMonitoringService::RefreshActiveGroups()
+{
+	check(IsInGameThread());
+	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	if (!bApplicationActive)
+	{
+		return;
+	}
+	TArray<EOpenMobileDeviceMonitoringGroup> Groups;
+	GroupStates.GenerateKeyArray(Groups);
+	for (EOpenMobileDeviceMonitoringGroup Group : Groups)
+	{
+		FGroupState* State = GroupStates.Find(Group);
+		if (!State || State->ReferenceCount <= 0)
+		{
+			continue;
+		}
+		State->ElapsedSeconds = 0.0f;
+		RefreshGroup(Group);
+	}
+}
+
 FOpenMobileDeviceMonitoringGroupChanged&
 FOpenMobileDeviceMonitoringService::OnGroupChanged()
 {

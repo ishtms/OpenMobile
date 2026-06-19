@@ -2487,6 +2487,141 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("AndroidPackageCheck", ios_backend)
 		self.assertIn("EOpenMobileCapabilityState::NotSupported", ios_backend)
 
+	def test_application_settings_open_is_app_scoped_and_lifecycle_aware(self) -> None:
+		public_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceApplicationSettingsTypes.h"
+		).read_text(encoding="utf-8")
+		for state in (
+			"Accepted",
+			"Unsupported",
+			"NoPresenter",
+			"NativeFailure",
+		):
+			self.assertIn(state, public_types)
+
+		service = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceApplicationSettingsService.cpp"
+		).read_text(encoding="utf-8")
+		for lifecycle_token in (
+			"ApplicationWillEnterBackgroundDelegate",
+			"ApplicationWillDeactivateDelegate",
+			"ApplicationHasEnteredForegroundDelegate",
+			"ApplicationHasReactivatedDelegate",
+			"RefreshActiveGroups",
+			"Returned.Broadcast",
+		):
+			self.assertIn(lifecycle_token, service)
+		self.assertIn("bAwaitingSettingsReturn", service)
+		self.assertIn("EOpenMobileApplicationSettingsOpenState::Accepted", service)
+		subsystem = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("GetDeviceCapabilityReport", subsystem)
+		self.assertIn("OnApplicationSettingsReturned.Broadcast", subsystem)
+
+		backend_contract = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "IOpenMobileDeviceBackend.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("OpenApplicationSettings", backend_contract)
+		self.assertIn(
+			"EOpenMobileApplicationSettingsOpenState::Unsupported",
+			backend_contract,
+		)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		settings_method_name = (
+			"AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings"
+		)
+		self.assertIn(settings_method_name, android_upl)
+		settings_method = android_upl.split(settings_method_name, 1)[1].split(
+			"AndroidThunkJava_OpenMobileDeviceCheckPackage",
+			1,
+		)[0]
+		for required_token in (
+			"Settings.ACTION_APPLICATION_DETAILS_SETTINGS",
+			'Uri.fromParts("package", getPackageName(), null)',
+			"ActivityNotFoundException",
+		):
+			self.assertIn(required_token, settings_method)
+		for forbidden_token in (
+			"Settings.ACTION_SETTINGS",
+			"Settings.ACTION_APPLICATION_SETTINGS",
+			"Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS",
+			"resolveActivity",
+		):
+			self.assertNotIn(forbidden_token, settings_method)
+
+		android_open = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidApplicationSettings.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			"AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings",
+			android_open,
+		)
+		self.assertNotIn("UE_LOG", android_open)
+		android_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("OpenApplicationSettings", android_backend)
+		self.assertIn("EOpenMobileCapabilityState::Available", android_backend)
+
+		ios_open = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSApplicationSettings.mm"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"UIApplicationOpenSettingsURLString",
+			"UIApplicationStateActive",
+			"IOSController",
+			"canOpenURL",
+			"openURL",
+		):
+			self.assertIn(required_token, ios_open)
+		self.assertNotIn("UE_LOG", ios_open)
+		ios_backend = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("OpenApplicationSettings", ios_backend)
+		self.assertIn("EOpenMobileCapabilityState::Available", ios_backend)
+
 
 if __name__ == "__main__":
 	unittest.main()
