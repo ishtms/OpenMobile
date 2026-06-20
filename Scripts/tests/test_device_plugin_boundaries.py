@@ -2779,6 +2779,87 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("PreferredTextScale", readme)
 		self.assertIn("does not scale UMG", readme)
 
+	def test_reduced_animation_uses_public_platform_preferences_without_writes(self) -> None:
+		reduced_animation_policy = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "OpenMobileDeviceReducedAnimation.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("FromAndroidAnimationScales", reduced_animation_policy)
+		self.assertIn("FromIOSReduceMotion", reduced_animation_policy)
+
+		accessibility_types = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceAccessibilityTypes.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("ReducedAnimationPlatformDetail", accessibility_types)
+
+		android_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidAccessibility.cpp"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"AndroidThunkJava_OpenMobileDeviceGetAnimationScales",
+			"GetFloatArrayRegion",
+			"FromAndroidAnimationScales",
+		):
+			self.assertIn(required_token, android_accessibility)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"Settings.Global.ANIMATOR_DURATION_SCALE",
+			"Settings.Global.TRANSITION_ANIMATION_SCALE",
+			"Settings.Global.WINDOW_ANIMATION_SCALE",
+			"Settings.Global.getFloat",
+			"Settings.Global.getUriFor",
+			"ContentObserver",
+		):
+			self.assertIn(required_token, android_upl)
+		self.assertNotIn("WRITE_SETTINGS", android_upl)
+
+		ios_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSAccessibility.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("UIAccessibilityIsReduceMotionEnabled", ios_accessibility)
+		self.assertIn(
+			"UIAccessibilityReduceMotionStatusDidChangeNotification",
+			ios_accessibility,
+		)
+		self.assertIn("FromIOSReduceMotion", ios_accessibility)
+
+		for backend_name in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{backend_name}"
+				/ "Private"
+				/ f"OpenMobileDevice{backend_name}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("ReducedAnimation", backend)
+			self.assertIn("AccessibilityChangeEvents", backend)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		self.assertIn("not semantically equivalent", readme)
+
 
 if __name__ == "__main__":
 	unittest.main()

@@ -198,13 +198,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredTextScale
 		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ReducedAnimation
+		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
-		Capability.Detail = TEXT("Android reports the current application's font-scale configuration and its changes while Accessibility monitoring is active.");
+		Capability.Detail = TEXT("Android reports font scale and a three-scale reduced-animation hint, then observes their sources while Accessibility monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)

@@ -22,6 +22,9 @@ struct OPENMOBILEDEVICE_API FOpenMobileAccessibilitySnapshot
 	FOpenMobileDeviceOptionalBool bReducedAnimationPreferred;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
+	FOpenMobileDeviceOptionalString ReducedAnimationPlatformDetail;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
 	FOpenMobileDeviceOptionalBool bScreenReaderActive;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Device")
@@ -33,6 +36,8 @@ struct OPENMOBILEDEVICE_API FOpenMobileAccessibilitySnapshot
 			&& PreferredTextScale == Other.PreferredTextScale
 			&& ContentSizeCategory == Other.ContentSizeCategory
 			&& bReducedAnimationPreferred == Other.bReducedAnimationPreferred
+			&& ReducedAnimationPlatformDetail
+				== Other.ReducedAnimationPlatformDetail
 			&& bScreenReaderActive == Other.bScreenReaderActive
 			&& bTouchExplorationActive == Other.bTouchExplorationActive;
 	}

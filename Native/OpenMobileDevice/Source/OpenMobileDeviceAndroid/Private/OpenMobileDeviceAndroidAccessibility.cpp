@@ -5,6 +5,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDevicePreferredTextScale.h"
+#include "OpenMobileDeviceReducedAnimation.h"
 
 namespace OpenMobileDeviceAndroidAccessibilityPrivate
 {
@@ -46,35 +47,85 @@ FOpenMobileAccessibilitySnapshot
 GetOpenMobileDeviceAndroidAccessibilitySnapshot()
 {
 	check(IsInGameThread());
+	FOpenMobileAccessibilitySnapshot Snapshot;
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
 	if (!Env || !FJavaWrapper::GameActivityThis)
 	{
-		return {};
+		return Snapshot;
 	}
-	static jmethodID GetMethod = FJavaWrapper::FindMethod(
+	static jmethodID GetFontScaleMethod = FJavaWrapper::FindMethod(
 		Env,
 		FJavaWrapper::GameActivityClassID,
 		"AndroidThunkJava_OpenMobileDeviceGetPreferredTextScale",
 		"()F",
 		false
 	);
-	if (!GetMethod)
+	if (GetFontScaleMethod)
 	{
-		return {};
+		const jfloat FontScale = FJavaWrapper::CallFloatMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			GetFontScaleMethod
+		);
+		if (!Env->ExceptionCheck())
+		{
+			const FOpenMobileAccessibilitySnapshot TextScale =
+				FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(
+					FontScale
+				);
+			Snapshot.PreferredTextScale = TextScale.PreferredTextScale;
+		}
+		else
+		{
+			Env->ExceptionClear();
+		}
 	}
-	const jfloat FontScale = FJavaWrapper::CallFloatMethod(
+
+	static jmethodID GetAnimationScalesMethod = FJavaWrapper::FindMethod(
 		Env,
-		FJavaWrapper::GameActivityThis,
-		GetMethod
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_OpenMobileDeviceGetAnimationScales",
+		"()[F",
+		false
 	);
+	if (!GetAnimationScalesMethod)
+	{
+		return Snapshot;
+	}
+	FScopedJavaObject<jfloatArray> AnimationScales(
+		static_cast<jfloatArray>(FJavaWrapper::CallObjectMethod(
+			Env,
+			FJavaWrapper::GameActivityThis,
+			GetAnimationScalesMethod
+		))
+	);
+	if (!AnimationScales || Env->ExceptionCheck())
+	{
+		Env->ExceptionClear();
+		return Snapshot;
+	}
+	if (Env->GetArrayLength(*AnimationScales) != 3)
+	{
+		return Snapshot;
+	}
+	jfloat Values[3] = {};
+	Env->GetFloatArrayRegion(*AnimationScales, 0, 3, Values);
 	if (Env->ExceptionCheck())
 	{
 		Env->ExceptionClear();
-		return {};
+		return Snapshot;
 	}
-	return FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(
-		FontScale
-	);
+	const FOpenMobileAccessibilitySnapshot ReducedAnimation =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			Values[0],
+			Values[1],
+			Values[2]
+		);
+	Snapshot.bReducedAnimationPreferred =
+		ReducedAnimation.bReducedAnimationPreferred;
+	Snapshot.ReducedAnimationPlatformDetail =
+		ReducedAnimation.ReducedAnimationPlatformDetail;
+	return Snapshot;
 }
 
 bool StartOpenMobileDeviceAndroidAccessibilityMonitoring(

@@ -66,6 +66,7 @@
 #include "OpenMobileDevicePreferredTextScale.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
+#include "OpenMobileDeviceReducedAnimation.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
 #include "OpenMobileDeviceRefreshRateControl.h"
 #include "OpenMobileDeviceRefreshRateControlPolicy.h"
@@ -6867,6 +6868,202 @@ bool FOpenMobileDevicePreferredTextScaleMappingTest::RunTest(
 		TEXT("Missing iOS category does not expose a derived scale"),
 		MissingIOSCategory.PreferredTextScale.bIsAvailable
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceReducedAnimationMappingTest,
+	"OpenMobile.Device.Accessibility.ReducedAnimationMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceReducedAnimationMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileAccessibilitySnapshot AndroidDisabled =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			0.0f,
+			0.0f,
+			0.0f
+		);
+	TestTrue(
+		TEXT("Disabled Android animation scales are available"),
+		AndroidDisabled.bReducedAnimationPreferred.bIsAvailable
+	);
+	TestTrue(
+		TEXT("Disabled Android animation scales prefer reduced motion"),
+		AndroidDisabled.bReducedAnimationPreferred.Value
+	);
+	TestTrue(
+		TEXT("Android raw animation scales are retained"),
+		AndroidDisabled.ReducedAnimationPlatformDetail.bIsAvailable
+	);
+	const FOpenMobileAccessibilitySnapshot AndroidDefault =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			1.0f,
+			1.0f,
+			1.0f
+		);
+	TestFalse(
+		TEXT("Default Android animation scales do not prefer reduction"),
+		AndroidDefault.bReducedAnimationPreferred.Value
+	);
+	const FOpenMobileAccessibilitySnapshot AndroidPartial =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			0.0f,
+			1.0f,
+			1.0f
+		);
+	TestTrue(
+		TEXT("One disabled Android scale is a reduced-animation hint"),
+		AndroidPartial.bReducedAnimationPreferred.Value
+	);
+	const FOpenMobileAccessibilitySnapshot AndroidReduced =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			0.5f,
+			1.0f,
+			1.0f
+		);
+	TestTrue(
+		TEXT("One shortened Android scale is a reduced-animation hint"),
+		AndroidReduced.bReducedAnimationPreferred.Value
+	);
+	const FOpenMobileAccessibilitySnapshot InvalidAndroid =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			-1.0f,
+			1.0f,
+			1.0f
+		);
+	TestFalse(
+		TEXT("Negative Android animation scale stays unknown"),
+		InvalidAndroid.bReducedAnimationPreferred.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Invalid Android animation scales do not expose detail"),
+		InvalidAndroid.ReducedAnimationPlatformDetail.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Non-finite Android animation scale stays unknown"),
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			std::numeric_limits<float>::quiet_NaN(),
+			1.0f,
+			1.0f
+		).bReducedAnimationPreferred.bIsAvailable
+	);
+
+	const FOpenMobileAccessibilitySnapshot IOSEnabled =
+		FOpenMobileDeviceReducedAnimation::FromIOSReduceMotion(true);
+	TestTrue(
+		TEXT("iOS Reduce Motion enabled is available"),
+		IOSEnabled.bReducedAnimationPreferred.bIsAvailable
+	);
+	TestTrue(
+		TEXT("iOS Reduce Motion enabled is preserved"),
+		IOSEnabled.bReducedAnimationPreferred.Value
+	);
+	TestTrue(
+		TEXT("iOS Reduce Motion source detail is available"),
+		IOSEnabled.ReducedAnimationPlatformDetail.bIsAvailable
+	);
+	const FOpenMobileAccessibilitySnapshot IOSDisabled =
+		FOpenMobileDeviceReducedAnimation::FromIOSReduceMotion(false);
+	TestFalse(
+		TEXT("iOS Reduce Motion disabled is preserved"),
+		IOSDisabled.bReducedAnimationPreferred.Value
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceReducedAnimationMonitoringTest,
+	"OpenMobile.Device.Accessibility.ReducedAnimationMonitoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceReducedAnimationMonitoringTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+
+	FMockBackend Backend(TEXT("ReducedAnimationMock"));
+	Backend.NativeMonitoringGroups.Add(Group::Accessibility);
+	Backend.Accessibility =
+		FOpenMobileDeviceReducedAnimation::FromIOSReduceMotion(false);
+	TestTrue(
+		TEXT("Reduced-animation mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileAccessibilitySnapshot> Changes;
+	Subsystem->OnNativeAccessibilitySnapshotChanged().AddLambda(
+		[&Changes](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			Changes.Add(Snapshot);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Accessibility},
+			1.0f
+		);
+	TestNotNull(TEXT("Reduced-animation monitoring starts"), Subscription);
+
+	Backend.Accessibility =
+		FOpenMobileDeviceReducedAnimation::FromIOSReduceMotion(true);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Reduce Motion change emits once"), Changes.Num(), 1);
+	TestTrue(
+		TEXT("Reduced preference refresh precedes broadcast"),
+		Changes[0].bReducedAnimationPreferred.Value
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Equal reduced preference coalesces"), Changes.Num(), 1);
+
+	Backend.Accessibility =
+		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
+			0.0f,
+			1.0f,
+			1.0f
+		);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Platform detail change emits"), Changes.Num(), 2);
+	TestTrue(
+		TEXT("Partial Android scale keeps reduced hint"),
+		Changes[1].bReducedAnimationPreferred.Value
+	);
+	TestTrue(
+		TEXT("Partial Android scale detail is broadcast"),
+		Changes[1].ReducedAnimationPlatformDetail.Value.Contains(
+			TEXT("animator=0.000")
+		)
+	);
+
+	Subscription->Stop();
+	TestEqual(
+		TEXT("Reduced-animation observer stops with final listener"),
+		Backend.MonitoringStops.FindRef(Group::Accessibility),
+		1
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

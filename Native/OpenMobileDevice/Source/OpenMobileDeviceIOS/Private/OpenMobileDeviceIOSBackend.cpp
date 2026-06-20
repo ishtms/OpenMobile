@@ -175,13 +175,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredTextScale
 		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ReducedAnimation
+		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
-		Capability.Detail = TEXT("iOS reports the preferred content-size category and a body-style Dynamic Type layout scale while Accessibility monitoring is active.");
+		Capability.Detail = TEXT("iOS reports Dynamic Type preferences and the exact Reduce Motion setting, then observes both while Accessibility monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)

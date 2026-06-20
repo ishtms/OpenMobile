@@ -3,6 +3,7 @@
 #include "Misc/ScopeLock.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDevicePreferredTextScale.h"
+#include "OpenMobileDeviceReducedAnimation.h"
 
 #import <UIKit/UIKit.h>
 
@@ -12,6 +13,7 @@ namespace OpenMobileDeviceIOSAccessibilityPrivate
 	FOpenMobileDeviceMonitoringCallbackToken ActiveToken;
 	uint64 SourceSequence = 0;
 	id ContentSizeObserver = nil;
+	id ReduceMotionObserver = nil;
 
 	void RunOnMainThread(dispatch_block_t Block)
 	{
@@ -56,14 +58,20 @@ namespace OpenMobileDeviceIOSAccessibilityPrivate
 
 	void RemoveObserver()
 	{
-		if (!ContentSizeObserver)
+		if (ContentSizeObserver)
 		{
-			return;
+			[[NSNotificationCenter defaultCenter]
+				removeObserver:ContentSizeObserver];
+			[ContentSizeObserver release];
+			ContentSizeObserver = nil;
 		}
-		[[NSNotificationCenter defaultCenter]
-			removeObserver:ContentSizeObserver];
-		[ContentSizeObserver release];
-		ContentSizeObserver = nil;
+		if (ReduceMotionObserver)
+		{
+			[[NSNotificationCenter defaultCenter]
+				removeObserver:ReduceMotionObserver];
+			[ReduceMotionObserver release];
+			ReduceMotionObserver = nil;
+		}
 	}
 }
 
@@ -75,9 +83,11 @@ FOpenMobileAccessibilitySnapshot GetOpenMobileDeviceIOSAccessibilitySnapshot()
 	{
 		__block UIContentSizeCategory Category = nil;
 		__block float RelativeScale = 0.0f;
+		__block bool bReduceMotionEnabled = false;
 		RunOnMainThread(^{
 			UIApplication* Application = [UIApplication sharedApplication];
 			Category = [Application.preferredContentSizeCategory copy];
+			bReduceMotionEnabled = UIAccessibilityIsReduceMotionEnabled();
 			if ([Category length] == 0)
 			{
 				return;
@@ -99,6 +109,14 @@ FOpenMobileAccessibilitySnapshot GetOpenMobileDeviceIOSAccessibilitySnapshot()
 				FString(Category),
 				RelativeScale
 			);
+		const FOpenMobileAccessibilitySnapshot ReducedAnimation =
+			FOpenMobileDeviceReducedAnimation::FromIOSReduceMotion(
+				bReduceMotionEnabled
+			);
+		Snapshot.bReducedAnimationPreferred =
+			ReducedAnimation.bReducedAnimationPreferred;
+		Snapshot.ReducedAnimationPlatformDetail =
+			ReducedAnimation.ReducedAnimationPlatformDetail;
 		[Category release];
 		return Snapshot;
 	}
@@ -132,7 +150,23 @@ bool StartOpenMobileDeviceIOSAccessibilityMonitoring(
 				NotifyChange();
 			}];
 		[ContentSizeObserver retain];
-		bInstalled = ContentSizeObserver != nil;
+		ReduceMotionObserver = [[NSNotificationCenter defaultCenter]
+			addObserverForName:
+				UIAccessibilityReduceMotionStatusDidChangeNotification
+			object:nil
+			queue:[NSOperationQueue mainQueue]
+			usingBlock:^(NSNotification* Notification)
+			{
+				static_cast<void>(Notification);
+				NotifyChange();
+			}];
+		[ReduceMotionObserver retain];
+		bInstalled = ContentSizeObserver != nil
+			&& ReduceMotionObserver != nil;
+		if (!bInstalled)
+		{
+			RemoveObserver();
+		}
 	});
 	if (!bInstalled)
 	{
