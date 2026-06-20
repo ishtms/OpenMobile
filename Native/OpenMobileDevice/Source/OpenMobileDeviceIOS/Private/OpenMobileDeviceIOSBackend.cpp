@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
+#include "OpenMobileDeviceIOSAccessibility.h"
 #include "OpenMobileDeviceIOSApplication.h"
 #include "OpenMobileDeviceIOSApplicationSettings.h"
 #include "OpenMobileDeviceIOSAppearance.h"
@@ -170,6 +171,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("iOS reads the active Unreal scene's user-interface-style trait and observes that trait only while Appearance monitoring is active.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredTextScale
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("iOS reports the preferred content-size category and a body-style Dynamic Type layout scale while Accessibility monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
@@ -724,6 +736,12 @@ FOpenMobileDeviceIOSBackend::GetAppearanceSnapshot() const
 	return GetOpenMobileDeviceIOSAppearanceSnapshot();
 }
 
+FOpenMobileAccessibilitySnapshot
+FOpenMobileDeviceIOSBackend::GetAccessibilitySnapshot() const
+{
+	return GetOpenMobileDeviceIOSAccessibilitySnapshot();
+}
+
 bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	EOpenMobileDeviceMonitoringGroup Group,
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -748,6 +766,10 @@ bool FOpenMobileDeviceIOSBackend::StartMonitoring(
 	if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
 	{
 		return StartOpenMobileDeviceIOSAppearanceMonitoring(CallbackToken);
+	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Accessibility)
+	{
+		return StartOpenMobileDeviceIOSAccessibilityMonitoring(CallbackToken);
 	}
 	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
@@ -780,6 +802,10 @@ void FOpenMobileDeviceIOSBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceIOSAppearanceMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Accessibility)
+	{
+		StopOpenMobileDeviceIOSAccessibilityMonitoring();
+	}
 	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
 		StopOpenMobileDeviceIOSFlashlightMonitoring();
@@ -799,5 +825,6 @@ void FOpenMobileDeviceIOSBackend::BeginShutdown()
 	StopOpenMobileDeviceIOSMemoryMonitoring();
 	StopOpenMobileDeviceIOSNetworkMonitoring();
 	StopOpenMobileDeviceIOSAppearanceMonitoring();
+	StopOpenMobileDeviceIOSAccessibilityMonitoring();
 	StopOpenMobileDeviceIOSFlashlightMonitoring();
 }

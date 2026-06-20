@@ -2704,6 +2704,81 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn("AppearanceChangeEvents", backend)
 			self.assertIn("EOpenMobileDeviceMonitoringGroup::Appearance", backend)
 
+	def test_preferred_text_scale_preserves_platform_values_without_scaling_umg(self) -> None:
+		text_scale_policy = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "OpenMobileDevicePreferredTextScale.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("FromAndroidFontScale", text_scale_policy)
+		self.assertIn("FromIOSContentSizeCategory", text_scale_policy)
+
+		android_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidAccessibility.cpp"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"AndroidThunkJava_OpenMobileDeviceGetPreferredTextScale",
+			"CallFloatMethod",
+			"nativeOpenMobileDeviceAccessibilityChanged",
+			"NotifyNativeChange",
+		):
+			self.assertIn(required_token, android_accessibility)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"configuration.fontScale",
+			"AndroidThunkJava_OpenMobileDeviceStartAccessibilityMonitoring",
+			"AndroidThunkJava_OpenMobileDeviceStopAccessibilityMonitoring",
+			"nativeOpenMobileDeviceAccessibilityChanged",
+			"gameActivityonConfigurationChangedAdditions",
+		):
+			self.assertIn(required_token, android_upl)
+
+		ios_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSAccessibility.mm"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"preferredContentSizeCategory",
+			"UIContentSizeCategoryDidChangeNotification",
+			"UIFontMetrics",
+			"scaledValueForValue",
+			"NotifyNativeChange",
+		):
+			self.assertIn(required_token, ios_accessibility)
+
+		for backend_name in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{backend_name}"
+				/ "Private"
+				/ f"OpenMobileDevice{backend_name}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("PreferredTextScale", backend)
+			self.assertIn("AccessibilityChangeEvents", backend)
+			self.assertIn("EOpenMobileDeviceMonitoringGroup::Accessibility", backend)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		self.assertIn("PreferredTextScale", readme)
+		self.assertIn("does not scale UMG", readme)
+
 
 if __name__ == "__main__":
 	unittest.main()

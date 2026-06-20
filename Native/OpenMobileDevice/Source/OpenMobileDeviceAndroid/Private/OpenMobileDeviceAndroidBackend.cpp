@@ -4,6 +4,7 @@
 #include "HAL/PlatformMemory.h"
 #include "HAL/PlatformMisc.h"
 #include "OpenMobileDeviceArchitecture.h"
+#include "OpenMobileDeviceAndroidAccessibility.h"
 #include "OpenMobileDeviceAndroidApplication.h"
 #include "OpenMobileDeviceAndroidApplicationSettings.h"
 #include "OpenMobileDeviceAndroidAppearance.h"
@@ -193,6 +194,17 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
 		Capability.Detail = TEXT("Android reads the current application's night resource qualifier and reports configuration changes while Appearance monitoring is active.");
+		return Capability;
+	}
+	if (CapabilityName == FOpenMobileDeviceCapabilityNames::PreferredTextScale
+		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
+	{
+		FOpenMobileDeviceCapability Capability;
+		Capability.Name = CapabilityName;
+		Capability.State = EOpenMobileCapabilityState::Available;
+		Capability.BackendName = GetBackendName();
+		Capability.Detail = TEXT("Android reports the current application's font-scale configuration and its changes while Accessibility monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
@@ -787,6 +799,12 @@ FOpenMobileDeviceAndroidBackend::GetAppearanceSnapshot() const
 	return GetOpenMobileDeviceAndroidAppearanceSnapshot();
 }
 
+FOpenMobileAccessibilitySnapshot
+FOpenMobileDeviceAndroidBackend::GetAccessibilitySnapshot() const
+{
+	return GetOpenMobileDeviceAndroidAccessibilitySnapshot();
+}
+
 bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	EOpenMobileDeviceMonitoringGroup Group,
 	const FOpenMobileDeviceMonitoringCallbackToken& CallbackToken
@@ -819,6 +837,12 @@ bool FOpenMobileDeviceAndroidBackend::StartMonitoring(
 	if (Group == EOpenMobileDeviceMonitoringGroup::Appearance)
 	{
 		return StartOpenMobileDeviceAndroidAppearanceMonitoring(CallbackToken);
+	}
+	if (Group == EOpenMobileDeviceMonitoringGroup::Accessibility)
+	{
+		return StartOpenMobileDeviceAndroidAccessibilityMonitoring(
+			CallbackToken
+		);
 	}
 	if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
@@ -859,6 +883,10 @@ void FOpenMobileDeviceAndroidBackend::StopMonitoring(
 	{
 		StopOpenMobileDeviceAndroidAppearanceMonitoring();
 	}
+	else if (Group == EOpenMobileDeviceMonitoringGroup::Accessibility)
+	{
+		StopOpenMobileDeviceAndroidAccessibilityMonitoring();
+	}
 	else if (Group == EOpenMobileDeviceMonitoringGroup::Flashlight)
 	{
 		StopOpenMobileDeviceAndroidFlashlightMonitoring();
@@ -891,5 +919,6 @@ void FOpenMobileDeviceAndroidBackend::BeginShutdown()
 	StopOpenMobileDeviceAndroidNetworkMonitoring();
 	StopOpenMobileDeviceAndroidWindowMonitoring();
 	StopOpenMobileDeviceAndroidAppearanceMonitoring();
+	StopOpenMobileDeviceAndroidAccessibilityMonitoring();
 	StopOpenMobileDeviceAndroidFlashlightMonitoring();
 }

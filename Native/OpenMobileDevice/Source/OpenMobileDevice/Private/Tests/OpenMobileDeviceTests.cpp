@@ -63,6 +63,7 @@
 #include "OpenMobileDeviceOrientationControlPolicy.h"
 #include "OpenMobileDeviceOrientationControlService.h"
 #include "OpenMobileDevicePlatformInfo.h"
+#include "OpenMobileDevicePreferredTextScale.h"
 #include "OpenMobileDeviceProcessorInfo.h"
 #include "OpenMobileDeviceResourceTypes.h"
 #include "OpenMobileDeviceRefreshRateInfo.h"
@@ -223,6 +224,13 @@ namespace OpenMobileDeviceTests
 		{
 			++AppearanceQueries;
 			return Appearance;
+		}
+
+		virtual FOpenMobileAccessibilitySnapshot
+		GetAccessibilitySnapshot() const override
+		{
+			++AccessibilityQueries;
+			return Accessibility;
 		}
 
 		virtual FOpenMobileFlashlightOperationResult ApplyFlashlight(
@@ -471,6 +479,7 @@ namespace OpenMobileDeviceTests
 		mutable int32 BrightnessQueries = 0;
 		mutable int32 FlashlightQueries = 0;
 		mutable int32 AppearanceQueries = 0;
+		mutable int32 AccessibilityQueries = 0;
 		mutable int32 LocaleQueries = 0;
 		mutable FDateTime LastLocaleInstant;
 		bool bInBackground = false;
@@ -485,6 +494,7 @@ namespace OpenMobileDeviceTests
 		FOpenMobileBrightnessSnapshot Brightness;
 		FOpenMobileFlashlightSnapshot Flashlight;
 		FOpenMobileAppearanceSnapshot Appearance;
+		FOpenMobileAccessibilitySnapshot Accessibility;
 		FOpenMobileFlashlightOperationResult FlashlightResult;
 		TArray<FOpenMobileFlashlightRequest> FlashlightRequests;
 		int32 FlashlightClearCount = 0;
@@ -6755,6 +6765,215 @@ bool FOpenMobileDeviceSystemAppearanceMappingTest::RunTest(
 		FOpenMobileDeviceSystemAppearance::FromIOSUserInterfaceStyle(3),
 		EOpenMobileSystemAppearance::Unknown
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePreferredTextScaleMappingTest,
+	"OpenMobile.Device.Accessibility.PreferredTextScaleMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePreferredTextScaleMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileAccessibilitySnapshot MinimumAndroid =
+		FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(0.85f);
+	TestTrue(
+		TEXT("Minimum Android scale is available"),
+		MinimumAndroid.PreferredTextScale.bIsAvailable
+	);
+	TestEqual(
+		TEXT("Minimum Android scale is preserved"),
+		MinimumAndroid.PreferredTextScale.Value,
+		0.85f
+	);
+	const FOpenMobileAccessibilitySnapshot DefaultAndroid =
+		FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(1.0f);
+	TestEqual(
+		TEXT("Default Android scale is preserved"),
+		DefaultAndroid.PreferredTextScale.Value,
+		1.0f
+	);
+	const FOpenMobileAccessibilitySnapshot AccessibilityAndroid =
+		FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(2.0f);
+	TestEqual(
+		TEXT("Accessibility Android scale is preserved"),
+		AccessibilityAndroid.PreferredTextScale.Value,
+		2.0f
+	);
+	TestFalse(
+		TEXT("Android does not invent an iOS category"),
+		AccessibilityAndroid.ContentSizeCategory.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Zero Android scale is unavailable"),
+		FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(0.0f)
+			.PreferredTextScale.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Non-finite Android scale is unavailable"),
+		FOpenMobileDevicePreferredTextScale::FromAndroidFontScale(
+			std::numeric_limits<float>::quiet_NaN()
+		).PreferredTextScale.bIsAvailable
+	);
+
+	const FString AccessibilityCategory =
+		TEXT("UICTContentSizeCategoryAccessibilityXXXL");
+	const FOpenMobileAccessibilitySnapshot IOSAccessibility =
+		FOpenMobileDevicePreferredTextScale::FromIOSContentSizeCategory(
+			AccessibilityCategory,
+			2.35f
+		);
+	TestTrue(
+		TEXT("iOS content-size category is available"),
+		IOSAccessibility.ContentSizeCategory.bIsAvailable
+	);
+	TestEqual(
+		TEXT("iOS raw content-size category is preserved"),
+		IOSAccessibility.ContentSizeCategory.Value,
+		AccessibilityCategory
+	);
+	TestEqual(
+		TEXT("iOS metrics scale is preserved"),
+		IOSAccessibility.PreferredTextScale.Value,
+		2.35f
+	);
+	const FOpenMobileAccessibilitySnapshot InvalidIOSScale =
+		FOpenMobileDevicePreferredTextScale::FromIOSContentSizeCategory(
+			TEXT("UICTContentSizeCategoryL"),
+			-1.0f
+		);
+	TestTrue(
+		TEXT("iOS raw category survives an invalid derived scale"),
+		InvalidIOSScale.ContentSizeCategory.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Invalid iOS derived scale is unavailable"),
+		InvalidIOSScale.PreferredTextScale.bIsAvailable
+	);
+	const FOpenMobileAccessibilitySnapshot MissingIOSCategory =
+		FOpenMobileDevicePreferredTextScale::FromIOSContentSizeCategory(
+			FString(),
+			1.0f
+		);
+	TestFalse(
+		TEXT("Missing iOS category leaves the snapshot unavailable"),
+		MissingIOSCategory.ContentSizeCategory.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Missing iOS category does not expose a derived scale"),
+		MissingIOSCategory.PreferredTextScale.bIsAvailable
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDevicePreferredTextScaleMonitoringTest,
+	"OpenMobile.Device.Accessibility.PreferredTextScaleMonitoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDevicePreferredTextScaleMonitoringTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+
+	FMockBackend Backend(TEXT("TextScaleMock"));
+	Backend.NativeMonitoringGroups.Add(Group::Accessibility);
+	Backend.Accessibility.PreferredTextScale =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(1.0f);
+	Backend.Accessibility.ContentSizeCategory =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			TEXT("UICTContentSizeCategoryL")
+		);
+	TestTrue(
+		TEXT("Text-scale mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileAccessibilitySnapshot> Changes;
+	Subsystem->OnNativeAccessibilitySnapshotChanged().AddLambda(
+		[&Changes](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			Changes.Add(Snapshot);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Accessibility},
+			1.0f
+		);
+	TestNotNull(TEXT("Text-scale monitoring starts"), Subscription);
+	TestEqual(
+		TEXT("Accessibility observer starts once"),
+		Backend.MonitoringStarts.FindRef(Group::Accessibility),
+		1
+	);
+
+	Backend.Accessibility.PreferredTextScale.Value = 1.35f;
+	Backend.Accessibility.ContentSizeCategory.Value =
+		TEXT("UICTContentSizeCategoryXXL");
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Text-scale change emits once"), Changes.Num(), 1);
+	TestEqual(
+		TEXT("Snapshot refresh precedes broadcast"),
+		Changes[0].PreferredTextScale.Value,
+		1.35f
+	);
+	TestEqual(
+		TEXT("Raw category refresh precedes broadcast"),
+		Changes[0].ContentSizeCategory.Value,
+		FString(TEXT("UICTContentSizeCategoryXXL"))
+	);
+	Backend.Accessibility.PreferredTextScale.Value = 1.355f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Sub-tolerance scale change coalesces"), Changes.Num(), 1);
+	Backend.Accessibility.ContentSizeCategory.Value =
+		TEXT("UICTContentSizeCategoryAccessibilityM");
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Raw category change emits"), Changes.Num(), 2);
+
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	Backend.Accessibility.PreferredTextScale.Value = 2.0f;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Background change does not emit"), Changes.Num(), 2);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(TEXT("Foreground refresh emits latest scale"), Changes.Num(), 3);
+	TestEqual(
+		TEXT("Foreground refresh contains latest scale"),
+		Changes[2].PreferredTextScale.Value,
+		2.0f
+	);
+
+	Subscription->Stop();
+	TestEqual(
+		TEXT("Accessibility observer stops with final listener"),
+		Backend.MonitoringStops.FindRef(Group::Accessibility),
+		1
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

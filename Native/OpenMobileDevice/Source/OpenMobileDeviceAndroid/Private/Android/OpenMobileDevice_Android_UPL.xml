@@ -93,8 +93,10 @@ import androidx.window.layout.WindowLayoutInfo;
 		OpenMobileDeviceDisplayListener;
 	private volatile float[] OpenMobileDeviceFoldableInfo = new float[0];
 	private boolean OpenMobileDeviceAppearanceMonitoring = false;
+	private boolean OpenMobileDeviceAccessibilityMonitoring = false;
 
 	public native void nativeOpenMobileDeviceAppearanceChanged();
+	public native void nativeOpenMobileDeviceAccessibilityChanged();
 
 	public int AndroidThunkJava_OpenMobileDeviceGetSystemAppearance()
 	{
@@ -129,6 +131,37 @@ import androidx.window.layout.WindowLayoutInfo;
 	public void AndroidThunkJava_OpenMobileDeviceStopAppearanceMonitoring()
 	{
 		OpenMobileDeviceAppearanceMonitoring = false;
+	}
+
+	public float AndroidThunkJava_OpenMobileDeviceGetPreferredTextScale()
+	{
+		try
+		{
+			Configuration configuration = getResources().getConfiguration();
+			if (configuration == null
+				|| Float.isNaN(configuration.fontScale)
+				|| Float.isInfinite(configuration.fontScale)
+				|| configuration.fontScale <= 0.0f)
+			{
+				return Float.NaN;
+			}
+			return configuration.fontScale;
+		}
+		catch (RuntimeException exception)
+		{
+			return Float.NaN;
+		}
+	}
+
+	public boolean AndroidThunkJava_OpenMobileDeviceStartAccessibilityMonitoring()
+	{
+		OpenMobileDeviceAccessibilityMonitoring = true;
+		return true;
+	}
+
+	public void AndroidThunkJava_OpenMobileDeviceStopAccessibilityMonitoring()
+	{
+		OpenMobileDeviceAccessibilityMonitoring = false;
 	}
 
 	public int AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings()
@@ -2725,6 +2758,10 @@ import androidx.window.layout.WindowLayoutInfo;
 		if (OpenMobileDeviceAppearanceMonitoring)
 		{
 			nativeOpenMobileDeviceAppearanceChanged();
+		}
+		if (OpenMobileDeviceAccessibilityMonitoring)
+		{
+			nativeOpenMobileDeviceAccessibilityChanged();
 		}
 ]]></insert>
 	</gameActivityonConfigurationChangedAdditions>
