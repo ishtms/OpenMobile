@@ -13,6 +13,14 @@
 	UIImpactFeedbackGenerator* ImpactGenerators[5];
 	UINotificationFeedbackGenerator* NotificationGenerator;
 	CHHapticEngine* Engine;
+	NSMutableDictionary<NSNumber*, id<CHHapticAdvancedPatternPlayer>>* Players;
+	TMap<
+		uint64,
+		TSharedPtr<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		>
+	> PlaybackCallbacks;
 	NSUInteger ActivityGeneration;
 	bool bShuttingDown;
 	FCriticalSection EventCallbackMutex;
@@ -26,6 +34,14 @@
 	intensity:(CGFloat)Intensity;
 - (void)playSystemVibration;
 - (EOpenMobileHapticsAppleEngineResult)createEngine;
+- (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId;
+- (void)completePattern:(uint64)RequestId
+	event:(EOpenMobileHapticsApplePlaybackEvent)Event;
+- (void)failAllPatterns;
 - (void)setEventCallback:
 	(FOpenMobileHapticsAppleBridgeEventCallback)Callback;
 - (void)releaseObjects;
@@ -199,16 +215,227 @@
 		Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
 		{
 			static_cast<void>(Reason);
+			[Service failAllPatterns];
 			[Service emitEvent:
 				EOpenMobileHapticsAppleBridgeEvent::EngineStopped];
 		};
 		Engine.resetHandler = ^
 		{
+			[Service failAllPatterns];
 			[Service emitEvent:EOpenMobileHapticsAppleBridgeEvent::EngineReset];
 		};
 		return EOpenMobileHapticsAppleEngineResult::Ready;
 	}
 	return EOpenMobileHapticsAppleEngineResult::UnsupportedHardware;
+}
+
+- (void)completePattern:(uint64)RequestId
+	event:(EOpenMobileHapticsApplePlaybackEvent)Event
+{
+	if (![NSThread isMainThread])
+	{
+		[self retain];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self completePattern:RequestId event:Event];
+			[self release];
+		});
+		return;
+	}
+	if (bShuttingDown)
+	{
+		return;
+	}
+
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	if (!Player)
+	{
+		return;
+	}
+	Player.completionHandler = ^(NSError* Error)
+	{
+		static_cast<void>(Error);
+	};
+	[Players removeObjectForKey:Key];
+	TSharedPtr<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	> Callback = PlaybackCallbacks.FindRef(RequestId);
+	PlaybackCallbacks.Remove(RequestId);
+	if (Callback && *Callback)
+	{
+		(*Callback)(Event);
+	}
+}
+
+- (void)failAllPatterns
+{
+	if (![NSThread isMainThread])
+	{
+		[self retain];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self failAllPatterns];
+			[self release];
+		});
+		return;
+	}
+	TArray<uint64> RequestIds;
+	PlaybackCallbacks.GetKeys(RequestIds);
+	for (const uint64 RequestId : RequestIds)
+	{
+		[self completePattern:RequestId
+			event:EOpenMobileHapticsApplePlaybackEvent::Failed];
+	}
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	if (!Engine || !Pattern.IsValid())
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	if (RequestId == 0 || [Players objectForKey:Key])
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+
+	double PreviousStart = 0.0;
+	for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
+	{
+		const double Start = Pattern.StartTimesSeconds[Index];
+		const float Intensity = Pattern.Intensities[Index];
+		const float Sharpness = Pattern.Sharpnesses[Index];
+		if (!FMath::IsFinite(Start)
+			|| !FMath::IsFinite(Intensity)
+			|| !FMath::IsFinite(Sharpness)
+			|| Start < PreviousStart
+			|| Intensity < 0.0f
+			|| Intensity > 1.0f
+			|| Sharpness < 0.0f
+			|| Sharpness > 1.0f)
+		{
+			return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+		}
+		PreviousStart = Start;
+	}
+
+	NSError* Error = nil;
+	if (![Engine startAndReturnError:&Error] || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	NSMutableArray<CHHapticEvent*>* Events =
+		[[NSMutableArray alloc] initWithCapacity:Pattern.StartTimesSeconds.Num()];
+	for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
+	{
+		CHHapticEventParameter* Intensity =
+			[[CHHapticEventParameter alloc]
+				initWithParameterID:CHHapticEventParameterIDHapticIntensity
+				value:Pattern.Intensities[Index]];
+		CHHapticEventParameter* Sharpness =
+			[[CHHapticEventParameter alloc]
+				initWithParameterID:CHHapticEventParameterIDHapticSharpness
+				value:Pattern.Sharpnesses[Index]];
+		NSArray<CHHapticEventParameter*>* Parameters =
+			[[NSArray alloc] initWithObjects:Intensity, Sharpness, nil];
+		CHHapticEvent* Event = [[CHHapticEvent alloc]
+			initWithEventType:CHHapticEventTypeHapticTransient
+			parameters:Parameters
+			relativeTime:Pattern.StartTimesSeconds[Index]];
+		[Events addObject:Event];
+		[Event release];
+		[Parameters release];
+		[Sharpness release];
+		[Intensity release];
+	}
+
+	Error = nil;
+	CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
+		initWithEvents:Events
+		parameters:@[]
+		error:&Error];
+	[Events release];
+	if (!NativePattern || Error)
+	{
+		[NativePattern release];
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+
+	Error = nil;
+	id<CHHapticAdvancedPatternPlayer> Player =
+		[Engine createAdvancedPlayerWithPattern:NativePattern error:&Error];
+	[NativePattern release];
+	if (!Player || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (!Players)
+	{
+		Players = [[NSMutableDictionary alloc] init];
+	}
+	OpenMobileHapticsAppleNativeService* Service = self;
+	Player.completionHandler = ^(NSError* CompletionError)
+	{
+		[Service completePattern:RequestId
+			event:CompletionError
+				? EOpenMobileHapticsApplePlaybackEvent::Failed
+				: EOpenMobileHapticsApplePlaybackEvent::Completed];
+	};
+	[Players setObject:Player forKey:Key];
+	PlaybackCallbacks.Add(
+		RequestId,
+		MakeShared<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		>(MoveTemp(Callback))
+	);
+	Error = nil;
+	if (![Player startAtTime:CHHapticTimeImmediate error:&Error] || Error)
+	{
+		Player.completionHandler = ^(NSError* CompletionError)
+		{
+			static_cast<void>(CompletionError);
+		};
+		[Players removeObjectForKey:Key];
+		PlaybackCallbacks.Remove(RequestId);
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	if (!Player)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+	}
+	NSError* Error = nil;
+	const bool bStopped = [Player stopAtTime:CHHapticTimeImmediate error:&Error];
+	if (!bStopped || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	Player.completionHandler = ^(NSError* CompletionError)
+	{
+		static_cast<void>(CompletionError);
+	};
+	[Players removeObjectForKey:Key];
+	PlaybackCallbacks.Remove(RequestId);
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 }
 
 - (void)releaseGenerators
@@ -230,6 +457,19 @@
 	++ActivityGeneration;
 	[self setEventCallback:{}];
 	[self releaseGenerators];
+	for (id<CHHapticAdvancedPatternPlayer> Player in [Players allValues])
+	{
+		Player.completionHandler = ^(NSError* CompletionError)
+		{
+			static_cast<void>(CompletionError);
+		};
+		NSError* Error = nil;
+		[Player stopAtTime:CHHapticTimeImmediate error:&Error];
+	}
+	[Players removeAllObjects];
+	[Players release];
+	Players = nil;
+	PlaybackCallbacks.Reset();
 	if (Engine)
 	{
 		Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
@@ -286,6 +526,12 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		QueryHardware() override
 		{
 			FOpenMobileHapticsAppleHardwareProbe Probe;
+			@autoreleasepool
+			{
+				Probe.OSMajorVersion = static_cast<int32>(
+					[NSProcessInfo processInfo].operatingSystemVersion.majorVersion
+				);
+			}
 #if TARGET_OS_SIMULATOR
 			Probe.RichHaptics =
 				EOpenMobileHapticsAppleHardwareState::Unsupported;
@@ -363,6 +609,49 @@ namespace OpenMobileHapticsIOSBridgePrivate
 				[Service release];
 			});
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, &Pattern, &Callback, &Result]()
+				{
+					Result = [Service
+						playTransientPattern:RequestId
+						pattern:Pattern
+						callback:MoveTemp(Callback)];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
+			uint64 RequestId
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, &Result]()
+			{
+				Result = [Service stopPattern:RequestId];
+			});
+			return Result;
 		}
 
 		virtual void SetEventCallback(

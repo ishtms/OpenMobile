@@ -13,6 +13,8 @@ public:
 
 	virtual FName GetBackendName() const override { return TEXT("IOS"); }
 	virtual FOpenMobileHapticCapabilities GetCapabilities() const override;
+	virtual FOpenMobileHapticsBackendControlSupport
+	GetControlSupport() const override;
 	virtual void HandleLifecycleChange() override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
@@ -25,6 +27,14 @@ public:
 		const FOpenMobileHapticsOneShotResolution& Resolution,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
+	) override;
+	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		FOpenMobileHapticsBackendEventCallback Callback
+	) override;
+	virtual FOpenMobileHapticControlResult StopPlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token
 	) override;
 	virtual void BeginShutdown() override;
 

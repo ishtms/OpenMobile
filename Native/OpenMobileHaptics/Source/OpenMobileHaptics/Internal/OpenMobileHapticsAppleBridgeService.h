@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileHapticsAppleTransientPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 
 enum class EOpenMobileHapticsAppleHardwareState : uint8
@@ -15,6 +16,7 @@ struct FOpenMobileHapticsAppleHardwareProbe
 	EOpenMobileHapticsAppleHardwareState RichHaptics =
 		EOpenMobileHapticsAppleHardwareState::TemporarilyUnavailable;
 	bool bSupportsAudio = false;
+	int32 OSMajorVersion = 0;
 };
 
 enum class EOpenMobileHapticsAppleEngineResult : uint8
@@ -43,6 +45,15 @@ enum class EOpenMobileHapticsAppleBridgeEvent : uint8
 using FOpenMobileHapticsAppleBridgeEventCallback =
 	TFunction<void(EOpenMobileHapticsAppleBridgeEvent)>;
 
+enum class EOpenMobileHapticsApplePlaybackEvent : uint8
+{
+	Completed,
+	Failed
+};
+
+using FOpenMobileHapticsApplePlaybackEventCallback =
+	TFunction<void(EOpenMobileHapticsApplePlaybackEvent)>;
+
 class OPENMOBILEHAPTICS_API IOpenMobileHapticsAppleBridge
 {
 public:
@@ -56,6 +67,14 @@ public:
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult
 	PlaySystemVibration() = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
+		uint64 RequestId
+	) = 0;
 	virtual void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	) = 0;
@@ -78,6 +97,12 @@ public:
 		float Intensity
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlaySystemVibration();
+	EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
+	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);
 	void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	);

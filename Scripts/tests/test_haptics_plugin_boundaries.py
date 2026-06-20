@@ -474,6 +474,51 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		self.assertIn("IsCustomPlaybackConfigured", common_backend)
 
+	def test_apple_transient_patterns_use_one_guarded_native_pattern(self) -> None:
+		ios_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsIOS"
+		bridge = load_ios_bridge()
+		backend = (
+			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		policy = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Private"
+			/ "OpenMobileHapticsAppleTransientPolicy.cpp"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("CHHapticEventTypeHapticTransient", bridge)
+		self.assertIn("CHHapticEventParameterIDHapticIntensity", bridge)
+		self.assertIn("CHHapticEventParameterIDHapticSharpness", bridge)
+		self.assertIn("relativeTime:Pattern.StartTimesSeconds[Index]", bridge)
+		self.assertIn("initWithEvents:Events", bridge)
+		self.assertIn("createAdvancedPlayerWithPattern", bridge)
+		self.assertIn("startAndReturnError", bridge)
+		self.assertIn("completionHandler", bridge)
+		self.assertIn("PlaybackCallbacks", bridge)
+		self.assertIn("FMath::IsFinite", bridge)
+		stop_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)stopPattern:"
+			"(uint64)RequestId\n{",
+			1,
+		)[1].split("\n}\n\n- (void)releaseGenerators", 1)[0]
+		self.assertIn("if (!bStopped || Error)", stop_pattern)
+		self.assertLess(
+			stop_pattern.index("if (!bStopped || Error)"),
+			stop_pattern.index("Player.completionHandler"),
+		)
+
+		self.assertIn("FOpenMobileHapticsAppleTransientPolicy::Resolve", backend)
+		self.assertIn("BridgeService->EnsureEngine", backend)
+		self.assertIn("BridgeService->PlayTransientPattern", backend)
+		self.assertIn("AppleSemanticFallback", backend)
+		self.assertIn("AppleSystemVibrationFallback", backend)
+		self.assertIn("bCreatesControllablePlayback = true", backend)
+		self.assertIn("bExpectsCallbacks = true", backend)
+		self.assertIn("DecodeNormalized", policy)
+		self.assertIn("RequestIntensity", policy)
+
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
 		bridge_path = (

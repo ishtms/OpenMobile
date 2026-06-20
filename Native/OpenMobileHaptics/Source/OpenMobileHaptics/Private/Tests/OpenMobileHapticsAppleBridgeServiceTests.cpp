@@ -37,6 +37,28 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			++TransientSubmissionCount;
+			LastRequestId = RequestId;
+			LastTransientPattern = Pattern;
+			PlaybackCallback = MoveTemp(Callback);
+			return TransientSubmissionResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
+			uint64 RequestId
+		) override
+		{
+			++StopCount;
+			LastRequestId = RequestId;
+			return StopResult;
+		}
+
 		virtual void SetEventCallback(
 			FOpenMobileHapticsAppleBridgeEventCallback Callback
 		) override
@@ -58,13 +80,30 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			}
 		}
 
+		void EmitPlayback(EOpenMobileHapticsApplePlaybackEvent Event)
+		{
+			if (PlaybackCallback)
+			{
+				PlaybackCallback(Event);
+			}
+		}
+
 		FOpenMobileHapticsAppleHardwareProbe Probe;
 		EOpenMobileHapticsAppleEngineResult CreateEngineResult =
 			EOpenMobileHapticsAppleEngineResult::Ready;
+		EOpenMobileHapticsAppleSubmissionResult TransientSubmissionResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult StopResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		int32 QueryCount = 0;
 		int32 CreateEngineCount = 0;
 		int32 ShutdownCount = 0;
+		int32 TransientSubmissionCount = 0;
+		int32 StopCount = 0;
+		uint64 LastRequestId = 0;
+		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleBridgeEventCallback EventCallback;
+		FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
 	};
 }
 
@@ -203,6 +242,75 @@ bool FOpenMobileHapticsAppleBridgeCallbackTest::RunTest(
 		ENamedThreads::GameThread
 	);
 	TestEqual(TEXT("Shutdown drops queued callbacks"), CallbackCount, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsApplePlaybackCallbackTest,
+	"OpenMobile.Haptics.Apple.Bridge.PlaybackCallbacks",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsAppleBridgeServiceTests;
+
+	TUniquePtr<FMockAppleBridge> Bridge = MakeUnique<FMockAppleBridge>();
+	FMockAppleBridge* Mock = Bridge.Get();
+	FOpenMobileHapticsAppleBridgeService Service(MoveTemp(Bridge));
+	FOpenMobileHapticsAppleTransientPattern Pattern;
+	Pattern.StartTimesSeconds = {0.0, 0.05};
+	Pattern.Intensities = {1.0f, 0.5f};
+	Pattern.Sharpnesses = {0.25f, 0.75f};
+	int32 CallbackCount = 0;
+	bool bCallbackWasOnGameThread = false;
+	TestEqual(
+		TEXT("Transient pattern reaches the injected bridge"),
+		Service.PlayTransientPattern(
+			42,
+			Pattern,
+			[&CallbackCount, &bCallbackWasOnGameThread](
+				EOpenMobileHapticsApplePlaybackEvent Event
+			)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+				bCallbackWasOnGameThread = IsInGameThread();
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted
+	);
+	TestEqual(TEXT("One native pattern is submitted"),
+		Mock->TransientSubmissionCount, 1);
+	TestEqual(TEXT("Request identity crosses the bridge"),
+		Mock->LastRequestId, static_cast<uint64>(42));
+	TestEqual(TEXT("All events stay in one bridge call"),
+		Mock->LastTransientPattern.StartTimesSeconds.Num(), 2);
+
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Completed);
+	TestEqual(TEXT("Playback completion never runs inline"), CallbackCount, 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread
+	);
+	TestEqual(TEXT("Playback completion is delivered once"), CallbackCount, 1);
+	TestTrue(TEXT("Playback completion reaches the game thread"),
+		bCallbackWasOnGameThread);
+
+	TestEqual(TEXT("Handle-scoped stop reaches the bridge"),
+		Service.StopPattern(42),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Stop keeps request identity"), Mock->LastRequestId,
+		static_cast<uint64>(42));
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Failed);
+	Service.Shutdown();
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread
+	);
+	TestEqual(TEXT("Shutdown drops queued playback callbacks"),
+		CallbackCount, 1);
 	return true;
 }
 
