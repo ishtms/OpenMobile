@@ -7144,6 +7144,158 @@ bool FOpenMobileDeviceAssistiveTechnologyMonitoringTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAccessibilityFocusedEventsTest,
+	"OpenMobile.Device.Accessibility.FocusedEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAccessibilityFocusedEventsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+
+	FMockBackend Backend(TEXT("AccessibilityEventsMock"));
+	Backend.NativeMonitoringGroups.Add(Group::Accessibility);
+	Backend.Accessibility.PreferredTextScale =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(1.0f);
+	Backend.Accessibility.ContentSizeCategory =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			TEXT("UICTContentSizeCategoryL")
+		);
+	Backend.Accessibility.bReducedAnimationPreferred =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(false);
+	Backend.Accessibility.ReducedAnimationPlatformDetail =
+		FOpenMobileDeviceOptionalString::MakeAvailable(
+			TEXT("iOS Reduce Motion: disabled")
+		);
+	Backend.Accessibility.bTouchExplorationActive =
+		FOpenMobileDeviceOptionalBool::MakeAvailable(false);
+	TestTrue(
+		TEXT("Accessibility event mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FString> EventOrder;
+	TArray<FOpenMobileAccessibilitySnapshot> TextSnapshots;
+	TArray<FOpenMobileAccessibilitySnapshot> MotionSnapshots;
+	TArray<FOpenMobileAccessibilitySnapshot> AssistiveSnapshots;
+	Subsystem->OnNativePreferredTextScaleChanged().AddLambda(
+		[&](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			EventOrder.Add(TEXT("Text"));
+			TextSnapshots.Add(Snapshot);
+		}
+	);
+	Subsystem->OnNativeReducedAnimationPreferenceChanged().AddLambda(
+		[&](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			EventOrder.Add(TEXT("Motion"));
+			MotionSnapshots.Add(Snapshot);
+		}
+	);
+	Subsystem->OnNativeAssistiveTechnologyStateChanged().AddLambda(
+		[&](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			EventOrder.Add(TEXT("Assistive"));
+			AssistiveSnapshots.Add(Snapshot);
+		}
+	);
+	Subsystem->OnNativeAccessibilitySnapshotChanged().AddLambda(
+		[&](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			static_cast<void>(Snapshot);
+			EventOrder.Add(TEXT("Combined"));
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Accessibility},
+			1.0f
+		);
+	TestNotNull(TEXT("Accessibility event monitoring starts"), Subscription);
+
+	Backend.Accessibility.PreferredTextScale.Value = 1.4f;
+	Backend.Accessibility.ContentSizeCategory.Value =
+		TEXT("UICTContentSizeCategoryXXL");
+	Backend.Accessibility.bReducedAnimationPreferred.Value = true;
+	Backend.Accessibility.ReducedAnimationPlatformDetail.Value =
+		TEXT("iOS Reduce Motion: enabled");
+	Backend.Accessibility.bTouchExplorationActive.Value = true;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(
+		TEXT("Simultaneous preferences broadcast in stable order"),
+		FString::Join(EventOrder, TEXT(",")),
+		FString(TEXT("Text,Motion,Assistive,Combined"))
+	);
+	TestEqual(
+		TEXT("Text event contains settled motion state"),
+		TextSnapshots[0].bReducedAnimationPreferred.Value,
+		true
+	);
+	TestEqual(
+		TEXT("Motion event contains settled text scale"),
+		MotionSnapshots[0].PreferredTextScale.Value,
+		1.4f
+	);
+	TestTrue(
+		TEXT("Assistive event contains settled raw category"),
+		AssistiveSnapshots[0].ContentSizeCategory.Value
+			== TEXT("UICTContentSizeCategoryXXL")
+	);
+
+	EventOrder.Reset();
+	Backend.Accessibility.bReducedAnimationPreferred.Value = false;
+	Backend.Accessibility.ReducedAnimationPlatformDetail.Value =
+		TEXT("iOS Reduce Motion: disabled");
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(
+		TEXT("One preference emits its focused and combined events"),
+		FString::Join(EventOrder, TEXT(",")),
+		FString(TEXT("Motion,Combined"))
+	);
+
+	EventOrder.Reset();
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(false);
+	Backend.Accessibility.PreferredTextScale.Value = 2.0f;
+	Backend.Accessibility.bReducedAnimationPreferred.Value = true;
+	Backend.Accessibility.bTouchExplorationActive.Value = false;
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Background preferences do not emit"), EventOrder.Num(), 0);
+	FOpenMobileDeviceMonitoringService::SetApplicationActiveForTests(true);
+	TestEqual(
+		TEXT("Foreground refresh broadcasts settled preferences in order"),
+		FString::Join(EventOrder, TEXT(",")),
+		FString(TEXT("Text,Motion,Assistive,Combined"))
+	);
+
+	Subscription->Stop();
+	TestEqual(
+		TEXT("Accessibility event observer stops with final listener"),
+		Backend.MonitoringStops.FindRef(Group::Accessibility),
+		1
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceReducedAnimationMonitoringTest,
 	"OpenMobile.Device.Accessibility.ReducedAnimationMonitoring",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

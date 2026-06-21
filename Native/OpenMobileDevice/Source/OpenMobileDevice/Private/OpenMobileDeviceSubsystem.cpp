@@ -85,22 +85,39 @@ namespace OpenMobileDeviceSubsystemPrivate
 			&& EquivalentThermal(Left, Right);
 	}
 
-	bool EquivalentAccessibility(
-		FOpenMobileAccessibilitySnapshot Left,
-		FOpenMobileAccessibilitySnapshot Right
+	bool EquivalentPreferredTextScale(
+		const FOpenMobileAccessibilitySnapshot& Left,
+		const FOpenMobileAccessibilitySnapshot& Right
 	)
 	{
-		const bool bTextScaleEquivalent = EquivalentFloat(
+		return EquivalentFloat(
 			Left.PreferredTextScale,
 			Right.PreferredTextScale,
 			0.01f
-		);
-		Left.Metadata = {};
-		Right.Metadata = {};
-		Left.PreferredTextScale = {};
-		Right.PreferredTextScale = {};
-		return bTextScaleEquivalent && Left == Right;
+		) && Left.ContentSizeCategory == Right.ContentSizeCategory;
 	}
+
+	bool EquivalentReducedAnimation(
+		const FOpenMobileAccessibilitySnapshot& Left,
+		const FOpenMobileAccessibilitySnapshot& Right
+	)
+	{
+		return Left.bReducedAnimationPreferred
+				== Right.bReducedAnimationPreferred
+			&& Left.ReducedAnimationPlatformDetail
+				== Right.ReducedAnimationPlatformDetail;
+	}
+
+	bool EquivalentAssistiveTechnology(
+		const FOpenMobileAccessibilitySnapshot& Left,
+		const FOpenMobileAccessibilitySnapshot& Right
+	)
+	{
+		return Left.bScreenReaderActive == Right.bScreenReaderActive
+			&& Left.bTouchExplorationActive
+				== Right.bTouchExplorationActive;
+	}
+
 }
 
 void UOpenMobileDeviceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -1059,13 +1076,42 @@ void UOpenMobileDeviceSubsystem::HandleMonitoringGroupChanged(
 	case EOpenMobileDeviceMonitoringGroup::Accessibility:
 	{
 		const FOpenMobileAccessibilitySnapshot Snapshot = GetAccessibilitySnapshot();
-		if (!LastAccessibilitySnapshot.IsSet()
-			|| !EquivalentAccessibility(
+		const bool bTextScaleChanged = !LastAccessibilitySnapshot.IsSet()
+			|| !EquivalentPreferredTextScale(
 				LastAccessibilitySnapshot.GetValue(),
 				Snapshot
-			))
+			);
+		const bool bReducedAnimationChanged =
+			!LastAccessibilitySnapshot.IsSet()
+			|| !EquivalentReducedAnimation(
+				LastAccessibilitySnapshot.GetValue(),
+				Snapshot
+			);
+		const bool bAssistiveTechnologyChanged =
+			!LastAccessibilitySnapshot.IsSet()
+			|| !EquivalentAssistiveTechnology(
+				LastAccessibilitySnapshot.GetValue(),
+				Snapshot
+			);
+		if (bTextScaleChanged || bReducedAnimationChanged
+			|| bAssistiveTechnologyChanged)
 		{
 			LastAccessibilitySnapshot = Snapshot;
+			if (bTextScaleChanged)
+			{
+				OnPreferredTextScaleChanged.Broadcast(Snapshot);
+				NativePreferredTextScaleChanged.Broadcast(Snapshot);
+			}
+			if (bReducedAnimationChanged)
+			{
+				OnReducedAnimationPreferenceChanged.Broadcast(Snapshot);
+				NativeReducedAnimationPreferenceChanged.Broadcast(Snapshot);
+			}
+			if (bAssistiveTechnologyChanged)
+			{
+				OnAssistiveTechnologyStateChanged.Broadcast(Snapshot);
+				NativeAssistiveTechnologyStateChanged.Broadcast(Snapshot);
+			}
 			OnAccessibilitySnapshotChanged.Broadcast(Snapshot);
 			NativeAccessibilitySnapshotChanged.Broadcast(Snapshot);
 		}

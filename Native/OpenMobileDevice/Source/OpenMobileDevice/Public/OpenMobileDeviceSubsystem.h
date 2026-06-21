@@ -100,6 +100,21 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Snapshot
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobilePreferredTextScaleChangedEvent,
+	const FOpenMobileAccessibilitySnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileReducedAnimationPreferenceChangedEvent,
+	const FOpenMobileAccessibilitySnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAssistiveTechnologyStateChangedEvent,
+	const FOpenMobileAccessibilitySnapshot&,
+	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileFlashlightSnapshotChangedEvent,
 	const FOpenMobileFlashlightSnapshot&,
 	Snapshot
@@ -163,6 +178,18 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAccessibilitySnapshotChangedNativeEvent,
+	const FOpenMobileAccessibilitySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobilePreferredTextScaleChangedNativeEvent,
+	const FOpenMobileAccessibilitySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileReducedAnimationPreferenceChangedNativeEvent,
+	const FOpenMobileAccessibilitySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileAssistiveTechnologyStateChangedNativeEvent,
 	const FOpenMobileAccessibilitySnapshot&
 );
 DECLARE_MULTICAST_DELEGATE_OneParam(
@@ -392,6 +419,24 @@ public:
 		return NativeAccessibilitySnapshotChanged;
 	}
 
+	FOpenMobilePreferredTextScaleChangedNativeEvent&
+	OnNativePreferredTextScaleChanged()
+	{
+		return NativePreferredTextScaleChanged;
+	}
+
+	FOpenMobileReducedAnimationPreferenceChangedNativeEvent&
+	OnNativeReducedAnimationPreferenceChanged()
+	{
+		return NativeReducedAnimationPreferenceChanged;
+	}
+
+	FOpenMobileAssistiveTechnologyStateChangedNativeEvent&
+	OnNativeAssistiveTechnologyStateChanged()
+	{
+		return NativeAssistiveTechnologyStateChanged;
+	}
+
 	FOpenMobileFlashlightSnapshotChangedNativeEvent&
 	OnNativeFlashlightSnapshotChanged()
 	{
@@ -442,6 +487,17 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Accessibility Snapshot Changed", ToolTip = "Broadcasts when a monitored accessibility snapshot changes beyond its numeric tolerances."))
 	FOpenMobileAccessibilitySnapshotChangedEvent OnAccessibilitySnapshotChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Preferred Text Scale Changed", ToolTip = "Broadcasts a complete accessibility snapshot after the preferred text scale or content-size category changes."))
+	FOpenMobilePreferredTextScaleChangedEvent OnPreferredTextScaleChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Reduced Animation Preference Changed", ToolTip = "Broadcasts a complete accessibility snapshot after the normalized reduced-animation preference or platform detail changes."))
+	FOpenMobileReducedAnimationPreferenceChangedEvent
+		OnReducedAnimationPreferenceChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Assistive Technology State Changed", ToolTip = "Broadcasts a complete accessibility snapshot after VoiceOver or touch-exploration state changes."))
+	FOpenMobileAssistiveTechnologyStateChangedEvent
+		OnAssistiveTechnologyStateChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Device", meta = (DisplayName = "On Flashlight Snapshot Changed", ToolTip = "Broadcasts when monitored flashlight state, availability, intensity, conflict, or thermal restriction changes."))
 	FOpenMobileFlashlightSnapshotChangedEvent OnFlashlightSnapshotChanged;
@@ -555,6 +611,12 @@ private:
 	FOpenMobileAppearanceSnapshotChangedNativeEvent NativeAppearanceSnapshotChanged;
 	FOpenMobileAccessibilitySnapshotChangedNativeEvent
 		NativeAccessibilitySnapshotChanged;
+	FOpenMobilePreferredTextScaleChangedNativeEvent
+		NativePreferredTextScaleChanged;
+	FOpenMobileReducedAnimationPreferenceChangedNativeEvent
+		NativeReducedAnimationPreferenceChanged;
+	FOpenMobileAssistiveTechnologyStateChangedNativeEvent
+		NativeAssistiveTechnologyStateChanged;
 	FOpenMobileFlashlightSnapshotChangedNativeEvent
 		NativeFlashlightSnapshotChanged;
 	TSet<TWeakObjectPtr<UOpenMobileDeviceAsyncActionBase>> ActiveAsyncActions;

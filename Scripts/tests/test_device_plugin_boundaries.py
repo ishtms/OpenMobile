@@ -2943,6 +2943,44 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
 		self.assertIn("does not prove", readme)
 
+	def test_accessibility_events_are_focused_and_snapshot_ordered(self) -> None:
+		subsystem_header = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceSubsystem.h"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"OnPreferredTextScaleChanged",
+			"OnReducedAnimationPreferenceChanged",
+			"OnAssistiveTechnologyStateChanged",
+			"OnAccessibilitySnapshotChanged",
+		):
+			self.assertIn(required_token, subsystem_header)
+
+		subsystem_source = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		broadcasts = (
+			"LastAccessibilitySnapshot = Snapshot",
+			"OnPreferredTextScaleChanged.Broadcast(Snapshot)",
+			"OnReducedAnimationPreferenceChanged.Broadcast(Snapshot)",
+			"OnAssistiveTechnologyStateChanged.Broadcast(Snapshot)",
+			"OnAccessibilitySnapshotChanged.Broadcast(Snapshot)",
+		)
+		positions = [subsystem_source.index(token) for token in broadcasts]
+		self.assertEqual(sorted(positions), positions)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		self.assertIn("text scale, reduced animation, assistive technology", readme)
+		self.assertIn("complete settled accessibility snapshot", readme)
+		self.assertIn("Appearance and Accessibility", readme)
+
 
 if __name__ == "__main__":
 	unittest.main()
