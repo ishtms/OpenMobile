@@ -2981,6 +2981,32 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("complete settled accessibility snapshot", readme)
 		self.assertIn("Appearance and Accessibility", readme)
 
+	def test_device_accessibility_scope_stays_read_only(self) -> None:
+		public_contract = "\n".join(
+			path.read_text(encoding="utf-8")
+			for path in (DEVICE_PLUGIN / "Source" / "OpenMobileDevice" / "Public").glob("*.h")
+		)
+		for forbidden_token in (
+			"AnnounceAccessibility",
+			"SetAccessibilityFocus",
+			"RegisterAccessibilityElement",
+			"AddAccessibilityAction",
+		):
+			self.assertNotIn(forbidden_token, public_contract)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		for required_token in (
+			"Accessibility scope boundary",
+			"OpenMobileAccessibility",
+			"semantic UI exposure",
+			"focus navigation",
+			"announcements",
+			"custom accessibility actions",
+			"native accessibility element bridges",
+			"Preference-only sample",
+		):
+			self.assertIn(required_token, readme)
+
 
 if __name__ == "__main__":
 	unittest.main()
