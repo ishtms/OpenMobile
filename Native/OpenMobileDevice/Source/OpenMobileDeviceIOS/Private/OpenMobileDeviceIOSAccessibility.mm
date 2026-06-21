@@ -1,6 +1,7 @@
 #include "OpenMobileDeviceIOSAccessibility.h"
 
 #include "Misc/ScopeLock.h"
+#include "OpenMobileDeviceAssistiveTechnology.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDevicePreferredTextScale.h"
 #include "OpenMobileDeviceReducedAnimation.h"
@@ -14,6 +15,7 @@ namespace OpenMobileDeviceIOSAccessibilityPrivate
 	uint64 SourceSequence = 0;
 	id ContentSizeObserver = nil;
 	id ReduceMotionObserver = nil;
+	id VoiceOverObserver = nil;
 
 	void RunOnMainThread(dispatch_block_t Block)
 	{
@@ -72,6 +74,13 @@ namespace OpenMobileDeviceIOSAccessibilityPrivate
 			[ReduceMotionObserver release];
 			ReduceMotionObserver = nil;
 		}
+		if (VoiceOverObserver)
+		{
+			[[NSNotificationCenter defaultCenter]
+				removeObserver:VoiceOverObserver];
+			[VoiceOverObserver release];
+			VoiceOverObserver = nil;
+		}
 	}
 }
 
@@ -84,10 +93,12 @@ FOpenMobileAccessibilitySnapshot GetOpenMobileDeviceIOSAccessibilitySnapshot()
 		__block UIContentSizeCategory Category = nil;
 		__block float RelativeScale = 0.0f;
 		__block bool bReduceMotionEnabled = false;
+		__block bool bVoiceOverActive = false;
 		RunOnMainThread(^{
 			UIApplication* Application = [UIApplication sharedApplication];
 			Category = [Application.preferredContentSizeCategory copy];
 			bReduceMotionEnabled = UIAccessibilityIsReduceMotionEnabled();
+			bVoiceOverActive = UIAccessibilityIsVoiceOverRunning();
 			if ([Category length] == 0)
 			{
 				return;
@@ -117,6 +128,12 @@ FOpenMobileAccessibilitySnapshot GetOpenMobileDeviceIOSAccessibilitySnapshot()
 			ReducedAnimation.bReducedAnimationPreferred;
 		Snapshot.ReducedAnimationPlatformDetail =
 			ReducedAnimation.ReducedAnimationPlatformDetail;
+		const FOpenMobileAccessibilitySnapshot AssistiveTechnology =
+			FOpenMobileDeviceAssistiveTechnology::FromIOSVoiceOverState(
+				bVoiceOverActive
+			);
+		Snapshot.bScreenReaderActive =
+			AssistiveTechnology.bScreenReaderActive;
 		[Category release];
 		return Snapshot;
 	}
@@ -161,8 +178,20 @@ bool StartOpenMobileDeviceIOSAccessibilityMonitoring(
 				NotifyChange();
 			}];
 		[ReduceMotionObserver retain];
+		VoiceOverObserver = [[NSNotificationCenter defaultCenter]
+			addObserverForName:
+				UIAccessibilityVoiceOverStatusDidChangeNotification
+			object:nil
+			queue:[NSOperationQueue mainQueue]
+			usingBlock:^(NSNotification* Notification)
+			{
+				static_cast<void>(Notification);
+				NotifyChange();
+			}];
+		[VoiceOverObserver retain];
 		bInstalled = ContentSizeObserver != nil
-			&& ReduceMotionObserver != nil;
+			&& ReduceMotionObserver != nil
+			&& VoiceOverObserver != nil;
 		if (!bInstalled)
 		{
 			RemoveObserver();

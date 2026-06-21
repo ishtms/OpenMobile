@@ -69,12 +69,13 @@ dependencies {
 	</androidManifestUpdates>
 	<gameActivityImportAdditions>
 		<insert>
-import android.content.Intent;
 import android.content.ContentResolver;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.provider.Settings;
+import android.view.accessibility.AccessibilityManager;
 import androidx.core.util.Consumer;
 import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter;
 import androidx.window.layout.DisplayFeature;
@@ -97,6 +98,9 @@ import androidx.window.layout.WindowLayoutInfo;
 	private boolean OpenMobileDeviceAppearanceMonitoring = false;
 	private boolean OpenMobileDeviceAccessibilityMonitoring = false;
 	private ContentObserver OpenMobileDeviceAnimationScaleObserver;
+	private AccessibilityManager OpenMobileDeviceAccessibilityManager;
+	private AccessibilityManager.TouchExplorationStateChangeListener
+		OpenMobileDeviceTouchExplorationListener;
 
 	public native void nativeOpenMobileDeviceAppearanceChanged();
 	public native void nativeOpenMobileDeviceAccessibilityChanged();
@@ -189,15 +193,38 @@ import androidx.window.layout.WindowLayoutInfo;
 		}
 	}
 
+	public int AndroidThunkJava_OpenMobileDeviceGetTouchExplorationState()
+	{
+		try
+		{
+			AccessibilityManager manager = (AccessibilityManager)
+				getSystemService(ACCESSIBILITY_SERVICE);
+			if (manager == null)
+			{
+				return -1;
+			}
+			return manager.isTouchExplorationEnabled() ? 1 : 0;
+		}
+		catch (RuntimeException exception)
+		{
+			return -1;
+		}
+	}
+
 	public boolean AndroidThunkJava_OpenMobileDeviceStartAccessibilityMonitoring()
 	{
-		if (OpenMobileDeviceAnimationScaleObserver != null)
+		if (OpenMobileDeviceAnimationScaleObserver != null
+			&& OpenMobileDeviceTouchExplorationListener != null)
 		{
 			OpenMobileDeviceAccessibilityMonitoring = true;
 			return true;
 		}
+		AndroidThunkJava_OpenMobileDeviceStopAccessibilityMonitoring();
 		ContentResolver resolver = getContentResolver();
 		ContentObserver observer = null;
+		AccessibilityManager accessibilityManager = null;
+		AccessibilityManager.TouchExplorationStateChangeListener
+			touchExplorationListener = null;
 		try
 		{
 			if (resolver == null)
@@ -233,7 +260,31 @@ import androidx.window.layout.WindowLayoutInfo;
 				false,
 				observer
 			);
+			accessibilityManager = (AccessibilityManager)
+				getSystemService(ACCESSIBILITY_SERVICE);
+			if (accessibilityManager == null)
+			{
+				throw new IllegalStateException();
+			}
+			touchExplorationListener =
+				new AccessibilityManager.TouchExplorationStateChangeListener()
+				{
+					@Override
+					public void onTouchExplorationStateChanged(boolean enabled)
+					{
+						nativeOpenMobileDeviceAccessibilityChanged();
+					}
+				};
+			if (!accessibilityManager.addTouchExplorationStateChangeListener(
+				touchExplorationListener
+			))
+			{
+				throw new IllegalStateException();
+			}
 			OpenMobileDeviceAnimationScaleObserver = observer;
+			OpenMobileDeviceAccessibilityManager = accessibilityManager;
+			OpenMobileDeviceTouchExplorationListener =
+				touchExplorationListener;
 			OpenMobileDeviceAccessibilityMonitoring = true;
 			return true;
 		}
@@ -249,7 +300,23 @@ import androidx.window.layout.WindowLayoutInfo;
 				{
 				}
 			}
+			if (accessibilityManager != null
+				&& touchExplorationListener != null)
+			{
+				try
+				{
+					accessibilityManager
+						.removeTouchExplorationStateChangeListener(
+							touchExplorationListener
+						);
+				}
+				catch (RuntimeException ignored)
+				{
+				}
+			}
 			OpenMobileDeviceAnimationScaleObserver = null;
+			OpenMobileDeviceAccessibilityManager = null;
+			OpenMobileDeviceTouchExplorationListener = null;
 			OpenMobileDeviceAccessibilityMonitoring = false;
 			return false;
 		}
@@ -258,20 +325,35 @@ import androidx.window.layout.WindowLayoutInfo;
 	public void AndroidThunkJava_OpenMobileDeviceStopAccessibilityMonitoring()
 	{
 		OpenMobileDeviceAccessibilityMonitoring = false;
-		if (OpenMobileDeviceAnimationScaleObserver == null)
+		if (OpenMobileDeviceAnimationScaleObserver != null)
 		{
-			return;
+			try
+			{
+				getContentResolver().unregisterContentObserver(
+					OpenMobileDeviceAnimationScaleObserver
+				);
+			}
+			catch (RuntimeException exception)
+			{
+			}
+			OpenMobileDeviceAnimationScaleObserver = null;
 		}
-		try
+		if (OpenMobileDeviceAccessibilityManager != null
+			&& OpenMobileDeviceTouchExplorationListener != null)
 		{
-			getContentResolver().unregisterContentObserver(
-				OpenMobileDeviceAnimationScaleObserver
-			);
+			try
+			{
+				OpenMobileDeviceAccessibilityManager
+					.removeTouchExplorationStateChangeListener(
+						OpenMobileDeviceTouchExplorationListener
+					);
+			}
+			catch (RuntimeException exception)
+			{
+			}
 		}
-		catch (RuntimeException exception)
-		{
-		}
-		OpenMobileDeviceAnimationScaleObserver = null;
+		OpenMobileDeviceAccessibilityManager = null;
+		OpenMobileDeviceTouchExplorationListener = null;
 	}
 
 	public int AndroidThunkJava_OpenMobileDeviceOpenApplicationSettings()

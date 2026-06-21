@@ -200,13 +200,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceAndroidBackend::GetCapability(
 		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::ReducedAnimation
 		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ScreenReader
+		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
-		Capability.Detail = TEXT("Android reports font scale and a three-scale reduced-animation hint, then observes their sources while Accessibility monitoring is active.");
+		Capability.Detail = TEXT("Android reports font scale, animation-scale hints, and touch exploration without enumerating accessibility services, then observes their sources while monitored.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)

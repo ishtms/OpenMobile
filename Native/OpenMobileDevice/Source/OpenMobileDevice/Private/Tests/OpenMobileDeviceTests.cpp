@@ -19,6 +19,7 @@
 #include "OpenMobileDeviceAndroidPackageCheckService.h"
 #include "OpenMobileDeviceAndroidPackageTypes.h"
 #include "OpenMobileDeviceArchitecture.h"
+#include "OpenMobileDeviceAssistiveTechnology.h"
 #include "OpenMobileDeviceAsyncActionBase.h"
 #include "OpenMobileDeviceBackendRegistry.h"
 #include "OpenMobileDeviceBatteryInfo.h"
@@ -6973,6 +6974,172 @@ bool FOpenMobileDeviceReducedAnimationMappingTest::RunTest(
 		TEXT("iOS Reduce Motion disabled is preserved"),
 		IOSDisabled.bReducedAnimationPreferred.Value
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAssistiveTechnologyMappingTest,
+	"OpenMobile.Device.Accessibility.AssistiveTechnologyMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAssistiveTechnologyMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileAccessibilitySnapshot AndroidDisabled =
+		FOpenMobileDeviceAssistiveTechnology::
+			FromAndroidTouchExplorationState(0);
+	TestTrue(
+		TEXT("Android disabled touch exploration is available"),
+		AndroidDisabled.bTouchExplorationActive.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Android disabled touch exploration is preserved"),
+		AndroidDisabled.bTouchExplorationActive.Value
+	);
+	TestFalse(
+		TEXT("Android touch exploration does not infer a screen reader"),
+		AndroidDisabled.bScreenReaderActive.bIsAvailable
+	);
+	const FOpenMobileAccessibilitySnapshot AndroidEnabled =
+		FOpenMobileDeviceAssistiveTechnology::
+			FromAndroidTouchExplorationState(1);
+	TestTrue(
+		TEXT("Android enabled touch exploration is preserved"),
+		AndroidEnabled.bTouchExplorationActive.Value
+	);
+	const FOpenMobileAccessibilitySnapshot AndroidRestricted =
+		FOpenMobileDeviceAssistiveTechnology::
+			FromAndroidTouchExplorationState(-1);
+	TestFalse(
+		TEXT("Restricted Android state stays unavailable"),
+		AndroidRestricted.bTouchExplorationActive.bIsAvailable
+	);
+	TestFalse(
+		TEXT("Future Android state stays unavailable"),
+		FOpenMobileDeviceAssistiveTechnology::
+			FromAndroidTouchExplorationState(2)
+			.bTouchExplorationActive.bIsAvailable
+	);
+
+	const FOpenMobileAccessibilitySnapshot IOSDisabled =
+		FOpenMobileDeviceAssistiveTechnology::FromIOSVoiceOverState(false);
+	TestTrue(
+		TEXT("iOS VoiceOver disabled is available"),
+		IOSDisabled.bScreenReaderActive.bIsAvailable
+	);
+	TestFalse(
+		TEXT("iOS VoiceOver disabled is preserved"),
+		IOSDisabled.bScreenReaderActive.Value
+	);
+	TestFalse(
+		TEXT("iOS VoiceOver does not invent touch exploration"),
+		IOSDisabled.bTouchExplorationActive.bIsAvailable
+	);
+	const FOpenMobileAccessibilitySnapshot IOSEnabled =
+		FOpenMobileDeviceAssistiveTechnology::FromIOSVoiceOverState(true);
+	TestTrue(
+		TEXT("iOS VoiceOver enabled is preserved"),
+		IOSEnabled.bScreenReaderActive.Value
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceAssistiveTechnologyMonitoringTest,
+	"OpenMobile.Device.Accessibility.AssistiveTechnologyMonitoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceAssistiveTechnologyMonitoringTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+
+	FMockBackend Backend(TEXT("AssistiveTechnologyMock"));
+	Backend.NativeMonitoringGroups.Add(Group::Accessibility);
+	Backend.Accessibility = FOpenMobileDeviceAssistiveTechnology::
+		FromAndroidTouchExplorationState(0);
+	TestTrue(
+		TEXT("Assistive-technology mock registers"),
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TArray<FOpenMobileAccessibilitySnapshot> Changes;
+	Subsystem->OnNativeAccessibilitySnapshotChanged().AddLambda(
+		[&Changes](const FOpenMobileAccessibilitySnapshot& Snapshot)
+		{
+			Changes.Add(Snapshot);
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(
+			GameInstance,
+			{Group::Accessibility},
+			1.0f
+		);
+	TestNotNull(TEXT("Assistive-technology monitoring starts"), Subscription);
+
+	for (const int32 State : {1, 0, 1})
+	{
+		Backend.Accessibility = FOpenMobileDeviceAssistiveTechnology::
+			FromAndroidTouchExplorationState(State);
+		FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+			Group::Accessibility
+		);
+	}
+	TestEqual(TEXT("Rapid touch changes preserve order"), Changes.Num(), 3);
+	TestTrue(
+		TEXT("First rapid touch state is enabled"),
+		Changes[0].bTouchExplorationActive.Value
+	);
+	TestFalse(
+		TEXT("Second rapid touch state is disabled"),
+		Changes[1].bTouchExplorationActive.Value
+	);
+	TestTrue(
+		TEXT("Third rapid touch state is enabled"),
+		Changes[2].bTouchExplorationActive.Value
+	);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("Duplicate touch state coalesces"), Changes.Num(), 3);
+
+	Backend.Accessibility =
+		FOpenMobileDeviceAssistiveTechnology::FromIOSVoiceOverState(true);
+	FOpenMobileDeviceMonitoringService::NotifyNativeChangeForTests(
+		Group::Accessibility
+	);
+	TestEqual(TEXT("VoiceOver mock change emits"), Changes.Num(), 4);
+	TestTrue(
+		TEXT("VoiceOver active is broadcast"),
+		Changes[3].bScreenReaderActive.Value
+	);
+	TestFalse(
+		TEXT("VoiceOver snapshot does not infer touch exploration"),
+		Changes[3].bTouchExplorationActive.bIsAvailable
+	);
+
+	Subscription->Stop();
+	TestEqual(
+		TEXT("Assistive observer stops with final listener"),
+		Backend.MonitoringStops.FindRef(Group::Accessibility),
+		1
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceBackendRegistry::ResetForTests();
 	return true;
 }
 

@@ -3,6 +3,7 @@
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidJNI.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileDeviceAssistiveTechnology.h"
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDevicePreferredTextScale.h"
 #include "OpenMobileDeviceReducedAnimation.h"
@@ -88,43 +89,74 @@ GetOpenMobileDeviceAndroidAccessibilitySnapshot()
 		"()[F",
 		false
 	);
-	if (!GetAnimationScalesMethod)
+	if (GetAnimationScalesMethod)
 	{
-		return Snapshot;
+		FScopedJavaObject<jfloatArray> AnimationScales(
+			static_cast<jfloatArray>(FJavaWrapper::CallObjectMethod(
+				Env,
+				FJavaWrapper::GameActivityThis,
+				GetAnimationScalesMethod
+			))
+		);
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+		}
+		else if (AnimationScales
+			&& Env->GetArrayLength(*AnimationScales) == 3)
+		{
+			jfloat Values[3] = {};
+			Env->GetFloatArrayRegion(*AnimationScales, 0, 3, Values);
+			if (!Env->ExceptionCheck())
+			{
+				const FOpenMobileAccessibilitySnapshot ReducedAnimation =
+					FOpenMobileDeviceReducedAnimation::
+						FromAndroidAnimationScales(
+							Values[0],
+							Values[1],
+							Values[2]
+						);
+				Snapshot.bReducedAnimationPreferred =
+					ReducedAnimation.bReducedAnimationPreferred;
+				Snapshot.ReducedAnimationPlatformDetail =
+					ReducedAnimation.ReducedAnimationPlatformDetail;
+			}
+			else
+			{
+				Env->ExceptionClear();
+			}
+		}
 	}
-	FScopedJavaObject<jfloatArray> AnimationScales(
-		static_cast<jfloatArray>(FJavaWrapper::CallObjectMethod(
+
+	static jmethodID GetTouchExplorationMethod = FJavaWrapper::FindMethod(
+		Env,
+		FJavaWrapper::GameActivityClassID,
+		"AndroidThunkJava_OpenMobileDeviceGetTouchExplorationState",
+		"()I",
+		false
+	);
+	if (GetTouchExplorationMethod)
+	{
+		const jint TouchExplorationState = FJavaWrapper::CallIntMethod(
 			Env,
 			FJavaWrapper::GameActivityThis,
-			GetAnimationScalesMethod
-		))
-	);
-	if (!AnimationScales || Env->ExceptionCheck())
-	{
-		Env->ExceptionClear();
-		return Snapshot;
-	}
-	if (Env->GetArrayLength(*AnimationScales) != 3)
-	{
-		return Snapshot;
-	}
-	jfloat Values[3] = {};
-	Env->GetFloatArrayRegion(*AnimationScales, 0, 3, Values);
-	if (Env->ExceptionCheck())
-	{
-		Env->ExceptionClear();
-		return Snapshot;
-	}
-	const FOpenMobileAccessibilitySnapshot ReducedAnimation =
-		FOpenMobileDeviceReducedAnimation::FromAndroidAnimationScales(
-			Values[0],
-			Values[1],
-			Values[2]
+			GetTouchExplorationMethod
 		);
-	Snapshot.bReducedAnimationPreferred =
-		ReducedAnimation.bReducedAnimationPreferred;
-	Snapshot.ReducedAnimationPlatformDetail =
-		ReducedAnimation.ReducedAnimationPlatformDetail;
+		if (!Env->ExceptionCheck())
+		{
+			const FOpenMobileAccessibilitySnapshot AssistiveTechnology =
+				FOpenMobileDeviceAssistiveTechnology::
+					FromAndroidTouchExplorationState(
+						TouchExplorationState
+					);
+			Snapshot.bTouchExplorationActive =
+				AssistiveTechnology.bTouchExplorationActive;
+		}
+		else
+		{
+			Env->ExceptionClear();
+		}
+	}
 	return Snapshot;
 }
 

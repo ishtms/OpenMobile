@@ -2860,6 +2860,89 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
 		self.assertIn("not semantically equivalent", readme)
 
+	def test_assistive_technology_state_avoids_service_enumeration(self) -> None:
+		assistive_policy = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Internal"
+			/ "OpenMobileDeviceAssistiveTechnology.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("FromAndroidTouchExplorationState", assistive_policy)
+		self.assertIn("FromIOSVoiceOverState", assistive_policy)
+
+		android_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "OpenMobileDeviceAndroidAccessibility.cpp"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"AndroidThunkJava_OpenMobileDeviceGetTouchExplorationState",
+			"CallIntMethod",
+			"FromAndroidTouchExplorationState",
+		):
+			self.assertIn(required_token, android_accessibility)
+
+		android_upl = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"AccessibilityManager",
+			"isTouchExplorationEnabled",
+			"TouchExplorationStateChangeListener",
+			"addTouchExplorationStateChangeListener",
+			"removeTouchExplorationStateChangeListener",
+		):
+			self.assertIn(required_token, android_upl)
+		for forbidden_token in (
+			"getEnabledAccessibilityServiceList",
+			"getInstalledAccessibilityServiceList",
+			"AccessibilityServiceInfo",
+			"ENABLED_ACCESSIBILITY_SERVICES",
+		):
+			self.assertNotIn(forbidden_token, android_upl)
+
+		ios_accessibility = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "OpenMobileDeviceIOSAccessibility.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("UIAccessibilityIsVoiceOverRunning", ios_accessibility)
+		self.assertIn(
+			"UIAccessibilityVoiceOverStatusDidChangeNotification",
+			ios_accessibility,
+		)
+		self.assertIn("FromIOSVoiceOverState", ios_accessibility)
+		for forbidden_token in (
+			"UIAccessibilityFocusedElement",
+			"UIAccessibilityAssistiveTechnologyIdentifier",
+			"UE_LOG",
+		):
+			self.assertNotIn(forbidden_token, ios_accessibility)
+
+		for backend_name in ("Android", "IOS"):
+			backend = (
+				DEVICE_PLUGIN
+				/ "Source"
+				/ f"OpenMobileDevice{backend_name}"
+				/ "Private"
+				/ f"OpenMobileDevice{backend_name}Backend.cpp"
+			).read_text(encoding="utf-8")
+			self.assertIn("ScreenReader", backend)
+			self.assertIn("AccessibilityChangeEvents", backend)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		self.assertIn("does not prove", readme)
+
 
 if __name__ == "__main__":
 	unittest.main()

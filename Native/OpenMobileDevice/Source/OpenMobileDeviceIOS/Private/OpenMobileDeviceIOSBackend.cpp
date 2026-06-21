@@ -177,13 +177,15 @@ FOpenMobileDeviceCapability FOpenMobileDeviceIOSBackend::GetCapability(
 		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::ReducedAnimation
 		|| CapabilityName
+			== FOpenMobileDeviceCapabilityNames::ScreenReader
+		|| CapabilityName
 			== FOpenMobileDeviceCapabilityNames::AccessibilityChangeEvents)
 	{
 		FOpenMobileDeviceCapability Capability;
 		Capability.Name = CapabilityName;
 		Capability.State = EOpenMobileCapabilityState::Available;
 		Capability.BackendName = GetBackendName();
-		Capability.Detail = TEXT("iOS reports Dynamic Type preferences and the exact Reduce Motion setting, then observes both while Accessibility monitoring is active.");
+		Capability.Detail = TEXT("iOS reports Dynamic Type preferences, Reduce Motion, and the exact VoiceOver running state, then observes them while Accessibility monitoring is active.");
 		return Capability;
 	}
 	if (CapabilityName == FOpenMobileDeviceCapabilityNames::Brightness)
