@@ -8,6 +8,7 @@
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsMetadataService.h"
+#include "OpenMobileSensorsRecordingService.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
@@ -16,6 +17,9 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	Super::Initialize(Collection);
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
+		FOpenMobileSensorsRecordingService::CancelOwner(
+			SubscriptionOwnerIdentifier
+		);
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
 			SubscriptionOwnerIdentifier
 		);
@@ -38,6 +42,9 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	}
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
+		FOpenMobileSensorsRecordingService::CancelOwner(
+			SubscriptionOwnerIdentifier
+		);
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
 			SubscriptionOwnerIdentifier
 		);
@@ -562,20 +569,15 @@ FGuid UOpenMobileSensorsSubsystem::StartRecordingNative(
 	FOnOpenMobileSensorRecordingComplete&& Completion
 )
 {
-	static_cast<void>(Options);
-	const FGuid RequestId = FGuid::NewGuid();
-	FOpenMobileSensorRecordingResult Result;
-	Result.Recording.RequestId = RequestId;
-	Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-		EOpenMobileSensorFailureReason::UnsupportedOperation
-	);
-	OpenMobile::DispatchToGameThread(
-		[Completion = MoveTemp(Completion), Result]() mutable
+	return FOpenMobileSensorsRecordingService::StartRecording(
+		GetOrCreateSubscriptionOwnerIdentifier(),
+		Options,
+		[Completion = MoveTemp(Completion)](
+			const FOpenMobileSensorRecordingResult& Result) mutable
 		{
 			Completion.ExecuteIfBound(Result);
 		}
 	);
-	return RequestId;
 }
 
 FGuid UOpenMobileSensorsSubsystem::StopRecordingNative(
@@ -583,27 +585,15 @@ FGuid UOpenMobileSensorsSubsystem::StopRecordingNative(
 	FOnOpenMobileSensorRecordingComplete&& Completion
 )
 {
-	FOpenMobileSensorRecordingResult Result;
-	Result.Recording.RequestId = RequestId;
-	if (!RequestId.IsValid())
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::InvalidRequest
-		);
-	}
-	else
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::TemporarilyUnavailable
-		);
-	}
-	OpenMobile::DispatchToGameThread(
-		[Completion = MoveTemp(Completion), Result]() mutable
+	return FOpenMobileSensorsRecordingService::StopRecording(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		[Completion = MoveTemp(Completion)](
+			const FOpenMobileSensorRecordingResult& Result) mutable
 		{
 			Completion.ExecuteIfBound(Result);
 		}
 	);
-	return RequestId;
 }
 
 FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
@@ -612,29 +602,16 @@ FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
 	FOnOpenMobileSensorReplayComplete&& Completion
 )
 {
-	static_cast<void>(Options);
-	const FGuid RequestId = FGuid::NewGuid();
-	FOpenMobileSensorReplayResult Result;
-	Result.RequestId = RequestId;
-	if (FilePath.IsEmpty())
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::InvalidRequest
-		);
-	}
-	else
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::UnsupportedOperation
-		);
-	}
-	OpenMobile::DispatchToGameThread(
-		[Completion = MoveTemp(Completion), Result]() mutable
+	return FOpenMobileSensorsRecordingService::ReplayRecording(
+		GetOrCreateSubscriptionOwnerIdentifier(),
+		FilePath,
+		Options,
+		[Completion = MoveTemp(Completion)](
+			const FOpenMobileSensorReplayResult& Result) mutable
 		{
 			Completion.ExecuteIfBound(Result);
 		}
 	);
-	return RequestId;
 }
 
 FOpenMobileSensorDiagnosticsSnapshot

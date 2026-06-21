@@ -15,5 +15,7 @@ public class OpenMobileSensors : ModuleRules
 			"OpenMobileCore",
 			"OpenMobilePermissions"
 		});
+
+		PrivateDependencyModuleNames.Add("Projects");
 	}
 }
