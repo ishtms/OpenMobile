@@ -569,6 +569,112 @@ namespace OpenMobileAdsProviderContractTests
 		TArray<FGuid> ReleasedCachedAds;
 	};
 
+	struct FMediatedProviderScenario
+	{
+		FString Network;
+		FString Adapter;
+		FString AdapterVersion;
+		double AdapterInitializationLatencyMilliseconds = 0.0;
+		FGuid CachedAdId;
+		FOpenMobileAdsReward Reward;
+		FOpenMobileAdsRevenue Revenue;
+		FOpenMobileAdsError LoadFailure;
+	};
+
+	class FDeterministicMediatedProviderHarness
+	{
+	public:
+		FDeterministicMediatedProviderHarness(
+			FMockProvider& InProvider,
+			const FMediatedProviderScenario& InScenario
+		)
+			: Provider(InProvider)
+			, Scenario(InScenario)
+		{
+			Provider.Capabilities.ProviderVersion =
+				TEXT("deterministic-test-provider");
+			Provider.Capabilities.Mediation.bSupported = true;
+			Provider.Capabilities.Mediation.DecisionOwner =
+				EOpenMobileAdsMediationDecisionOwner::Provider;
+			Provider.Capabilities.Mediation.bSupportsWaterfall = true;
+			Provider.Capabilities.Mediation.bSupportsBidding = true;
+			Provider.Capabilities.Mediation.bReportsAdapterInitialization = true;
+			Provider.Capabilities.Mediation.bReportsWinningSource = true;
+			Provider.Capabilities.Mediation.bReportsImpressionRevenue = true;
+			Provider.Capabilities.Mediation.bReportsEcpm = true;
+			Provider.Capabilities.Formats[0].bReportsImpression = true;
+			Provider.Capabilities.Formats[0].bReportsClick = true;
+			Provider.Capabilities.Formats[0].bReportsRevenue = true;
+		}
+
+		void CompleteInitialization()
+		{
+			FOpenMobileAdsInitializationComponentStatus AdapterStatus;
+			AdapterStatus.Type = EOpenMobileAdsInitializationComponentType::Adapter;
+			AdapterStatus.Name = FName(*Scenario.Adapter);
+			AdapterStatus.Parent = Provider.Name;
+			AdapterStatus.State = EOpenMobileAdsInitializationState::Ready;
+			AdapterStatus.Version = Scenario.AdapterVersion;
+			AdapterStatus.LatencyMilliseconds =
+				Scenario.AdapterInitializationLatencyMilliseconds;
+			Provider.ReportInitializationStatus(MoveTemp(AdapterStatus));
+			Provider.CompleteInitialization();
+		}
+
+		void CompleteLoad()
+		{
+			FOpenMobileAdsEvent Loaded;
+			Loaded.Type = EOpenMobileAdsEventType::Loaded;
+			Loaded.CachedAdId = Scenario.CachedAdId;
+			Loaded.Network = Scenario.Network;
+			Provider.LoadSink->Submit(MoveTemp(Loaded));
+		}
+
+		void CompleteShow()
+		{
+			SubmitShowEvent(EOpenMobileAdsEventType::Shown);
+			SubmitShowEvent(EOpenMobileAdsEventType::Impression);
+			SubmitShowEvent(EOpenMobileAdsEventType::Clicked);
+
+			FOpenMobileAdsEvent RewardEarned;
+			RewardEarned.Type = EOpenMobileAdsEventType::RewardEarned;
+			RewardEarned.Network = Scenario.Network;
+			RewardEarned.bHasReward = true;
+			RewardEarned.Reward = Scenario.Reward;
+			Provider.ShowSink->Submit(MoveTemp(RewardEarned));
+
+			FOpenMobileAdsEvent RevenuePaid;
+			RevenuePaid.Type = EOpenMobileAdsEventType::RevenuePaid;
+			RevenuePaid.Network = Scenario.Network;
+			RevenuePaid.bHasRevenue = true;
+			RevenuePaid.Revenue = Scenario.Revenue;
+			Provider.ShowSink->Submit(MoveTemp(RevenuePaid));
+
+			SubmitShowEvent(EOpenMobileAdsEventType::Dismissed);
+		}
+
+		void FailLoad()
+		{
+			FOpenMobileAdsEvent LoadFailed;
+			LoadFailed.Type = EOpenMobileAdsEventType::LoadFailed;
+			LoadFailed.Network = Scenario.Network;
+			LoadFailed.Error = Scenario.LoadFailure;
+			Provider.LoadSink->Submit(MoveTemp(LoadFailed));
+		}
+
+	private:
+		void SubmitShowEvent(EOpenMobileAdsEventType Type)
+		{
+			FOpenMobileAdsEvent Event;
+			Event.Type = Type;
+			Event.Network = Scenario.Network;
+			Provider.ShowSink->Submit(MoveTemp(Event));
+		}
+
+		FMockProvider& Provider;
+		const FMediatedProviderScenario& Scenario;
+	};
+
 	class FMockConsentSignalConsumer final
 		: public IOpenMobileAdsConsentSignalConsumer
 	{
@@ -10291,6 +10397,218 @@ bool FOpenMobileAdsServerVerificationCustomDataContractTest::RunTest(
 		FString(TEXT("second"))
 	);
 
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsMediatedProviderHarnessContractTest,
+	"OpenMobile.Ads.Mediation.DeterministicProviderHarness",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsMediatedProviderHarnessContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MediatedTestProvider");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		false;
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement =
+		ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("MediatedReward");
+	Placement.Format = EOpenMobileAdFormat::Rewarded;
+	Placement.Android.AdUnitId = TEXT("android-mediated-test-unit");
+	Placement.IOS.AdUnitId = TEXT("ios-mediated-test-unit");
+
+	FMediatedProviderScenario Scenario;
+	Scenario.Network = TEXT("Deterministic Network");
+	Scenario.Adapter = TEXT("com.openmobile.ads.DeterministicAdapter");
+	Scenario.AdapterVersion = TEXT("1.2.3-test");
+	Scenario.AdapterInitializationLatencyMilliseconds = 12.5;
+	Scenario.CachedAdId = FGuid::NewGuid();
+	Scenario.Reward.Type = TEXT("coins");
+	Scenario.Reward.Amount = 7;
+	Scenario.Revenue.ValueMicros = 2500;
+	Scenario.Revenue.CurrencyCode = TEXT("usd");
+	Scenario.Revenue.Precision = EOpenMobileAdsRevenuePrecision::Precise;
+	Scenario.Revenue.Source.SourceName = Scenario.Network;
+	Scenario.Revenue.Source.SourceId = TEXT("deterministic-source");
+	Scenario.Revenue.Source.AdapterClassName = Scenario.Adapter;
+	Scenario.LoadFailure = FOpenMobileAdsError::Make(
+		EOpenMobileAdsErrorCode::NoFill,
+		EOpenMobileAdsFailureStage::Load,
+		NAME_None,
+		TEXT("The deterministic mediated source had no test ad."),
+		TEXT("MediatedTestProvider"),
+		FString(),
+		true
+	);
+	Scenario.LoadFailure.NativeDiagnostics.NativeCode = TEXT("no_fill");
+	Scenario.LoadFailure.NativeDiagnostics.NativeMessage =
+		TEXT("No deterministic test ad was available.");
+	Scenario.LoadFailure.NativeDiagnostics.Provider =
+		TEXT("MediatedTestProvider");
+	Scenario.LoadFailure.NativeDiagnostics.Network = Scenario.Network;
+	Scenario.LoadFailure.NativeDiagnostics.Adapter = Scenario.Adapter;
+
+	FMockProvider Provider(TEXT("MediatedTestProvider"));
+	FDeterministicMediatedProviderHarness Harness(Provider, Scenario);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+	TArray<FOpenMobileAdsEvent> Events;
+	const FDelegateHandle EventHandle = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&Events](const FOpenMobileAdsEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	TestTrue(
+		TEXT("The mediated scenario accepts initialization"),
+		Subsystem->InitializeAds().bAccepted
+	);
+	Harness.CompleteInitialization();
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("The scripted provider becomes ready"),
+		Subsystem->GetServiceState(),
+		EOpenMobileAdsServiceState::Ready
+	);
+	const FOpenMobileAdsInitializationComponentStatus* AdapterStatus =
+		Subsystem->GetInitializationStatusRef().FindComponent(
+			EOpenMobileAdsInitializationComponentType::Adapter,
+			FName(*Scenario.Adapter),
+			Provider.Name
+		);
+	TestNotNull(TEXT("The scenario reports its mediated adapter"), AdapterStatus);
+	if (AdapterStatus)
+	{
+		TestEqual(
+			TEXT("The scenario preserves adapter initialization latency"),
+			AdapterStatus->LatencyMilliseconds,
+			Scenario.AdapterInitializationLatencyMilliseconds
+		);
+		TestEqual(
+			TEXT("The scenario preserves the adapter version"),
+			AdapterStatus->Version,
+			Scenario.AdapterVersion
+		);
+	}
+
+	FOpenMobileAdsPrivacySnapshot Privacy;
+	Privacy.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Privacy.bCanRequestAds = true;
+	Privacy.Source = TEXT("DeterministicConsent");
+	Subsystem->UpdatePrivacySnapshot(MoveTemp(Privacy));
+	TestTrue(
+		TEXT("The mediated scenario accepts a load"),
+		Subsystem->LoadAd(TEXT("MediatedReward")).bAccepted
+	);
+	Harness.CompleteLoad();
+	DrainGameThreadTasks();
+	TestTrue(
+		TEXT("The deterministic load makes the placement ready"),
+		Subsystem->IsReady(TEXT("MediatedReward"))
+	);
+
+	TestTrue(
+		TEXT("The mediated scenario accepts a show"),
+		Subsystem->ShowAd(TEXT("MediatedReward")).bAccepted
+	);
+	Harness.CompleteShow();
+	DrainGameThreadTasks();
+
+	const EOpenMobileAdsEventType ExpectedTypes[] = {
+		EOpenMobileAdsEventType::LoadStarted,
+		EOpenMobileAdsEventType::Loaded,
+		EOpenMobileAdsEventType::ShowAccepted,
+		EOpenMobileAdsEventType::Shown,
+		EOpenMobileAdsEventType::Impression,
+		EOpenMobileAdsEventType::Clicked,
+		EOpenMobileAdsEventType::RewardEarned,
+		EOpenMobileAdsEventType::RevenuePaid,
+		EOpenMobileAdsEventType::Dismissed
+	};
+	TestEqual(
+		TEXT("The scenario emits the complete mediated lifecycle"),
+		Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes))
+	);
+	if (Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)))
+	{
+		for (int32 Index = 0; Index < Events.Num(); ++Index)
+		{
+			TestEqual(
+				TEXT("The mediated lifecycle order is deterministic"),
+				Events[Index].Type,
+				ExpectedTypes[Index]
+			);
+		}
+		TestEqual(
+			TEXT("The impression preserves its mediated source"),
+			Events[4].Network,
+			Scenario.Network
+		);
+		TestEqual(
+			TEXT("The click preserves its mediated source"),
+			Events[5].Network,
+			Scenario.Network
+		);
+		TestEqual(
+			TEXT("The reward amount reaches the normalized callback"),
+			Events[6].Reward.Amount,
+			Scenario.Reward.Amount
+		);
+		TestEqual(
+			TEXT("The paid callback preserves the winning source"),
+			Events[7].Revenue.Source.SourceName,
+			Scenario.Network
+		);
+		TestEqual(
+			TEXT("The paid callback normalizes its currency"),
+			Events[7].Revenue.CurrencyCode,
+			FString(TEXT("USD"))
+		);
+	}
+
+	TestTrue(
+		TEXT("The scenario accepts the scripted failing load"),
+		Subsystem->LoadAd(TEXT("MediatedReward")).bAccepted
+	);
+	Harness.FailLoad();
+	DrainGameThreadTasks();
+	TestEqual(
+		TEXT("The failure is appended after the successful scenario"),
+		Events.Num(),
+		static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)) + 2
+	);
+	if (Events.Num() == static_cast<int32>(UE_ARRAY_COUNT(ExpectedTypes)) + 2)
+	{
+		const FOpenMobileAdsEvent& Failure = Events.Last();
+		TestEqual(
+			TEXT("The scripted error is a load failure"),
+			Failure.Type,
+			EOpenMobileAdsEventType::LoadFailed
+		);
+		TestEqual(
+			TEXT("The error preserves its mediated network"),
+			Failure.Error.NativeDiagnostics.Network,
+			Scenario.Network
+		);
+		TestEqual(
+			TEXT("The error preserves its adapter"),
+			Failure.Error.NativeDiagnostics.Adapter,
+			Scenario.Adapter
+		);
+	}
+	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
 	Subsystem->Deinitialize();
 	return true;
 }
