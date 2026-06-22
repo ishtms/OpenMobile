@@ -41,6 +41,21 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRateDiagnostics
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorGyroscopeDriftDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 SampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FVector MeanAngularVelocityRadiansPerSecond = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double RootMeanSquareAngularSpeedRadiansPerSecond = 0.0;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 {
 	GENERATED_BODY()
@@ -50,6 +65,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorRateDiagnostics Rate;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorGyroscopeDriftDiagnostics GyroscopeDrift;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorBatchingMode BatchingMode =

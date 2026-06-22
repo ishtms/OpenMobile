@@ -163,9 +163,15 @@ namespace OpenMobileSensorsSampleServicePrivate
 		double RateIntervalSquareSum = 0.0;
 		double LastRateTimestampSeconds = 0.0;
 		double LastRateGapSeconds = 0.0;
+		FVector GyroscopeAngularVelocities[64] = {};
+		FVector GyroscopeAngularVelocitySum = FVector::ZeroVector;
+		double GyroscopeAngularSpeedSquareSum = 0.0;
+		double LastGyroscopeTimestampSeconds = 0.0;
 		double LastGameThreadProcessingSeconds = 0.0;
 		int32 RateIntervalStart = 0;
 		int32 RateIntervalCount = 0;
+		int32 GyroscopeSampleStart = 0;
+		int32 GyroscopeSampleCount = 0;
 		int32 EventHighWaterMark = 0;
 		int64 EventDroppedSamples = 0;
 		int32 PendingTimestampIssueFlags = 0;
@@ -245,6 +251,74 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.RateIntervalStart = 0;
 		Slot.RateIntervalCount = 0;
 		Slot.bHasRateTimestamp = false;
+	}
+
+	void ResetGyroscopeDriftStatistics(FLatestSlot& Slot)
+	{
+		Slot.GyroscopeAngularVelocitySum = FVector::ZeroVector;
+		Slot.GyroscopeAngularSpeedSquareSum = 0.0;
+		Slot.LastGyroscopeTimestampSeconds = 0.0;
+		Slot.GyroscopeSampleStart = 0;
+		Slot.GyroscopeSampleCount = 0;
+	}
+
+	template <typename SampleType>
+	void UpdateGyroscopeDriftStatistics(
+		FLatestSlot& Slot,
+		const SampleType& Sample
+	)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+	}
+
+	void UpdateGyroscopeDriftStatistics(
+		FLatestSlot& Slot,
+		const FOpenMobileVectorSensorSample& Sample
+	)
+	{
+		if (Sample.Header.Sensor.Type != EOpenMobileSensorType::Gyroscope)
+		{
+			return;
+		}
+		const double LongGapSeconds = FMath::Max(
+			5.0,
+			Slot.AppliedSampleFrequencyHz > 0.0
+				? 10.0 / Slot.AppliedSampleFrequencyHz
+				: 5.0
+		);
+		if (Sample.Header.bStatefulProcessingReset
+			|| (Slot.GyroscopeSampleCount > 0
+				&& Sample.Header.TimestampSeconds -
+					Slot.LastGyroscopeTimestampSeconds > LongGapSeconds))
+		{
+			ResetGyroscopeDriftStatistics(Slot);
+		}
+		if (Slot.GyroscopeSampleCount ==
+			UE_ARRAY_COUNT(Slot.GyroscopeAngularVelocities))
+		{
+			const FVector& Removed = Slot.GyroscopeAngularVelocities[
+				Slot.GyroscopeSampleStart
+			];
+			Slot.GyroscopeAngularVelocitySum -= Removed;
+			Slot.GyroscopeAngularSpeedSquareSum -= Removed.SizeSquared();
+			Slot.GyroscopeAngularVelocities[Slot.GyroscopeSampleStart] =
+				Sample.Value;
+			Slot.GyroscopeSampleStart =
+				(Slot.GyroscopeSampleStart + 1)
+				% UE_ARRAY_COUNT(Slot.GyroscopeAngularVelocities);
+		}
+		else
+		{
+			const int32 WriteIndex =
+				(Slot.GyroscopeSampleStart + Slot.GyroscopeSampleCount)
+				% UE_ARRAY_COUNT(Slot.GyroscopeAngularVelocities);
+			Slot.GyroscopeAngularVelocities[WriteIndex] = Sample.Value;
+			++Slot.GyroscopeSampleCount;
+		}
+		Slot.GyroscopeAngularVelocitySum += Sample.Value;
+		Slot.GyroscopeAngularSpeedSquareSum += Sample.Value.SizeSquared();
+		Slot.LastGyroscopeTimestampSeconds = Sample.Header.TimestampSeconds;
 	}
 
 	void UpdateRateStatistics(FLatestSlot& Slot, double TimestampSeconds)
@@ -909,6 +983,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 					Sample.Header.bStatefulProcessingReset |=
 						Slot.bPendingStatefulProcessingReset
 						|| Slot.PendingTimestampIssueFlags != 0;
+					UpdateGyroscopeDriftStatistics(Slot, Sample);
 					if (!ApplySubscriptionFilters(Slot, Sample))
 					{
 						Slot.bPendingStatefulProcessingReset = true;
@@ -1744,6 +1819,7 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 		if (State != EOpenMobileSensorSubscriptionState::Active)
 		{
 			ResetRateStatistics(**SlotPointer);
+			ResetGyroscopeDriftStatistics(**SlotPointer);
 			(*SlotPointer)->VectorFilter.Reset();
 		}
 		bSchedulePendingEvents =
@@ -1776,6 +1852,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->StaleAfterSeconds = GetStaleAfterSeconds(Options);
 	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	ResetRateStatistics(**SlotPointer);
+	ResetGyroscopeDriftStatistics(**SlotPointer);
 	(*SlotPointer)->MaximumCallbackFrequencyHz =
 		Options.MaximumCallbackFrequencyHz;
 	(*SlotPointer)->MaximumPendingSamples = FMath::Clamp(
@@ -1904,6 +1981,23 @@ bool FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
 	if (Slot.OwnerIdentifier != OwnerIdentifier || Slot.Handle != Handle)
 	{
 		return false;
+	}
+	OutDiagnostics.GyroscopeDrift = {};
+	if (Slot.Sensor.Type == EOpenMobileSensorType::Gyroscope
+		&& Slot.GyroscopeSampleCount > 0)
+	{
+		OutDiagnostics.GyroscopeDrift.SampleCount = Slot.GyroscopeSampleCount;
+		OutDiagnostics.GyroscopeDrift.
+			MeanAngularVelocityRadiansPerSecond =
+			Slot.GyroscopeAngularVelocitySum / Slot.GyroscopeSampleCount;
+		OutDiagnostics.GyroscopeDrift.
+			RootMeanSquareAngularSpeedRadiansPerSecond = FMath::Sqrt(
+				FMath::Max(
+					0.0,
+					Slot.GyroscopeAngularSpeedSquareSum /
+						Slot.GyroscopeSampleCount
+				)
+			);
 	}
 	OutDiagnostics.QueueDepth = GetPluginSampleCount(Slot);
 	OutDiagnostics.BufferHighWaterMark = GetPluginHighWaterMark(Slot);
