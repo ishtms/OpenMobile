@@ -60,6 +60,7 @@
 #include "OpenMobileDeviceMonitoringService.h"
 #include "OpenMobileDeviceNetworkTypes.h"
 #include "OpenMobileDeviceNetworkPathInfo.h"
+#include "OpenMobileDeviceNativeConfigurationPolicy.h"
 #include "OpenMobileDeviceOrientationControl.h"
 #include "OpenMobileDeviceOrientationControlPolicy.h"
 #include "OpenMobileDeviceOrientationControlService.h"
@@ -8389,6 +8390,96 @@ bool FOpenMobileDeviceFlashlightControlTest::RunTest(const FString& Parameters)
 	FOpenMobileDeviceFlashlightControlService::ResetForTests();
 	FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileDeviceBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceNativeConfigurationPolicyTest,
+	"OpenMobile.Device.Configuration.NativeAllowLists",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceNativeConfigurationPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FString NormalizedScheme;
+	TestTrue(
+		TEXT("A valid custom scheme is normalized for native metadata"),
+		FOpenMobileDeviceNativeConfigurationPolicy::TryNormalizeUrlScheme(
+			TEXT("Example-App"),
+			NormalizedScheme
+		)
+	);
+	TestEqual(
+		TEXT("Native scheme normalization is lowercase"),
+		NormalizedScheme,
+		FString(TEXT("example-app"))
+	);
+	for (const FString& RejectedScheme : {
+		FString(),
+		FString(TEXT("1example")),
+		FString(TEXT(" example")),
+		FString(TEXT("bad/scheme")),
+		FString(TEXT("exámple")),
+		FString(TEXT("file")),
+		FString(TEXT("http")),
+		FString(TEXT("https"))
+	})
+	{
+		TestFalse(
+			TEXT("Malformed, unsafe, and built-in schemes are not emitted"),
+			FOpenMobileDeviceNativeConfigurationPolicy::TryNormalizeUrlScheme(
+				RejectedScheme,
+				NormalizedScheme
+			)
+		);
+	}
+
+	TestTrue(
+		TEXT("A valid Android intent action can be emitted"),
+		FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidIntentAction(
+			TEXT("com.example.device.OPEN_2")
+		)
+	);
+	for (const FString& RejectedAction : {
+		FString(),
+		FString(TEXT("single")),
+		FString(TEXT("com..example.OPEN")),
+		FString(TEXT("com.example.*")),
+		FString(TEXT("com.exámple.OPEN"))
+	})
+	{
+		TestFalse(
+			TEXT("Malformed intent actions are not emitted"),
+			FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidIntentAction(
+				RejectedAction
+			)
+		);
+	}
+
+	TestTrue(
+		TEXT("A valid Android package can be emitted"),
+		FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidPackage(
+			TEXT("com.example.companion_2")
+		)
+	);
+	for (const FString& RejectedPackage : {
+		FString(),
+		FString(TEXT("single")),
+		FString(TEXT("com.2example.app")),
+		FString(TEXT("com.example.*")),
+		FString(TEXT("com.exámple.app"))
+	})
+	{
+		TestFalse(
+			TEXT("Malformed package declarations are not emitted"),
+			FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidPackage(
+				RejectedPackage
+			)
+		);
+	}
 	return true;
 }
 

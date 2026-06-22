@@ -9,62 +9,182 @@ dependencies {
 	</buildGradleAdditions>
 	<androidManifestUpdates>
 		<addPermission android:name="android.permission.ACCESS_NETWORK_STATE" />
-		<addElements tag="manifest" once="true">
-			<queries>
-				<intent>
-					<action android:name="android.intent.action.VIEW" />
-					<category android:name="android.intent.category.BROWSABLE" />
-					<data android:scheme="http" />
-				</intent>
-				<intent>
-					<action android:name="android.intent.action.VIEW" />
-					<category android:name="android.intent.category.BROWSABLE" />
-					<data android:scheme="https" />
-				</intent>
-			</queries>
-		</addElements>
+		<setString result="OpenMobileDeviceAsciiLetters" value="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"/>
+		<setString result="OpenMobileDeviceUrlSchemeCharacters" value="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-."/>
+		<setString result="OpenMobileDeviceUnsafeUrlSchemes" value="|about|blob|content|data|file|intent|javascript|http|https|"/>
 		<setIntFromPropertyArrayNum result="OpenMobileDeviceUrlSchemeCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes"/>
 		<setInt result="OpenMobileDeviceUrlSchemeIndex" value="0"/>
+		<setInt result="OpenMobileDeviceValidUrlSchemeCount" value="0"/>
+		<setString result="OpenMobileDeviceSeenUrlSchemes" value="|"/>
 		<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
 		<while condition="OpenMobileDeviceHasUrlScheme">
 			<setStringFromPropertyArray result="OpenMobileDeviceUrlScheme" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredUrlSchemes" index="$I(OpenMobileDeviceUrlSchemeIndex)"/>
 			<setIntAdd result="OpenMobileDeviceUrlSchemeIndex" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="1"/>
 			<setBoolIsLess result="OpenMobileDeviceHasUrlScheme" arg1="$I(OpenMobileDeviceUrlSchemeIndex)" arg2="$I(OpenMobileDeviceUrlSchemeCount)"/>
-			<setElement result="OpenMobileDeviceUrlQuery" value="intent"/>
-			<setElement result="OpenMobileDeviceUrlQueryAction" value="action"/>
-			<addAttribute tag="$OpenMobileDeviceUrlQueryAction" name="android:name" value="android.intent.action.VIEW"/>
-			<setElement result="OpenMobileDeviceUrlQueryCategory" value="category"/>
-			<addAttribute tag="$OpenMobileDeviceUrlQueryCategory" name="android:name" value="android.intent.category.BROWSABLE"/>
-			<setElement result="OpenMobileDeviceUrlQueryData" value="data"/>
-			<addAttribute tag="$OpenMobileDeviceUrlQueryData" name="android:scheme" value="$S(OpenMobileDeviceUrlScheme)"/>
-			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryAction"/>
-			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryCategory"/>
-			<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryData"/>
-			<addElement tag="queries" name="OpenMobileDeviceUrlQuery" once="true"/>
+			<setStringToLower result="OpenMobileDeviceNormalizedUrlScheme" source="$S(OpenMobileDeviceUrlScheme)"/>
+			<setIntLength result="OpenMobileDeviceUrlSchemeLength" source="$S(OpenMobileDeviceUrlScheme)"/>
+			<setBoolIsGreater result="OpenMobileDeviceUrlSchemeValid" arg1="$I(OpenMobileDeviceUrlSchemeLength)" arg2="0"/>
+			<if condition="OpenMobileDeviceUrlSchemeValid">
+				<true>
+					<setStringSubstring result="OpenMobileDeviceUrlSchemeCharacter" source="$S(OpenMobileDeviceUrlScheme)" start="0" length="1"/>
+					<setBoolContains result="OpenMobileDeviceUrlSchemeFirstCharacterValid" source="$S(OpenMobileDeviceAsciiLetters)" find="$S(OpenMobileDeviceUrlSchemeCharacter)"/>
+					<setBoolAnd result="OpenMobileDeviceUrlSchemeValid" arg1="$B(OpenMobileDeviceUrlSchemeValid)" arg2="$B(OpenMobileDeviceUrlSchemeFirstCharacterValid)"/>
+					<setInt result="OpenMobileDeviceUrlSchemeCharacterIndex" value="1"/>
+					<setBoolIsLess result="OpenMobileDeviceHasUrlSchemeCharacter" arg1="$I(OpenMobileDeviceUrlSchemeCharacterIndex)" arg2="$I(OpenMobileDeviceUrlSchemeLength)"/>
+					<while condition="OpenMobileDeviceHasUrlSchemeCharacter">
+						<setStringSubstring result="OpenMobileDeviceUrlSchemeCharacter" source="$S(OpenMobileDeviceUrlScheme)" start="$I(OpenMobileDeviceUrlSchemeCharacterIndex)" length="1"/>
+						<setBoolContains result="OpenMobileDeviceUrlSchemeCharacterValid" source="$S(OpenMobileDeviceUrlSchemeCharacters)" find="$S(OpenMobileDeviceUrlSchemeCharacter)"/>
+						<setBoolAnd result="OpenMobileDeviceUrlSchemeValid" arg1="$B(OpenMobileDeviceUrlSchemeValid)" arg2="$B(OpenMobileDeviceUrlSchemeCharacterValid)"/>
+						<setIntAdd result="OpenMobileDeviceUrlSchemeCharacterIndex" arg1="$I(OpenMobileDeviceUrlSchemeCharacterIndex)" arg2="1"/>
+						<setBoolIsLess result="OpenMobileDeviceHasUrlSchemeCharacter" arg1="$I(OpenMobileDeviceUrlSchemeCharacterIndex)" arg2="$I(OpenMobileDeviceUrlSchemeLength)"/>
+					</while>
+				</true>
+			</if>
+			<setStringAdd result="OpenMobileDeviceUrlSchemeKey" arg1="|" arg2="$S(OpenMobileDeviceNormalizedUrlScheme)"/>
+			<setStringAdd result="OpenMobileDeviceUrlSchemeKey" arg1="$S(OpenMobileDeviceUrlSchemeKey)" arg2="|"/>
+			<setBoolContains result="OpenMobileDeviceUrlSchemeUnsafe" source="$S(OpenMobileDeviceUnsafeUrlSchemes)" find="$S(OpenMobileDeviceUrlSchemeKey)"/>
+			<setBoolNot result="OpenMobileDeviceUrlSchemeSafe" source="$B(OpenMobileDeviceUrlSchemeUnsafe)"/>
+			<setBoolAnd result="OpenMobileDeviceUrlSchemeValid" arg1="$B(OpenMobileDeviceUrlSchemeValid)" arg2="$B(OpenMobileDeviceUrlSchemeSafe)"/>
+			<setBoolContains result="OpenMobileDeviceUrlSchemeDuplicate" source="$S(OpenMobileDeviceSeenUrlSchemes)" find="$S(OpenMobileDeviceUrlSchemeKey)"/>
+			<setBoolNot result="OpenMobileDeviceUrlSchemeUnique" source="$B(OpenMobileDeviceUrlSchemeDuplicate)"/>
+			<setBoolAnd result="OpenMobileDeviceUrlSchemeValid" arg1="$B(OpenMobileDeviceUrlSchemeValid)" arg2="$B(OpenMobileDeviceUrlSchemeUnique)"/>
+			<setBoolIsLess result="OpenMobileDeviceUrlSchemeBelowLimit" arg1="$I(OpenMobileDeviceValidUrlSchemeCount)" arg2="50"/>
+			<setBoolAnd result="OpenMobileDeviceUrlSchemeValid" arg1="$B(OpenMobileDeviceUrlSchemeValid)" arg2="$B(OpenMobileDeviceUrlSchemeBelowLimit)"/>
+			<if condition="OpenMobileDeviceUrlSchemeValid">
+				<true>
+					<setElement result="OpenMobileDeviceUrlQuery" value="intent"/>
+					<setElement result="OpenMobileDeviceUrlQueryAction" value="action"/>
+					<addAttribute tag="$OpenMobileDeviceUrlQueryAction" name="android:name" value="android.intent.action.VIEW"/>
+					<setElement result="OpenMobileDeviceUrlQueryCategory" value="category"/>
+					<addAttribute tag="$OpenMobileDeviceUrlQueryCategory" name="android:name" value="android.intent.category.BROWSABLE"/>
+					<setElement result="OpenMobileDeviceUrlQueryData" value="data"/>
+					<addAttribute tag="$OpenMobileDeviceUrlQueryData" name="android:scheme" value="$S(OpenMobileDeviceNormalizedUrlScheme)"/>
+					<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryAction"/>
+					<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryCategory"/>
+					<addElement tag="$OpenMobileDeviceUrlQuery" name="OpenMobileDeviceUrlQueryData"/>
+					<addElement tag="queries" name="OpenMobileDeviceUrlQuery" once="true"/>
+					<setStringAdd result="OpenMobileDeviceSeenUrlSchemes" arg1="$S(OpenMobileDeviceSeenUrlSchemes)" arg2="$S(OpenMobileDeviceUrlSchemeKey)"/>
+					<setIntAdd result="OpenMobileDeviceValidUrlSchemeCount" arg1="$I(OpenMobileDeviceValidUrlSchemeCount)" arg2="1"/>
+				</true>
+			</if>
 		</while>
 		<setIntFromPropertyArrayNum result="OpenMobileDeviceIntentActionCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidIntentActions"/>
 		<setInt result="OpenMobileDeviceIntentActionIndex" value="0"/>
+		<setInt result="OpenMobileDeviceValidIntentActionCount" value="0"/>
+		<setString result="OpenMobileDeviceSeenIntentActions" value="|"/>
 		<setBoolIsLess result="OpenMobileDeviceHasIntentAction" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="$I(OpenMobileDeviceIntentActionCount)"/>
 		<while condition="OpenMobileDeviceHasIntentAction">
 			<setStringFromPropertyArray result="OpenMobileDeviceIntentAction" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidIntentActions" index="$I(OpenMobileDeviceIntentActionIndex)"/>
 			<setIntAdd result="OpenMobileDeviceIntentActionIndex" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="1"/>
 			<setBoolIsLess result="OpenMobileDeviceHasIntentAction" arg1="$I(OpenMobileDeviceIntentActionIndex)" arg2="$I(OpenMobileDeviceIntentActionCount)"/>
-			<setElement result="OpenMobileDeviceIntentQuery" value="intent"/>
-			<setElement result="OpenMobileDeviceIntentQueryAction" value="action"/>
-			<addAttribute tag="$OpenMobileDeviceIntentQueryAction" name="android:name" value="$S(OpenMobileDeviceIntentAction)"/>
-			<addElement tag="$OpenMobileDeviceIntentQuery" name="OpenMobileDeviceIntentQueryAction"/>
-			<addElement tag="queries" name="OpenMobileDeviceIntentQuery" once="true"/>
+			<setIntLength result="OpenMobileDeviceIntentActionLength" source="$S(OpenMobileDeviceIntentAction)"/>
+			<setBoolIsGreater result="OpenMobileDeviceIntentActionValid" arg1="$I(OpenMobileDeviceIntentActionLength)" arg2="0"/>
+			<setBoolIsLessEqual result="OpenMobileDeviceIntentActionWithinLimit" arg1="$I(OpenMobileDeviceIntentActionLength)" arg2="255"/>
+			<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionWithinLimit)"/>
+			<setBoolContains result="OpenMobileDeviceIntentActionHasSeparator" source="$S(OpenMobileDeviceIntentAction)" find="."/>
+			<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionHasSeparator)"/>
+			<setBool result="OpenMobileDeviceIntentActionAtSegmentStart" value="true"/>
+			<setInt result="OpenMobileDeviceIntentActionCharacterIndex" value="0"/>
+			<setBoolIsLess result="OpenMobileDeviceHasIntentActionCharacter" arg1="$I(OpenMobileDeviceIntentActionCharacterIndex)" arg2="$I(OpenMobileDeviceIntentActionLength)"/>
+			<while condition="OpenMobileDeviceHasIntentActionCharacter">
+				<setStringSubstring result="OpenMobileDeviceIntentActionCharacter" source="$S(OpenMobileDeviceIntentAction)" start="$I(OpenMobileDeviceIntentActionCharacterIndex)" length="1"/>
+				<setBoolIsEqual result="OpenMobileDeviceIntentActionCharacterIsSeparator" arg1="$S(OpenMobileDeviceIntentActionCharacter)" arg2="."/>
+				<if condition="OpenMobileDeviceIntentActionCharacterIsSeparator">
+					<true>
+						<setBoolNot result="OpenMobileDeviceIntentActionSeparatorValid" source="$B(OpenMobileDeviceIntentActionAtSegmentStart)"/>
+						<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionSeparatorValid)"/>
+						<setBool result="OpenMobileDeviceIntentActionAtSegmentStart" value="true"/>
+					</true>
+					<false>
+						<setBoolContains result="OpenMobileDeviceIntentActionCharacterValid" source="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" find="$S(OpenMobileDeviceIntentActionCharacter)"/>
+						<if condition="OpenMobileDeviceIntentActionAtSegmentStart">
+							<true>
+								<setBoolContains result="OpenMobileDeviceIntentActionCharacterValid" source="$S(OpenMobileDeviceAsciiLetters)" find="$S(OpenMobileDeviceIntentActionCharacter)"/>
+							</true>
+						</if>
+						<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionCharacterValid)"/>
+						<setBool result="OpenMobileDeviceIntentActionAtSegmentStart" value="false"/>
+					</false>
+				</if>
+				<setIntAdd result="OpenMobileDeviceIntentActionCharacterIndex" arg1="$I(OpenMobileDeviceIntentActionCharacterIndex)" arg2="1"/>
+				<setBoolIsLess result="OpenMobileDeviceHasIntentActionCharacter" arg1="$I(OpenMobileDeviceIntentActionCharacterIndex)" arg2="$I(OpenMobileDeviceIntentActionLength)"/>
+			</while>
+			<setBoolNot result="OpenMobileDeviceIntentActionComplete" source="$B(OpenMobileDeviceIntentActionAtSegmentStart)"/>
+			<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionComplete)"/>
+			<setStringAdd result="OpenMobileDeviceIntentActionKey" arg1="|" arg2="$S(OpenMobileDeviceIntentAction)"/>
+			<setStringAdd result="OpenMobileDeviceIntentActionKey" arg1="$S(OpenMobileDeviceIntentActionKey)" arg2="|"/>
+			<setBoolContains result="OpenMobileDeviceIntentActionDuplicate" source="$S(OpenMobileDeviceSeenIntentActions)" find="$S(OpenMobileDeviceIntentActionKey)"/>
+			<setBoolNot result="OpenMobileDeviceIntentActionUnique" source="$B(OpenMobileDeviceIntentActionDuplicate)"/>
+			<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionUnique)"/>
+			<setBoolIsLess result="OpenMobileDeviceIntentActionBelowLimit" arg1="$I(OpenMobileDeviceValidIntentActionCount)" arg2="50"/>
+			<setBoolAnd result="OpenMobileDeviceIntentActionValid" arg1="$B(OpenMobileDeviceIntentActionValid)" arg2="$B(OpenMobileDeviceIntentActionBelowLimit)"/>
+			<if condition="OpenMobileDeviceIntentActionValid">
+				<true>
+					<setElement result="OpenMobileDeviceIntentQuery" value="intent"/>
+					<setElement result="OpenMobileDeviceIntentQueryAction" value="action"/>
+					<addAttribute tag="$OpenMobileDeviceIntentQueryAction" name="android:name" value="$S(OpenMobileDeviceIntentAction)"/>
+					<addElement tag="$OpenMobileDeviceIntentQuery" name="OpenMobileDeviceIntentQueryAction"/>
+					<addElement tag="queries" name="OpenMobileDeviceIntentQuery" once="true"/>
+					<setStringAdd result="OpenMobileDeviceSeenIntentActions" arg1="$S(OpenMobileDeviceSeenIntentActions)" arg2="$S(OpenMobileDeviceIntentActionKey)"/>
+					<setIntAdd result="OpenMobileDeviceValidIntentActionCount" arg1="$I(OpenMobileDeviceValidIntentActionCount)" arg2="1"/>
+				</true>
+			</if>
 		</while>
 		<setIntFromPropertyArrayNum result="OpenMobileDevicePackageCount" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidPackages"/>
 		<setInt result="OpenMobileDevicePackageIndex" value="0"/>
+		<setString result="OpenMobileDeviceSeenPackages" value="|"/>
 		<setBoolIsLess result="OpenMobileDeviceHasPackage" arg1="$I(OpenMobileDevicePackageIndex)" arg2="$I(OpenMobileDevicePackageCount)"/>
 		<while condition="OpenMobileDeviceHasPackage">
 			<setStringFromPropertyArray result="OpenMobileDevicePackage" ini="Game" section="/Script/OpenMobileDevice.OpenMobileDeviceSettings" property="DeclaredAndroidPackages" index="$I(OpenMobileDevicePackageIndex)"/>
 			<setIntAdd result="OpenMobileDevicePackageIndex" arg1="$I(OpenMobileDevicePackageIndex)" arg2="1"/>
 			<setBoolIsLess result="OpenMobileDeviceHasPackage" arg1="$I(OpenMobileDevicePackageIndex)" arg2="$I(OpenMobileDevicePackageCount)"/>
-			<setElement result="OpenMobileDevicePackageQuery" value="package"/>
-			<addAttribute tag="$OpenMobileDevicePackageQuery" name="android:name" value="$S(OpenMobileDevicePackage)"/>
-			<addElement tag="queries" name="OpenMobileDevicePackageQuery" once="true"/>
+			<setIntLength result="OpenMobileDevicePackageLength" source="$S(OpenMobileDevicePackage)"/>
+			<setBoolIsGreater result="OpenMobileDevicePackageValid" arg1="$I(OpenMobileDevicePackageLength)" arg2="0"/>
+			<setBoolIsLessEqual result="OpenMobileDevicePackageWithinLimit" arg1="$I(OpenMobileDevicePackageLength)" arg2="223"/>
+			<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageWithinLimit)"/>
+			<setBoolContains result="OpenMobileDevicePackageHasSeparator" source="$S(OpenMobileDevicePackage)" find="."/>
+			<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageHasSeparator)"/>
+			<setBool result="OpenMobileDevicePackageAtSegmentStart" value="true"/>
+			<setInt result="OpenMobileDevicePackageCharacterIndex" value="0"/>
+			<setBoolIsLess result="OpenMobileDeviceHasPackageCharacter" arg1="$I(OpenMobileDevicePackageCharacterIndex)" arg2="$I(OpenMobileDevicePackageLength)"/>
+			<while condition="OpenMobileDeviceHasPackageCharacter">
+				<setStringSubstring result="OpenMobileDevicePackageCharacter" source="$S(OpenMobileDevicePackage)" start="$I(OpenMobileDevicePackageCharacterIndex)" length="1"/>
+				<setBoolIsEqual result="OpenMobileDevicePackageCharacterIsSeparator" arg1="$S(OpenMobileDevicePackageCharacter)" arg2="."/>
+				<if condition="OpenMobileDevicePackageCharacterIsSeparator">
+					<true>
+						<setBoolNot result="OpenMobileDevicePackageSeparatorValid" source="$B(OpenMobileDevicePackageAtSegmentStart)"/>
+						<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageSeparatorValid)"/>
+						<setBool result="OpenMobileDevicePackageAtSegmentStart" value="true"/>
+					</true>
+					<false>
+						<setBoolContains result="OpenMobileDevicePackageCharacterValid" source="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" find="$S(OpenMobileDevicePackageCharacter)"/>
+						<if condition="OpenMobileDevicePackageAtSegmentStart">
+							<true>
+								<setBoolContains result="OpenMobileDevicePackageCharacterValid" source="$S(OpenMobileDeviceAsciiLetters)" find="$S(OpenMobileDevicePackageCharacter)"/>
+							</true>
+						</if>
+						<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageCharacterValid)"/>
+						<setBool result="OpenMobileDevicePackageAtSegmentStart" value="false"/>
+					</false>
+				</if>
+				<setIntAdd result="OpenMobileDevicePackageCharacterIndex" arg1="$I(OpenMobileDevicePackageCharacterIndex)" arg2="1"/>
+				<setBoolIsLess result="OpenMobileDeviceHasPackageCharacter" arg1="$I(OpenMobileDevicePackageCharacterIndex)" arg2="$I(OpenMobileDevicePackageLength)"/>
+			</while>
+			<setBoolNot result="OpenMobileDevicePackageComplete" source="$B(OpenMobileDevicePackageAtSegmentStart)"/>
+			<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageComplete)"/>
+			<setStringAdd result="OpenMobileDevicePackageKey" arg1="|" arg2="$S(OpenMobileDevicePackage)"/>
+			<setStringAdd result="OpenMobileDevicePackageKey" arg1="$S(OpenMobileDevicePackageKey)" arg2="|"/>
+			<setBoolContains result="OpenMobileDevicePackageDuplicate" source="$S(OpenMobileDeviceSeenPackages)" find="$S(OpenMobileDevicePackageKey)"/>
+			<setBoolNot result="OpenMobileDevicePackageUnique" source="$B(OpenMobileDevicePackageDuplicate)"/>
+			<setBoolAnd result="OpenMobileDevicePackageValid" arg1="$B(OpenMobileDevicePackageValid)" arg2="$B(OpenMobileDevicePackageUnique)"/>
+			<if condition="OpenMobileDevicePackageValid">
+				<true>
+					<setElement result="OpenMobileDevicePackageQuery" value="package"/>
+					<addAttribute tag="$OpenMobileDevicePackageQuery" name="android:name" value="$S(OpenMobileDevicePackage)"/>
+					<addElement tag="queries" name="OpenMobileDevicePackageQuery" once="true"/>
+					<setStringAdd result="OpenMobileDeviceSeenPackages" arg1="$S(OpenMobileDeviceSeenPackages)" arg2="$S(OpenMobileDevicePackageKey)"/>
+				</true>
+			</if>
 		</while>
 	</androidManifestUpdates>
 	<gameActivityImportAdditions>

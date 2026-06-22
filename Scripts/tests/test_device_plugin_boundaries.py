@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -2330,7 +2331,7 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			/ "OpenMobileDevice_Android_UPL.xml"
 		).read_text(encoding="utf-8")
 		for token in (
-			"<queries>",
+			'addElement tag="queries"',
 			"android.intent.action.VIEW",
 			"android.intent.category.BROWSABLE",
 			"DeclaredUrlSchemes",
@@ -3004,6 +3005,89 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"custom accessibility actions",
 			"native accessibility element bridges",
 			"Preference-only sample",
+		):
+			self.assertIn(required_token, readme)
+
+	def test_native_configuration_is_owned_filtered_and_minimal(self) -> None:
+		android_upl_path = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileDevice_Android_UPL.xml"
+		)
+		ET.parse(android_upl_path)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		self.assertEqual(1, android_upl.count("addPermission"))
+		self.assertEqual(1, android_upl.count("implementation("))
+		self.assertIn("android.permission.ACCESS_NETWORK_STATE", android_upl)
+		self.assertNotIn("<queries>", android_upl)
+		for required_token in (
+			"androidx.window:window-java:1.5.1",
+			'addElement tag="queries"',
+			"OpenMobileDeviceUrlSchemeValid",
+			"OpenMobileDeviceUrlSchemeBelowLimit",
+			"OpenMobileDeviceIntentActionValid",
+			"OpenMobileDeviceIntentActionBelowLimit",
+			"OpenMobileDevicePackageValid",
+			"OpenMobileDeviceSeenPackages",
+		):
+			self.assertIn(required_token, android_upl)
+		for forbidden_token in (
+			"android.permission.CAMERA",
+			"android.permission.INTERNET",
+			"QUERY_ALL_PACKAGES",
+			"uses-feature",
+		):
+			self.assertNotIn(forbidden_token, android_upl)
+
+		ios_upl_path = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileDevice_IOS_UPL.xml"
+		)
+		ET.parse(ios_upl_path)
+		ios_upl = ios_upl_path.read_text(encoding="utf-8")
+		self.assertIn("OpenMobileDeviceUrlSchemeValid", ios_upl)
+		self.assertIn("OpenMobileDeviceUrlSchemeBelowLimit", ios_upl)
+		self.assertIn("OpenMobileDeviceExistingScheme", ios_upl)
+		for forbidden_token in (
+			"NSCameraUsageDescription",
+			"NSMicrophoneUsageDescription",
+			"NSPhotoLibraryUsageDescription",
+		):
+			self.assertNotIn(forbidden_token, ios_upl)
+
+		ios_build = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceIOS"
+			/ "OpenMobileDeviceIOS.Build.cs"
+		).read_text(encoding="utf-8")
+		framework_block = ios_build.split("PublicFrameworks.AddRange", 1)[1].split(
+			"});",
+			1,
+		)[0]
+		self.assertEqual(
+			{
+			"AVFoundation",
+			"Foundation",
+			"SystemConfiguration",
+			"UIKit",
+			},
+			set(re.findall(r'"([A-Za-z]+)"', framework_block)),
+		)
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		for required_token in (
+			"Native configuration",
+			"UEMetadata/PrivacyInfo.xcprivacy",
+			"NSPrivacyAccessedAPICategoryDiskSpace",
+			"E174.1",
 		):
 			self.assertIn(required_token, readme)
 

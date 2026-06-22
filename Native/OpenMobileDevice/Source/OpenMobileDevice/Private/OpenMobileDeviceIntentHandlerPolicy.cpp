@@ -2,69 +2,10 @@
 
 #include "Containers/StringConv.h"
 #include "OpenMobileDeviceClipboardPolicy.h"
+#include "OpenMobileDeviceNativeConfigurationPolicy.h"
 
 namespace OpenMobileDeviceIntentHandlerPolicyPrivate
 {
-	bool IsSchemeToken(const FString& Value)
-	{
-		if (Value.IsEmpty() || !FChar::IsAlpha(Value[0]))
-		{
-			return false;
-		}
-		for (int32 Index = 1; Index < Value.Len(); ++Index)
-		{
-			const TCHAR Character = Value[Index];
-			if (!FChar::IsAlnum(Character) && Character != TEXT('+')
-				&& Character != TEXT('-') && Character != TEXT('.'))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	bool IsUnsafeScheme(const FString& Scheme)
-	{
-		return Scheme == TEXT("about") || Scheme == TEXT("blob")
-			|| Scheme == TEXT("content") || Scheme == TEXT("data")
-			|| Scheme == TEXT("file") || Scheme == TEXT("intent")
-			|| Scheme == TEXT("javascript");
-	}
-
-	bool IsIntentAction(const FString& Value)
-	{
-		if (Value.IsEmpty()
-			|| Value.Len()
-				> FOpenMobileDeviceIntentHandlerPolicy::MaximumIntentActionCharacters
-			|| Value != Value.TrimStartAndEnd() || !Value.Contains(TEXT(".")))
-		{
-			return false;
-		}
-		bool bAtSegmentStart = true;
-		for (const TCHAR Character : Value)
-		{
-			if (Character == TEXT('.'))
-			{
-				if (bAtSegmentStart)
-				{
-					return false;
-				}
-				bAtSegmentStart = true;
-				continue;
-			}
-			if (bAtSegmentStart && !FChar::IsAlpha(Character))
-			{
-				return false;
-			}
-			if (!FChar::IsAlnum(Character) && Character != TEXT('_'))
-			{
-				return false;
-			}
-			bAtSegmentStart = false;
-		}
-		return !bAtSegmentStart;
-	}
-
 	bool IsDeclaredScheme(
 		const FString& Scheme,
 		const TArray<FString>& Declarations
@@ -76,9 +17,11 @@ namespace OpenMobileDeviceIntentHandlerPolicyPrivate
 		}
 		for (const FString& Declaration : Declarations)
 		{
-			if (Declaration.Equals(Scheme, ESearchCase::IgnoreCase)
-				&& Declaration == Declaration.TrimStartAndEnd()
-				&& IsSchemeToken(Declaration))
+			FString NormalizedDeclaration;
+			if (FOpenMobileDeviceNativeConfigurationPolicy::TryNormalizeUrlScheme(
+				Declaration,
+				NormalizedDeclaration
+			) && NormalizedDeclaration == Scheme)
 			{
 				return true;
 			}
@@ -138,7 +81,7 @@ bool FOpenMobileDeviceIntentHandlerPolicy::Validate(
 		}
 		const int32 ColonIndex = Request.Url.Find(TEXT(":"));
 		FString Scheme = Request.Url.Left(ColonIndex).ToLower();
-		if (!IsSchemeToken(Scheme) || IsUnsafeScheme(Scheme))
+		if (!FOpenMobileDeviceNativeConfigurationPolicy::IsValidUrlScheme(Scheme))
 		{
 			OutFailure = MakeFailure(
 				Request,
@@ -175,7 +118,9 @@ bool FOpenMobileDeviceIntentHandlerPolicy::Validate(
 	if (Request.Kind == EOpenMobileIntentHandlerQueryKind::DeclaredIntent)
 	{
 		if (!Request.Url.IsEmpty()
-			|| !IsIntentAction(Request.DeclaredIntentAction))
+			|| !FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidIntentAction(
+				Request.DeclaredIntentAction
+			))
 		{
 			OutFailure = MakeFailure(
 				Request,

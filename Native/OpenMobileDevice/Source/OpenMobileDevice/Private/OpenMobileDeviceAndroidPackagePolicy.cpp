@@ -1,54 +1,5 @@
 #include "OpenMobileDeviceAndroidPackagePolicy.h"
-
-namespace OpenMobileDeviceAndroidPackagePolicyPrivate
-{
-	bool IsAsciiLetter(TCHAR Character)
-	{
-		return (Character >= TEXT('A') && Character <= TEXT('Z'))
-			|| (Character >= TEXT('a') && Character <= TEXT('z'));
-	}
-
-	bool IsAsciiDigit(TCHAR Character)
-	{
-		return Character >= TEXT('0') && Character <= TEXT('9');
-	}
-
-	bool IsValidPackageName(const FString& PackageName)
-	{
-		if (PackageName.IsEmpty()
-			|| PackageName.Len()
-				> FOpenMobileDeviceAndroidPackagePolicy::MaximumPackageNameCharacters)
-		{
-			return false;
-		}
-		bool bAtSegmentStart = true;
-		bool bHasSeparator = false;
-		for (const TCHAR Character : PackageName)
-		{
-			if (Character == TEXT('.'))
-			{
-				if (bAtSegmentStart)
-				{
-					return false;
-				}
-				bAtSegmentStart = true;
-				bHasSeparator = true;
-				continue;
-			}
-			if (bAtSegmentStart && !IsAsciiLetter(Character))
-			{
-				return false;
-			}
-			if (!IsAsciiLetter(Character) && !IsAsciiDigit(Character)
-				&& Character != TEXT('_'))
-			{
-				return false;
-			}
-			bAtSegmentStart = false;
-		}
-		return bHasSeparator && !bAtSegmentStart;
-	}
-}
+#include "OpenMobileDeviceNativeConfigurationPolicy.h"
 
 bool FOpenMobileDeviceAndroidPackagePolicy::Validate(
 	const FOpenMobileAndroidPackageCheckRequest& Request,
@@ -66,7 +17,7 @@ bool FOpenMobileDeviceAndroidPackagePolicy::ValidateSyntax(
 )
 {
 	OutFailure = {};
-	if (!OpenMobileDeviceAndroidPackagePolicyPrivate::IsValidPackageName(
+	if (!FOpenMobileDeviceNativeConfigurationPolicy::IsValidAndroidPackage(
 		Request.PackageName
 	))
 	{
