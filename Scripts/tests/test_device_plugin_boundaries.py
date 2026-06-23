@@ -3091,6 +3091,61 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(required_token, readme)
 
+	def test_editor_mock_is_explicit_and_excluded_from_runtime_builds(self) -> None:
+		modules = {module["Name"]: module for module in load_descriptor()["Modules"]}
+		self.assertEqual("Editor", modules["OpenMobileDeviceEditor"]["Type"])
+
+		editor_module = DEVICE_PLUGIN / "Source" / "OpenMobileDeviceEditor"
+		settings = (
+			editor_module / "Public" / "OpenMobileDeviceMockSettings.h"
+		).read_text(encoding="utf-8")
+		mock_header = (
+			editor_module / "Public" / "OpenMobileDeviceEditorMock.h"
+		).read_text(encoding="utf-8")
+		mock_source = (
+			editor_module / "Private" / "OpenMobileDeviceEditorMock.cpp"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("Config = EditorPerProjectUserSettings", settings)
+		self.assertIn('DisplayName = "OpenMobile Device Mock"', settings)
+		self.assertIn('return TEXT("OpenMobile")', settings)
+		self.assertIn('return TEXT("OpenMobile Device Mock")', settings)
+		self.assertIn("bEnableMockBackend = false", settings)
+		for required_token in (
+			"Delayed",
+			"Duplicate",
+			"OutOfOrder",
+			"OffThread",
+			"Stale",
+			"QueueScriptStep",
+			"ResetOverrides",
+		):
+			self.assertIn(required_token, mock_header)
+		for required_token in (
+			"RegisterBackend",
+			"UnregisterBackend",
+			"NotifyNativeChange",
+			"AsyncTask",
+		):
+			self.assertIn(required_token, mock_source)
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		for required_token in (
+			"Editor mock provider",
+			"OpenMobile Device Mock",
+			"EditorPerProjectUserSettings",
+			"ResetForTests",
+		):
+			self.assertIn(required_token, readme)
+
+		runtime_module = DEVICE_PLUGIN / "Source" / "OpenMobileDevice"
+		for path in runtime_module.rglob("*"):
+			if path.is_file() and path.suffix in {".h", ".cpp", ".cs"}:
+				self.assertNotIn(
+					"OpenMobileDeviceEditorMock",
+					path.read_text(encoding="utf-8"),
+					str(path),
+				)
+
 
 if __name__ == "__main__":
 	unittest.main()

@@ -6,11 +6,15 @@ public class OpenMobileDeviceEditor : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PrivateDependencyModuleNames.AddRange(new[]
+		PublicDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
+			"OpenMobileCore",
 			"OpenMobileDevice"
 		});
+
+		PrivateDependencyModuleNames.Add("UnrealEd");
 	}
 }
