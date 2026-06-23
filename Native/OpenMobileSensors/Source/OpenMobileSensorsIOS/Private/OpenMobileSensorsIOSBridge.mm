@@ -1145,11 +1145,6 @@ private:
 				FOpenMobileVectorSensorBatch Batch;
 				Batch.Samples.Reserve(MaximumCallbackBatchSamples);
 				Batch.Samples.Add(MoveTemp(Sample));
-				Backend.PublishVectorBatchFromMotionQueue(
-					Active.Token,
-					Active.Handle,
-					Batch
-				);
 				if (Type == EOpenMobileSensorType::Magnetometer)
 				{
 					Backend.PublishMagneticFieldAccuracyFromMotionQueue(
@@ -1160,6 +1155,11 @@ private:
 						Motion.timestamp
 					);
 				}
+				Backend.PublishVectorBatchFromMotionQueue(
+					Active.Token,
+					Active.Handle,
+					Batch
+				);
 				continue;
 			}
 			if (Type == EOpenMobileSensorType::Attitude)

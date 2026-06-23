@@ -138,6 +138,20 @@ class SensorsIOSBackendTests(unittest.TestCase):
 		):
 			self.assertIn(token, bridge)
 
+	def test_calibrated_magnetic_quality_precedes_its_sample(self):
+		bridge = BRIDGE.read_text(encoding="utf-8")
+		device_motion = bridge[
+			bridge.index("void HandleDeviceMotion("):
+			bridge.index("void HandleRelativeAltitude(")
+		]
+
+		self.assertLess(
+			device_motion.index(
+				"PublishMagneticFieldAccuracyFromMotionQueue"
+			),
+			device_motion.index("PublishVectorBatchFromMotionQueue"),
+		)
+
 	def test_lifecycle_errors_permissions_and_late_blocks_are_guarded(self):
 		bridge = BRIDGE.read_text(encoding="utf-8")
 
