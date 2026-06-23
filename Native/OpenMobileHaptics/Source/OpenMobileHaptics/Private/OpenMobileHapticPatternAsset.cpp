@@ -16,6 +16,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogOpenMobileHapticPatternAsset, Log, All);
 namespace OpenMobileHapticPatternAssetPrivate
 {
 	constexpr int32 MaximumSerializedEventCount = 4096;
+	constexpr int32 MaximumSerializedCurveCount = 128;
+	constexpr int32 MaximumSerializedCurvePointCount = 4096;
 
 	uint32 ToMicroseconds(double Seconds)
 	{
@@ -32,6 +34,8 @@ namespace OpenMobileHapticPatternAssetPrivate
 	FString DescribeCompileError(
 		EOpenMobileHapticsPatternCompileError Error,
 		int32 EventIndex,
+		int32 CurveIndex,
+		int32 ControlPointIndex,
 		const FOpenMobileHapticPattern& SourcePattern
 	)
 	{
@@ -71,12 +75,73 @@ namespace OpenMobileHapticPatternAssetPrivate
 		case EOpenMobileHapticsPatternCompileError::Granularity:
 			Description = TEXT("an event is shorter than the timing granularity");
 			break;
+		case EOpenMobileHapticsPatternCompileError::CurveLimit:
+			Description = TEXT("the pattern exceeds the parameter curve limit");
+			break;
+		case EOpenMobileHapticsPatternCompileError::CurvePointLimit:
+			Description = TEXT("the pattern exceeds the curve control-point limit");
+			break;
+		case EOpenMobileHapticsPatternCompileError::InvalidCurveType:
+			Description = TEXT("the curve parameter is invalid");
+			break;
+		case EOpenMobileHapticsPatternCompileError::InvalidCurve:
+			Description = TEXT("a curve value or structure is invalid");
+			break;
+		case EOpenMobileHapticsPatternCompileError::CurveUnsorted:
+			Description = TEXT("curve times are not strictly increasing");
+			break;
+		case EOpenMobileHapticsPatternCompileError::CurveOverlap:
+			Description = TEXT("curves for the same parameter overlap");
+			break;
+		case EOpenMobileHapticsPatternCompileError::CurveDurationLimit:
+			Description = TEXT("a curve exceeds the compiled timeline");
+			break;
 		default:
 			break;
 		}
 		if (!SourcePattern.Events.IsValidIndex(EventIndex))
 		{
-			return FString(Description);
+			if (!SourcePattern.ParameterCurves.IsValidIndex(CurveIndex))
+			{
+				return FString(Description);
+			}
+			const FOpenMobileHapticParameterCurve& Curve =
+				SourcePattern.ParameterCurves[CurveIndex];
+			const TCHAR* CurveField = TEXT("ControlPoints");
+			if (Error
+				== EOpenMobileHapticsPatternCompileError::InvalidCurveType)
+			{
+				CurveField = TEXT("Parameter");
+			}
+			else if (Error
+					== EOpenMobileHapticsPatternCompileError::CurveOverlap
+				|| Error
+					== EOpenMobileHapticsPatternCompileError::CurveDurationLimit)
+			{
+				CurveField = TEXT("StartTimeSeconds");
+			}
+			if (Curve.ControlPoints.IsValidIndex(ControlPointIndex))
+			{
+				const FOpenMobileHapticCurvePoint& Point =
+					Curve.ControlPoints[ControlPointIndex];
+				CurveField = !FMath::IsFinite(Point.Value)
+					|| Point.Value < 0.0f || Point.Value > 1.0f
+						? TEXT("Value")
+						: TEXT("RelativeTimeSeconds");
+				return FString::Printf(
+					TEXT("Curve %d control point %d %s: %s"),
+					CurveIndex,
+					ControlPointIndex,
+					CurveField,
+					Description
+				);
+			}
+			return FString::Printf(
+				TEXT("Curve %d %s: %s"),
+				CurveIndex,
+				CurveField,
+				Description
+			);
 		}
 
 		const FOpenMobileHapticPatternEvent& Event =
@@ -227,6 +292,59 @@ bool FOpenMobileHapticCookedPatternData::Serialize(FArchive& Archive)
 			Event.Type = static_cast<EOpenMobileHapticPatternEventType>(Type);
 		}
 	}
+
+	if (SerializedVersion >= 3)
+	{
+		int32 CurveCount = ParameterCurves.Num();
+		Archive << CurveCount;
+		if (CurveCount < 0 || CurveCount > MaximumSerializedCurveCount)
+		{
+			Archive.SetError();
+			return false;
+		}
+		if (Archive.IsLoading())
+		{
+			ParameterCurves.SetNum(CurveCount);
+		}
+		int32 TotalPointCount = 0;
+		for (FOpenMobileHapticCookedParameterCurve& Curve : ParameterCurves)
+		{
+			uint8 Parameter = static_cast<uint8>(Curve.Parameter);
+			Archive << Parameter;
+			Archive << Curve.StartTimeMicroseconds;
+			int32 PointCount = Curve.ControlPoints.Num();
+			Archive << PointCount;
+			if (PointCount < 0
+				|| PointCount
+					> MaximumSerializedCurvePointCount - TotalPointCount)
+			{
+				Archive.SetError();
+				return false;
+			}
+			TotalPointCount += PointCount;
+			if (Archive.IsLoading())
+			{
+				if (Parameter > static_cast<uint8>(
+					EOpenMobileHapticCurveParameter::SharpnessControl))
+				{
+					Archive.SetError();
+					return false;
+				}
+				Curve.Parameter =
+					static_cast<EOpenMobileHapticCurveParameter>(Parameter);
+				Curve.ControlPoints.SetNum(PointCount);
+			}
+			for (FOpenMobileHapticCookedCurvePoint& Point : Curve.ControlPoints)
+			{
+				Archive << Point.RelativeTimeMicroseconds;
+				Archive << Point.Value;
+			}
+		}
+	}
+	else if (Archive.IsLoading())
+	{
+		ParameterCurves.Reset();
+	}
 	return !Archive.IsError();
 }
 
@@ -237,6 +355,7 @@ void FOpenMobileHapticCookedPatternData::Reset()
 	DurationMicroseconds = 0;
 	GranularityMicroseconds = 1000;
 	Events.Reset();
+	ParameterCurves.Reset();
 }
 
 uint32 UOpenMobileHapticPatternAsset::ComputeSourceHash() const
@@ -256,9 +375,27 @@ uint32 UOpenMobileHapticPatternAsset::ComputeSourceHash() const
 		HashValue(Hash, Event.Sharpness);
 		HashValue(Hash, Event.FrequencyIntent);
 	}
+	const int32 CurveCount = SourcePattern.ParameterCurves.Num();
+	HashValue(Hash, CurveCount);
+	for (const FOpenMobileHapticParameterCurve& Curve
+		: SourcePattern.ParameterCurves)
+	{
+		const uint8 Parameter = static_cast<uint8>(Curve.Parameter);
+		HashValue(Hash, Parameter);
+		HashValue(Hash, Curve.StartTimeSeconds);
+		const int32 PointCount = Curve.ControlPoints.Num();
+		HashValue(Hash, PointCount);
+		for (const FOpenMobileHapticCurvePoint& Point : Curve.ControlPoints)
+		{
+			HashValue(Hash, Point.RelativeTimeSeconds);
+			HashValue(Hash, Point.Value);
+		}
+	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	HashValue(Hash, Settings->MaximumPatternEventCount);
+	HashValue(Hash, Settings->MaximumPatternCurveCount);
+	HashValue(Hash, Settings->MaximumPatternCurvePointCount);
 	HashValue(Hash, Settings->MaximumContinuousDurationSeconds);
 	HashValue(Hash, Settings->MaximumPatternEventDurationSeconds);
 	HashValue(Hash, Settings->MinimumPatternGranularitySeconds);
@@ -341,6 +478,8 @@ bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 		Errors.Add(OpenMobileHapticPatternAssetPrivate::DescribeCompileError(
 			Result.Error,
 			Result.EventIndex,
+			Result.CurveIndex,
+			Result.ControlPointIndex,
 			SourcePattern
 		));
 		return false;
@@ -387,6 +526,30 @@ bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 		Event.FrequencyIntent = ToNormalizedUInt16(
 			SourceEvent.FrequencyIntent
 		);
+	}
+	Rebuilt.ParameterCurves.Reserve(
+		Result.Pattern->GetParameterCurves().Num()
+	);
+	for (const FOpenMobileHapticsCompiledParameterCurve& SourceCurve
+		: Result.Pattern->GetParameterCurves())
+	{
+		FOpenMobileHapticCookedParameterCurve& Curve =
+			Rebuilt.ParameterCurves.AddDefaulted_GetRef();
+		Curve.Parameter = SourceCurve.Parameter;
+		Curve.StartTimeMicroseconds = ToMicroseconds(
+			SourceCurve.StartTimeSeconds
+		);
+		Curve.ControlPoints.Reserve(SourceCurve.ControlPoints.Num());
+		for (const FOpenMobileHapticsCompiledCurvePoint& SourcePoint
+			: SourceCurve.ControlPoints)
+		{
+			FOpenMobileHapticCookedCurvePoint& Point =
+				Curve.ControlPoints.AddDefaulted_GetRef();
+			Point.RelativeTimeMicroseconds = ToMicroseconds(
+				SourcePoint.RelativeTimeSeconds
+			);
+			Point.Value = ToNormalizedUInt16(SourcePoint.Value);
+		}
 	}
 	CookedPattern = MoveTemp(Rebuilt);
 	return true;
@@ -457,6 +620,8 @@ EDataValidationResult UOpenMobileHapticPatternAsset::IsDataValid(
 			OpenMobileHapticPatternAssetPrivate::DescribeCompileError(
 				CompileResult.Error,
 				CompileResult.EventIndex,
+				CompileResult.CurveIndex,
+				CompileResult.ControlPointIndex,
 				SourcePattern
 			)
 		));

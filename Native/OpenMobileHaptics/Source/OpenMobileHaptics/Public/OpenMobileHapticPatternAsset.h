@@ -7,6 +7,34 @@
 #include "OpenMobileHapticPatternAsset.generated.h"
 
 USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedCurvePoint
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 RelativeTimeMicroseconds = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint16 Value = MAX_uint16;
+};
+
+USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedParameterCurve
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticCurveParameter Parameter =
+		EOpenMobileHapticCurveParameter::IntensityControl;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	uint32 StartTimeMicroseconds = 0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticCookedCurvePoint> ControlPoints;
+};
+
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternEvent
 {
 	GENERATED_BODY()
@@ -36,7 +64,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternData
 {
 	GENERATED_BODY()
 
-	static constexpr uint8 CurrentFormatVersion = 2;
+	static constexpr uint8 CurrentFormatVersion = 3;
 
 	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
 	uint8 DataFormatVersion = CurrentFormatVersion;
@@ -52,6 +80,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternData
 
 	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
 	TArray<FOpenMobileHapticCookedPatternEvent> Events;
+
+	UPROPERTY(VisibleAnywhere, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticCookedParameterCurve> ParameterCurves;
 
 	bool Serialize(FArchive& Archive);
 	void Reset();

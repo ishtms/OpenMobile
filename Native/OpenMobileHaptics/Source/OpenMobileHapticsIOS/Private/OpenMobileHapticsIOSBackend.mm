@@ -2,6 +2,7 @@
 
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsAppleBridgeService.h"
+#include "OpenMobileHapticsAppleContinuousPolicy.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
@@ -11,6 +12,14 @@
 
 namespace OpenMobileHapticsIOSBackendPrivate
 {
+	enum class EApplePatternTranslationOutcome : uint8
+	{
+		Ready,
+		Suppressed,
+		FallbackRequired,
+		Invalid
+	};
+
 	FOpenMobileHapticsBackendSubmission MakeBridgeFailure(
 		EOpenMobileHapticsAppleSubmissionResult Result
 	)
@@ -35,6 +44,68 @@ namespace OpenMobileHapticsIOSBackendPrivate
 	)
 	{
 		Submission.Result.FallbackAttempts.Append(Attempts);
+	}
+
+	FName TranslationAttempt(FName Translation, FName Reason)
+	{
+		return *FString::Printf(
+			TEXT("%s:%s"),
+			*Translation.ToString(),
+			*Reason.ToString()
+		);
+	}
+
+	FOpenMobileHapticsApplePlaybackEventCallback MakePlaybackCallback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		FName PatternName,
+		FName Channel,
+		FName ResolvedPath,
+		FString FailureMessage,
+		FOpenMobileHapticsBackendEventCallback Callback
+	)
+	{
+		return [
+			Token,
+			PatternName,
+			Channel,
+			ResolvedPath,
+			FailureMessage = MoveTemp(FailureMessage),
+			Callback = MoveTemp(Callback)
+		](EOpenMobileHapticsApplePlaybackEvent Event) mutable
+		{
+			if (!Callback)
+			{
+				return;
+			}
+			FOpenMobileHapticsBackendCallback BackendCallback;
+			BackendCallback.Token = Token;
+			BackendCallback.Sequence = 1;
+			BackendCallback.Event.Handle = Token.PlaybackHandle;
+			BackendCallback.Event.State = Event
+				== EOpenMobileHapticsApplePlaybackEvent::Completed
+					? EOpenMobileHapticPlaybackState::Completed
+					: EOpenMobileHapticPlaybackState::Failed;
+			BackendCallback.Event.Evidence =
+				EOpenMobileHapticEventEvidence::NativeConfirmed;
+			BackendCallback.Event.TimestampSeconds = FPlatformTime::Seconds();
+			BackendCallback.Event.PatternOrEffect = PatternName;
+			BackendCallback.Event.Channel = Channel;
+			BackendCallback.Event.ResolvedPath = ResolvedPath;
+			if (Event == EOpenMobileHapticsApplePlaybackEvent::Failed)
+			{
+				BackendCallback.Event.Error = FOpenMobileHapticError::FromCommon(
+					EOpenMobileErrorCode::NativeFailure,
+					FailureMessage,
+					EOpenMobileHapticFailureStage::Playback
+				);
+				BackendCallback.Event.Error.Handle = Token.PlaybackHandle;
+				BackendCallback.Event.Error.FailedItem = PatternName;
+				BackendCallback.Event.Error.Channel = Channel;
+				BackendCallback.Event.Error.bRejectedBeforeSubmission = false;
+				BackendCallback.Event.Error.bInterruptedAfterAcceptance = true;
+			}
+			Callback(BackendCallback);
+		};
 	}
 
 	FOpenMobileHapticsBackendSubmission SubmitFallbackResolution(
@@ -225,14 +296,16 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.SemanticEffects = bSemanticEnabled ? Supported : Unsupported;
 	Capabilities.PredefinedEffects = Unsupported;
 	Capabilities.WaveformTiming = bCoreHapticsEnabled ? Supported : Unsupported;
-	Capabilities.Looping = Unsupported;
+	Capabilities.Looping = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Primitives = Unsupported;
 	Capabilities.Envelopes = Unsupported;
 	Capabilities.FrequencyControl = Unsupported;
 	Capabilities.TransientEvents = bCoreHapticsEnabled
 		? EOpenMobileHapticSupportState::Supported
 		: EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.ContinuousEvents = Unsupported;
+	Capabilities.ContinuousEvents = bCoreHapticsEnabled
+		? Supported
+		: Unsupported;
 	Capabilities.DynamicParameters = Unsupported;
 	Capabilities.AudioEvents = Unsupported;
 	Capabilities.AHAP = Unsupported;
@@ -241,7 +314,7 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.Resume = Unsupported;
 	Capabilities.Seek = Unsupported;
 	Capabilities.Detail = bCoreHapticsEnabled
-		? TEXT("Apple transient Core Haptics playback is available.")
+		? TEXT("Apple transient and continuous Core Haptics playback is available.")
 		: bSemanticEnabled
 			? TEXT("Apple UIKit semantic feedback is available.")
 			: TEXT("Apple Haptics playback is disabled by project policy.");
@@ -478,47 +551,121 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		);
 	}
 
-	const FOpenMobileHapticsAppleTransientResolution Transient =
-		FOpenMobileHapticsAppleTransientPolicy::Resolve(
-			Pattern->GetCookedPattern(),
+	const FOpenMobileHapticCookedPatternData& CookedPattern =
+		Pattern->GetCookedPattern();
+	FOpenMobileHapticLoopOptions EffectiveLoop = Pattern->Loop;
+	if (Request.Options.Loop.bLoop)
+	{
+		EffectiveLoop = Request.Options.Loop;
+	}
+	bool bUseContinuousTranslation = !CookedPattern.ParameterCurves.IsEmpty();
+	bUseContinuousTranslation |= EffectiveLoop.bLoop;
+	for (const FOpenMobileHapticCookedPatternEvent& Event
+		: CookedPattern.Events)
+	{
+		bUseContinuousTranslation |= Event.Type
+			== EOpenMobileHapticPatternEventType::Continuous;
+	}
+
+	FOpenMobileHapticsAppleTransientResolution Transient;
+	FOpenMobileHapticsAppleContinuousResolution Continuous;
+	EApplePatternTranslationOutcome TranslationOutcome =
+		EApplePatternTranslationOutcome::Invalid;
+	const FName TranslationName = bUseContinuousTranslation
+		? FName(TEXT("AppleContinuous"))
+		: FName(TEXT("AppleTransient"));
+	FName TranslationReason;
+	if (bUseContinuousTranslation)
+	{
+		Continuous = FOpenMobileHapticsAppleContinuousPolicy::Resolve(
+			CookedPattern,
+			EffectiveLoop,
+			Capabilities,
+			Request.Intensity,
+			FOpenMobileHapticsAppleContinuousPolicy::MakeLimits(
+				*GetDefault<UOpenMobileHapticsSettings>(),
+				Capabilities
+			)
+		);
+		TranslationReason = Continuous.Reason;
+		switch (Continuous.Outcome)
+		{
+		case EOpenMobileHapticsAppleContinuousOutcome::Ready:
+			TranslationOutcome = EApplePatternTranslationOutcome::Ready;
+			break;
+		case EOpenMobileHapticsAppleContinuousOutcome::Suppressed:
+			TranslationOutcome = EApplePatternTranslationOutcome::Suppressed;
+			break;
+		case EOpenMobileHapticsAppleContinuousOutcome::FallbackRequired:
+			TranslationOutcome =
+				EApplePatternTranslationOutcome::FallbackRequired;
+			break;
+		case EOpenMobileHapticsAppleContinuousOutcome::Invalid:
+			TranslationOutcome = EApplePatternTranslationOutcome::Invalid;
+			break;
+		}
+	}
+	else
+	{
+		Transient = FOpenMobileHapticsAppleTransientPolicy::Resolve(
+			CookedPattern,
 			Capabilities,
 			Request.Intensity
 		);
-	if (Transient.Outcome
-		== EOpenMobileHapticsAppleTransientOutcome::Suppressed)
+		TranslationReason = Transient.Reason;
+		switch (Transient.Outcome)
+		{
+		case EOpenMobileHapticsAppleTransientOutcome::Ready:
+			TranslationOutcome = EApplePatternTranslationOutcome::Ready;
+			break;
+		case EOpenMobileHapticsAppleTransientOutcome::Suppressed:
+			TranslationOutcome = EApplePatternTranslationOutcome::Suppressed;
+			break;
+		case EOpenMobileHapticsAppleTransientOutcome::FallbackRequired:
+			TranslationOutcome =
+				EApplePatternTranslationOutcome::FallbackRequired;
+			break;
+		case EOpenMobileHapticsAppleTransientOutcome::Invalid:
+			TranslationOutcome = EApplePatternTranslationOutcome::Invalid;
+			break;
+		}
+	}
+
+	if (TranslationOutcome == EApplePatternTranslationOutcome::Suppressed)
 	{
 		FOpenMobileHapticsBackendSubmission Submission;
 		Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Suppressed;
 		Submission.Result.State = EOpenMobileHapticPlaybackState::Completed;
-		Submission.Result.ResolvedPath = Transient.Reason;
-		Attempts.Add(*FString::Printf(
-			TEXT("AppleTransient:%s"),
-			*Transient.Reason.ToString()
+		Submission.Result.ResolvedPath = TranslationReason;
+		Attempts.Add(TranslationAttempt(
+			TranslationName,
+			TranslationReason
 		));
 		AppendAttempts(Submission, Attempts);
 		return Submission;
 	}
-	if (Transient.Outcome
-		== EOpenMobileHapticsAppleTransientOutcome::Invalid)
+	if (TranslationOutcome == EApplePatternTranslationOutcome::Invalid)
 	{
 		FOpenMobileHapticsBackendSubmission Submission;
 		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 			EOpenMobileErrorCode::InvalidArgument,
-			TEXT("The portable Apple transient pattern is invalid.")
+			bUseContinuousTranslation
+				? TEXT("The portable Apple continuous pattern is invalid.")
+				: TEXT("The portable Apple transient pattern is invalid.")
 		);
-		Attempts.Add(*FString::Printf(
-			TEXT("AppleTransient:%s"),
-			*Transient.Reason.ToString()
+		Attempts.Add(TranslationAttempt(
+			TranslationName,
+			TranslationReason
 		));
 		AppendAttempts(Submission, Attempts);
 		return Submission;
 	}
-	if (Transient.Outcome
-		== EOpenMobileHapticsAppleTransientOutcome::FallbackRequired)
+	if (TranslationOutcome
+		== EApplePatternTranslationOutcome::FallbackRequired)
 	{
-		Attempts.Add(*FString::Printf(
-			TEXT("AppleTransient:%s"),
-			*Transient.Reason.ToString()
+		Attempts.Add(TranslationAttempt(
+			TranslationName,
+			TranslationReason
 		));
 		const FOpenMobileHapticsFallbackResolution Fallback =
 			ResolveWithoutRichPlayback(
@@ -547,7 +694,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			|| EngineResult
 				== EOpenMobileHapticsAppleEngineResult::TemporarilyUnavailable)
 		{
-			Attempts.Add(TEXT("AppleTransient:EngineUnavailable"));
+			Attempts.Add(TranslationAttempt(
+				TranslationName,
+				TEXT("EngineUnavailable")
+			));
 			const FOpenMobileHapticsFallbackResolution Fallback =
 				ResolveWithoutRichPlayback(
 					*Pattern,
@@ -574,52 +724,38 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		return Submission;
 	}
 
-	FOpenMobileHapticsBackendEventCallback CompletionCallback =
-		MoveTemp(Callback);
-	const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-		BridgeService->PlayTransientPattern(
+	const FName ResolvedPath = bUseContinuousTranslation
+		? FName(TEXT("AppleContinuousPattern"))
+		: FName(TEXT("AppleTransientPattern"));
+	FOpenMobileHapticsApplePlaybackEventCallback NativeCallback =
+		MakePlaybackCallback(
+			Token,
+			Request.PatternName,
+			Request.Options.Channel,
+			ResolvedPath,
+			bUseContinuousTranslation
+				? TEXT("Apple continuous playback failed.")
+				: TEXT("Apple transient playback failed."),
+			MoveTemp(Callback)
+		);
+	EOpenMobileHapticsAppleSubmissionResult BridgeResult =
+		EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	if (bUseContinuousTranslation)
+	{
+		BridgeResult = BridgeService->PlayContinuousPattern(
+			Token.RequestId,
+			Continuous.Pattern,
+			MoveTemp(NativeCallback)
+		);
+	}
+	else
+	{
+		BridgeResult = BridgeService->PlayTransientPattern(
 			Token.RequestId,
 			Transient.Pattern,
-			[Token, Request, CompletionCallback = MoveTemp(CompletionCallback)](
-				EOpenMobileHapticsApplePlaybackEvent Event
-			) mutable
-			{
-				if (!CompletionCallback)
-				{
-					return;
-				}
-				FOpenMobileHapticsBackendCallback BackendCallback;
-				BackendCallback.Token = Token;
-				BackendCallback.Sequence = 1;
-				BackendCallback.Event.Handle = Token.PlaybackHandle;
-				BackendCallback.Event.State = Event
-					== EOpenMobileHapticsApplePlaybackEvent::Completed
-						? EOpenMobileHapticPlaybackState::Completed
-						: EOpenMobileHapticPlaybackState::Failed;
-				BackendCallback.Event.Evidence =
-					EOpenMobileHapticEventEvidence::NativeConfirmed;
-				BackendCallback.Event.TimestampSeconds = FPlatformTime::Seconds();
-				BackendCallback.Event.PatternOrEffect = Request.PatternName;
-				BackendCallback.Event.Channel = Request.Options.Channel;
-				BackendCallback.Event.ResolvedPath =
-					TEXT("AppleTransientPattern");
-				if (Event == EOpenMobileHapticsApplePlaybackEvent::Failed)
-				{
-					BackendCallback.Event.Error =
-						FOpenMobileHapticError::FromCommon(
-							EOpenMobileErrorCode::NativeFailure,
-							TEXT("Apple transient playback failed."),
-							EOpenMobileHapticFailureStage::Playback
-						);
-					BackendCallback.Event.Error.Handle = Token.PlaybackHandle;
-					BackendCallback.Event.Error.FailedItem = Request.PatternName;
-					BackendCallback.Event.Error.Channel = Request.Options.Channel;
-					BackendCallback.Event.Error.bRejectedBeforeSubmission = false;
-					BackendCallback.Event.Error.bInterruptedAfterAcceptance = true;
-				}
-				CompletionCallback(BackendCallback);
-			}
+			MoveTemp(NativeCallback)
 		);
+	}
 	if (BridgeResult != EOpenMobileHapticsAppleSubmissionResult::Accepted)
 	{
 		FOpenMobileHapticsBackendSubmission Submission =
@@ -631,7 +767,7 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	FOpenMobileHapticsBackendSubmission Submission;
 	Submission.Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
 	Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
-	Submission.Result.ResolvedPath = TEXT("AppleTransientPattern");
+	Submission.Result.ResolvedPath = ResolvedPath;
 	AppendAttempts(Submission, Attempts);
 	Submission.bCreatesControllablePlayback = true;
 	Submission.bExpectsCallbacks = true;
@@ -654,7 +790,7 @@ FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::StopPlayback(
 		Result == EOpenMobileHapticsAppleSubmissionResult::Unsupported
 			? EOpenMobileErrorCode::NotSupported
 			: EOpenMobileErrorCode::NativeFailure,
-		TEXT("Apple could not stop the transient pattern.")
+		TEXT("Apple could not stop the pattern.")
 	);
 }
 

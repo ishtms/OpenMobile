@@ -214,6 +214,15 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum pattern event count must be between 1 and 4096."));
 	}
+	if (MaximumPatternCurveCount < 0 || MaximumPatternCurveCount > 128)
+	{
+		AddError(TEXT("Maximum pattern curve count must be between 0 and 128."));
+	}
+	if (MaximumPatternCurvePointCount < 1
+		|| MaximumPatternCurvePointCount > 4096)
+	{
+		AddError(TEXT("Maximum pattern curve point count must be between 1 and 4096."));
+	}
 	if (!FMath::IsFinite(MinimumPatternGranularitySeconds)
 		|| MinimumPatternGranularitySeconds < 0.0001f
 		|| MinimumPatternGranularitySeconds > 1.0f

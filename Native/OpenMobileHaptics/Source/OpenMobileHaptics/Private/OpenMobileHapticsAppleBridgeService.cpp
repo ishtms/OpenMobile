@@ -202,6 +202,62 @@ FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 }
 
 EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
+	uint64 RequestId,
+	const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback
+)
+{
+	const TSharedRef<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	> SharedCallback = MakeShared<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	>(MoveTemp(Callback));
+	TWeakPtr<FCallbackState, ESPMode::ThreadSafe> WeakState(CallbackState);
+	FScopeLock Lock(&Mutex);
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	return Bridge->PlayContinuousPattern(
+		RequestId,
+		Pattern,
+		[WeakState, SharedCallback](
+			EOpenMobileHapticsApplePlaybackEvent Event
+		)
+		{
+			AsyncTask(
+				ENamedThreads::GameThread,
+				[WeakState, SharedCallback, Event]()
+				{
+					const TSharedPtr<
+						FCallbackState,
+						ESPMode::ThreadSafe
+					> State = WeakState.Pin();
+					if (!State)
+					{
+						return;
+					}
+					{
+						FScopeLock StateLock(&State->Mutex);
+						if (State->bShuttingDown)
+						{
+							return;
+						}
+					}
+					if (*SharedCallback)
+					{
+						(*SharedCallback)(Event);
+					}
+				}
+			);
+		}
+	);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::StopPattern(uint64 RequestId)
 {
 	FScopeLock Lock(&Mutex);

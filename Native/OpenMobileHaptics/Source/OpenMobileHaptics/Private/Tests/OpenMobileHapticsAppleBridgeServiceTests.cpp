@@ -3,6 +3,7 @@
 #include "Async/TaskGraphInterfaces.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileHapticsAppleBridgeService.h"
+#include "OpenMobileHapticsAppleContinuousPolicy.h"
 
 namespace OpenMobileHapticsAppleBridgeServiceTests
 {
@@ -50,6 +51,19 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return TransientSubmissionResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			++ContinuousSubmissionCount;
+			LastRequestId = RequestId;
+			LastContinuousPattern = Pattern;
+			PlaybackCallback = MoveTemp(Callback);
+			return ContinuousSubmissionResult;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 			uint64 RequestId
 		) override
@@ -93,15 +107,19 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EOpenMobileHapticsAppleEngineResult::Ready;
 		EOpenMobileHapticsAppleSubmissionResult TransientSubmissionResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult ContinuousSubmissionResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult StopResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		int32 QueryCount = 0;
 		int32 CreateEngineCount = 0;
 		int32 ShutdownCount = 0;
 		int32 TransientSubmissionCount = 0;
+		int32 ContinuousSubmissionCount = 0;
 		int32 StopCount = 0;
 		uint64 LastRequestId = 0;
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
+		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
 		FOpenMobileHapticsAppleBridgeEventCallback EventCallback;
 		FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
 	};
@@ -311,6 +329,116 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 	);
 	TestEqual(TEXT("Shutdown drops queued playback callbacks"),
 		CallbackCount, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAppleContinuousBridgeTest,
+	"OpenMobile.Haptics.Apple.Bridge.ContinuousOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAppleContinuousBridgeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsAppleBridgeServiceTests;
+
+	TUniquePtr<FMockAppleBridge> Bridge = MakeUnique<FMockAppleBridge>();
+	FMockAppleBridge* Mock = Bridge.Get();
+	FOpenMobileHapticsAppleBridgeService Service(MoveTemp(Bridge));
+	FOpenMobileHapticsAppleContinuousPattern Pattern;
+	Pattern.Events.Add({
+		EOpenMobileHapticPatternEventType::Continuous,
+		0.0,
+		0.25,
+		1.0f,
+		0.5f
+	});
+	Pattern.DurationSeconds = 0.25;
+	Pattern.bLoop = true;
+	Pattern.LoopEndSeconds = 0.25;
+	Pattern.SafetyDurationSeconds = 1.0;
+	int32 CallbackCount = 0;
+	TestEqual(TEXT("Continuous pattern reaches the injected bridge"),
+		Service.PlayContinuousPattern(
+			84,
+			Pattern,
+			[&CallbackCount](EOpenMobileHapticsApplePlaybackEvent Event)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("One request-owned continuous pattern is submitted"),
+		Mock->ContinuousSubmissionCount, 1);
+	TestEqual(TEXT("Continuous request identity crosses the bridge"),
+		Mock->LastRequestId, static_cast<uint64>(84));
+	TestTrue(TEXT("Native loop ownership crosses the bridge"),
+		Mock->LastContinuousPattern.bLoop);
+	TestEqual(TEXT("Safety duration crosses the bridge"),
+		Mock->LastContinuousPattern.SafetyDurationSeconds, 1.0);
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Completed);
+	TestEqual(TEXT("Continuous completion is not inline"), CallbackCount, 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread
+	);
+	TestEqual(TEXT("Continuous completion reaches the game thread"),
+		CallbackCount, 1);
+
+	TestEqual(TEXT("A second continuous request is accepted"),
+		Service.PlayContinuousPattern(
+			85,
+			Pattern,
+			[&CallbackCount](EOpenMobileHapticsApplePlaybackEvent Event)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Continuous cancellation is request scoped"),
+		Service.StopPattern(85),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Continuous cancellation keeps request identity"),
+		Mock->LastRequestId, static_cast<uint64>(85));
+
+	int32 ResetCount = 0;
+	bool bResetWasOnGameThread = false;
+	Service.SetEventCallback(
+		[&ResetCount, &bResetWasOnGameThread](
+			EOpenMobileHapticsAppleBridgeEvent Event
+		)
+		{
+			static_cast<void>(Event);
+			++ResetCount;
+			bResetWasOnGameThread = IsInGameThread();
+		}
+	);
+	TestEqual(TEXT("Continuous playback can restart after cancellation"),
+		Service.PlayContinuousPattern(
+			86,
+			Pattern,
+			[&CallbackCount](EOpenMobileHapticsApplePlaybackEvent Event)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Failed);
+	Mock->Emit(EOpenMobileHapticsAppleBridgeEvent::EngineReset);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread
+	);
+	TestEqual(TEXT("Reset failure reaches the continuous owner once"),
+		CallbackCount, 2);
+	TestEqual(TEXT("Engine reset notification is delivered once"),
+		ResetCount, 1);
+	TestTrue(TEXT("Engine reset notification reaches the game thread"),
+		bResetWasOnGameThread);
 	return true;
 }
 

@@ -86,6 +86,13 @@ enum class EOpenMobileHapticPatternEventType : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticCurveParameter : uint8
+{
+	IntensityControl,
+	SharpnessControl
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticChannelPriority : uint8
 {
 	Low,
@@ -595,12 +602,43 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPatternEvent
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticCurvePoint
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", Units = "s"))
+	double RelativeTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Value = 1.0f;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticParameterCurve
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticCurveParameter Parameter =
+		EOpenMobileHapticCurveParameter::IntensityControl;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", Units = "s"))
+	double StartTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ToolTip = "Pattern-wide normalized control points. Intensity 1.0 and sharpness 0.5 are neutral."))
+	TArray<FOpenMobileHapticCurvePoint> ControlPoints;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPattern
 {
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	TArray<FOpenMobileHapticPatternEvent> Events;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticParameterCurve> ParameterCurves;
 };
 
 USTRUCT(BlueprintType)

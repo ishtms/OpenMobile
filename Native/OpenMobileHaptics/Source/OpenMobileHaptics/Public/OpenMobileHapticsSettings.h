@@ -166,6 +166,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Pattern Limits", meta = (ClampMin = "1", ClampMax = "4096"))
 	int32 MaximumPatternEventCount = 128;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Pattern Limits", meta = (ClampMin = "0", ClampMax = "128"))
+	int32 MaximumPatternCurveCount = 16;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Pattern Limits", meta = (ClampMin = "1", ClampMax = "4096"))
+	int32 MaximumPatternCurvePointCount = 256;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Pattern Limits", meta = (ClampMin = "0.0001", ClampMax = "1.0", Units = "s"))
 	float MinimumPatternGranularitySeconds = 0.001f;
 

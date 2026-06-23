@@ -424,11 +424,14 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 	static_cast<void>(Parameters);
 	FOpenMobileHapticsPatternCompileLimits Limits;
 	Limits.MaximumEventCount = 3;
+	Limits.MaximumCurveCount = 2;
+	Limits.MaximumCurvePointCount = 4;
 	Limits.MaximumDurationSeconds = 1.0;
 	Limits.MaximumEventDurationSeconds = 0.5;
 	Limits.MinimumGranularitySeconds = 0.01;
 	FOpenMobileHapticCapabilities NativeLimits;
 	NativeLimits.MaximumEventCount = {true, 2};
+	NativeLimits.MaximumControlPointCount = {true, 2};
 	NativeLimits.MaximumDurationSeconds = {true, 0.5};
 	NativeLimits.MinimumTimingGranularitySeconds = {true, 0.02};
 	const FOpenMobileHapticsPatternCompileLimits ResolvedLimits =
@@ -438,6 +441,8 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 		);
 	TestEqual(TEXT("Native event limit narrows project settings"),
 		ResolvedLimits.MaximumEventCount, 2);
+	TestEqual(TEXT("Native control-point limit narrows curve data"),
+		ResolvedLimits.MaximumCurvePointCount, 2);
 	TestEqual(TEXT("Native duration narrows project settings"),
 		ResolvedLimits.MaximumDurationSeconds, 0.5);
 	TestEqual(TEXT("Native granularity raises the portable minimum"),
@@ -465,6 +470,18 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 	ZeroIntensity.DurationSeconds = 0.02;
 	ZeroIntensity.Intensity = 0.0f;
 	Pattern.Events.Add(ZeroIntensity);
+	FOpenMobileHapticParameterCurve IntensityCurve;
+	IntensityCurve.Parameter =
+		EOpenMobileHapticCurveParameter::IntensityControl;
+	IntensityCurve.StartTimeSeconds = 0.05;
+	IntensityCurve.ControlPoints = {{0.0, 1.0f}, {0.019, 0.25f}};
+	Pattern.ParameterCurves.Add(IntensityCurve);
+	FOpenMobileHapticParameterCurve SharpnessCurve;
+	SharpnessCurve.Parameter =
+		EOpenMobileHapticCurveParameter::SharpnessControl;
+	SharpnessCurve.StartTimeSeconds = 0.05;
+	SharpnessCurve.ControlPoints = {{0.0, 0.5f}, {0.019, 1.0f}};
+	Pattern.ParameterCurves.Add(SharpnessCurve);
 	const FOpenMobileHapticsPatternCompileResult Valid =
 		FOpenMobileHapticsPatternCompiler::Compile(Pattern, Limits);
 	TestTrue(TEXT("Valid sparse pattern compiles"), Valid.IsSuccess());
@@ -483,6 +500,15 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 		Valid.Pattern->GetEvents()[2].Intensity, 0.0f);
 	TestEqual(TEXT("Resolved sparse duration is stable"),
 		Valid.Pattern->GetDurationSeconds(), 0.07);
+	TestEqual(TEXT("Parameter curves compile once"),
+		Valid.Pattern->GetParameterCurves().Num(), 2);
+	TestEqual(TEXT("Curve start uses portable granularity"),
+		Valid.Pattern->GetParameterCurves()[0].StartTimeSeconds, 0.05);
+	TestEqual(TEXT("Curve point time uses portable granularity"),
+		Valid.Pattern->GetParameterCurves()[0].ControlPoints[1]
+			.RelativeTimeSeconds, 0.02);
+	TestEqual(TEXT("Normalized curve value remains stable"),
+		Valid.Pattern->GetParameterCurves()[0].ControlPoints[1].Value, 0.25f);
 
 	FOpenMobileHapticPattern Unsorted = Pattern;
 	Unsorted.Events[2].StartTimeSeconds = 0.005;
@@ -516,6 +542,24 @@ bool FOpenMobileHapticsPatternCompilerTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Events above the duration limit are rejected"),
 		FOpenMobileHapticsPatternCompiler::Compile(EventTooLong, Limits).Error,
 		EOpenMobileHapticsPatternCompileError::EventDurationLimit);
+	FOpenMobileHapticPattern UnsortedCurve = Pattern;
+	UnsortedCurve.ParameterCurves[0].ControlPoints[1].RelativeTimeSeconds = 0.0;
+	TestEqual(TEXT("Duplicate curve point times are rejected"),
+		FOpenMobileHapticsPatternCompiler::Compile(UnsortedCurve, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::CurveUnsorted);
+	FOpenMobileHapticPattern InvalidCurve = Pattern;
+	InvalidCurve.ParameterCurves[1].ControlPoints.Reset();
+	const FOpenMobileHapticsPatternCompileResult InvalidCurveResult =
+		FOpenMobileHapticsPatternCompiler::Compile(InvalidCurve, Limits);
+	TestEqual(TEXT("Invalid curve identifies its curve index"),
+		InvalidCurveResult.CurveIndex, 1);
+	TestEqual(TEXT("Whole-curve failures do not invent a point index"),
+		InvalidCurveResult.ControlPointIndex, INDEX_NONE);
+	FOpenMobileHapticPattern LongCurve = Pattern;
+	LongCurve.ParameterCurves[0].ControlPoints[1].RelativeTimeSeconds = 0.03;
+	TestEqual(TEXT("Curves cannot exceed the compiled timeline"),
+		FOpenMobileHapticsPatternCompiler::Compile(LongCurve, Limits).Error,
+		EOpenMobileHapticsPatternCompileError::CurveDurationLimit);
 	return true;
 }
 
@@ -638,6 +682,12 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 	Continuous.DurationSeconds = 0.04;
 	Continuous.Intensity = 0.75f;
 	Asset->SourcePattern.Events.Add(Continuous);
+	FOpenMobileHapticParameterCurve IntensityCurve;
+	IntensityCurve.Parameter =
+		EOpenMobileHapticCurveParameter::IntensityControl;
+	IntensityCurve.StartTimeSeconds = 0.03;
+	IntensityCurve.ControlPoints = {{0.0, 1.0f}, {0.04, 0.25f}};
+	Asset->SourcePattern.ParameterCurves.Add(IntensityCurve);
 	Asset->AndroidOverride =
 		TSoftObjectPtr<UOpenMobileHapticAndroidPatternAsset>(
 			FSoftObjectPath(TEXT("/Game/Haptics/Android.Pattern"))
@@ -657,6 +707,15 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Cooked duration uses bounded microseconds"),
 		Asset->GetCookedPattern().DurationMicroseconds,
 		static_cast<uint32>(70000));
+	TestEqual(TEXT("Cooked curve count matches source"),
+		Asset->GetCookedPattern().ParameterCurves.Num(), 1);
+	TestEqual(TEXT("Cooked curve start is quantized"),
+		Asset->GetCookedPattern().ParameterCurves[0].StartTimeMicroseconds,
+		static_cast<uint32>(30000));
+	TestEqual(TEXT("Cooked curve endpoint is quantized"),
+		Asset->GetCookedPattern().ParameterCurves[0].ControlPoints[1]
+			.RelativeTimeMicroseconds,
+		static_cast<uint32>(40000));
 	TestFalse(TEXT("Rebuild reports no errors"), !Errors.IsEmpty());
 
 	UOpenMobileHapticPatternAsset* Duplicate =
@@ -686,6 +745,24 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Cooked serialization preserves frequency intent"),
 		Loaded.Events[2].FrequencyIntent,
 		Saved.Events[2].FrequencyIntent);
+	TestEqual(TEXT("Cooked serialization preserves curves"),
+		Loaded.ParameterCurves.Num(), Saved.ParameterCurves.Num());
+	TestEqual(TEXT("Cooked serialization preserves curve values"),
+		Loaded.ParameterCurves[0].ControlPoints[1].Value,
+		Saved.ParameterCurves[0].ControlPoints[1].Value);
+
+	FOpenMobileHapticCookedPatternData VersionTwo = Saved;
+	VersionTwo.DataFormatVersion = 2;
+	TArray<uint8> VersionTwoBytes;
+	FMemoryWriter VersionTwoWriter(VersionTwoBytes);
+	VersionTwo.Serialize(VersionTwoWriter);
+	FMemoryReader VersionTwoReader(VersionTwoBytes);
+	FOpenMobileHapticCookedPatternData LoadedVersionTwo;
+	LoadedVersionTwo.Serialize(VersionTwoReader);
+	TestFalse(TEXT("Version two cooked data remains readable"),
+		VersionTwoReader.IsError());
+	TestTrue(TEXT("Version two data has no fabricated curves"),
+		LoadedVersionTwo.ParameterCurves.IsEmpty());
 
 	FOpenMobileHapticCookedPatternData Legacy = Saved;
 	Legacy.DataFormatVersion = 1;
@@ -700,6 +777,49 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Legacy data receives neutral frequency intent"),
 		LoadedLegacy.Events[2].FrequencyIntent,
 		static_cast<uint16>(MAX_uint16 / 2));
+	TestTrue(TEXT("Legacy data has no fabricated curves"),
+		LoadedLegacy.ParameterCurves.IsEmpty());
+
+	TArray<uint8> ExcessiveCurveBytes;
+	FMemoryWriter ExcessiveCurveWriter(ExcessiveCurveBytes);
+	uint8 VersionThree =
+		FOpenMobileHapticCookedPatternData::CurrentFormatVersion;
+	uint32 ZeroUInt32 = 0;
+	int32 ZeroInt32 = 0;
+	int32 ExcessiveCurveCount = 129;
+	ExcessiveCurveWriter << VersionThree;
+	ExcessiveCurveWriter << ZeroUInt32;
+	ExcessiveCurveWriter << ZeroUInt32;
+	ExcessiveCurveWriter << ZeroUInt32;
+	ExcessiveCurveWriter << ZeroInt32;
+	ExcessiveCurveWriter << ExcessiveCurveCount;
+	FMemoryReader ExcessiveCurveReader(ExcessiveCurveBytes);
+	FOpenMobileHapticCookedPatternData ExcessiveCurves;
+	ExcessiveCurves.Serialize(ExcessiveCurveReader);
+	TestTrue(TEXT("Cooked curve allocation is bounded"),
+		ExcessiveCurveReader.IsError());
+
+	TArray<uint8> ExcessivePointBytes;
+	FMemoryWriter ExcessivePointWriter(ExcessivePointBytes);
+	int32 OneCurve = 1;
+	uint8 IntensityParameter = static_cast<uint8>(
+		EOpenMobileHapticCurveParameter::IntensityControl
+	);
+	int32 ExcessivePointCount = 4097;
+	ExcessivePointWriter << VersionThree;
+	ExcessivePointWriter << ZeroUInt32;
+	ExcessivePointWriter << ZeroUInt32;
+	ExcessivePointWriter << ZeroUInt32;
+	ExcessivePointWriter << ZeroInt32;
+	ExcessivePointWriter << OneCurve;
+	ExcessivePointWriter << IntensityParameter;
+	ExcessivePointWriter << ZeroUInt32;
+	ExcessivePointWriter << ExcessivePointCount;
+	FMemoryReader ExcessivePointReader(ExcessivePointBytes);
+	FOpenMobileHapticCookedPatternData ExcessivePoints;
+	ExcessivePoints.Serialize(ExcessivePointReader);
+	TestTrue(TEXT("Cooked curve point allocation is bounded"),
+		ExcessivePointReader.IsError());
 
 	TArray<uint8> CookBytes;
 	FMemoryWriter CookMemoryWriter(CookBytes);
@@ -724,6 +844,8 @@ bool FOpenMobileHapticPatternAssetTest::RunTest(const FString& Parameters)
 		CookedCopy->SourcePattern.Events.IsEmpty());
 	TestEqual(TEXT("Cook filtering preserves derived events"),
 		CookedCopy->GetCookedPattern().Events.Num(), 3);
+	TestEqual(TEXT("Cook filtering preserves derived curves"),
+		CookedCopy->GetCookedPattern().ParameterCurves.Num(), 1);
 
 	const FName RenameSource = MakeUniqueObjectName(
 		GetTransientPackage(),
@@ -1886,6 +2008,27 @@ bool FOpenMobileHapticsAndroidWaveformPolicyTest::RunTest(
 		Resolution.Amplitudes[0], 0);
 	TestEqual(TEXT("Portable activity uses default amplitude"),
 		Resolution.Amplitudes[1], -1);
+
+	FOpenMobileHapticParameterCurve PortableCurve;
+	PortableCurve.Parameter =
+		EOpenMobileHapticCurveParameter::IntensityControl;
+	PortableCurve.StartTimeSeconds = 0.01;
+	PortableCurve.ControlPoints = {{0.0, 1.0f}, {0.02, 0.25f}};
+	Portable->SourcePattern.ParameterCurves.Add(PortableCurve);
+	Errors.Reset();
+	TestTrue(TEXT("Portable curve source rebuilds"),
+		Portable->RebuildDerivedData(Errors));
+	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+		*Portable,
+		Capabilities,
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic
+	);
+	TestEqual(TEXT("Android waveforms never ignore portable curves"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAndroidWaveformOutcome::FallbackRequired);
+	TestEqual(TEXT("Curve fallback is diagnostic"), Resolution.Reason,
+		FName(TEXT("ParameterCurves")));
 
 	Portable->FallbackPolicy = EOpenMobileHapticFallbackPolicy::ExactOnly;
 	Resolution = FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
@@ -3506,6 +3649,16 @@ bool FOpenMobileHapticsTypeDefaultsTest::RunTest(const FString& Parameters)
 		EOpenMobileHapticScheduleMode::Immediate
 	);
 	TestFalse(TEXT("Looping requires explicit opt-in"), Options.Loop.bLoop);
+	const FOpenMobileHapticParameterCurve Curve;
+	const FOpenMobileHapticCurvePoint CurvePoint;
+	TestEqual(TEXT("Parameter curves default to intensity control"),
+		Curve.Parameter,
+		EOpenMobileHapticCurveParameter::IntensityControl);
+	TestEqual(TEXT("Default intensity curve points are neutral"),
+		CurvePoint.Value, 1.0f);
+	const FOpenMobileHapticCookedCurvePoint CookedCurvePoint;
+	TestEqual(TEXT("Default cooked intensity curve points are neutral"),
+		CookedCurvePoint.Value, static_cast<uint16>(MAX_uint16));
 
 	const FOpenMobileHapticUserPolicy Policy;
 	TestTrue(TEXT("Haptics are enabled by default"), Policy.bEnabled);
@@ -3582,6 +3735,30 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 			&& AndroidCustomProperty->HasAnyPropertyFlags(CPF_Config));
 	TestEqual(TEXT("Portable patterns have a bounded event count"),
 		Settings->MaximumPatternEventCount, 128);
+	TestEqual(TEXT("Portable patterns have a bounded curve count"),
+		Settings->MaximumPatternCurveCount, 16);
+	TestEqual(TEXT("Portable curves have a bounded point count"),
+		Settings->MaximumPatternCurvePointCount, 256);
+	const FIntProperty* CurveCountProperty = FindFProperty<FIntProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileHapticsSettings,
+			MaximumPatternCurveCount
+		)
+	);
+	const FIntProperty* CurvePointCountProperty = FindFProperty<FIntProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileHapticsSettings,
+			MaximumPatternCurvePointCount
+		)
+	);
+	TestTrue(TEXT("Curve count is a config property"),
+		CurveCountProperty
+			&& CurveCountProperty->HasAnyPropertyFlags(CPF_Config));
+	TestTrue(TEXT("Curve point count is a config property"),
+		CurvePointCountProperty
+			&& CurvePointCountProperty->HasAnyPropertyFlags(CPF_Config));
 	TestEqual(TEXT("Portable timing has a stable minimum granularity"),
 		Settings->MinimumPatternGranularitySeconds, 0.001f);
 
@@ -3616,6 +3793,14 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->MaximumFiniteRepeatCount = 0;
 	TestFalse(TEXT("Zero loop limit is invalid"), Settings->Validate(Errors));
 	Settings->MaximumFiniteRepeatCount = 32;
+	Settings->MaximumPatternCurveCount = 129;
+	TestFalse(TEXT("Excessive curve count is invalid"),
+		Settings->Validate(Errors));
+	Settings->MaximumPatternCurveCount = 16;
+	Settings->MaximumPatternCurvePointCount = 0;
+	TestFalse(TEXT("Zero curve point limit is invalid"),
+		Settings->Validate(Errors));
+	Settings->MaximumPatternCurvePointCount = 256;
 
 	Settings->BackgroundPolicy =
 		EOpenMobileHapticBackgroundPolicy::AllowAll;
@@ -3639,6 +3824,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->DefaultMasterIntensity = 0.75f;
 	Settings->DefaultChannel = TEXT("UI");
 	Settings->MaximumQueuedHandles = 12;
+	Settings->MaximumPatternCurveCount = 12;
+	Settings->MaximumPatternCurvePointCount = 192;
 	Settings->SelectionDebounceSeconds = 0.06f;
 	Settings->Channels[0].IntensityScale = 0.6f;
 	Effect.IntensityScale = 0.8f;
@@ -3667,6 +3854,16 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Queue limit survives editor restart serialization"),
 		Loaded->MaximumQueuedHandles,
 		12
+	);
+	TestEqual(
+		TEXT("Curve limit survives editor restart serialization"),
+		Loaded->MaximumPatternCurveCount,
+		12
+	);
+	TestEqual(
+		TEXT("Curve point limit survives editor restart serialization"),
+		Loaded->MaximumPatternCurvePointCount,
+		192
 	);
 	TestEqual(
 		TEXT("Rate limit survives editor restart serialization"),

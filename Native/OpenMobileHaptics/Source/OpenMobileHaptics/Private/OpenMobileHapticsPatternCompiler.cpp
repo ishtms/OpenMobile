@@ -15,12 +15,16 @@ namespace OpenMobileHapticsPatternCompilerPrivate
 
 	FOpenMobileHapticsPatternCompileResult Failure(
 		EOpenMobileHapticsPatternCompileError Error,
-		int32 EventIndex = INDEX_NONE
+		int32 EventIndex = INDEX_NONE,
+		int32 CurveIndex = INDEX_NONE,
+		int32 ControlPointIndex = INDEX_NONE
 	)
 	{
 		FOpenMobileHapticsPatternCompileResult Result;
 		Result.Error = Error;
 		Result.EventIndex = EventIndex;
+		Result.CurveIndex = CurveIndex;
+		Result.ControlPointIndex = ControlPointIndex;
 		return Result;
 	}
 
@@ -38,6 +42,9 @@ FOpenMobileHapticsPatternCompiler::MakeLimits(
 {
 	FOpenMobileHapticsPatternCompileLimits Limits;
 	Limits.MaximumEventCount = Settings.MaximumPatternEventCount;
+	Limits.MaximumCurveCount = Settings.MaximumPatternCurveCount;
+	Limits.MaximumCurvePointCount =
+		Settings.MaximumPatternCurvePointCount;
 	Limits.MaximumDurationSeconds = Settings.MaximumContinuousDurationSeconds;
 	Limits.MaximumEventDurationSeconds =
 		Settings.MaximumPatternEventDurationSeconds;
@@ -48,6 +55,13 @@ FOpenMobileHapticsPatternCompiler::MakeLimits(
 		Limits.MaximumEventCount = FMath::Min(
 			Limits.MaximumEventCount,
 			Capabilities.MaximumEventCount.Value
+		);
+	}
+	if (Capabilities.MaximumControlPointCount.bKnown)
+	{
+		Limits.MaximumCurvePointCount = FMath::Min(
+			Limits.MaximumCurvePointCount,
+			Capabilities.MaximumControlPointCount.Value
 		);
 	}
 	if (Capabilities.MaximumDurationSeconds.bKnown)
@@ -83,6 +97,8 @@ FOpenMobileHapticsPatternCompiler::Compile(
 		return Failure(EOpenMobileHapticsPatternCompileError::Empty);
 	}
 	if (Limits.MaximumEventCount < 1
+		|| Limits.MaximumCurveCount < 0
+		|| Limits.MaximumCurvePointCount < 1
 		|| !FMath::IsFinite(Limits.MaximumDurationSeconds)
 		|| !FMath::IsFinite(Limits.MaximumEventDurationSeconds)
 		|| !FMath::IsFinite(Limits.MinimumGranularitySeconds)
@@ -99,6 +115,10 @@ FOpenMobileHapticsPatternCompiler::Compile(
 	if (Pattern.Events.Num() > Limits.MaximumEventCount)
 	{
 		return Failure(EOpenMobileHapticsPatternCompileError::EventLimit);
+	}
+	if (Pattern.ParameterCurves.Num() > Limits.MaximumCurveCount)
+	{
+		return Failure(EOpenMobileHapticsPatternCompileError::CurveLimit);
 	}
 
 	TArray<FOpenMobileHapticsCompiledPatternEvent> CompiledEvents;
@@ -210,9 +230,135 @@ FOpenMobileHapticsPatternCompiler::Compile(
 		CompiledEvents.Add(Compiled);
 	}
 
+	TArray<FOpenMobileHapticsCompiledParameterCurve> CompiledCurves;
+	CompiledCurves.Reserve(Pattern.ParameterCurves.Num());
+	int32 TotalControlPointCount = 0;
+	double PreviousCurveStart = -1.0;
+	double PreviousCurveEnds[2] = {-1.0, -1.0};
+	for (int32 CurveIndex = 0;
+		CurveIndex < Pattern.ParameterCurves.Num();
+		++CurveIndex)
+	{
+		const FOpenMobileHapticParameterCurve& Curve =
+			Pattern.ParameterCurves[CurveIndex];
+		if (static_cast<uint8>(Curve.Parameter)
+			> static_cast<uint8>(
+				EOpenMobileHapticCurveParameter::SharpnessControl))
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::InvalidCurveType,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		if (!FMath::IsFinite(Curve.StartTimeSeconds)
+			|| Curve.StartTimeSeconds < 0.0
+			|| Curve.ControlPoints.Num() < 2)
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::InvalidCurve,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		if (Curve.StartTimeSeconds < PreviousCurveStart)
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::CurveUnsorted,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		PreviousCurveStart = Curve.StartTimeSeconds;
+		if (Curve.ControlPoints.Num()
+			> Limits.MaximumCurvePointCount - TotalControlPointCount)
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::CurvePointLimit,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		TotalControlPointCount += Curve.ControlPoints.Num();
+
+		FOpenMobileHapticsCompiledParameterCurve CompiledCurve;
+		CompiledCurve.Parameter = Curve.Parameter;
+		CompiledCurve.StartTimeSeconds = Quantize(
+			Curve.StartTimeSeconds,
+			Limits.MinimumGranularitySeconds
+		);
+		CompiledCurve.ControlPoints.Reserve(Curve.ControlPoints.Num());
+		double PreviousSourcePointTime = -1.0;
+		double PreviousCompiledPointTime = -1.0;
+		for (int32 PointIndex = 0;
+			PointIndex < Curve.ControlPoints.Num();
+			++PointIndex)
+		{
+			const FOpenMobileHapticCurvePoint& Point =
+				Curve.ControlPoints[PointIndex];
+			if (!FMath::IsFinite(Point.RelativeTimeSeconds)
+				|| Point.RelativeTimeSeconds < 0.0
+				|| !IsNormalized(Point.Value)
+				|| PointIndex == 0 && Point.RelativeTimeSeconds != 0.0)
+			{
+				return Failure(
+					EOpenMobileHapticsPatternCompileError::InvalidCurve,
+					INDEX_NONE,
+					CurveIndex,
+					PointIndex
+				);
+			}
+			const double CompiledPointTime = Quantize(
+				Point.RelativeTimeSeconds,
+				Limits.MinimumGranularitySeconds
+			);
+			if (PointIndex > 0
+				&& (Point.RelativeTimeSeconds <= PreviousSourcePointTime
+					|| CompiledPointTime <= PreviousCompiledPointTime))
+			{
+				return Failure(
+					EOpenMobileHapticsPatternCompileError::CurveUnsorted,
+					INDEX_NONE,
+					CurveIndex,
+					PointIndex
+				);
+			}
+			CompiledCurve.ControlPoints.Add({
+				CompiledPointTime,
+				Point.Value
+			});
+			PreviousSourcePointTime = Point.RelativeTimeSeconds;
+			PreviousCompiledPointTime = CompiledPointTime;
+		}
+
+		const double CurveEnd = CompiledCurve.StartTimeSeconds
+			+ CompiledCurve.ControlPoints.Last().RelativeTimeSeconds;
+		if (CompiledCurve.StartTimeSeconds > PatternDuration
+			|| CurveEnd > PatternDuration)
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::CurveDurationLimit,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		const int32 ParameterIndex = static_cast<int32>(Curve.Parameter);
+		if (CompiledCurve.StartTimeSeconds < PreviousCurveEnds[ParameterIndex])
+		{
+			return Failure(
+				EOpenMobileHapticsPatternCompileError::CurveOverlap,
+				INDEX_NONE,
+				CurveIndex
+			);
+		}
+		PreviousCurveEnds[ParameterIndex] = CurveEnd;
+		CompiledCurves.Add(MoveTemp(CompiledCurve));
+	}
+
 	FOpenMobileHapticsPatternCompileResult Result;
 	Result.Pattern = MakeShareable(new FOpenMobileHapticsCompiledPattern(
 		MoveTemp(CompiledEvents),
+		MoveTemp(CompiledCurves),
 		PatternDuration,
 		Limits.MinimumGranularitySeconds
 	));

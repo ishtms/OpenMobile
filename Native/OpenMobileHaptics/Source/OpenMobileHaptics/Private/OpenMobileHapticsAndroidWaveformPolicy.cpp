@@ -223,6 +223,10 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 
 	const FOpenMobileHapticCookedPatternData& Cooked =
 		Pattern.GetCookedPattern();
+	if (!Cooked.ParameterCurves.IsEmpty())
+	{
+		return Unavailable(FallbackPolicy, TEXT("ParameterCurves"));
+	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	if (Cooked.Events.Num() > Settings->MaximumPatternEventCount)

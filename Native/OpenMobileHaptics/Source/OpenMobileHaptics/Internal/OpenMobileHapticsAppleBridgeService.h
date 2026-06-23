@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileHapticsAppleContinuousPolicy.h"
 #include "OpenMobileHapticsAppleTransientPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 
@@ -72,6 +73,11 @@ public:
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 		uint64 RequestId
 	) = 0;
@@ -100,6 +106,11 @@ public:
 	EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
+	EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	);
 	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);

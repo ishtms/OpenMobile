@@ -519,6 +519,73 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("DecodeNormalized", policy)
 		self.assertIn("RequestIntensity", policy)
 
+	def test_apple_continuous_patterns_keep_owned_players_and_safety(self) -> None:
+		ios_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsIOS"
+		bridge = load_ios_bridge()
+		backend = (
+			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("CHHapticEventTypeHapticContinuous", bridge)
+		self.assertIn("duration:NativeEvent.DurationSeconds", bridge)
+		self.assertIn("CHHapticParameterCurveControlPoint", bridge)
+		self.assertIn(
+			"CHHapticDynamicParameterIDHapticIntensityControl",
+			bridge,
+		)
+		self.assertIn(
+			"CHHapticDynamicParameterIDHapticSharpnessControl",
+			bridge,
+		)
+		self.assertIn("parameterCurves:Curves", bridge)
+		self.assertIn("Player.loopEnabled = Pattern.bLoop", bridge)
+		self.assertIn("Player.loopEnd = Pattern.LoopEndSeconds", bridge)
+		self.assertIn("SafetyTimers", bridge)
+		self.assertIn("NSRunLoopCommonModes", bridge)
+		self.assertIn("[Timer invalidate]", bridge)
+		self.assertIn("cancelAndReturnError", bridge)
+		continuous_native = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:\n"
+			"\t(uint64)RequestId\n"
+			"\tpattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern\n"
+			"\tcallback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback\n{",
+			1,
+		)[1].split("\n}\n\n- (void)cancelSafetyTimerForKey", 1)[0]
+		self.assertLess(
+			continuous_native.index("timerWithTimeInterval"),
+			continuous_native.index("startAtTime:CHHapticTimeImmediate"),
+		)
+		stop_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)stopPattern:"
+			"(uint64)RequestId\n{",
+			1,
+		)[1].split("\n}\n\n- (void)releaseGenerators", 1)[0]
+		self.assertLess(
+			stop_pattern.index("if (!bStopped || Error)"),
+			stop_pattern.index("cancelSafetyTimerForKey"),
+		)
+		reset_handler = bridge.split("Engine.resetHandler = ^", 1)[1].split(
+			"\n\t\t};",
+			1,
+		)[0]
+		self.assertLess(
+			reset_handler.index("failAllPatterns"),
+			reset_handler.index("EngineReset"),
+		)
+
+		self.assertIn("PlayContinuousPattern", backend)
+		self.assertIn("FOpenMobileHapticsAppleContinuousPolicy::Resolve", backend)
+		self.assertIn("Capabilities.ContinuousEvents", backend)
+		self.assertIn(
+			"FOpenMobileHapticLoopOptions EffectiveLoop = Pattern->Loop",
+			backend,
+		)
+		self.assertIn("EffectiveLoop = Request.Options.Loop", backend)
+		self.assertIn(
+			"bUseContinuousTranslation |= EffectiveLoop.bLoop",
+			backend,
+		)
+
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
 		bridge_path = (
