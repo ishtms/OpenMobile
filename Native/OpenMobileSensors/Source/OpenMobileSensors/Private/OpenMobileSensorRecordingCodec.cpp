@@ -520,9 +520,12 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		Writer.WriteDouble(Sample.Value.Y);
 		Writer.WriteDouble(Sample.Value.Z);
 		Writer.WriteBool(Sample.bHasBias);
-		Writer.WriteDouble(Sample.Bias.X);
-		Writer.WriteDouble(Sample.Bias.Y);
-		Writer.WriteDouble(Sample.Bias.Z);
+		const FVector StoredBias = Sample.bHasBias
+			? Sample.Bias
+			: FVector::ZeroVector;
+		Writer.WriteDouble(StoredBias.X);
+		Writer.WriteDouble(StoredBias.Y);
+		Writer.WriteDouble(StoredBias.Z);
 		return true;
 	}
 
@@ -531,16 +534,27 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		FOpenMobileVectorSensorSample& OutSample
 	)
 	{
-		return ReadSampleHeader(Reader, OutSample.Header)
+		if (!(ReadSampleHeader(Reader, OutSample.Header)
 			&& Reader.ReadDouble(OutSample.Value.X)
 			&& Reader.ReadDouble(OutSample.Value.Y)
 			&& Reader.ReadDouble(OutSample.Value.Z)
 			&& Reader.ReadBool(OutSample.bHasBias)
 			&& Reader.ReadDouble(OutSample.Bias.X)
 			&& Reader.ReadDouble(OutSample.Bias.Y)
-			&& Reader.ReadDouble(OutSample.Bias.Z)
-			&& IsFiniteVector(OutSample.Value)
-			&& IsFiniteVector(OutSample.Bias);
+			&& Reader.ReadDouble(OutSample.Bias.Z)))
+		{
+			return false;
+		}
+		if (!IsFiniteVector(OutSample.Value)
+			|| (OutSample.bHasBias && !IsFiniteVector(OutSample.Bias)))
+		{
+			return false;
+		}
+		if (!OutSample.bHasBias)
+		{
+			OutSample.Bias = FVector::ZeroVector;
+		}
+		return true;
 	}
 
 	bool WriteBlock(
@@ -788,7 +802,7 @@ bool FOpenMobileSensorRecordingCodec::EncodeVectorBatch(
 	for (const FOpenMobileVectorSensorSample& Sample : Batch.Samples)
 	{
 		if (!IsFiniteVector(Sample.Value)
-			|| !IsFiniteVector(Sample.Bias)
+			|| (Sample.bHasBias && !IsFiniteVector(Sample.Bias))
 			|| !FMath::IsFinite(Sample.Header.TimestampSeconds)
 			|| Sample.Header.TimestampSeconds < 0.0
 			|| !WriteVectorSample(Writer, Sample, OutError))
