@@ -225,6 +225,12 @@ void FOpenMobileDeviceBrightnessControlService::RemoveRequest(
 	}
 }
 
+int32 FOpenMobileDeviceBrightnessControlService::GetActiveRequestCountForDiagnostics()
+{
+	check(IsInGameThread());
+	return OpenMobileDeviceBrightnessControlServicePrivate::RequestSequences.Num();
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceBrightnessControlService::NotifySurfaceChangedForTests()
 {

@@ -7,6 +7,7 @@
 #include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
 #include "OpenMobileDeviceClipboardService.h"
+#include "OpenMobileDeviceDiagnosticsSource.h"
 #include "OpenMobileDeviceFlashlightControlService.h"
 #include "OpenMobileDeviceKeepScreenAwakeControlService.h"
 #include "OpenMobileDeviceIntentHandlerService.h"
@@ -19,6 +20,13 @@
 
 namespace OpenMobileDeviceSubsystemPrivate
 {
+	template <typename ResultType>
+	ResultType RecordResult(FName Operation, ResultType Result)
+	{
+		FOpenMobileDeviceDiagnosticsSource::RecordError(Operation, Result.Error);
+		return Result;
+	}
+
 	template <typename SnapshotType>
 	bool EquivalentWithoutMetadata(SnapshotType Left, SnapshotType Right)
 	{
@@ -331,7 +339,10 @@ UOpenMobileDeviceSubsystem::CheckClipboardContentTypes() const
 {
 	if (!bDeinitialized)
 	{
-		return FOpenMobileDeviceClipboardService::CheckContentTypes();
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("ClipboardTypeCheck"),
+			FOpenMobileDeviceClipboardService::CheckContentTypes()
+		);
 	}
 	FOpenMobileClipboardOperationResult Result;
 	Result.State = EOpenMobileClipboardOperationState::Unavailable;
@@ -339,7 +350,10 @@ UOpenMobileDeviceSubsystem::CheckClipboardContentTypes() const
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")
 	);
-	return Result;
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("ClipboardTypeCheck"),
+		MoveTemp(Result)
+	);
 }
 
 FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::WriteClipboard(
@@ -354,9 +368,15 @@ FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::WriteClipboard(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
-		return Result;
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("ClipboardWrite"),
+			MoveTemp(Result)
+		);
 	}
-	return FOpenMobileDeviceClipboardService::Write(Request);
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("ClipboardWrite"),
+		FOpenMobileDeviceClipboardService::Write(Request)
+	);
 }
 
 FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ReadClipboard(
@@ -371,9 +391,15 @@ FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ReadClipboard(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
-		return Result;
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("ClipboardRead"),
+			MoveTemp(Result)
+		);
 	}
-	return FOpenMobileDeviceClipboardService::Read(ContentType);
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("ClipboardRead"),
+		FOpenMobileDeviceClipboardService::Read(ContentType)
+	);
 }
 
 FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ClearClipboard()
@@ -386,9 +412,15 @@ FOpenMobileClipboardOperationResult UOpenMobileDeviceSubsystem::ClearClipboard()
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
-		return Result;
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("ClipboardClear"),
+			MoveTemp(Result)
+		);
 	}
-	return FOpenMobileDeviceClipboardService::Clear();
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("ClipboardClear"),
+		FOpenMobileDeviceClipboardService::Clear()
+	);
 }
 
 FOpenMobileIntentHandlerCheckResult
@@ -398,7 +430,10 @@ UOpenMobileDeviceSubsystem::CheckIntentHandler(
 {
 	if (!bDeinitialized)
 	{
-		return FOpenMobileDeviceIntentHandlerService::Check(Request);
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("IntentHandlerCheck"),
+			FOpenMobileDeviceIntentHandlerService::Check(Request)
+		);
 	}
 	FOpenMobileIntentHandlerCheckResult Result;
 	Result.Kind = Request.Kind;
@@ -407,7 +442,10 @@ UOpenMobileDeviceSubsystem::CheckIntentHandler(
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")
 	);
-	return Result;
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("IntentHandlerCheck"),
+		MoveTemp(Result)
+	);
 }
 
 FOpenMobileAndroidPackageCheckResult
@@ -417,7 +455,10 @@ UOpenMobileDeviceSubsystem::CheckAndroidPackage(
 {
 	if (!bDeinitialized)
 	{
-		return FOpenMobileDeviceAndroidPackageCheckService::Check(Request);
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("AndroidPackageCheck"),
+			FOpenMobileDeviceAndroidPackageCheckService::Check(Request)
+		);
 	}
 	FOpenMobileAndroidPackageCheckResult Result;
 	Result.State = EOpenMobileAndroidPackageCheckState::Failed;
@@ -425,7 +466,10 @@ UOpenMobileDeviceSubsystem::CheckAndroidPackage(
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")
 	);
-	return Result;
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("AndroidPackageCheck"),
+		MoveTemp(Result)
+	);
 }
 
 FOpenMobileApplicationSettingsOpenResult
@@ -433,7 +477,10 @@ UOpenMobileDeviceSubsystem::OpenApplicationSettings()
 {
 	if (!bDeinitialized)
 	{
-		return FOpenMobileDeviceApplicationSettingsService::Open();
+		return OpenMobileDeviceSubsystemPrivate::RecordResult(
+			TEXT("OpenApplicationSettings"),
+			FOpenMobileDeviceApplicationSettingsService::Open()
+		);
 	}
 	FOpenMobileApplicationSettingsOpenResult Result;
 	Result.State = EOpenMobileApplicationSettingsOpenState::NativeFailure;
@@ -441,7 +488,10 @@ UOpenMobileDeviceSubsystem::OpenApplicationSettings()
 		EOpenMobileErrorCode::Unavailable,
 		TEXT("The Device subsystem has been deinitialized.")
 	);
-	return Result;
+	return OpenMobileDeviceSubsystemPrivate::RecordResult(
+		TEXT("OpenApplicationSettings"),
+		MoveTemp(Result)
+	);
 }
 
 UOpenMobileBrightnessHandle*
@@ -460,6 +510,10 @@ UOpenMobileDeviceSubsystem::RequestBrightnessOverride(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
+		FOpenMobileDeviceDiagnosticsSource::RecordError(
+			TEXT("Brightness"),
+			Handle->Result.Error
+		);
 		return Handle;
 	}
 	Handle->RequestId = FOpenMobileDeviceBrightnessControlService::AddRequest(
@@ -472,6 +526,10 @@ UOpenMobileDeviceSubsystem::RequestBrightnessOverride(
 		Handle->Subsystem = this;
 		BrightnessHandles.Add(Handle);
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(
+		TEXT("Brightness"),
+		Handle->Result.Error
+	);
 	return Handle;
 }
 
@@ -503,6 +561,10 @@ UOpenMobileDeviceSubsystem::RequestKeepScreenAwake()
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
+		FOpenMobileDeviceDiagnosticsSource::RecordError(
+			TEXT("KeepScreenAwake"),
+			Handle->Result.Error
+		);
 		return Handle;
 	}
 	Handle->RequestId =
@@ -515,6 +577,10 @@ UOpenMobileDeviceSubsystem::RequestKeepScreenAwake()
 		Handle->Subsystem = this;
 		KeepScreenAwakeHandles.Add(Handle);
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(
+		TEXT("KeepScreenAwake"),
+		Handle->Result.Error
+	);
 	return Handle;
 }
 
@@ -550,6 +616,10 @@ UOpenMobileSystemUiHandle* UOpenMobileDeviceSubsystem::RequestSystemUiMode(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
+		FOpenMobileDeviceDiagnosticsSource::RecordError(
+			TEXT("SystemUi"),
+			Handle->Result.Error
+		);
 		return Handle;
 	}
 	Handle->RequestId = FOpenMobileDeviceSystemUiControlService::AddRequest(
@@ -562,6 +632,10 @@ UOpenMobileSystemUiHandle* UOpenMobileDeviceSubsystem::RequestSystemUiMode(
 		Handle->Subsystem = this;
 		SystemUiHandles.Add(Handle);
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(
+		TEXT("SystemUi"),
+		Handle->Result.Error
+	);
 	return Handle;
 }
 
@@ -597,6 +671,10 @@ UOpenMobileDeviceSubsystem::RequestPreferredRefreshRate(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
+		FOpenMobileDeviceDiagnosticsSource::RecordError(
+			TEXT("PreferredRefreshRate"),
+			Handle->Result.Error
+		);
 		return Handle;
 	}
 	Handle->RequestId = FOpenMobileDeviceRefreshRateControlService::AddRequest(
@@ -609,6 +687,10 @@ UOpenMobileDeviceSubsystem::RequestPreferredRefreshRate(
 		Handle->Subsystem = this;
 		PreferredRefreshRateHandles.Add(Handle);
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(
+		TEXT("PreferredRefreshRate"),
+		Handle->Result.Error
+	);
 	return Handle;
 }
 
@@ -644,6 +726,10 @@ UOpenMobileDeviceSubsystem::RequestOrientationPolicy(
 			EOpenMobileErrorCode::Unavailable,
 			TEXT("The Device subsystem has been deinitialized.")
 		);
+		FOpenMobileDeviceDiagnosticsSource::RecordError(
+			TEXT("Orientation"),
+			Handle->Result.Error
+		);
 		return Handle;
 	}
 	Handle->RequestId = FOpenMobileDeviceOrientationControlService::AddRequest(
@@ -656,6 +742,10 @@ UOpenMobileDeviceSubsystem::RequestOrientationPolicy(
 		Handle->Subsystem = this;
 		OrientationPolicyHandles.Add(Handle);
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(
+		TEXT("Orientation"),
+		Handle->Result.Error
+	);
 	return Handle;
 }
 

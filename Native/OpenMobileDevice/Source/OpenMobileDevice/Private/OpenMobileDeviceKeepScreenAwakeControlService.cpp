@@ -185,6 +185,12 @@ void FOpenMobileDeviceKeepScreenAwakeControlService::RemoveRequest(
 	}
 }
 
+int32 FOpenMobileDeviceKeepScreenAwakeControlService::GetActiveRequestCountForDiagnostics()
+{
+	check(IsInGameThread());
+	return OpenMobileDeviceKeepScreenAwakeControlServicePrivate::Requests.Num();
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceKeepScreenAwakeControlService::NotifySurfaceChangedForTests()
 {

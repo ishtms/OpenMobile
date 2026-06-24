@@ -34,6 +34,7 @@ public:
 	static FOpenMobileDeviceMonitoringGroupChanged& OnGroupChanged();
 	static FOpenMobileDeviceMonitoredNetworkPathChanged& OnNetworkPathChanged();
 	static FOpenMobileDeviceMonitoringMaintenance& OnMaintenance();
+	static TArray<EOpenMobileDeviceMonitoringGroup> GetActiveGroupsForDiagnostics();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void ResetForTests();

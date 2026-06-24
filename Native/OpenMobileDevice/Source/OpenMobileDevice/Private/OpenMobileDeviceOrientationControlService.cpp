@@ -206,6 +206,12 @@ void FOpenMobileDeviceOrientationControlService::RemoveRequest(
 	}
 }
 
+int32 FOpenMobileDeviceOrientationControlService::GetActiveRequestCountForDiagnostics()
+{
+	check(IsInGameThread());
+	return OpenMobileDeviceOrientationControlServicePrivate::RequestSequences.Num();
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceOrientationControlService::NotifySurfaceChangedForTests()
 {

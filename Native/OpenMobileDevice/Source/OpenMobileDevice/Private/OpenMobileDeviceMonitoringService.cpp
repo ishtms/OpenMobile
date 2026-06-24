@@ -708,6 +708,34 @@ FOpenMobileDeviceMonitoringService::OnMaintenance()
 	return OpenMobileDeviceMonitoringServicePrivate::Maintenance;
 }
 
+TArray<EOpenMobileDeviceMonitoringGroup>
+FOpenMobileDeviceMonitoringService::GetActiveGroupsForDiagnostics()
+{
+	check(IsInGameThread());
+	using namespace OpenMobileDeviceMonitoringServicePrivate;
+	TArray<EOpenMobileDeviceMonitoringGroup> ActiveGroups;
+	for (EOpenMobileDeviceMonitoringGroup Group : {
+		EOpenMobileDeviceMonitoringGroup::Locale,
+		EOpenMobileDeviceMonitoringGroup::Power,
+		EOpenMobileDeviceMonitoringGroup::MemoryPressure,
+		EOpenMobileDeviceMonitoringGroup::Storage,
+		EOpenMobileDeviceMonitoringGroup::Network,
+		EOpenMobileDeviceMonitoringGroup::WindowDisplay,
+		EOpenMobileDeviceMonitoringGroup::Appearance,
+		EOpenMobileDeviceMonitoringGroup::Accessibility,
+		EOpenMobileDeviceMonitoringGroup::MediaVolume,
+		EOpenMobileDeviceMonitoringGroup::Flashlight
+	})
+	{
+		const FGroupState* State = GroupStates.Find(Group);
+		if (State && State->ReferenceCount > 0)
+		{
+			ActiveGroups.Add(Group);
+		}
+	}
+	return ActiveGroups;
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceMonitoringService::ResetForTests()
 {

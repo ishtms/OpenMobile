@@ -3146,6 +3146,88 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 					str(path),
 				)
 
+	def test_device_diagnostics_are_bounded_redacted_and_editor_presented(self) -> None:
+		runtime_header = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Public"
+			/ "OpenMobileDeviceDiagnostics.h"
+		).read_text(encoding="utf-8")
+		runtime_source = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "OpenMobileDeviceDiagnosticsSource.cpp"
+		).read_text(encoding="utf-8")
+		editor_source = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceEditor"
+			/ "Private"
+			/ "OpenMobileDeviceDiagnosticsScreen.cpp"
+		).read_text(encoding="utf-8")
+		output_source = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceEditor"
+			/ "Private"
+			/ "OpenMobileDeviceDiagnosticsOutput.cpp"
+		).read_text(encoding="utf-8")
+
+		for required_token in (
+			"Capabilities",
+			"BackendName",
+			"ActiveMonitoringGroups",
+			"ControlLeases",
+			"RecentErrors",
+			"ConfigurationIssues",
+		):
+			self.assertIn(required_token, runtime_header)
+		for required_token in (
+			"MaximumCapabilityCount",
+			"MaximumRecentErrorCount",
+			"GetActiveGroupsForDiagnostics",
+			"GetActiveRequestCountForDiagnostics",
+		):
+			self.assertIn(required_token, runtime_source)
+		for required_token in (
+			"RegisterNomadTabSpawner",
+			"Refresh",
+			"Copy",
+			"Export",
+			"SMultiLineEditableTextBox",
+		):
+			self.assertIn(required_token, editor_source)
+		for required_token in (
+			"MaximumExportBytes",
+			"ClipboardCopy",
+			"SaveStringToFile",
+			"batteryPercent",
+			"monitoringGroups",
+			"controlLeases",
+		):
+			self.assertIn(required_token, output_source)
+		for forbidden_token in (
+			"PackageIdentifier",
+			"ClipboardContent",
+			"CurrentScreenIdentifier",
+			"ReducedAnimationPlatformDetail",
+			"Capability.Detail",
+			"Error.Message",
+		):
+			self.assertNotIn(forbidden_token, output_source)
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		for required_token in (
+			"Device diagnostics",
+			"64 KiB",
+			"explicit allow list",
+			"mark captures older than 15 minutes as stale",
+			"raw error messages and native codes are not retained",
+		):
+			self.assertIn(required_token, readme)
+
 
 if __name__ == "__main__":
 	unittest.main()

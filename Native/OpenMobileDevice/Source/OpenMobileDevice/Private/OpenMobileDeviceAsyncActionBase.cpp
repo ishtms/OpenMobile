@@ -4,6 +4,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "OpenMobileDeviceSubsystem.h"
+#include "OpenMobileDeviceDiagnosticsSource.h"
 
 bool UOpenMobileDeviceAsyncActionBase::InitializeAction(
 	const UObject* WorldContextObject
@@ -93,6 +94,7 @@ void UOpenMobileDeviceAsyncActionBase::FinishFailed(FOpenMobileError Error)
 	{
 		return;
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(GetClass()->GetFName(), Error);
 	Cleanup();
 	OnActionFailed(Error);
 	Failed.Broadcast(Error);
@@ -107,6 +109,7 @@ void UOpenMobileDeviceAsyncActionBase::FinishCancelled(FOpenMobileError Error)
 	{
 		return;
 	}
+	FOpenMobileDeviceDiagnosticsSource::RecordError(GetClass()->GetFName(), Error);
 	Cleanup();
 	OnActionCancelled(Error);
 	Cancelled.Broadcast(Error);

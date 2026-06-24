@@ -214,6 +214,12 @@ void FOpenMobileDeviceRefreshRateControlService::RemoveRequest(
 	}
 }
 
+int32 FOpenMobileDeviceRefreshRateControlService::GetActiveRequestCountForDiagnostics()
+{
+	check(IsInGameThread());
+	return OpenMobileDeviceRefreshRateControlServicePrivate::RequestSequences.Num();
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceRefreshRateControlService::NotifySurfaceChangedForTests()
 {

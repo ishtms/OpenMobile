@@ -225,6 +225,12 @@ void FOpenMobileDeviceSystemUiControlService::RemoveRequest(
 	}
 }
 
+int32 FOpenMobileDeviceSystemUiControlService::GetActiveRequestCountForDiagnostics()
+{
+	check(IsInGameThread());
+	return OpenMobileDeviceSystemUiControlServicePrivate::RequestSequences.Num();
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileDeviceSystemUiControlService::NotifySurfaceChangedForTests()
 {

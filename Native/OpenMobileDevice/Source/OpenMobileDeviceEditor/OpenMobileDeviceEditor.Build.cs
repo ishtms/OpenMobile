@@ -16,5 +16,14 @@ public class OpenMobileDeviceEditor : ModuleRules
 		});
 
 		PrivateDependencyModuleNames.Add("UnrealEd");
+		PrivateDependencyModuleNames.AddRange(new[]
+		{
+			"ApplicationCore",
+			"DesktopPlatform",
+			"Json",
+			"Projects",
+			"Slate",
+			"SlateCore"
+		});
 	}
 }

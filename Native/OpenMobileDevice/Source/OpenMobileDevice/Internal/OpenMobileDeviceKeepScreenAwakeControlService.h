@@ -9,6 +9,7 @@ public:
 	static void Shutdown();
 	static FGuid AddRequest(FOpenMobileKeepScreenAwakeResult& OutResult);
 	static void RemoveRequest(const FGuid& RequestId);
+	static int32 GetActiveRequestCountForDiagnostics();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void NotifySurfaceChangedForTests();

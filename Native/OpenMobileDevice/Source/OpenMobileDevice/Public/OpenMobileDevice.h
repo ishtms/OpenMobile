@@ -10,6 +10,7 @@
 #include "OpenMobileDeviceClipboardTypes.h"
 #include "OpenMobileDeviceCommonTypes.h"
 #include "OpenMobileDeviceDisplayTypes.h"
+#include "OpenMobileDeviceDiagnostics.h"
 #include "OpenMobileDeviceEndpointReachabilityAsyncAction.h"
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceFlashlightTypes.h"
