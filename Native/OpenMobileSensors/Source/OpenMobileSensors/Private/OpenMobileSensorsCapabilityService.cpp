@@ -234,6 +234,59 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		return Capability;
 	}
 
+	void ApplyGravityFallback(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot
+	)
+	{
+		FOpenMobileSensorCapability* Gravity =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::Gravity;
+				}
+			);
+		const FOpenMobileSensorCapability* Accelerometer =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::Accelerometer;
+				}
+			);
+		constexpr double MinimumFallbackFrequencyHz = 15.0;
+		const bool bHasUsableDirectGravity = Gravity
+			&& Gravity->Availability.State ==
+				EOpenMobileCapabilityState::Available
+			&& (Gravity->MaximumFrequencyHz <= 0.0
+				|| Gravity->MaximumFrequencyHz >=
+					MinimumFallbackFrequencyHz);
+		if (!Gravity
+			|| bHasUsableDirectGravity
+			|| !Accelerometer
+			|| Accelerometer->Availability.State !=
+				EOpenMobileCapabilityState::Available
+			|| (Accelerometer->MaximumFrequencyHz > 0.0
+				&& Accelerometer->MaximumFrequencyHz <
+					MinimumFallbackFrequencyHz))
+		{
+			return;
+		}
+		Gravity->Availability.State = EOpenMobileCapabilityState::Available;
+		Gravity->Availability.Detail =
+			TEXT("Gravity is derived from the accelerometer with bounded low-pass filtering.");
+		Gravity->Source = EOpenMobileSensorAvailabilitySource::Derived;
+		Gravity->ActiveRestriction = EOpenMobileSensorRestriction::None;
+		Gravity->MinimumFrequencyHz = FMath::Max(
+			MinimumFallbackFrequencyHz,
+			Accelerometer->MinimumFrequencyHz
+		);
+		Gravity->MaximumFrequencyHz = Accelerometer->MaximumFrequencyHz;
+		Gravity->bSupportsNativeBatching =
+			Accelerometer->bSupportsNativeBatching;
+		Gravity->BackgroundSupport = Accelerometer->BackgroundSupport;
+	}
+
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
 	{
 		RefreshBackendBase();
@@ -274,6 +327,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			ApplyLifecycleState(Capability);
 			Snapshot.Sensors.Add(MoveTemp(Capability));
 		}
+		ApplyGravityFallback(Snapshot);
 		return Snapshot;
 	}
 

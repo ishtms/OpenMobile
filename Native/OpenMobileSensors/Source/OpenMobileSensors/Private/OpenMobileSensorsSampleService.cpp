@@ -7,6 +7,7 @@
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
+#include "OpenMobileSensorGravityEstimator.h"
 #include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
@@ -147,6 +148,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorSubscriptionHandle Handle;
 		FOpenMobileSensorBackendStreamHandle PhysicalStreamHandle;
 		FOpenMobileSensorIdentifier Sensor;
+		FOpenMobileSensorIdentifier PhysicalSensor;
 		uint64 BackendGeneration = 0;
 		EOpenMobileSensorSubscriptionState State =
 			EOpenMobileSensorSubscriptionState::Accepted;
@@ -184,6 +186,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorCoordinateSpace::DeviceFixed;
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
+		FOpenMobileSensorGravityEstimator GravityEstimator;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
@@ -380,6 +383,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	)
 	{
 		ResetRateStatistics(Slot);
+		Slot.GravityEstimator.Reset();
 		Slot.PendingTimestampIssueFlags |= static_cast<int32>(Issue);
 		Slot.bPendingStatefulProcessingReset = true;
 	}
@@ -898,6 +902,40 @@ namespace OpenMobileSensorsSampleServicePrivate
 	}
 
 	template <typename SampleType>
+	bool PrepareSampleForSlot(FLatestSlot& Slot, SampleType& Sample)
+	{
+		return Slot.Sensor == Sample.Header.Sensor;
+	}
+
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileVectorSensorSample& Sample
+	)
+	{
+		if (Slot.Sensor == Sample.Header.Sensor)
+		{
+			return true;
+		}
+		if (Slot.Sensor.Type != EOpenMobileSensorType::Gravity
+			|| Sample.Header.Sensor.Type !=
+				EOpenMobileSensorType::Accelerometer
+			|| !ValidateSourceAndFusion(Sample)
+			|| !FOpenMobileSensorValidity::
+				IsEligibleForStatefulProcessing(Sample))
+		{
+			Slot.GravityEstimator.Reset();
+			return false;
+		}
+		FOpenMobileVectorSensorSample Gravity;
+		if (!Slot.GravityEstimator.Process(Sample, Slot.Sensor, Gravity))
+		{
+			return false;
+		}
+		Sample = MoveTemp(Gravity);
+		return true;
+	}
+
+	template <typename SampleType>
 	bool PublishSamples(
 		const SampleType* Samples,
 		int32 SampleCount,
@@ -939,7 +977,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 				for (int32 Index = 0; Index < SampleCount; ++Index)
 				{
 					SampleType Sample = Samples[Index];
-					if (Slot.Sensor != Sample.Header.Sensor)
+					if (Slot.PhysicalSensor != Sample.Header.Sensor)
 					{
 						continue;
 					}
@@ -966,14 +1004,21 @@ namespace OpenMobileSensorsSampleServicePrivate
 						continue;
 					}
 					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
+					if (!PrepareSampleForSlot(Slot, Sample))
+					{
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
 					if (!ValidateSourceAndFusion(Sample))
 					{
+						Slot.GravityEstimator.Reset();
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
 					if (!FOpenMobileSensorValidity::
 						IsEligibleForStatefulProcessing(Sample))
 					{
+						Slot.GravityEstimator.Reset();
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
@@ -1058,8 +1103,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 			{
 				FLatestSlot& Slot = *Pair.Value;
 				FScopeLock SlotLock(&Slot.Mutex);
+				const bool bMatchesSensor = Slot.Sensor == Snapshot.Sensor
+					|| (RequiredBackendGeneration != 0
+						&& Slot.PhysicalSensor == Snapshot.Sensor);
 				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
-					|| Slot.Sensor != Snapshot.Sensor
+					|| !bMatchesSensor
 					|| (RequiredBackendGeneration != 0
 						&& (Slot.BackendGeneration !=
 								RequiredBackendGeneration
@@ -1736,6 +1784,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	const FGuid& OwnerIdentifier,
 	const FOpenMobileSensorSubscriptionHandle& Handle,
 	const FOpenMobileSensorIdentifier& Sensor,
+	const FOpenMobileSensorIdentifier& PhysicalSensor,
 	const FOpenMobileSensorStreamOptions& Options,
 	uint64 BackendGeneration
 )
@@ -1745,6 +1794,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 		|| !OwnerIdentifier.IsValid()
 		|| !Handle.IsValid()
 		|| !Sensor.IsValid()
+		|| !PhysicalSensor.IsValid()
 		|| BackendGeneration == 0)
 	{
 		return;
@@ -1753,6 +1803,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->OwnerIdentifier = OwnerIdentifier;
 	Slot->Handle = Handle;
 	Slot->Sensor = Sensor;
+	Slot->PhysicalSensor = PhysicalSensor;
 	Slot->BackendGeneration = BackendGeneration;
 	Slot->ExpectedFamily = GetExpectedFamily(Sensor.Type);
 	Slot->StaleAfterSeconds = GetStaleAfterSeconds(Options);
@@ -1821,6 +1872,7 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 			ResetRateStatistics(**SlotPointer);
 			ResetGyroscopeDriftStatistics(**SlotPointer);
 			(*SlotPointer)->VectorFilter.Reset();
+			(*SlotPointer)->GravityEstimator.Reset();
 		}
 		bSchedulePendingEvents =
 			State == EOpenMobileSensorSubscriptionState::Active
@@ -1853,6 +1905,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	ResetRateStatistics(**SlotPointer);
 	ResetGyroscopeDriftStatistics(**SlotPointer);
+	(*SlotPointer)->GravityEstimator.Reset();
 	(*SlotPointer)->MaximumCallbackFrequencyHz =
 		Options.MaximumCallbackFrequencyHz;
 	(*SlotPointer)->MaximumPendingSamples = FMath::Clamp(

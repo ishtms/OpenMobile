@@ -72,6 +72,7 @@ public:
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorIdentifier& PhysicalSensor,
 		const FOpenMobileSensorStreamOptions& Options,
 		uint64 BackendGeneration
 	);
