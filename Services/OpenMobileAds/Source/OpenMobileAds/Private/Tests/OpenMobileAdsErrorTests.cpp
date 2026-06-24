@@ -188,4 +188,129 @@ bool FOpenMobileAdsUnknownErrorMappingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsExternalProviderStateMappingTest,
+	"OpenMobile.Ads.Errors.ExternalProviderStates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsExternalProviderStateMappingTest::RunTest(
+	const FString& Parameters
+)
+{
+	struct FExternalStateFixture
+	{
+		FString NativeCode;
+		FString NativeMessage;
+		EOpenMobileAdsExternalBlockReason ExpectedReason;
+		EOpenMobileAdsErrorCode ExpectedCode;
+		bool bExpectedRetryable;
+		bool bExpectedDocumentation;
+	};
+
+	const TArray<FExternalStateFixture> Fixtures = {
+		{
+			TEXT("no_fill"),
+			TEXT("Publisher data for this ad unit cannot be found."),
+			EOpenMobileAdsExternalBlockReason::ProviderAccount,
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			false,
+			true
+		},
+		{
+			TEXT("no_fill"),
+			TEXT("Account not approved yet."),
+			EOpenMobileAdsExternalBlockReason::ProviderAccount,
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			false,
+			true
+		},
+		{
+			TEXT("no_fill"),
+			TEXT("App not ready to show ads."),
+			EOpenMobileAdsExternalBlockReason::ProviderAppReadiness,
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			false,
+			true
+		},
+		{
+			TEXT("no_fill"),
+			TEXT("Ad serving is disabled by provider policy."),
+			EOpenMobileAdsExternalBlockReason::ProviderPolicy,
+			EOpenMobileAdsErrorCode::ProviderUnavailable,
+			false,
+			true
+		},
+		{
+			TEXT("no_fill"),
+			TEXT("No ads meet the eCPM floor."),
+			EOpenMobileAdsExternalBlockReason::LiveInventory,
+			EOpenMobileAdsErrorCode::NoFill,
+			true,
+			true
+		},
+		{
+			TEXT("no_fill"),
+			TEXT("No ad was returned."),
+			EOpenMobileAdsExternalBlockReason::LiveInventory,
+			EOpenMobileAdsErrorCode::NoFill,
+			true,
+			false
+		}
+	};
+
+	for (const FExternalStateFixture& Fixture : Fixtures)
+	{
+		FOpenMobileAdsErrorMappingContext Context;
+		Context.Domain = EOpenMobileAdsErrorDomain::Provider;
+		Context.Stage = EOpenMobileAdsFailureStage::Load;
+		Context.Provider = TEXT("AdMob");
+		Context.NativeCode = Fixture.NativeCode;
+		Context.NativeMessage = Fixture.NativeMessage;
+
+		const FOpenMobileAdsError Error =
+			FOpenMobileAdsErrorMapper::FromNative(Context);
+		TestEqual(
+			*FString::Printf(TEXT("%s has a distinct external reason"), *Fixture.NativeMessage),
+			Error.ExternalBlockReason,
+			Fixture.ExpectedReason
+		);
+		TestEqual(
+			*FString::Printf(TEXT("%s keeps the expected normalized code"), *Fixture.NativeMessage),
+			Error.Code,
+			Fixture.ExpectedCode
+		);
+		TestEqual(
+			*FString::Printf(TEXT("%s has the expected retry policy"), *Fixture.NativeMessage),
+			Error.bRetryable,
+			Fixture.bExpectedRetryable
+		);
+		TestEqual(
+			*FString::Printf(TEXT("%s has provider guidance when available"), *Fixture.NativeMessage),
+			!Error.ProviderDocumentationUrl.IsEmpty(),
+			Fixture.bExpectedDocumentation
+		);
+		TestEqual(
+			TEXT("Native provider details remain available"),
+			Error.NativeDiagnostics.NativeMessage,
+			Fixture.NativeMessage
+		);
+	}
+
+	FOpenMobileAdsErrorMappingContext InvalidUnitContext;
+	InvalidUnitContext.Domain = EOpenMobileAdsErrorDomain::Provider;
+	InvalidUnitContext.Stage = EOpenMobileAdsFailureStage::Load;
+	InvalidUnitContext.Provider = TEXT("AdMob");
+	InvalidUnitContext.NativeCode = TEXT("invalid_request");
+	InvalidUnitContext.NativeMessage = TEXT("Invalid ad unit ID.");
+	const FOpenMobileAdsError InvalidUnit =
+		FOpenMobileAdsErrorMapper::FromNative(InvalidUnitContext);
+	TestEqual(
+		TEXT("Invalid local configuration is not an external provider block"),
+		InvalidUnit.ExternalBlockReason,
+		EOpenMobileAdsExternalBlockReason::None
+	);
+	return true;
+}
+
 #endif

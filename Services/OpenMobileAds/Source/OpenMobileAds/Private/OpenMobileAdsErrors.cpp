@@ -10,6 +10,86 @@ namespace OpenMobileAdsErrorPrivate
 		return Result;
 	}
 
+	bool MapExternalProviderState(
+		const FString& Message,
+		FOpenMobileAdsError& Error
+	)
+	{
+		const FString NormalizedMessage = Message.ToLower();
+		if (
+			NormalizedMessage.Contains(TEXT("publisher data"))
+			&& (
+				NormalizedMessage.Contains(TEXT("not found"))
+				|| NormalizedMessage.Contains(TEXT("cannot be found"))
+			)
+		)
+		{
+			Error.Code = EOpenMobileAdsErrorCode::ProviderUnavailable;
+			Error.Explanation = TEXT("The provider could not find publisher data for this ad unit.");
+			Error.LikelyCause = TEXT("The provider account or ad unit is not ready in the provider console.");
+			Error.SuggestedCorrection = TEXT("Verify the ad unit in the provider console and use official test ads while the provider processes new account data.");
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::ProviderAccount;
+			Error.ProviderDocumentationUrl = TEXT("https://support.google.com/admob/answer/9905175");
+			return true;
+		}
+		if (
+			NormalizedMessage.Contains(TEXT("account not approved"))
+			|| NormalizedMessage.Contains(TEXT("account wasn't approved"))
+			|| NormalizedMessage.Contains(TEXT("account being assessed"))
+		)
+		{
+			Error.Code = EOpenMobileAdsErrorCode::ProviderUnavailable;
+			Error.Explanation = TEXT("The provider account is not ready to serve ads.");
+			Error.LikelyCause = TEXT("The provider is still assessing the account or did not approve it.");
+			Error.SuggestedCorrection = TEXT("Use official test ads for SDK validation and check account status in the provider console.");
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::ProviderAccount;
+			Error.ProviderDocumentationUrl = TEXT("https://support.google.com/admob/answer/9905175");
+			return true;
+		}
+		if (
+			NormalizedMessage.Contains(TEXT("app not ready"))
+			|| NormalizedMessage.Contains(TEXT("app not approved"))
+		)
+		{
+			Error.Code = EOpenMobileAdsErrorCode::ProviderUnavailable;
+			Error.Explanation = TEXT("The provider app is not ready to serve ads.");
+			Error.LikelyCause = TEXT("The provider app readiness review has not completed.");
+			Error.SuggestedCorrection = TEXT("Use official test ads for SDK validation and check app readiness in the provider console.");
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::ProviderAppReadiness;
+			Error.ProviderDocumentationUrl = TEXT("https://support.google.com/admob/answer/12206349");
+			return true;
+		}
+		if (
+			NormalizedMessage.Contains(TEXT("provider policy"))
+			|| NormalizedMessage.Contains(TEXT("policy block"))
+			|| NormalizedMessage.Contains(TEXT("ad serving is disabled"))
+		)
+		{
+			Error.Code = EOpenMobileAdsErrorCode::ProviderUnavailable;
+			Error.Explanation = TEXT("The provider has blocked or limited ad serving.");
+			Error.LikelyCause = TEXT("The provider reports an account, app, or traffic policy restriction.");
+			Error.SuggestedCorrection = TEXT("Use official test ads for SDK validation and inspect the provider policy status separately.");
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::ProviderPolicy;
+			Error.ProviderDocumentationUrl = TEXT("https://support.google.com/admob/troubleshooter/12205649");
+			return true;
+		}
+		if (
+			NormalizedMessage.Contains(TEXT("no ads meet"))
+			&& NormalizedMessage.Contains(TEXT("ecpm floor"))
+		)
+		{
+			Error.Code = EOpenMobileAdsErrorCode::NoFill;
+			Error.Explanation = TEXT("No eligible ad met the provider eCPM floor.");
+			Error.LikelyCause = TEXT("Available inventory did not meet the configured provider floor.");
+			Error.SuggestedCorrection = TEXT("Retry through the no-fill policy or review the provider-console floor separately from SDK validation.");
+			Error.bRetryable = true;
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::LiveInventory;
+			Error.ProviderDocumentationUrl = TEXT("https://support.google.com/admob/answer/3418058");
+			return true;
+		}
+		return false;
+	}
+
 	void SetUnknownMapping(
 		EOpenMobileAdsErrorDomain Domain,
 		FOpenMobileAdsError& Error
@@ -47,6 +127,7 @@ namespace OpenMobileAdsErrorPrivate
 			Error.LikelyCause = TEXT("The provider had no eligible inventory for the request.");
 			Error.SuggestedCorrection = TEXT("Retry later and confirm the placement, targeting, and account setup.");
 			Error.bRetryable = true;
+			Error.ExternalBlockReason = EOpenMobileAdsExternalBlockReason::LiveInventory;
 			return true;
 		}
 		if (Code == TEXT("network_error") || Code == TEXT("timeout"))
@@ -279,13 +360,23 @@ FOpenMobileAdsError FOpenMobileAdsErrorMapper::FromNative(
 
 	const FString Code = OpenMobileAdsErrorPrivate::NormalizeCode(Context.NativeCode);
 	bool bMapped = false;
+	if (
+		Context.Domain == EOpenMobileAdsErrorDomain::Provider
+		|| Context.Domain == EOpenMobileAdsErrorDomain::Mediation
+	)
+	{
+		bMapped = OpenMobileAdsErrorPrivate::MapExternalProviderState(
+			Context.NativeMessage,
+			Error
+		);
+	}
 	switch (Context.Domain)
 	{
 	case EOpenMobileAdsErrorDomain::Provider:
-		bMapped = OpenMobileAdsErrorPrivate::MapProvider(Code, Error);
+		bMapped = bMapped || OpenMobileAdsErrorPrivate::MapProvider(Code, Error);
 		break;
 	case EOpenMobileAdsErrorDomain::Mediation:
-		bMapped = OpenMobileAdsErrorPrivate::MapMediation(Code, Error);
+		bMapped = bMapped || OpenMobileAdsErrorPrivate::MapMediation(Code, Error);
 		break;
 	case EOpenMobileAdsErrorDomain::Consent:
 		bMapped = OpenMobileAdsErrorPrivate::MapConsent(Code, Error);

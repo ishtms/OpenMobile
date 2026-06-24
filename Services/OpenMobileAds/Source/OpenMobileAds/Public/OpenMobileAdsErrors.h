@@ -55,6 +55,17 @@ enum class EOpenMobileAdsErrorDomain : uint8
 	Packaging
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAdsExternalBlockReason : uint8
+{
+	None,
+	ProviderAccount,
+	ProviderAppReadiness,
+	ProviderPolicy,
+	ProviderConsoleConfiguration,
+	LiveInventory
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsError
 {
@@ -83,6 +94,13 @@ struct OPENMOBILEADS_API FOpenMobileAdsError
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bRetryable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	EOpenMobileAdsExternalBlockReason ExternalBlockReason =
+		EOpenMobileAdsExternalBlockReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
+	FString ProviderDocumentationUrl;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsNativeDiagnostics NativeDiagnostics;
