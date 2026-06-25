@@ -235,6 +235,55 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertIn("OpenMobileAdsAdMobMetaIOS", ios_adapter.modules)
 		self.assertNotIn("OpenMobileAdsAdMobMetaAndroid", ios_adapter.modules)
 
+	def test_adapter_metadata_requires_explicit_format_and_privacy_contracts(self) -> None:
+		metadata = json.loads(
+			(self.admob_meta.path.parent / "adapter.json").read_text(encoding="utf-8")
+		)
+		for platform_name, platform in metadata["platforms"].items():
+			self.assertEqual(
+				set(metadata["integration_types"]),
+				set(platform["supported_formats"]),
+			)
+			self.assertEqual(
+				{
+					"Banner",
+					"Interstitial",
+					"Rewarded",
+					"RewardedInterstitial",
+				},
+				set(platform["supported_formats"]["Bidding"]),
+			)
+			self.assertEqual(
+				{
+					"Gdpr",
+					"UsPrivacy",
+					"ChildDirected",
+					"UnderAgeOfConsent",
+				},
+				set(platform["privacy_signals"]),
+			)
+
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			descriptor_path = root / self.admob_meta.path.name
+			descriptor_path.write_text(
+				json.dumps(self.admob_meta.data),
+				encoding="utf-8",
+			)
+			for platform in metadata["platforms"].values():
+				platform.pop("supported_formats")
+				platform.pop("privacy_signals")
+			(root / "adapter.json").write_text(
+				json.dumps(metadata),
+				encoding="utf-8",
+			)
+			descriptor = PluginDescriptor.load(descriptor_path)
+
+			errors = validate_adapter_metadata(descriptor)
+
+		self.assertTrue(any("supported_formats" in error for error in errors), errors)
+		self.assertTrue(any("privacy_signals" in error for error in errors), errors)
+
 	def test_adapter_metadata_rejects_incomplete_or_mismatched_manifests(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			root = Path(temporary_directory)

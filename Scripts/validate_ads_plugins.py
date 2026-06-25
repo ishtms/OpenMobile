@@ -560,6 +560,35 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 				errors.append(
 					f"adapter metadata has unsupported integration type '{integration_type}'"
 				)
+	declared_integration_types = {
+		integration_type
+		for integration_type in (
+			integration_types if isinstance(integration_types, list) else []
+		)
+		if isinstance(integration_type, str)
+	}
+	known_formats = {
+		"Banner",
+		"Interstitial",
+		"Rewarded",
+		"RewardedInterstitial",
+		"AppOpen",
+		"NativeDisplay",
+		"AnchoredAdaptiveBanner",
+		"MediumRectangle",
+	}
+	required_privacy_signals = {
+		"Gdpr",
+		"UsPrivacy",
+		"ChildDirected",
+		"UnderAgeOfConsent",
+	}
+	privacy_propagation_methods = {
+		"AdapterAutomatic",
+		"AdapterConsentConsumer",
+		"ProviderForwarded",
+		"NotApplicable",
+	}
 
 	platforms = metadata.get("platforms")
 	if not isinstance(platforms, dict) or not platforms:
@@ -580,6 +609,55 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 				errors.append(
 					f"adapter metadata {platform_name}.{field_name} must not be empty"
 				)
+
+		supported_formats = platform.get("supported_formats")
+		if not isinstance(supported_formats, dict) or not supported_formats:
+			errors.append(
+				f"adapter metadata {platform_name}.supported_formats must define every integration type"
+			)
+		else:
+			if set(supported_formats) != declared_integration_types:
+				errors.append(
+					f"adapter metadata {platform_name}.supported_formats must match integration_types"
+				)
+			for integration_type, formats in supported_formats.items():
+				if not isinstance(formats, list) or not formats:
+					errors.append(
+						f"adapter metadata {platform_name}.supported_formats.{integration_type} must not be empty"
+					)
+					continue
+				if all(isinstance(format_name, str) for format_name in formats) and len(
+					formats
+				) != len(set(formats)):
+					errors.append(
+						f"adapter metadata {platform_name}.supported_formats.{integration_type} contains duplicates"
+					)
+				for format_name in formats:
+					if not isinstance(format_name, str) or format_name not in known_formats:
+						errors.append(
+							f"adapter metadata {platform_name} has unsupported ad format '{format_name}'"
+						)
+
+		privacy_signals = platform.get("privacy_signals")
+		if not isinstance(privacy_signals, dict):
+			errors.append(
+				f"adapter metadata {platform_name}.privacy_signals must be an object"
+			)
+		elif set(privacy_signals) != required_privacy_signals:
+			errors.append(
+				f"adapter metadata {platform_name}.privacy_signals must define "
+				"Gdpr, UsPrivacy, ChildDirected, and UnderAgeOfConsent"
+			)
+		else:
+			for signal_name, propagation_method in privacy_signals.items():
+				if (
+					not isinstance(propagation_method, str)
+					or propagation_method not in privacy_propagation_methods
+				):
+					errors.append(
+						f"adapter metadata {platform_name}.privacy_signals.{signal_name} "
+						f"has unsupported propagation method '{propagation_method}'"
+					)
 		tested_versions = platform.get("tested_provider_sdk_versions")
 		if not isinstance(tested_versions, list) or not tested_versions:
 			errors.append(
@@ -720,6 +798,7 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 		"adapter_repository",
 		"adapter_license",
 		"network_terms",
+		"privacy_guide",
 	):
 		if not isinstance(sources.get(field_name), str) or not sources[field_name].strip():
 			errors.append(f"adapter metadata source {field_name} must not be empty")

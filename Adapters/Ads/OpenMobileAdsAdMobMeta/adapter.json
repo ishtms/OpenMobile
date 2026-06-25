@@ -10,6 +10,15 @@
 			"adapter_version": "6.21.0.4",
 			"network_sdk_version": "6.21.0",
 			"tested_provider_sdk_versions": ["25.4.0"],
+			"supported_formats": {
+				"Bidding": ["Banner", "Interstitial", "Rewarded", "RewardedInterstitial"]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterAutomatic",
+				"UsPrivacy": "AdapterAutomatic",
+				"ChildDirected": "ProviderForwarded",
+				"UnderAgeOfConsent": "ProviderForwarded"
+			},
 			"compatibility": {
 				"provider_sdk": {
 					"minimum": "25.4.0",
@@ -84,6 +93,15 @@
 			"adapter_version": "6.22.0.0",
 			"network_sdk_version": "6.22.0",
 			"tested_provider_sdk_versions": ["13.8.0"],
+			"supported_formats": {
+				"Bidding": ["Banner", "Interstitial", "Rewarded", "RewardedInterstitial"]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterAutomatic",
+				"UsPrivacy": "AdapterAutomatic",
+				"ChildDirected": "ProviderForwarded",
+				"UnderAgeOfConsent": "ProviderForwarded"
+			},
 			"compatibility": {
 				"provider_sdk": {
 					"minimum": "13.4.0",
@@ -176,6 +194,7 @@
 		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:facebook",
 		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
 		"network_terms": "https://developers.facebook.com/terms/",
+		"privacy_guide": "https://developers.google.com/admob/ios/mediation/meta",
 		"ios_package_manifest": "https://github.com/googleads/googleads-mobile-ios-mediation-meta/blob/main/Package.swift",
 		"ios_privacy_manifest": "https://developers.google.com/admob/ios/mediation/meta"
 	}
