@@ -16,6 +16,7 @@
 #include "UObject/CoreRedirects.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
+#include "OpenMobileHapticsDynamicParameterPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
@@ -136,11 +137,13 @@ namespace OpenMobileHapticsTests
 
 		virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 			const FOpenMobileHapticNamedPatternRequest& Request,
+			const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
 			LastNamedRequest = Request;
+			LastNamedPlaybackParameters = Parameters;
 			++NamedSubmissionCount;
 			LastToken = Token;
 			if (bFailNamedSubmissions)
@@ -165,6 +168,33 @@ namespace OpenMobileHapticsTests
 			Result.Outcome = ControlSupport.bStop
 				? EOpenMobileHapticControlOutcome::Accepted
 				: EOpenMobileHapticControlOutcome::Unsupported;
+			return Result;
+		}
+
+		virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			const FOpenMobileHapticDynamicParameterUpdate& Update
+		) override
+		{
+			LastDynamicToken = Token;
+			LastDynamicUpdate = Update;
+			++DynamicUpdateCount;
+			FOpenMobileHapticControlResult Result;
+			if (!ControlSupport.bDynamicParameters)
+			{
+				Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+			}
+			else if (bFailDynamicUpdates)
+			{
+				Result = FOpenMobileHapticControlResult::MakeRejected(
+					EOpenMobileErrorCode::NativeFailure,
+					TEXT("Injected dynamic parameter failure.")
+				);
+			}
+			else
+			{
+				Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			}
 			return Result;
 		}
 
@@ -222,6 +252,7 @@ namespace OpenMobileHapticsTests
 		bool bFailNamedSubmissions = false;
 		bool bBusyOneShot = false;
 		bool bOneShotControllable = true;
+		bool bFailDynamicUpdates = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
@@ -231,12 +262,17 @@ namespace OpenMobileHapticsTests
 		int32 LifecycleChangeCount = 0;
 		int32 StopChannelCount = 0;
 		int32 StopAllCount = 0;
+		int32 DynamicUpdateCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
+		FOpenMobileHapticsBackendRequestToken LastDynamicToken;
 		FName LastStoppedChannel;
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
 		FOpenMobileHapticOneShotRequest LastOneShotRequest;
 		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
+		FOpenMobileHapticsBackendPlaybackParameters
+			LastNamedPlaybackParameters;
+		FOpenMobileHapticDynamicParameterUpdate LastDynamicUpdate;
 		FOpenMobileHapticsSemanticResolution LastSemanticResolution;
 		FOpenMobileHapticsOneShotResolution LastOneShotResolution;
 		FName SubmissionResolvedPath;
@@ -3608,6 +3644,258 @@ bool FOpenMobileHapticsSemanticRateLimitTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsDynamicParameterPolicyTest,
+	"OpenMobile.Haptics.Playback.DynamicParameterCoalescing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsDynamicParameterPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsDynamicParameterPolicy Policy;
+	Policy.RegisterPlayback(7, 10.0);
+	const double MinimumIntervalSeconds = 1.0 / 60.0;
+
+	FOpenMobileHapticDynamicParameterUpdate Intensity;
+	Intensity.Intensity = 0.2f;
+	FOpenMobileHapticDynamicParameterUpdate Ready;
+	TestEqual(TEXT("First tick update is coalesced after initial submission"),
+		Policy.Queue(7, Intensity, 10.005, MinimumIntervalSeconds, Ready),
+		EOpenMobileHapticsDynamicParameterQueueOutcome::Coalesced);
+
+	FOpenMobileHapticDynamicParameterUpdate Sharpness;
+	Sharpness.bUpdateIntensity = false;
+	Sharpness.bUpdateSharpness = true;
+	Sharpness.Sharpness = 0.8f;
+	TestEqual(TEXT("Different parameters merge into one pending batch"),
+		Policy.Queue(7, Sharpness, 10.010, MinimumIntervalSeconds, Ready),
+		EOpenMobileHapticsDynamicParameterQueueOutcome::Coalesced);
+	Intensity.Intensity = 0.7f;
+	TestEqual(TEXT("Newest value replaces the pending value"),
+		Policy.Queue(7, Intensity, 10.012, MinimumIntervalSeconds, Ready),
+		EOpenMobileHapticsDynamicParameterQueueOutcome::Coalesced);
+
+	TArray<FOpenMobileHapticsScheduledDynamicParameterUpdate> Scheduled;
+	Policy.CollectReady(10.016, MinimumIntervalSeconds, Scheduled);
+	TestTrue(TEXT("Native rate boundary is enforced"), Scheduled.IsEmpty());
+	Policy.CollectReady(10.017, MinimumIntervalSeconds, Scheduled);
+	TestEqual(TEXT("One native batch becomes ready"), Scheduled.Num(), 1);
+	if (Scheduled.Num() == 1)
+	{
+		TestEqual(TEXT("Ready batch preserves playback ownership"),
+			Scheduled[0].RequestId, static_cast<uint64>(7));
+		TestEqual(TEXT("Ready batch keeps the latest intensity"),
+			Scheduled[0].Update.Intensity, 0.7f);
+		TestEqual(TEXT("Ready batch also keeps sharpness"),
+			Scheduled[0].Update.Sharpness, 0.8f);
+		Policy.MarkAttempted(7, 10.017);
+	}
+
+	Intensity.Intensity = 0.4f;
+	Policy.Queue(7, Intensity, 10.020, MinimumIntervalSeconds, Ready);
+	Policy.RemovePlayback(7);
+	Policy.CollectReady(11.0, MinimumIntervalSeconds, Scheduled);
+	TestTrue(TEXT("Stopping ownership drops queued updates"),
+		Scheduled.IsEmpty());
+
+	FOpenMobileHapticDynamicParameterUpdate Invalid;
+	Invalid.Intensity = std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("Nonfinite values are rejected"),
+		FOpenMobileHapticsDynamicParameterPolicy::IsValid(Invalid));
+	Invalid.Intensity = 1.0f;
+	Invalid.bUpdateIntensity = false;
+	TestFalse(TEXT("Empty updates are rejected"),
+		FOpenMobileHapticsDynamicParameterPolicy::IsValid(Invalid));
+	Invalid.bUpdateSharpness = true;
+	Invalid.Sharpness = std::numeric_limits<float>::infinity();
+	TestFalse(TEXT("Nonfinite sharpness is rejected"),
+		FOpenMobileHapticsDynamicParameterPolicy::IsValid(Invalid));
+	Invalid.Sharpness = 1.01f;
+	TestFalse(TEXT("Sharpness above the normalized range is rejected"),
+		FOpenMobileHapticsDynamicParameterPolicy::IsValid(Invalid));
+	Invalid.bUpdateSharpness = false;
+	Invalid.bUpdateIntensity = true;
+	Invalid.Intensity = -0.01f;
+	TestFalse(TEXT("Intensity below the normalized range is rejected"),
+		FOpenMobileHapticsDynamicParameterPolicy::IsValid(Invalid));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsDynamicParameterSubsystemTest,
+	"OpenMobile.Haptics.Playback.DynamicParameterLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("DynamicParameters"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.DynamicParameters =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bDynamicParameters = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	FOpenMobileHapticPlaybackOptions CombatOptions;
+	CombatOptions.Category = TEXT("Combat");
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("EngineLoop"),
+			1.0f,
+			CombatOptions
+		);
+	TestTrue(TEXT("Dynamic playback has a controllable handle"),
+		Playback.Handle.IsValid());
+	TestTrue(TEXT("Backend receives initial dynamic parameters"),
+		Backend.LastNamedPlaybackParameters.bHasInitialDynamicParameters);
+	TestEqual(TEXT("Initial runtime intensity is neutral"),
+		Backend.LastNamedPlaybackParameters.InitialDynamicParameters.Intensity,
+		1.0f);
+
+	FOpenMobileHapticDynamicParameterUpdate Update;
+	Update.Intensity = 0.2f;
+	Update.bUpdateSharpness = true;
+	Update.Sharpness = 0.75f;
+	TestEqual(TEXT("Valid handle update is accepted for coalescing"),
+		Subsystem->UpdatePlaybackParameters(Playback.Handle, Update).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Update.Intensity = 0.7f;
+	Subsystem->UpdatePlaybackParameters(Playback.Handle, Update);
+	TestEqual(TEXT("Gameplay ticks do not call the backend immediately"),
+		Backend.DynamicUpdateCount, 0);
+	const double FutureTime = FPlatformTime::Seconds() + 1.0;
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime);
+	TestEqual(TEXT("Coalesced values use one backend call"),
+		Backend.DynamicUpdateCount, 1);
+	TestEqual(TEXT("Latest intensity reaches the backend"),
+		Backend.LastDynamicUpdate.Intensity, 0.7f);
+	TestEqual(TEXT("Sharpness shares the same native batch"),
+		Backend.LastDynamicUpdate.Sharpness, 0.75f);
+
+	FOpenMobileHapticDynamicParameterUpdate Invalid = Update;
+	Invalid.Intensity = std::numeric_limits<float>::quiet_NaN();
+	TestEqual(TEXT("Nonfinite updates are rejected before queuing"),
+		Subsystem->UpdatePlaybackParameters(Playback.Handle, Invalid).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Invalid updates leave playback active"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+
+	Backend.ControlSupport.bDynamicParameters = false;
+	const int32 BeforeUnsupported = Backend.DynamicUpdateCount;
+	TestEqual(TEXT("Unsupported backend rejects the update"),
+		Subsystem->UpdatePlaybackParameters(Playback.Handle, Update).Outcome,
+		EOpenMobileHapticControlOutcome::Unsupported);
+	TestEqual(TEXT("Unsupported update never crosses the backend seam"),
+		Backend.DynamicUpdateCount, BeforeUnsupported);
+	TestEqual(TEXT("Unsupported update leaves playback active"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+	Backend.ControlSupport.bDynamicParameters = true;
+
+	FOpenMobileHapticPlaybackHandle Unknown;
+	Unknown.Id = FGuid(91, 0, 0, 1);
+	TestEqual(TEXT("Unknown dynamic handle is stale"),
+		Subsystem->UpdatePlaybackParameters(Unknown, Update).Outcome,
+		EOpenMobileHapticControlOutcome::StaleHandle);
+
+	Backend.bFailDynamicUpdates = true;
+	Subsystem->UpdatePlaybackParameters(Playback.Handle, Update);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 1.0);
+	TestEqual(TEXT("Native update failure leaves playback active"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+	TestEqual(TEXT("Native update failure reaches diagnostics"),
+		Subsystem->GetDiagnostics().LastError.Code,
+		EOpenMobileHapticErrorCode::NativeEngineFailure);
+	const int32 AfterNativeFailure = Backend.DynamicUpdateCount;
+	Subsystem->UpdatePlaybackParameters(Playback.Handle, Update);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 1.001);
+	TestEqual(TEXT("Failed native calls still advance the rate limit"),
+		Backend.DynamicUpdateCount, AfterNativeFailure);
+	Backend.bFailDynamicUpdates = false;
+
+	const int32 BeforeStop = Backend.DynamicUpdateCount;
+	Subsystem->UpdatePlaybackParameters(Playback.Handle, Update);
+	Subsystem->StopPlayback(Playback.Handle);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 2.0);
+	TestEqual(TEXT("Stop removes a racing queued update"),
+		Backend.DynamicUpdateCount, BeforeStop);
+
+	const FOpenMobileHapticPlaybackResult ResetPlayback =
+		Subsystem->PlayNamedPattern(TEXT("ResetLoop"));
+	Subsystem->UpdatePlaybackParameters(ResetPlayback.Handle, Update);
+	const int32 BeforeReset = Backend.DynamicUpdateCount;
+	Backend.Emit(1, EOpenMobileHapticPlaybackState::Failed, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 3.0);
+	TestEqual(TEXT("Engine reset drops its queued update"),
+		Backend.DynamicUpdateCount, BeforeReset);
+	TestEqual(TEXT("Reset playback handle becomes stale"),
+		Subsystem->UpdatePlaybackParameters(ResetPlayback.Handle, Update).Outcome,
+		EOpenMobileHapticControlOutcome::StaleHandle);
+
+	const FOpenMobileHapticPlaybackResult PolicyPlayback =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("PolicyLoop"),
+			1.0f,
+			CombatOptions
+		);
+	FOpenMobileHapticUserPolicy Policy = Subsystem->GetUserPolicy();
+	Policy.MasterIntensity = 0.5f;
+	Policy.CategoryScales.Add(TEXT("Combat"), 0.5f);
+	TestEqual(TEXT("Policy change remains accepted"),
+		Subsystem->SetUserPolicy(Policy).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 4.0);
+	TestEqual(TEXT("Active player receives master and category scales"),
+		Backend.LastDynamicUpdate.Intensity, 0.25f);
+	TestEqual(TEXT("Policy update preserves the owning request"),
+		Backend.LastDynamicToken.PlaybackHandle, PolicyPlayback.Handle);
+
+	Update.bUpdateSharpness = false;
+	Update.Intensity = 0.8f;
+	Subsystem->UpdatePlaybackParameters(PolicyPlayback.Handle, Update);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 5.0);
+	TestEqual(TEXT("Runtime and policy intensity compose once"),
+		Backend.LastDynamicUpdate.Intensity, 0.2f);
+	Policy.bEnabled = false;
+	Subsystem->SetUserPolicy(Policy);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 6.0);
+	TestEqual(TEXT("Disabling policy mutes active compatible playback"),
+		Backend.LastDynamicUpdate.Intensity, 0.0f);
+	Policy.bEnabled = true;
+	Subsystem->SetUserPolicy(Policy);
+	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 7.0);
+	TestEqual(TEXT("Re-enabling policy restores composed intensity"),
+		Backend.LastDynamicUpdate.Intensity, 0.2f);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsTypeDefaultsTest,
 	"OpenMobile.Haptics.API.TypeDefaults",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -3663,6 +3951,15 @@ bool FOpenMobileHapticsTypeDefaultsTest::RunTest(const FString& Parameters)
 	const FOpenMobileHapticUserPolicy Policy;
 	TestTrue(TEXT("Haptics are enabled by default"), Policy.bEnabled);
 	TestEqual(TEXT("Master intensity defaults to one"), Policy.MasterIntensity, 1.0f);
+	const FOpenMobileHapticDynamicParameterUpdate DynamicUpdate;
+	TestTrue(TEXT("Runtime updates target intensity by default"),
+		DynamicUpdate.bUpdateIntensity);
+	TestEqual(TEXT("Runtime intensity defaults to neutral"),
+		DynamicUpdate.Intensity, 1.0f);
+	TestFalse(TEXT("Runtime sharpness requires explicit opt-in"),
+		DynamicUpdate.bUpdateSharpness);
+	TestEqual(TEXT("Runtime sharpness defaults to neutral"),
+		DynamicUpdate.Sharpness, 0.5f);
 	return true;
 }
 
@@ -3739,6 +4036,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->MaximumPatternCurveCount, 16);
 	TestEqual(TEXT("Portable curves have a bounded point count"),
 		Settings->MaximumPatternCurvePointCount, 256);
+	TestEqual(TEXT("Runtime parameter calls have a bounded rate"),
+		Settings->MaximumDynamicParameterUpdatesPerSecond, 60);
 	const FIntProperty* CurveCountProperty = FindFProperty<FIntProperty>(
 		UOpenMobileHapticsSettings::StaticClass(),
 		GET_MEMBER_NAME_CHECKED(
@@ -3801,6 +4100,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Zero curve point limit is invalid"),
 		Settings->Validate(Errors));
 	Settings->MaximumPatternCurvePointCount = 256;
+	Settings->MaximumDynamicParameterUpdatesPerSecond = 0;
+	TestFalse(TEXT("Zero runtime parameter rate is invalid"),
+		Settings->Validate(Errors));
+	Settings->MaximumDynamicParameterUpdatesPerSecond = 60;
 
 	Settings->BackgroundPolicy =
 		EOpenMobileHapticBackgroundPolicy::AllowAll;
@@ -3826,6 +4129,7 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->MaximumQueuedHandles = 12;
 	Settings->MaximumPatternCurveCount = 12;
 	Settings->MaximumPatternCurvePointCount = 192;
+	Settings->MaximumDynamicParameterUpdatesPerSecond = 90;
 	Settings->SelectionDebounceSeconds = 0.06f;
 	Settings->Channels[0].IntensityScale = 0.6f;
 	Effect.IntensityScale = 0.8f;
@@ -3864,6 +4168,11 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Curve point limit survives editor restart serialization"),
 		Loaded->MaximumPatternCurvePointCount,
 		192
+	);
+	TestEqual(
+		TEXT("Runtime parameter rate survives editor restart serialization"),
+		Loaded->MaximumDynamicParameterUpdatesPerSecond,
+		90
 	);
 	TestEqual(
 		TEXT("Rate limit survives editor restart serialization"),

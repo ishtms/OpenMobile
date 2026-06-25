@@ -266,6 +266,18 @@ FOpenMobileHapticsAppleBridgeService::StopPattern(uint64 RequestId)
 		: Bridge->StopPattern(RequestId);
 }
 
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::UpdatePattern(
+	uint64 RequestId,
+	const FOpenMobileHapticDynamicParameterUpdate& Update
+)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->UpdatePattern(RequestId, Update);
+}
+
 void FOpenMobileHapticsAppleBridgeService::SetEventCallback(
 	FOpenMobileHapticsAppleBridgeEventCallback Callback
 )

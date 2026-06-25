@@ -23,11 +23,74 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			&& Value <= Maximum;
 	}
 
+	bool ValidateDynamicParameters(
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	)
+	{
+		if (!Update.bUpdateIntensity && !Update.bUpdateSharpness)
+		{
+			return false;
+		}
+		if (Update.bUpdateIntensity
+			&& !IsFiniteInRange(Update.Intensity, 0.0, 1.0))
+		{
+			return false;
+		}
+		return !Update.bUpdateSharpness
+			|| IsFiniteInRange(Update.Sharpness, 0.0, 1.0);
+	}
+
+	bool SendDynamicParameters(
+		id<CHHapticAdvancedPatternPlayer> Player,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	)
+	{
+		if (!Player || !ValidateDynamicParameters(Update))
+		{
+			return false;
+		}
+		NSMutableArray<CHHapticDynamicParameter*>* Parameters =
+			[[NSMutableArray alloc] initWithCapacity:2];
+		if (Update.bUpdateIntensity)
+		{
+			CHHapticDynamicParameter* Parameter =
+				[[CHHapticDynamicParameter alloc]
+					initWithParameterID:
+						CHHapticDynamicParameterIDHapticIntensityControl
+					value:Update.Intensity
+					relativeTime:0.0];
+			[Parameters addObject:Parameter];
+			[Parameter release];
+		}
+		if (Update.bUpdateSharpness)
+		{
+			CHHapticDynamicParameter* Parameter =
+				[[CHHapticDynamicParameter alloc]
+					initWithParameterID:
+						CHHapticDynamicParameterIDHapticSharpnessControl
+					value:Update.Sharpness * 2.0f - 1.0f
+					relativeTime:0.0];
+			[Parameters addObject:Parameter];
+			[Parameter release];
+		}
+		NSError* Error = nil;
+		const bool bSent = [Player
+			sendParameters:Parameters
+			atTime:CHHapticTimeImmediate
+			error:&Error] && !Error;
+		[Parameters release];
+		return bSent;
+	}
+
 	bool ValidateContinuousPattern(
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern
 	)
 	{
 		if (!Pattern.IsValid()
+			|| (Pattern.bHasInitialDynamicParameters
+				&& !ValidateDynamicParameters(
+					Pattern.InitialDynamicParameters
+				))
 			|| Pattern.Events.Num() > MaximumNativeEventCount
 			|| Pattern.ParameterCurves.Num() > MaximumNativeCurveCount
 			|| !IsFiniteInRange(
@@ -209,6 +272,9 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (void)handleSafetyTimer:(NSTimer*)Timer;
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key;
 - (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId;
+- (EOpenMobileHapticsAppleSubmissionResult)updatePattern:
+	(uint64)RequestId
+	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update;
 - (void)completePattern:(uint64)RequestId
 	event:(EOpenMobileHapticsApplePlaybackEvent)Event;
 - (void)failAllPatterns;
@@ -468,7 +534,12 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
 	}
-	if (!Engine || !Pattern.IsValid())
+	if (!Engine
+		|| !Pattern.IsValid()
+		|| (Pattern.bHasInitialDynamicParameters
+			&& !OpenMobileHapticsIOSBridgePrivate::ValidateDynamicParameters(
+				Pattern.InitialDynamicParameters
+			)))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
 	}
@@ -545,6 +616,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		[Engine createAdvancedPlayerWithPattern:NativePattern error:&Error];
 	[NativePattern release];
 	if (!Player || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (Pattern.bHasInitialDynamicParameters
+		&& !OpenMobileHapticsIOSBridgePrivate::SendDynamicParameters(
+			Player,
+			Pattern.InitialDynamicParameters
+		))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
@@ -701,6 +780,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
+	if (Pattern.bHasInitialDynamicParameters
+		&& !OpenMobileHapticsIOSBridgePrivate::SendDynamicParameters(
+			Player,
+			Pattern.InitialDynamicParameters
+		))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
 	Player.loopEnabled = Pattern.bLoop;
 	Player.loopEnd = Pattern.LoopEndSeconds;
 	NSTimer* SafetyTimer = nil;
@@ -846,6 +933,30 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	[Players removeObjectForKey:Key];
 	PlaybackCallbacks.Remove(RequestId);
 	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)updatePattern:
+	(uint64)RequestId
+	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update
+{
+	using namespace OpenMobileHapticsIOSBridgePrivate;
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	if (!Engine || RequestId == 0 || !ValidateDynamicParameters(Update))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	if (!Player)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+	return SendDynamicParameters(Player, Update)
+		? EOpenMobileHapticsAppleSubmissionResult::Accepted
+		: EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 }
 
 - (void)releaseGenerators
@@ -1092,6 +1203,27 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			RunOnMainQueue([Service, RequestId, &Result]()
 			{
 				Result = [Service stopPattern:RequestId];
+			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
+			uint64 RequestId,
+			const FOpenMobileHapticDynamicParameterUpdate& Update
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, &Update, &Result]()
+			{
+				Result = [Service
+					updatePattern:RequestId
+					parameters:Update];
 			});
 			return Result;
 		}

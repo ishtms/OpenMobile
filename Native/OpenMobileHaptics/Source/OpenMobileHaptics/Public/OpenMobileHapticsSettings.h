@@ -187,6 +187,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "1", ClampMax = "100"))
 	int32 MaximumSubmissionsPerSecond = 30;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "1", ClampMax = "240", DisplayName = "Maximum Dynamic Parameter Updates Per Second", ToolTip = "Maximum native dynamic-parameter submissions per active playback handle. Newer values replace pending values within the interval."))
+	int32 MaximumDynamicParameterUpdatesPerSecond = 60;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float SelectionDebounceSeconds = 0.04f;
 

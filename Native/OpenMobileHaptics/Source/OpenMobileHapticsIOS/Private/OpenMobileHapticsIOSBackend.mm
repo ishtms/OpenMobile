@@ -306,7 +306,9 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.ContinuousEvents = bCoreHapticsEnabled
 		? Supported
 		: Unsupported;
-	Capabilities.DynamicParameters = Unsupported;
+	Capabilities.DynamicParameters = bCoreHapticsEnabled
+		? Supported
+		: Unsupported;
 	Capabilities.AudioEvents = Unsupported;
 	Capabilities.AHAP = Unsupported;
 	Capabilities.Scheduling = Unsupported;
@@ -334,6 +336,7 @@ FOpenMobileHapticsIOSBackend::GetControlSupport() const
 		GetDefault<UOpenMobileHapticsSettings>();
 	Support.bStop = Settings->bEnableCustomPlayback
 		&& Settings->IOS.bEnableCoreHaptics;
+	Support.bDynamicParameters = Support.bStop;
 	return Support;
 }
 
@@ -494,6 +497,7 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	const FOpenMobileHapticNamedPatternRequest& Request,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
@@ -511,6 +515,19 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			TEXT("The named pattern has no loaded portable Apple asset.")
 		);
 		return Submission;
+	}
+	FOpenMobileHapticNamedPatternRequest FallbackRequest = Request;
+	if (Parameters.bHasInitialDynamicParameters
+		&& Parameters.InitialDynamicParameters.bUpdateIntensity)
+	{
+		FallbackRequest.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+			Request.Intensity,
+			Parameters.InitialDynamicParameters.Intensity,
+			1.0f,
+			1.0f,
+			1.0f,
+			1.0f
+		);
 	}
 
 	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
@@ -544,7 +561,7 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	{
 		return SubmitFallbackResolution(
 			*BridgeService,
-			Request,
+			FallbackRequest,
 			*Pattern,
 			Ladder,
 			MoveTemp(Attempts)
@@ -678,11 +695,26 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		);
 		return SubmitFallbackResolution(
 			*BridgeService,
-			Request,
+			FallbackRequest,
 			*Pattern,
 			Fallback,
 			MoveTemp(Attempts)
 		);
+	}
+	if (Parameters.bHasInitialDynamicParameters)
+	{
+		if (bUseContinuousTranslation)
+		{
+			Continuous.Pattern.bHasInitialDynamicParameters = true;
+			Continuous.Pattern.InitialDynamicParameters =
+				Parameters.InitialDynamicParameters;
+		}
+		else
+		{
+			Transient.Pattern.bHasInitialDynamicParameters = true;
+			Transient.Pattern.InitialDynamicParameters =
+				Parameters.InitialDynamicParameters;
+		}
 	}
 
 	const EOpenMobileHapticsAppleEngineResult EngineResult =
@@ -709,7 +741,7 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			);
 			return SubmitFallbackResolution(
 				*BridgeService,
-				Request,
+				FallbackRequest,
 				*Pattern,
 				Fallback,
 				MoveTemp(Attempts)
@@ -791,6 +823,46 @@ FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::StopPlayback(
 			? EOpenMobileErrorCode::NotSupported
 			: EOpenMobileErrorCode::NativeFailure,
 		TEXT("Apple could not stop the pattern.")
+	);
+}
+
+FOpenMobileHapticControlResult
+FOpenMobileHapticsIOSBackend::UpdatePlaybackParameters(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticDynamicParameterUpdate& Update
+)
+{
+	const EOpenMobileHapticsAppleSubmissionResult Result =
+		BridgeService->UpdatePattern(Token.RequestId, Update);
+	FOpenMobileHapticControlResult Control;
+	if (Result == EOpenMobileHapticsAppleSubmissionResult::Accepted)
+	{
+		Control.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+		return Control;
+	}
+	if (Result == EOpenMobileHapticsAppleSubmissionResult::StaleRequest)
+	{
+		Control.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		Control.Error = FOpenMobileHapticError::FromCommon(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Apple pattern is no longer active."),
+			EOpenMobileHapticFailureStage::Playback
+		);
+		return Control;
+	}
+	if (Result == EOpenMobileHapticsAppleSubmissionResult::Unsupported)
+	{
+		Control.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		Control.Error = FOpenMobileHapticError::FromCommon(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Apple dynamic Haptics parameters are unavailable."),
+			EOpenMobileHapticFailureStage::Capability
+		);
+		return Control;
+	}
+	return FOpenMobileHapticControlResult::MakeRejected(
+		EOpenMobileErrorCode::NativeFailure,
+		TEXT("Apple could not update the pattern parameters.")
 	);
 }
 

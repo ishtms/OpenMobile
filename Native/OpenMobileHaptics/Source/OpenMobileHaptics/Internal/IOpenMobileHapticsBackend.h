@@ -65,6 +65,12 @@ struct FOpenMobileHapticsBackendSubmission
 	bool bExpectsCallbacks = false;
 };
 
+struct FOpenMobileHapticsBackendPlaybackParameters
+{
+	bool bHasInitialDynamicParameters = false;
+	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
+};
+
 class IOpenMobileHapticsBackend : public IModularFeature
 {
 public:
@@ -101,6 +107,7 @@ public:
 	) = 0;
 	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) = 0;
@@ -108,6 +115,17 @@ public:
 	virtual FOpenMobileHapticControlResult StopPlayback(
 		const FOpenMobileHapticsBackendRequestToken& Token
 	) = 0;
+	virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	)
+	{
+		static_cast<void>(Token);
+		static_cast<void>(Update);
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		return Result;
+	}
 	virtual FOpenMobileHapticControlResult StopChannel(FName Channel)
 	{
 		static_cast<void>(Channel);

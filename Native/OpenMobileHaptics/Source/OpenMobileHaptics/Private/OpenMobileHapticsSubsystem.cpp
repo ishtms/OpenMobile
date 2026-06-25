@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsSubsystem.h"
 
 #include "Async/Async.h"
+#include "Containers/Ticker.h"
 #include "Engine/AssetManager.h"
 #include "Engine/StreamableManager.h"
 #include "HAL/PlatformTime.h"
@@ -10,6 +11,7 @@
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
+#include "OpenMobileHapticsDynamicParameterPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticsLibraryResolver.h"
@@ -23,6 +25,11 @@ struct FOpenMobileHapticsSubsystemRequestState
 	FOpenMobileHapticsBackendRequestToken Token;
 	uint64 LastCallbackSequence = 0;
 	FName Channel;
+	FName Category;
+	FName Effect;
+	float RuntimeIntensity = 1.0f;
+	float RuntimeSharpness = 0.5f;
+	bool bSupportsDynamicParameters = false;
 };
 
 struct FOpenMobileHapticsSubsystemState
@@ -47,6 +54,8 @@ struct FOpenMobileHapticsSubsystemState
 	EOpenMobileHapticNamedPatternStatus LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
 	FOpenMobileHapticsRateLimiter RateLimiter;
+	FOpenMobileHapticsDynamicParameterPolicy DynamicParameterPolicy;
+	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
 };
 
 void FOpenMobileHapticsSubsystemStateDeleter::operator()(
@@ -103,6 +112,36 @@ namespace OpenMobileHapticsSubsystemPrivate
 	{
 		const float* Scale = Scales.Find(Name);
 		return Scale ? *Scale : 1.0f;
+	}
+
+	float ActivePolicyScale(
+		const FOpenMobileHapticUserPolicy& Policy,
+		const FOpenMobileHapticsSubsystemRequestState& Request
+	)
+	{
+		if (!Policy.bEnabled)
+		{
+			return 0.0f;
+		}
+		return FOpenMobileHapticsIntensityPolicy::Scale(
+			1.0f,
+			Policy.MasterIntensity,
+			FindScale(Policy.CategoryScales, Request.Category),
+			FindScale(Policy.EffectScales, Request.Effect),
+			1.0f,
+			1.0f
+		);
+	}
+
+	double DynamicParameterInterval(
+		const UOpenMobileHapticsSettings& Settings
+	)
+	{
+		return 1.0 / static_cast<double>(FMath::Clamp(
+			Settings.MaximumDynamicParameterUpdatesPerSecond,
+			1,
+			240
+		));
 	}
 
 	EOpenMobileHapticSemanticEffect GamePresetEffect(
@@ -211,6 +250,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 				State.RequestByHandle.Remove(Request->Token.PlaybackHandle);
 			}
 		}
+		State.DynamicParameterPolicy.RemovePlayback(RequestId);
 		State.Requests.Remove(RequestId);
 	}
 
@@ -279,6 +319,15 @@ namespace OpenMobileHapticsSubsystemPrivate
 			Result.Handle = Token.PlaybackHandle;
 			State.RequestByHandle.Add(Token.PlaybackHandle, Token.RequestId);
 			State.PlaybackStates.Add(Token.PlaybackHandle, Result.State);
+			const FOpenMobileHapticsSubsystemRequestState* Request =
+				State.Requests.Find(Token.RequestId);
+			if (Request && Request->bSupportsDynamicParameters)
+			{
+				State.DynamicParameterPolicy.RegisterPlayback(
+					Token.RequestId,
+					FPlatformTime::Seconds()
+				);
+			}
 		}
 		else
 		{
@@ -314,6 +363,13 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 	if (bDeinitialized)
 	{
 		return;
+	}
+	if (State && State->DynamicParameterTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(
+			State->DynamicParameterTickerHandle
+		);
+		State->DynamicParameterTickerHandle.Reset();
 	}
 	if (IOpenMobileHapticsBackend* Backend =
 		FOpenMobileHapticsBackendRegistry::FindBackend())
@@ -908,6 +964,15 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::CancelPlayback(
 	return CancelPlaybackNative(Handle);
 }
 
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::UpdatePlaybackParameters(
+	FOpenMobileHapticPlaybackHandle Handle,
+	const FOpenMobileHapticDynamicParameterUpdate& Update
+)
+{
+	return UpdatePlaybackParametersNative(Handle, Update);
+}
+
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannel(
 	FName Channel
 )
@@ -1044,8 +1109,16 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			break;
 		}
 	}
-	AdjustedRequest.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+	const float StaticIntensity = FOpenMobileHapticsIntensityPolicy::Scale(
 		Request.Intensity,
+		1.0f,
+		1.0f,
+		1.0f,
+		Request.Options.IntensityScale,
+		ProjectScale
+	);
+	const float MutablePolicyScale = FOpenMobileHapticsIntensityPolicy::Scale(
+		1.0f,
 		UserPolicy.MasterIntensity,
 		OpenMobileHapticsSubsystemPrivate::FindScale(
 			UserPolicy.CategoryScales,
@@ -1055,9 +1128,10 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			UserPolicy.EffectScales,
 			Descriptor.Name
 		),
-		Request.Options.IntensityScale,
-		ProjectScale
+		1.0f,
+		1.0f
 	);
+	AdjustedRequest.Intensity = StaticIntensity * MutablePolicyScale;
 	if (AdjustedRequest.Intensity <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
@@ -1102,16 +1176,31 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	bool bOverrideFailed = false;
 	if (!PatternOverride.IsNone())
 	{
+		const bool bSupportsDynamicParameters =
+			Capabilities.DynamicParameters
+				== EOpenMobileHapticSupportState::Supported
+			&& Backend->GetControlSupport().bDynamicParameters;
 		FOpenMobileHapticNamedPatternRequest NamedRequest;
 		NamedRequest.PatternName = PatternOverride;
-		NamedRequest.Intensity = AdjustedRequest.Intensity;
+		NamedRequest.Intensity = bSupportsDynamicParameters
+			? StaticIntensity
+			: AdjustedRequest.Intensity;
 		NamedRequest.Options = AdjustedRequest.Options;
+		FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
+		PlaybackParameters.bHasInitialDynamicParameters =
+			bSupportsDynamicParameters;
+		PlaybackParameters.InitialDynamicParameters.Intensity =
+			MutablePolicyScale;
 		const FOpenMobileHapticsBackendRequestToken OverrideToken =
 			FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
-		LocalState.Requests.Add(
-			OverrideToken.RequestId,
-			{OverrideToken, 0, Request.Options.Channel}
-		);
+		FOpenMobileHapticsSubsystemRequestState OverrideState;
+		OverrideState.Token = OverrideToken;
+		OverrideState.Channel = Request.Options.Channel;
+		OverrideState.Category = Request.Options.Category;
+		OverrideState.Effect = Descriptor.Name;
+		OverrideState.bSupportsDynamicParameters =
+			bSupportsDynamicParameters;
+		LocalState.Requests.Add(OverrideToken.RequestId, OverrideState);
 		FOpenMobileHapticPlaybackResult OverrideResult =
 			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 				LocalState,
@@ -1119,6 +1208,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 				Request.Options.Channel,
 				Backend->SubmitNamedPattern(
 					NamedRequest,
+					PlaybackParameters,
 					OverrideToken,
 					MakeBackendCallback()
 				)
@@ -1522,7 +1612,17 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 {
 	check(IsInGameThread());
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
-	if (Request.PatternName.IsNone())
+	if (Request.PatternName.IsNone()
+		|| !FMath::IsFinite(Request.Intensity)
+		|| Request.Intensity < 0.0f
+		|| Request.Intensity > 1.0f
+		|| !FMath::IsFinite(Request.Options.IntensityScale)
+		|| Request.Options.IntensityScale < 0.0f
+		|| Request.Options.IntensityScale > 1.0f
+		|| Request.Options.Channel.IsNone()
+		|| Request.Options.Category.IsNone()
+		|| static_cast<uint8>(Request.Options.OverlapPolicy)
+			> static_cast<uint8>(EOpenMobileHapticOverlapPolicy::MixWhenSupported))
 	{
 		FOpenMobileHapticPlaybackResult Result =
 			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
@@ -1533,6 +1633,13 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 			);
 		LocalState.LastError = Result.Error;
 		return Result;
+	}
+	if (!UserPolicy.bEnabled)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("PlayerPolicy")
+		);
 	}
 	IOpenMobileHapticsBackend* Backend = bDeinitialized
 		? nullptr
@@ -1545,6 +1652,53 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
+	float ProjectScale = 1.0f;
+	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
+	{
+		if (Channel.Name == Request.Options.Channel)
+		{
+			ProjectScale *= Channel.IntensityScale;
+			break;
+		}
+	}
+	for (const FOpenMobileHapticEffectSettings& Effect :
+		Settings->EffectOverrides)
+	{
+		if (Effect.Name == Request.PatternName)
+		{
+			ProjectScale *= Effect.IntensityScale;
+			break;
+		}
+	}
+	const float StaticIntensity = FOpenMobileHapticsIntensityPolicy::Scale(
+		Request.Intensity,
+		1.0f,
+		1.0f,
+		1.0f,
+		Request.Options.IntensityScale,
+		ProjectScale
+	);
+	const float MutablePolicyScale = FOpenMobileHapticsIntensityPolicy::Scale(
+		1.0f,
+		UserPolicy.MasterIntensity,
+		OpenMobileHapticsSubsystemPrivate::FindScale(
+			UserPolicy.CategoryScales,
+			Request.Options.Category
+		),
+		OpenMobileHapticsSubsystemPrivate::FindScale(
+			UserPolicy.EffectScales,
+			Request.PatternName
+		),
+		1.0f,
+		1.0f
+	);
+	if (StaticIntensity <= 0.0f || MutablePolicyScale <= 0.0f)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("ZeroIntensity")
+		);
+	}
 	if (!Settings->NamedLibraries.IsEmpty())
 	{
 		LocalState.LastNamedPattern = Request.PatternName;
@@ -1585,22 +1739,49 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		}
 	}
 
+	const FOpenMobileHapticCapabilities Capabilities =
+		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	const bool bSupportsDynamicParameters =
+		Capabilities.DynamicParameters
+			== EOpenMobileHapticSupportState::Supported
+		&& Backend->GetControlSupport().bDynamicParameters;
+	ResolvedRequest.Intensity = bSupportsDynamicParameters
+		? StaticIntensity
+		: StaticIntensity * MutablePolicyScale;
+	FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
+	PlaybackParameters.bHasInitialDynamicParameters =
+		bSupportsDynamicParameters;
+	PlaybackParameters.InitialDynamicParameters.Intensity =
+		MutablePolicyScale;
+
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
-	LocalState.Requests.Add(
-		Token.RequestId,
-		{Token, 0, ResolvedRequest.Options.Channel}
-	);
-	return OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
+	FOpenMobileHapticsSubsystemRequestState RequestState;
+	RequestState.Token = Token;
+	RequestState.Channel = ResolvedRequest.Options.Channel;
+	RequestState.Category = ResolvedRequest.Options.Category;
+	RequestState.Effect = ResolvedRequest.PatternName;
+	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
+	LocalState.Requests.Add(Token.RequestId, RequestState);
+	FOpenMobileHapticPlaybackResult Result =
+		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
 		Token,
 		ResolvedRequest.Options.Channel,
 		Backend->SubmitNamedPattern(
 			ResolvedRequest,
+			PlaybackParameters,
 			Token,
 			MakeBackendCallback()
 		)
 	);
+	if (Result.IsAccepted())
+	{
+		Result.Intensity.Requested = Request.Intensity;
+		Result.Intensity.Resolved = StaticIntensity * MutablePolicyScale;
+		LocalState.LastIntensity = Result.Intensity;
+	}
+	return Result;
 }
 
 void UOpenMobileHapticsSubsystem::CompleteControlledRequest(
@@ -1740,6 +1921,287 @@ UOpenMobileHapticsSubsystem::CancelPlaybackNative(
 	);
 }
 
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::UpdatePlaybackParametersNative(
+	FOpenMobileHapticPlaybackHandle Handle,
+	const FOpenMobileHapticDynamicParameterUpdate& Update
+)
+{
+	check(IsInGameThread());
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	if (!FOpenMobileHapticsDynamicParameterPolicy::IsValid(Update))
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::InvalidRequest;
+		Context.Stage = EOpenMobileHapticFailureStage::Validation;
+		Context.Handle = Handle;
+		return FOpenMobileHapticControlResult::MakeRejected(
+			FOpenMobileHapticsErrorMapper::Map(Context)
+		);
+	}
+
+	const uint64* RequestId = LocalState.RequestByHandle.Find(Handle);
+	FOpenMobileHapticsSubsystemRequestState* Request = RequestId
+		? LocalState.Requests.Find(*RequestId)
+		: nullptr;
+	if (!Request)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = Handle.IsValid();
+		FOpenMobileHapticControlResult Result =
+			FOpenMobileHapticControlResult::MakeRejected(
+				FOpenMobileHapticsErrorMapper::Map(Context)
+			);
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		return Result;
+	}
+
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Backend
+		|| !FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
+		|| Backend->GetBackendName() != Request->Token.BackendName)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = true;
+		Result.Error = FOpenMobileHapticsErrorMapper::Map(Context);
+		return Result;
+	}
+	if (!Request->bSupportsDynamicParameters
+		|| !Backend->GetControlSupport().bDynamicParameters)
+	{
+		FOpenMobileHapticControlResult Result =
+			OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
+		Result.Error.Handle = Handle;
+		Result.Error.bRejectedBeforeSubmission = false;
+		return Result;
+	}
+
+	FOpenMobileHapticDynamicParameterUpdate EffectiveUpdate = Update;
+	if (Update.bUpdateIntensity)
+	{
+		EffectiveUpdate.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+			Update.Intensity,
+			OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
+				UserPolicy,
+				*Request
+			),
+			1.0f,
+			1.0f,
+			1.0f,
+			1.0f
+		);
+	}
+	return QueueDynamicParameterUpdate(
+		Request->Token.RequestId,
+		EffectiveUpdate,
+		&Update
+	);
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::QueueDynamicParameterUpdate(
+	uint64 RequestId,
+	const FOpenMobileHapticDynamicParameterUpdate& EffectiveUpdate,
+	const FOpenMobileHapticDynamicParameterUpdate* RequestedUpdate
+)
+{
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		LocalState.Requests.Find(RequestId);
+	if (!Request)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		return Result;
+	}
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	const double MinimumIntervalSeconds =
+		OpenMobileHapticsSubsystemPrivate::DynamicParameterInterval(*Settings);
+	const double NowSeconds = FPlatformTime::Seconds();
+	FOpenMobileHapticDynamicParameterUpdate Ready;
+	const EOpenMobileHapticsDynamicParameterQueueOutcome QueueOutcome =
+		LocalState.DynamicParameterPolicy.Queue(
+			RequestId,
+			EffectiveUpdate,
+			NowSeconds,
+			MinimumIntervalSeconds,
+			Ready
+		);
+	if (QueueOutcome
+		== EOpenMobileHapticsDynamicParameterQueueOutcome::Invalid)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::Internal;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Request->Token.PlaybackHandle;
+		Context.bAfterAcceptance = true;
+		return FOpenMobileHapticControlResult::MakeRejected(
+			FOpenMobileHapticsErrorMapper::Map(Context)
+		);
+	}
+
+	FOpenMobileHapticControlResult Result;
+	if (QueueOutcome == EOpenMobileHapticsDynamicParameterQueueOutcome::Ready)
+	{
+		Result = SubmitDynamicParameterUpdate(RequestId, Ready, NowSeconds);
+		if (Result.Outcome != EOpenMobileHapticControlOutcome::Accepted)
+		{
+			return Result;
+		}
+	}
+	else
+	{
+		Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+		ScheduleDynamicParameterFlush();
+	}
+
+	if (RequestedUpdate)
+	{
+		if (RequestedUpdate->bUpdateIntensity)
+		{
+			Request->RuntimeIntensity = RequestedUpdate->Intensity;
+		}
+		if (RequestedUpdate->bUpdateSharpness)
+		{
+			Request->RuntimeSharpness = RequestedUpdate->Sharpness;
+		}
+	}
+	return Result;
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::SubmitDynamicParameterUpdate(
+	uint64 RequestId,
+	const FOpenMobileHapticDynamicParameterUpdate& Update,
+	double SubmissionTimeSeconds
+)
+{
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		LocalState.Requests.Find(RequestId);
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Request
+		|| !Backend
+		|| !FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
+		|| Backend->GetBackendName() != Request->Token.BackendName)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		return Result;
+	}
+	if (!Request->bSupportsDynamicParameters
+		|| !Backend->GetControlSupport().bDynamicParameters)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
+	}
+
+	FOpenMobileHapticControlResult Result =
+		Backend->UpdatePlaybackParameters(Request->Token, Update);
+	LocalState.DynamicParameterPolicy.MarkAttempted(
+		RequestId,
+		SubmissionTimeSeconds
+	);
+	if (Result.Outcome == EOpenMobileHapticControlOutcome::Accepted)
+	{
+		return Result;
+	}
+
+	FOpenMobileHapticsErrorContext Context;
+	Context.Reason = Result.Outcome
+		== EOpenMobileHapticControlOutcome::Unsupported
+			? EOpenMobileHapticsFailureReason::UnsupportedFeature
+			: Result.Outcome == EOpenMobileHapticControlOutcome::StaleHandle
+				? EOpenMobileHapticsFailureReason::BackendUnavailable
+				: EOpenMobileHapticsFailureReason::NativeEngineFailure;
+	Context.Stage = EOpenMobileHapticFailureStage::Playback;
+	Context.Handle = Request->Token.PlaybackHandle;
+	Context.Channel = Request->Channel;
+	Context.bAfterAcceptance = true;
+	Result.Error = FOpenMobileHapticsErrorMapper::Complete(
+		MoveTemp(Result.Error),
+		Context
+	);
+	Result.Error.bRejectedBeforeSubmission = false;
+	LocalState.LastError = Result.Error;
+	return Result;
+}
+
+void UOpenMobileHapticsSubsystem::ScheduleDynamicParameterFlush()
+{
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	if (LocalState.DynamicParameterTickerHandle.IsValid() || bDeinitialized)
+	{
+		return;
+	}
+	LocalState.DynamicParameterTickerHandle =
+		FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(
+			this,
+			&UOpenMobileHapticsSubsystem::TickDynamicParameterUpdates
+		)
+	);
+}
+
+void UOpenMobileHapticsSubsystem::FlushDynamicParameterUpdates(
+	double NowSeconds
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	const double MinimumIntervalSeconds =
+		OpenMobileHapticsSubsystemPrivate::DynamicParameterInterval(*Settings);
+	TArray<FOpenMobileHapticsScheduledDynamicParameterUpdate> Updates;
+	State->DynamicParameterPolicy.CollectReady(
+		NowSeconds,
+		MinimumIntervalSeconds,
+		Updates
+	);
+	for (const FOpenMobileHapticsScheduledDynamicParameterUpdate& Update :
+		Updates)
+	{
+		SubmitDynamicParameterUpdate(
+			Update.RequestId,
+			Update.Update,
+			NowSeconds
+		);
+	}
+}
+
+bool UOpenMobileHapticsSubsystem::TickDynamicParameterUpdates(
+	float DeltaTime
+)
+{
+	static_cast<void>(DeltaTime);
+	FlushDynamicParameterUpdates(FPlatformTime::Seconds());
+	if (State && State->DynamicParameterPolicy.HasPending())
+	{
+		return true;
+	}
+	if (State)
+	{
+		State->DynamicParameterTickerHandle.Reset();
+	}
+	return false;
+}
+
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannelNative(
 	FName Channel
 )
@@ -1845,6 +2307,7 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 	const FOpenMobileHapticUserPolicy& Policy
 )
 {
+	check(IsInGameThread());
 	if (!FMath::IsFinite(Policy.MasterIntensity)
 		|| Policy.MasterIntensity < 0.0f
 		|| Policy.MasterIntensity > 1.0f
@@ -1865,6 +2328,33 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 
 	UserPolicy = Policy;
 	bUserPolicyEnabled.Store(Policy.bEnabled);
+	if (State)
+	{
+		TArray<uint64> RequestIds;
+		State->Requests.GetKeys(RequestIds);
+		for (const uint64 RequestId : RequestIds)
+		{
+			const FOpenMobileHapticsSubsystemRequestState* Request =
+				State->Requests.Find(RequestId);
+			if (!Request || !Request->bSupportsDynamicParameters)
+			{
+				continue;
+			}
+			FOpenMobileHapticDynamicParameterUpdate Update;
+			Update.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+				Request->RuntimeIntensity,
+				OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
+					Policy,
+					*Request
+				),
+				1.0f,
+				1.0f,
+				1.0f,
+				1.0f
+			);
+			QueueDynamicParameterUpdate(RequestId, Update, nullptr);
+		}
+	}
 	FOpenMobileHapticControlResult Result;
 	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 	return Result;

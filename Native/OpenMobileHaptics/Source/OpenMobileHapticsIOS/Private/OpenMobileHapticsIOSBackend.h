@@ -30,11 +30,16 @@ public:
 	) override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
 	virtual FOpenMobileHapticControlResult StopPlayback(
 		const FOpenMobileHapticsBackendRequestToken& Token
+	) override;
+	virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
 	) override;
 	virtual void BeginShutdown() override;
 

@@ -45,11 +45,13 @@ public:
 	}
 	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override
 	{
 		static_cast<void>(Request);
+		static_cast<void>(Parameters);
 		static_cast<void>(Token);
 		static_cast<void>(Callback);
 		return MakeUnsupportedSubmission();

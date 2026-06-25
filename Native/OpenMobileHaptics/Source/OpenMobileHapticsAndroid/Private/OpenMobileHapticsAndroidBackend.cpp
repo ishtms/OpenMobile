@@ -949,11 +949,13 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 	const FOpenMobileHapticNamedPatternRequest& Request,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
+	static_cast<void>(Parameters);
 	const bool bCustomPlaybackConfigured = IsCustomPlaybackConfigured();
 	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
 	const int32 Purpose = PurposeFor(Request.Options.Category);

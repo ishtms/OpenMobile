@@ -33,6 +33,7 @@ enum class EOpenMobileHapticsAppleSubmissionResult : uint8
 {
 	Accepted,
 	Unsupported,
+	StaleRequest,
 	NativeFailure,
 	ShuttingDown
 };
@@ -81,6 +82,10 @@ public:
 	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 		uint64 RequestId
 	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
+		uint64 RequestId,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	) = 0;
 	virtual void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	) = 0;
@@ -114,6 +119,10 @@ public:
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	);
 	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);
+	EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
+		uint64 RequestId,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	);
 	void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	);

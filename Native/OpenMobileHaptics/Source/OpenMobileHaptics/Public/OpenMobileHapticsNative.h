@@ -33,6 +33,10 @@ public:
 	virtual FOpenMobileHapticControlResult CancelPlaybackNative(
 		FOpenMobileHapticPlaybackHandle Handle
 	) = 0;
+	virtual FOpenMobileHapticControlResult UpdatePlaybackParametersNative(
+		FOpenMobileHapticPlaybackHandle Handle,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	) = 0;
 	virtual FOpenMobileHapticControlResult StopChannelNative(
 		FName Channel
 	) = 0;

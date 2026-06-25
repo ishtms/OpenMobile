@@ -73,6 +73,17 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return StopResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
+			uint64 RequestId,
+			const FOpenMobileHapticDynamicParameterUpdate& Update
+		) override
+		{
+			++UpdateCount;
+			LastRequestId = RequestId;
+			LastUpdate = Update;
+			return UpdateResult;
+		}
+
 		virtual void SetEventCallback(
 			FOpenMobileHapticsAppleBridgeEventCallback Callback
 		) override
@@ -111,15 +122,19 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult StopResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult UpdateResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		int32 QueryCount = 0;
 		int32 CreateEngineCount = 0;
 		int32 ShutdownCount = 0;
 		int32 TransientSubmissionCount = 0;
 		int32 ContinuousSubmissionCount = 0;
 		int32 StopCount = 0;
+		int32 UpdateCount = 0;
 		uint64 LastRequestId = 0;
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
+		FOpenMobileHapticDynamicParameterUpdate LastUpdate;
 		FOpenMobileHapticsAppleBridgeEventCallback EventCallback;
 		FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
 	};
@@ -404,6 +419,21 @@ bool FOpenMobileHapticsAppleContinuousBridgeTest::RunTest(
 		EOpenMobileHapticsAppleSubmissionResult::Accepted);
 	TestEqual(TEXT("Continuous cancellation keeps request identity"),
 		Mock->LastRequestId, static_cast<uint64>(85));
+	FOpenMobileHapticDynamicParameterUpdate Update;
+	Update.Intensity = 0.4f;
+	Update.bUpdateSharpness = true;
+	Update.Sharpness = 0.8f;
+	TestEqual(TEXT("Runtime parameters reach the injected bridge"),
+		Service.UpdatePattern(85, Update),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Runtime parameters use one native batch"),
+		Mock->UpdateCount, 1);
+	TestEqual(TEXT("Runtime parameters preserve request identity"),
+		Mock->LastRequestId, static_cast<uint64>(85));
+	TestEqual(TEXT("Runtime intensity crosses the bridge"),
+		Mock->LastUpdate.Intensity, 0.4f);
+	TestEqual(TEXT("Runtime sharpness crosses the bridge"),
+		Mock->LastUpdate.Sharpness, 0.8f);
 
 	int32 ResetCount = 0;
 	bool bResetWasOnGameThread = false;

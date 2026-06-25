@@ -93,6 +93,10 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 			UOpenMobileHapticsSubsystem,
 			StopPlayback
 		),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileHapticsSubsystem,
+			UpdatePlaybackParameters
+		),
 		GET_FUNCTION_NAME_CHECKED(UOpenMobileHapticsSubsystem, StopChannel),
 		GET_FUNCTION_NAME_CHECKED(UOpenMobileHapticsSubsystem, StopAll),
 		GET_FUNCTION_NAME_CHECKED(

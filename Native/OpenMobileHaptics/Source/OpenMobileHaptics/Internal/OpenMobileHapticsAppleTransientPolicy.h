@@ -16,6 +16,8 @@ struct FOpenMobileHapticsAppleTransientPattern
 	TArray<double> StartTimesSeconds;
 	TArray<float> Intensities;
 	TArray<float> Sharpnesses;
+	bool bHasInitialDynamicParameters = false;
+	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 
 	bool IsValid() const
 	{

@@ -249,6 +249,11 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum submissions per second must be between 1 and 100."));
 	}
+	if (MaximumDynamicParameterUpdatesPerSecond < 1
+		|| MaximumDynamicParameterUpdatesPerSecond > 240)
+	{
+		AddError(TEXT("Maximum dynamic parameter updates per second must be between 1 and 240."));
+	}
 	if (!IsFiniteRange(SelectionDebounceSeconds, 0.0f, 1.0f))
 	{
 		AddError(TEXT("Selection debounce must be finite and between 0 and 1 second."));

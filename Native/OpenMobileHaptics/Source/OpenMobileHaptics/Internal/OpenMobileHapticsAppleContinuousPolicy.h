@@ -42,6 +42,8 @@ struct FOpenMobileHapticsAppleContinuousPattern
 {
 	TArray<FOpenMobileHapticsAppleRichEvent> Events;
 	TArray<FOpenMobileHapticsAppleParameterCurve> ParameterCurves;
+	bool bHasInitialDynamicParameters = false;
+	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 	double DurationSeconds = 0.0;
 	bool bLoop = false;
 	double LoopEndSeconds = 0.0;

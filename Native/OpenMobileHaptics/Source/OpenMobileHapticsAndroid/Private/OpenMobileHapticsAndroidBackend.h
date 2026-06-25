@@ -29,6 +29,7 @@ public:
 	) override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;

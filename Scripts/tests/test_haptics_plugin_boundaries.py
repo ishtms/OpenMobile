@@ -586,6 +586,57 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			backend,
 		)
 
+	def test_apple_dynamic_parameters_are_request_scoped_and_immediate(self) -> None:
+		ios_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsIOS"
+		bridge = load_ios_bridge()
+		backend = (
+			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		android_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsAndroid"
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+
+		self.assertIn("CHHapticDynamicParameter", bridge)
+		self.assertIn("sendParameters:Parameters", bridge)
+		self.assertIn("atTime:CHHapticTimeImmediate", bridge)
+		self.assertIn(
+			"Update.Sharpness * 2.0f - 1.0f",
+			bridge,
+		)
+		update_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)updatePattern:",
+			1,
+		)[1].split("\n}\n\n- (void)releaseGenerators", 1)[0]
+		self.assertLess(
+			update_pattern.index("[Players objectForKey:Key]"),
+			update_pattern.index("SendDynamicParameters(Player, Update)"),
+		)
+		self.assertIn("EOpenMobileHapticsAppleSubmissionResult::StaleRequest", update_pattern)
+		self.assertIn("Pattern.bHasInitialDynamicParameters", bridge)
+		self.assertLess(
+			bridge.index("Pattern.bHasInitialDynamicParameters"),
+			bridge.index("startAtTime:CHHapticTimeImmediate"),
+		)
+		self.assertIn("Capabilities.DynamicParameters = bCoreHapticsEnabled", backend)
+		self.assertIn("Support.bDynamicParameters", backend)
+		self.assertIn("Parameters.bHasInitialDynamicParameters", backend)
+		self.assertIn("BridgeService->UpdatePattern", backend)
+		self.assertIn(
+			"FOpenMobileHapticNamedPatternRequest FallbackRequest = Request",
+			backend,
+		)
+		self.assertIn("Parameters.InitialDynamicParameters.Intensity", backend)
+		self.assertGreaterEqual(backend.count("FallbackRequest,"), 3)
+		self.assertIn(
+			"const FOpenMobileHapticsBackendPlaybackParameters& Parameters",
+			android_backend,
+		)
+		self.assertIn("static_cast<void>(Parameters)", android_backend)
+
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
 		bridge_path = (

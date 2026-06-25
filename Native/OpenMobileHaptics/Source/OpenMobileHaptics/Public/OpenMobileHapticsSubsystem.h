@@ -149,6 +149,12 @@ public:
 		FOpenMobileHapticPlaybackHandle Handle
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Update Haptic Playback Parameters", ToolTip = "Queues normalized intensity or sharpness changes for one active handle. Updates use latest-value coalescing and are submitted to native playback as soon as the configured rate limit allows."))
+	FOpenMobileHapticControlResult UpdatePlaybackParameters(
+		FOpenMobileHapticPlaybackHandle Handle,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Channel", ToolTip = "Stops plugin-owned work on one named Haptics channel."))
 	FOpenMobileHapticControlResult StopChannel(FName Channel);
 
@@ -193,6 +199,10 @@ public:
 	virtual FOpenMobileHapticControlResult CancelPlaybackNative(
 		FOpenMobileHapticPlaybackHandle Handle
 	) override;
+	virtual FOpenMobileHapticControlResult UpdatePlaybackParametersNative(
+		FOpenMobileHapticPlaybackHandle Handle,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	) override;
 	virtual FOpenMobileHapticControlResult StopChannelNative(
 		FName Channel
 	) override;
@@ -211,6 +221,7 @@ private:
 	friend class UOpenMobileHapticPlaybackAsyncAction;
 	friend class FOpenMobileHapticsAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
+	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
 
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
@@ -228,6 +239,23 @@ private:
 		uint64 RequestId,
 		EOpenMobileHapticPlaybackState TerminalState
 	);
+	FOpenMobileHapticControlResult QueueDynamicParameterUpdate(
+		uint64 RequestId,
+		const FOpenMobileHapticDynamicParameterUpdate& EffectiveUpdate,
+		const FOpenMobileHapticDynamicParameterUpdate* RequestedUpdate
+	);
+	FOpenMobileHapticControlResult SubmitDynamicParameterUpdate(
+		uint64 RequestId,
+		const FOpenMobileHapticDynamicParameterUpdate& Update,
+		double SubmissionTimeSeconds
+	);
+	void ScheduleDynamicParameterFlush();
+	void FlushDynamicParameterUpdates(double NowSeconds);
+	void FlushDynamicParameterUpdatesForTests(double NowSeconds)
+	{
+		FlushDynamicParameterUpdates(NowSeconds);
+	}
+	bool TickDynamicParameterUpdates(float DeltaTime);
 	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
 		const FOpenMobileHapticSemanticRequest& Request,
 		FName PatternOverride
