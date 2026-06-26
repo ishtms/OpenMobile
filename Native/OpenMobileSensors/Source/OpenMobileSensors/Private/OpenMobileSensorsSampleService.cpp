@@ -8,6 +8,7 @@
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorGravityEstimator.h"
+#include "OpenMobileSensorLinearAccelerationEstimator.h"
 #include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
@@ -187,6 +188,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
+		FOpenMobileSensorLinearAccelerationEstimator
+			LinearAccelerationEstimator;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
@@ -263,6 +266,12 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.LastGyroscopeTimestampSeconds = 0.0;
 		Slot.GyroscopeSampleStart = 0;
 		Slot.GyroscopeSampleCount = 0;
+	}
+
+	void ResetDerivedEstimators(FLatestSlot& Slot)
+	{
+		Slot.GravityEstimator.Reset();
+		Slot.LinearAccelerationEstimator.Reset();
 	}
 
 	template <typename SampleType>
@@ -383,7 +392,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	)
 	{
 		ResetRateStatistics(Slot);
-		Slot.GravityEstimator.Reset();
+		ResetDerivedEstimators(Slot);
 		Slot.PendingTimestampIssueFlags |= static_cast<int32>(Issue);
 		Slot.bPendingStatefulProcessingReset = true;
 	}
@@ -916,22 +925,46 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			return true;
 		}
-		if (Slot.Sensor.Type != EOpenMobileSensorType::Gravity
-			|| Sample.Header.Sensor.Type !=
+		if (Sample.Header.Sensor.Type !=
 				EOpenMobileSensorType::Accelerometer
-			|| !ValidateSourceAndFusion(Sample)
-			|| !FOpenMobileSensorValidity::
-				IsEligibleForStatefulProcessing(Sample))
+			|| !ValidateSourceAndFusion(Sample))
 		{
-			Slot.GravityEstimator.Reset();
+			ResetDerivedEstimators(Slot);
 			return false;
 		}
-		FOpenMobileVectorSensorSample Gravity;
-		if (!Slot.GravityEstimator.Process(Sample, Slot.Sensor, Gravity))
+		FOpenMobileVectorSensorSample Derived;
+		if (Slot.Sensor.Type == EOpenMobileSensorType::Gravity)
+		{
+			if (!FOpenMobileSensorValidity::
+					IsEligibleForStatefulProcessing(Sample)
+				|| !Slot.GravityEstimator.Process(
+					Sample,
+					Slot.Sensor,
+					Derived
+				))
+			{
+				Slot.GravityEstimator.Reset();
+				return false;
+			}
+		}
+		else if (Slot.Sensor.Type ==
+			EOpenMobileSensorType::LinearAcceleration)
+		{
+			if (!Slot.LinearAccelerationEstimator.Process(
+				Sample,
+				Slot.Sensor,
+				Derived
+			))
+			{
+				Slot.LinearAccelerationEstimator.Reset();
+				return false;
+			}
+		}
+		else
 		{
 			return false;
 		}
-		Sample = MoveTemp(Gravity);
+		Sample = MoveTemp(Derived);
 		return true;
 	}
 
@@ -1011,14 +1044,14 @@ namespace OpenMobileSensorsSampleServicePrivate
 					}
 					if (!ValidateSourceAndFusion(Sample))
 					{
-						Slot.GravityEstimator.Reset();
+						ResetDerivedEstimators(Slot);
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
 					if (!FOpenMobileSensorValidity::
 						IsEligibleForStatefulProcessing(Sample))
 					{
-						Slot.GravityEstimator.Reset();
+						ResetDerivedEstimators(Slot);
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
@@ -1872,7 +1905,7 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 			ResetRateStatistics(**SlotPointer);
 			ResetGyroscopeDriftStatistics(**SlotPointer);
 			(*SlotPointer)->VectorFilter.Reset();
-			(*SlotPointer)->GravityEstimator.Reset();
+			ResetDerivedEstimators(**SlotPointer);
 		}
 		bSchedulePendingEvents =
 			State == EOpenMobileSensorSubscriptionState::Active
@@ -1905,7 +1938,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	ResetRateStatistics(**SlotPointer);
 	ResetGyroscopeDriftStatistics(**SlotPointer);
-	(*SlotPointer)->GravityEstimator.Reset();
+	ResetDerivedEstimators(**SlotPointer);
 	(*SlotPointer)->MaximumCallbackFrequencyHz =
 		Options.MaximumCallbackFrequencyHz;
 	(*SlotPointer)->MaximumPendingSamples = FMath::Clamp(

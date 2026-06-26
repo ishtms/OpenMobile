@@ -134,7 +134,11 @@ bool FOpenMobileSensorFusionQualityEvaluator::ValidateContext(
 		|| !IsQualityValueValid(Context.NativeQuality)
 		|| (!Context.bHasNativeQualityReport
 			&& Context.NativeQuality !=
-				EOpenMobileSensorFusionQuality::Unknown))
+				EOpenMobileSensorFusionQuality::Unknown)
+		|| !FMath::IsFinite(Context.EstimatedLagSeconds)
+		|| Context.EstimatedLagSeconds < 0.0
+		|| (!Context.bHasEstimatedLag
+			&& Context.EstimatedLagSeconds != 0.0))
 	{
 		return false;
 	}

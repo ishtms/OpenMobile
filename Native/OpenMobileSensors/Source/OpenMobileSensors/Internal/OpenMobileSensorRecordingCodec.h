@@ -26,7 +26,7 @@ struct FOpenMobileSensorRecordingStreamDescriptor
 
 struct FOpenMobileSensorRecordingHeader
 {
-	int32 FormatVersion = 1;
+	int32 FormatVersion = 2;
 	FString PluginVersion;
 	FString PlatformName;
 	FString UnitsConvention;
@@ -52,7 +52,7 @@ struct FOpenMobileSensorRecordingDocument
 class OPENMOBILESENSORS_API FOpenMobileSensorRecordingCodec final
 {
 public:
-	static constexpr int32 CurrentFormatVersion = 1;
+	static constexpr int32 CurrentFormatVersion = 2;
 
 	static bool EncodeHeader(
 		const FOpenMobileSensorRecordingHeader& Header,

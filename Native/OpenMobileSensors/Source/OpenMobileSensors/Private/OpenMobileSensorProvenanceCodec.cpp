@@ -7,11 +7,13 @@
 
 namespace OpenMobileSensorProvenanceCodecPrivate
 {
-	constexpr uint8 ProvenanceVersion = 1;
+	constexpr uint8 ProvenanceVersion = 2;
+	constexpr uint8 LegacyProvenanceVersion = 1;
 
 	void SerializeFusion(
 		FArchive& Archive,
-		FOpenMobileSensorFusionContext& Fusion
+		FOpenMobileSensorFusionContext& Fusion,
+		uint8 Version
 	)
 	{
 		uint8 Quality = static_cast<uint8>(Fusion.Quality);
@@ -24,6 +26,16 @@ namespace OpenMobileSensorProvenanceCodecPrivate
 		Archive << Fusion.ContributingInputMask;
 		Archive << Fusion.MissingInputMask;
 		Archive << Fusion.DegradedInputMask;
+		if (Version >= 2)
+		{
+			uint8 HasEstimatedLag = Fusion.bHasEstimatedLag ? 1 : 0;
+			Archive << HasEstimatedLag;
+			Archive << Fusion.EstimatedLagSeconds;
+			if (Archive.IsLoading())
+			{
+				Fusion.bHasEstimatedLag = HasEstimatedLag != 0;
+			}
+		}
 		if (Archive.IsLoading())
 		{
 			Fusion.Quality =
@@ -55,7 +67,11 @@ bool FOpenMobileSensorProvenanceCodec::Encode(
 	FOpenMobileSensorFusionContext Fusion = Header.Fusion;
 	Writer << Version;
 	Writer << SourceFlags;
-	OpenMobileSensorProvenanceCodecPrivate::SerializeFusion(Writer, Fusion);
+	OpenMobileSensorProvenanceCodecPrivate::SerializeFusion(
+		Writer,
+		Fusion,
+		Version
+	);
 	return !Writer.IsError();
 }
 
@@ -70,12 +86,21 @@ bool FOpenMobileSensorProvenanceCodec::Decode(
 	int32 SourceFlags = 0;
 	FOpenMobileSensorFusionContext Fusion;
 	Reader << Version;
+	if (Reader.IsError()
+		|| (Version != OpenMobileSensorProvenanceCodecPrivate::ProvenanceVersion
+			&& Version !=
+				OpenMobileSensorProvenanceCodecPrivate::LegacyProvenanceVersion))
+	{
+		return false;
+	}
 	Reader << SourceFlags;
-	OpenMobileSensorProvenanceCodecPrivate::SerializeFusion(Reader, Fusion);
+	OpenMobileSensorProvenanceCodecPrivate::SerializeFusion(
+		Reader,
+		Fusion,
+		Version
+	);
 	if (Reader.IsError()
 		|| !Reader.AtEnd()
-		|| Version !=
-			OpenMobileSensorProvenanceCodecPrivate::ProvenanceVersion
 		|| !FOpenMobileSensorSourcePolicy::ValidateSourceFlags(SourceFlags)
 		|| !FOpenMobileSensorFusionQualityEvaluator::ValidateContext(Fusion))
 	{

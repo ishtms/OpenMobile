@@ -55,6 +55,8 @@ namespace OpenMobileSensorsRecordingTestsPrivate
 			);
 			Sample.Header.Fusion.Quality =
 				EOpenMobileSensorFusionQuality::Nominal;
+			Sample.Header.Fusion.bHasEstimatedLag = true;
+			Sample.Header.Fusion.EstimatedLagSeconds = 0.5;
 			Sample.Value = FVector(1.0 + Index, 2.0, 9.81);
 		}
 		return Document;
@@ -148,9 +150,23 @@ bool FOpenMobileSensorsRecordingCodecRoundTripTest::RunTest(
 			Sample.Header.SourceFlags,
 			static_cast<int32>(
 				EOpenMobileSensorSourceFlags::CalibratedNative));
+		TestTrue(TEXT("The estimated lag remains present"),
+			Sample.Header.Fusion.bHasEstimatedLag);
+		TestEqual(TEXT("The estimated lag is retained"),
+			Sample.Header.Fusion.EstimatedLagSeconds, 0.5);
 		TestEqual(TEXT("The vector is retained"),
 			Sample.Value, FVector(2.0, 2.0, 9.81));
 	}
+	FOpenMobileSensorRecordingDocument InvalidLag = MakeDocument();
+	InvalidLag.VectorBatches[0].Samples[0]
+		.Header.Fusion.EstimatedLagSeconds =
+		std::numeric_limits<double>::quiet_NaN();
+	TestFalse(TEXT("A nonfinite fusion lag cannot be recorded"),
+		FOpenMobileSensorRecordingCodec::EncodeComplete(
+			InvalidLag,
+			Bytes,
+			Error
+		));
 	return true;
 }
 

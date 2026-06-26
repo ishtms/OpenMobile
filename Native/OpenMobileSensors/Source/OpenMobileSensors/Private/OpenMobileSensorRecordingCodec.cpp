@@ -1,12 +1,15 @@
 #include "OpenMobileSensorRecordingCodec.h"
 
 #include "Misc/Crc.h"
+#include "OpenMobileSensorFusionQuality.h"
+#include "OpenMobileSensorSourcePolicy.h"
 
 namespace OpenMobileSensorRecordingCodecPrivate
 {
 	constexpr uint8 FileMagic[] = {'O', 'M', 'S', 'E', 'N', 'S', 'R', '1'};
 	constexpr uint8 BlockMagic[] = {'O', 'M', 'S', 'B'};
 	constexpr uint32 FooterMarker = 0xc0dec0de;
+	constexpr uint16 LegacyFormatVersion = 1;
 	constexpr int32 MaximumStringBytes = 4096;
 	constexpr int32 MaximumStreams = 256;
 	constexpr int32 MaximumSamplesPerBatch = 4096;
@@ -406,8 +409,18 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		FString& OutError
 	)
 	{
-		if (!WriteSensor(Writer, Header.Sensor, OutError))
+		if (!FOpenMobileSensorSourcePolicy::ValidateSourceFlags(
+				Header.SourceFlags
+			)
+			|| !FOpenMobileSensorFusionQualityEvaluator::ValidateContext(
+				Header.Fusion
+			)
+			|| !WriteSensor(Writer, Header.Sensor, OutError))
 		{
+			if (OutError.IsEmpty())
+			{
+				OutError = TEXT("Recording sample provenance is invalid.");
+			}
 			return false;
 		}
 		Writer.WriteDouble(Header.TimestampSeconds);
@@ -435,6 +448,8 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		Writer.WriteInt64(Header.Fusion.ContributingInputMask);
 		Writer.WriteInt64(Header.Fusion.MissingInputMask);
 		Writer.WriteInt64(Header.Fusion.DegradedInputMask);
+		Writer.WriteBool(Header.Fusion.bHasEstimatedLag);
+		Writer.WriteDouble(Header.Fusion.EstimatedLagSeconds);
 		Writer.WriteBool(Header.bHasEstimatedError);
 		Writer.WriteDouble(Header.EstimatedError);
 		return true;
@@ -442,7 +457,8 @@ namespace OpenMobileSensorRecordingCodecPrivate
 
 	bool ReadSampleHeader(
 		FByteReader& Reader,
-		FOpenMobileSensorSampleHeader& OutHeader
+		FOpenMobileSensorSampleHeader& OutHeader,
+		uint16 FormatVersion
 	)
 	{
 		uint8 Accuracy = 0;
@@ -484,8 +500,19 @@ namespace OpenMobileSensorRecordingCodecPrivate
 			|| !Reader.ReadInt64(OutHeader.Fusion.ExpectedInputMask)
 			|| !Reader.ReadInt64(OutHeader.Fusion.ContributingInputMask)
 			|| !Reader.ReadInt64(OutHeader.Fusion.MissingInputMask)
-			|| !Reader.ReadInt64(OutHeader.Fusion.DegradedInputMask)
-			|| !Reader.ReadBool(OutHeader.bHasEstimatedError)
+			|| !Reader.ReadInt64(OutHeader.Fusion.DegradedInputMask))
+		{
+			return false;
+		}
+		if (FormatVersion >= 2
+			&& (!Reader.ReadBool(OutHeader.Fusion.bHasEstimatedLag)
+				|| !Reader.ReadDouble(
+					OutHeader.Fusion.EstimatedLagSeconds
+				)))
+		{
+			return false;
+		}
+		if (!Reader.ReadBool(OutHeader.bHasEstimatedError)
 			|| !Reader.ReadDouble(OutHeader.EstimatedError))
 		{
 			return false;
@@ -503,7 +530,16 @@ namespace OpenMobileSensorRecordingCodecPrivate
 			&& OutHeader.TimestampSeconds >= 0.0
 			&& FMath::IsFinite(OutHeader.GameThreadReceiptSeconds)
 			&& FMath::IsFinite(OutHeader.ScreenRotationTimestampSeconds)
-			&& FMath::IsFinite(OutHeader.EstimatedError);
+			&& FMath::IsFinite(
+				OutHeader.Fusion.EstimatedLagSeconds
+			)
+			&& FMath::IsFinite(OutHeader.EstimatedError)
+			&& FOpenMobileSensorSourcePolicy::ValidateSourceFlags(
+				OutHeader.SourceFlags
+			)
+			&& FOpenMobileSensorFusionQualityEvaluator::ValidateContext(
+				OutHeader.Fusion
+			);
 	}
 
 	bool WriteVectorSample(
@@ -531,10 +567,11 @@ namespace OpenMobileSensorRecordingCodecPrivate
 
 	bool ReadVectorSample(
 		FByteReader& Reader,
-		FOpenMobileVectorSensorSample& OutSample
+		FOpenMobileVectorSensorSample& OutSample,
+		uint16 FormatVersion
 	)
 	{
-		if (!(ReadSampleHeader(Reader, OutSample.Header)
+		if (!(ReadSampleHeader(Reader, OutSample.Header, FormatVersion)
 			&& Reader.ReadDouble(OutSample.Value.X)
 			&& Reader.ReadDouble(OutSample.Value.Y)
 			&& Reader.ReadDouble(OutSample.Value.Z)
@@ -679,7 +716,8 @@ namespace OpenMobileSensorRecordingCodecPrivate
 
 	bool DecodeVectorPayload(
 		TConstArrayView<uint8> Payload,
-		FOpenMobileVectorSensorBatch& OutBatch
+		FOpenMobileVectorSensorBatch& OutBatch,
+		uint16 FormatVersion
 	)
 	{
 		FByteReader Reader(Payload);
@@ -694,7 +732,10 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		for (uint32 Index = 0; Index < SampleCount; ++Index)
 		{
 			if (!ReadVectorSample(
-				Reader, OutBatch.Samples.AddDefaulted_GetRef()))
+				Reader,
+				OutBatch.Samples.AddDefaulted_GetRef(),
+				FormatVersion
+			))
 			{
 				return false;
 			}
@@ -915,7 +956,8 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 		OutError = TEXT("Recording signature is invalid.");
 		return false;
 	}
-	if (Version != CurrentFormatVersion)
+	if (Version != CurrentFormatVersion
+		&& Version != LegacyFormatVersion)
 	{
 		OutStatus = EOpenMobileSensorRecordingDecodeStatus::IncompatibleVersion;
 		OutError = TEXT("Recording format version is not supported.");
@@ -961,7 +1003,7 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 			}
 			FOpenMobileVectorSensorBatch& Batch =
 				OutDocument.VectorBatches.AddDefaulted_GetRef();
-			if (!DecodeVectorPayload(Payload, Batch))
+			if (!DecodeVectorPayload(Payload, Batch, Version))
 			{
 				OutStatus = EOpenMobileSensorRecordingDecodeStatus::InvalidData;
 				OutError = TEXT("Recording vector batch is invalid.");

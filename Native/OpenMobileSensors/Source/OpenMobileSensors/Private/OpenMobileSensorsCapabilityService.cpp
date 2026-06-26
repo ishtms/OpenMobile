@@ -234,16 +234,17 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		return Capability;
 	}
 
-	void ApplyGravityFallback(
-		FOpenMobileSensorCapabilitySnapshot& Snapshot
+	void ApplyAccelerometerFallback(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot,
+		EOpenMobileSensorType DerivedType,
+		const TCHAR* Detail
 	)
 	{
-		FOpenMobileSensorCapability* Gravity =
+		FOpenMobileSensorCapability* Derived =
 			Snapshot.Sensors.FindByPredicate(
-				[](const FOpenMobileSensorCapability& Capability)
+				[DerivedType](const FOpenMobileSensorCapability& Capability)
 				{
-					return Capability.Sensor.Type ==
-						EOpenMobileSensorType::Gravity;
+					return Capability.Sensor.Type == DerivedType;
 				}
 			);
 		const FOpenMobileSensorCapability* Accelerometer =
@@ -255,14 +256,14 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 				}
 			);
 		constexpr double MinimumFallbackFrequencyHz = 15.0;
-		const bool bHasUsableDirectGravity = Gravity
-			&& Gravity->Availability.State ==
+		const bool bHasUsableDirectSource = Derived
+			&& Derived->Availability.State ==
 				EOpenMobileCapabilityState::Available
-			&& (Gravity->MaximumFrequencyHz <= 0.0
-				|| Gravity->MaximumFrequencyHz >=
+			&& (Derived->MaximumFrequencyHz <= 0.0
+				|| Derived->MaximumFrequencyHz >=
 					MinimumFallbackFrequencyHz);
-		if (!Gravity
-			|| bHasUsableDirectGravity
+		if (!Derived
+			|| bHasUsableDirectSource
 			|| !Accelerometer
 			|| Accelerometer->Availability.State !=
 				EOpenMobileCapabilityState::Available
@@ -272,19 +273,18 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		{
 			return;
 		}
-		Gravity->Availability.State = EOpenMobileCapabilityState::Available;
-		Gravity->Availability.Detail =
-			TEXT("Gravity is derived from the accelerometer with bounded low-pass filtering.");
-		Gravity->Source = EOpenMobileSensorAvailabilitySource::Derived;
-		Gravity->ActiveRestriction = EOpenMobileSensorRestriction::None;
-		Gravity->MinimumFrequencyHz = FMath::Max(
+		Derived->Availability.State = EOpenMobileCapabilityState::Available;
+		Derived->Availability.Detail = Detail;
+		Derived->Source = EOpenMobileSensorAvailabilitySource::Derived;
+		Derived->ActiveRestriction = EOpenMobileSensorRestriction::None;
+		Derived->MinimumFrequencyHz = FMath::Max(
 			MinimumFallbackFrequencyHz,
 			Accelerometer->MinimumFrequencyHz
 		);
-		Gravity->MaximumFrequencyHz = Accelerometer->MaximumFrequencyHz;
-		Gravity->bSupportsNativeBatching =
+		Derived->MaximumFrequencyHz = Accelerometer->MaximumFrequencyHz;
+		Derived->bSupportsNativeBatching =
 			Accelerometer->bSupportsNativeBatching;
-		Gravity->BackgroundSupport = Accelerometer->BackgroundSupport;
+		Derived->BackgroundSupport = Accelerometer->BackgroundSupport;
 	}
 
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
@@ -327,7 +327,16 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			ApplyLifecycleState(Capability);
 			Snapshot.Sensors.Add(MoveTemp(Capability));
 		}
-		ApplyGravityFallback(Snapshot);
+		ApplyAccelerometerFallback(
+			Snapshot,
+			EOpenMobileSensorType::Gravity,
+			TEXT("Gravity is derived from the accelerometer with bounded low-pass filtering.")
+		);
+		ApplyAccelerometerFallback(
+			Snapshot,
+			EOpenMobileSensorType::LinearAcceleration,
+			TEXT("Linear acceleration is derived from calibrated acceleration with bounded gravity filtering.")
+		);
 		return Snapshot;
 	}
 

@@ -388,35 +388,38 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	)
 	{
 		OutPhysicalSensor = LogicalSensor;
-		if (LogicalSensor.Type != EOpenMobileSensorType::Gravity)
+		const bool bSupportsAccelerometerFallback =
+			LogicalSensor.Type == EOpenMobileSensorType::Gravity
+			|| LogicalSensor.Type ==
+				EOpenMobileSensorType::LinearAcceleration;
+		if (!bSupportsAccelerometerFallback)
 		{
 			return true;
 		}
 		const FOpenMobileSensorCapabilitySnapshot Snapshot =
 			FOpenMobileSensorsCapabilityService::GetSnapshot();
-		const FOpenMobileSensorCapability* Gravity =
+		const FOpenMobileSensorCapability* Derived =
 			Snapshot.Sensors.FindByPredicate(
 				[&LogicalSensor](
 					const FOpenMobileSensorCapability& Capability
 				)
 				{
-					return Capability.Sensor.Type ==
-						EOpenMobileSensorType::Gravity
+					return Capability.Sensor.Type == LogicalSensor.Type
 						&& (LogicalSensor.InstanceId.IsNone()
 							|| Capability.Sensor.InstanceId ==
 								LogicalSensor.InstanceId);
 				}
 			);
-		constexpr double MinimumGravityFrequencyHz = 15.0;
-		const bool bHasUsableDirectGravity = Gravity
-			&& Gravity->Availability.State ==
+		constexpr double MinimumDerivedFrequencyHz = 15.0;
+		const bool bHasUsableDirectSource = Derived
+			&& Derived->Availability.State ==
 				EOpenMobileCapabilityState::Available
-			&& Gravity->Source !=
+			&& Derived->Source !=
 				EOpenMobileSensorAvailabilitySource::Derived
-			&& (Gravity->MaximumFrequencyHz <= 0.0
-				|| Gravity->MaximumFrequencyHz >=
-					MinimumGravityFrequencyHz);
-		if (bHasUsableDirectGravity)
+			&& (Derived->MaximumFrequencyHz <= 0.0
+				|| Derived->MaximumFrequencyHz >=
+					MinimumDerivedFrequencyHz);
+		if (bHasUsableDirectSource)
 		{
 			return true;
 		}
@@ -434,7 +437,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 							EOpenMobileCapabilityState::Available
 						&& (Capability.MaximumFrequencyHz <= 0.0
 							|| Capability.MaximumFrequencyHz >=
-								MinimumGravityFrequencyHz);
+								MinimumDerivedFrequencyHz);
 				}
 			);
 		if (!Accelerometer)

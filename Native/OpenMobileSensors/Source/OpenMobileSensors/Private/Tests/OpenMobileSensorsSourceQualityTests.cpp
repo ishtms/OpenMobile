@@ -417,6 +417,8 @@ bool FOpenMobileSensorsRecordingReplayRoundTripTest::RunTest(
 		EOpenMobileSensorSourceFlags::PluginDerived)
 		| static_cast<int32>(EOpenMobileSensorSourceFlags::Mock);
 	Original.Fusion = MakeNominalPluginFusion();
+	Original.Fusion.bHasEstimatedLag = true;
+	Original.Fusion.EstimatedLagSeconds = 0.5;
 	TArray<uint8> Encoded;
 	TestTrue(TEXT("Recording provenance encodes"),
 		FOpenMobileSensorProvenanceCodec::Encode(Original, Encoded));
@@ -431,6 +433,11 @@ bool FOpenMobileSensorsRecordingReplayRoundTripTest::RunTest(
 	TestEqual(TEXT("Recording preserves contributors"),
 		Restored.Fusion.ContributingInputMask,
 		Original.Fusion.ContributingInputMask);
+	TestTrue(TEXT("Recording preserves estimated lag presence"),
+		Restored.Fusion.bHasEstimatedLag);
+	TestEqual(TEXT("Recording preserves estimated lag"),
+		Restored.Fusion.EstimatedLagSeconds,
+		Original.Fusion.EstimatedLagSeconds);
 	FOpenMobileSensorSampleHeader Replayed;
 	TestTrue(TEXT("Replay provenance decodes"),
 		FOpenMobileSensorProvenanceCodec::Decode(

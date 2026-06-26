@@ -45,6 +45,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFusionContext
 		EOpenMobileSensorFusionQuality::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasEstimatedLag = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double EstimatedLagSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	int64 ExpectedInputMask = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
