@@ -3228,6 +3228,52 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(required_token, readme)
 
+	def test_build_validation_is_editor_owned_and_store_doctor_discoverable(self) -> None:
+		editor_module = DEVICE_PLUGIN / "Source" / "OpenMobileDeviceEditor"
+		header = (
+			editor_module / "Public" / "OpenMobileDeviceBuildValidation.h"
+		).read_text(encoding="utf-8")
+		source = (
+			editor_module / "Private" / "OpenMobileDeviceBuildValidation.cpp"
+		).read_text(encoding="utf-8")
+		module = (
+			editor_module / "Private" / "OpenMobileDeviceEditorModule.cpp"
+		).read_text(encoding="utf-8")
+		for required_token in (
+			"OpenMobile.StoreDoctor.ValidationContributor",
+			"CaptureProjectInput",
+			"StoreSubmission",
+			"HasBlockingIssues",
+		):
+			self.assertIn(required_token, header + source)
+		self.assertIn("RegisterModularFeature", module)
+		self.assertIn("UnregisterModularFeature", module)
+
+		fixtures = DEVICE_PLUGIN / "Tests" / "Fixtures" / "BuildValidation"
+		for name in (
+			"valid.json",
+			"malformed.json",
+			"conflicting.json",
+			"privacy-unsafe.json",
+		):
+			self.assertTrue((fixtures / name).is_file())
+
+		runtime_module = DEVICE_PLUGIN / "Source" / "OpenMobileDevice"
+		for path in runtime_module.rglob("*"):
+			if path.is_file() and path.suffix in {".h", ".cpp", ".cs"}:
+				contents = path.read_text(encoding="utf-8")
+				self.assertNotIn("StoreDoctor", contents, str(path))
+				self.assertNotIn("OpenMobileDeviceBuildValidation", contents, str(path))
+
+		readme = (DEVICE_PLUGIN / "README.md").read_text(encoding="utf-8")
+		for required_token in (
+			"Build-time validation",
+			"development warnings",
+			"Shipping and store submission",
+			"Store Doctor",
+		):
+			self.assertIn(required_token, readme)
+
 
 if __name__ == "__main__":
 	unittest.main()

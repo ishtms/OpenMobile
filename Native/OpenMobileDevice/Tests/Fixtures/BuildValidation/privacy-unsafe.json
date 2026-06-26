@@ -1,0 +1,47 @@
+{
+  "settings": {
+    "category": "OpenMobile",
+    "section": "OpenMobile Device",
+    "displayName": "OpenMobile Device",
+    "configName": "Game",
+    "allPropertiesStaged": true
+  },
+  "platforms": [
+    {
+      "name": "Android",
+      "configHierarchyResolved": true,
+      "usePlatformDefaultLowStorageThreshold": true,
+      "lowStorageThresholdBytes": 536870912,
+      "lowStorageRecoveryHysteresisBytes": 67108864,
+      "lowStorageFallbackPollingIntervalSeconds": 30.0,
+      "fallbackPollingIntervalSeconds": 1.0,
+      "endpointReachabilityMaximumConcurrentRequests": 4,
+      "reachabilityEndpoints": ["http://user:secret@status.example.com/health?device=123"],
+      "declaredUrlSchemes": ["file"],
+      "declaredAndroidIntentActions": ["com.example.device.OPEN"],
+      "declaredAndroidPackages": ["com.example.*"]
+    },
+    {
+      "name": "IOS",
+      "configHierarchyResolved": true,
+      "usePlatformDefaultLowStorageThreshold": true,
+      "lowStorageThresholdBytes": 536870912,
+      "lowStorageRecoveryHysteresisBytes": 67108864,
+      "lowStorageFallbackPollingIntervalSeconds": 30.0,
+      "fallbackPollingIntervalSeconds": 1.0,
+      "endpointReachabilityMaximumConcurrentRequests": 4,
+      "reachabilityEndpoints": [],
+      "declaredUrlSchemes": [],
+      "declaredAndroidIntentActions": [],
+      "declaredAndroidPackages": []
+    }
+  ],
+  "native": {
+    "androidPluginReceiptDeclared": true,
+    "androidPermissions": ["android.permission.ACCESS_NETWORK_STATE", "android.permission.READ_CONTACTS"],
+    "androidDependencies": ["androidx.window:window-java:1.5.1"],
+    "iosPluginReceiptDeclared": true,
+    "iosFrameworks": ["AVFoundation", "Foundation", "SystemConfiguration", "UIKit"],
+    "iosDiskSpacePrivacyReason": ""
+  }
+}
