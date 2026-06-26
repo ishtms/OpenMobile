@@ -388,6 +388,29 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	)
 	{
 		OutPhysicalSensor = LogicalSensor;
+		if (LogicalSensor.Type == EOpenMobileSensorType::Attitude)
+		{
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* Attitude =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							EOpenMobileSensorType::Attitude
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			return Attitude
+				&& Attitude->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& Attitude->Source !=
+					EOpenMobileSensorAvailabilitySource::Derived;
+		}
 		const bool bSupportsAccelerometerFallback =
 			LogicalSensor.Type == EOpenMobileSensorType::Gravity
 			|| LogicalSensor.Type ==

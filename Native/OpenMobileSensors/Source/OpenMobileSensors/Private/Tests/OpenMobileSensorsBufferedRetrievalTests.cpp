@@ -11,6 +11,16 @@
 
 namespace OpenMobileSensorsBufferedRetrievalTestsPrivate
 {
+	FOpenMobileSensorCapability MakeAttitudeCapability()
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor.Type = EOpenMobileSensorType::Attitude;
+		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Availability.State = EOpenMobileCapabilityState::Available;
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		return Capability;
+	}
+
 	FOpenMobileSensorSubscriptionRequest MakeRequest(
 		EOpenMobileSensorType SensorType = EOpenMobileSensorType::Accelerometer,
 		int32 Capacity = 8,
@@ -386,6 +396,7 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 	using namespace OpenMobileSensorsBufferedRetrievalTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("BufferFamilies"));
+	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	FOpenMobileSensorBufferReadResult Result;

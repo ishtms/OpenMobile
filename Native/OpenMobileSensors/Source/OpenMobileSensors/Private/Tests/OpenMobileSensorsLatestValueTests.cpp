@@ -37,6 +37,15 @@ namespace OpenMobileSensorsLatestValueTestsPrivate
 		return Result;
 	}
 
+	FOpenMobileSensorCapability MakeAttitudeCapability()
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor = MakeRequest(EOpenMobileSensorType::Attitude).Sensor;
+		Capability.Availability.State = EOpenMobileCapabilityState::Available;
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		return Capability;
+	}
+
 	FOpenMobileVectorSensorSample MakeVector(
 		const FOpenMobileSensorIdentifier& Sensor,
 		double TimestampSeconds,
@@ -361,6 +370,7 @@ bool FOpenMobileSensorsLatestAllSampleFamiliesTest::RunTest(
 	using namespace OpenMobileSensorsLatestValueTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("Families"));
+	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	const FOpenMobileSensorSubscriptionResult Vector = StartActive(

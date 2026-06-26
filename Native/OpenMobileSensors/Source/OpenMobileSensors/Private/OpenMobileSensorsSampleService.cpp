@@ -185,6 +185,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorOverflowPolicy::DropOldest;
 		EOpenMobileSensorCoordinateSpace CoordinateSpace =
 			EOpenMobileSensorCoordinateSpace::DeviceFixed;
+		EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
+			EOpenMobileAttitudeReferenceFrame::GameRelative;
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
@@ -767,6 +769,37 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			Sample.Header.Fusion.Quality = Sample.FusionQuality;
 		}
+		const bool bNativeFused = (Sample.Header.SourceFlags
+			& static_cast<int32>(
+				EOpenMobileSensorSourceFlags::NativeFused
+			)) != 0;
+		const bool bDegraded = Sample.Header.bCalibrationRequired
+			|| Sample.Header.Accuracy ==
+				EOpenMobileSensorAccuracy::Unreliable
+			|| Sample.Header.Accuracy == EOpenMobileSensorAccuracy::Low;
+		if (bNativeFused
+			&& !Sample.Header.Fusion.bHasNativeQualityReport
+			&& (Sample.Header.Accuracy !=
+					EOpenMobileSensorAccuracy::Unknown
+				|| Sample.Header.bCalibrationRequired))
+		{
+			Sample.Header.Fusion.bHasNativeQualityReport = true;
+			Sample.Header.Fusion.NativeQuality = bDegraded
+				? EOpenMobileSensorFusionQuality::Degraded
+				: EOpenMobileSensorFusionQuality::Nominal;
+		}
+		if (bDegraded)
+		{
+			Sample.Header.Fusion.Quality =
+				EOpenMobileSensorFusionQuality::Degraded;
+		}
+		else if (Sample.Header.Fusion.Quality ==
+				EOpenMobileSensorFusionQuality::Unknown
+			&& Sample.Header.Fusion.bHasNativeQualityReport)
+		{
+			Sample.Header.Fusion.Quality =
+				Sample.Header.Fusion.NativeQuality;
+		}
 		for (const EOpenMobileSensorType Sensor : Sample.ContributingSensors)
 		{
 			const int64 SensorMask =
@@ -914,6 +947,15 @@ namespace OpenMobileSensorsSampleServicePrivate
 	bool PrepareSampleForSlot(FLatestSlot& Slot, SampleType& Sample)
 	{
 		return Slot.Sensor == Sample.Header.Sensor;
+	}
+
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileAttitudeSensorSample& Sample
+	)
+	{
+		return Slot.Sensor == Sample.Header.Sensor
+			&& Slot.AttitudeReferenceFrame == Sample.ReferenceFrame;
 	}
 
 	bool PrepareSampleForSlot(
@@ -1850,6 +1892,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->DeliveryMode = Options.DeliveryMode;
 	Slot->OverflowPolicy = Options.OverflowPolicy;
 	Slot->CoordinateSpace = Options.CoordinateSpace;
+	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	Slot->FilterOptions = Options.Filters;
 	Slot->PendingAccuracyChanges.Reserve(MaximumPendingAccuracyChanges);
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
@@ -1949,6 +1992,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->DeliveryMode = Options.DeliveryMode;
 	(*SlotPointer)->OverflowPolicy = Options.OverflowPolicy;
 	(*SlotPointer)->CoordinateSpace = Options.CoordinateSpace;
+	(*SlotPointer)->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	(*SlotPointer)->FilterOptions = Options.Filters;
 	(*SlotPointer)->VectorFilter.Reset();
 	if (Options.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)

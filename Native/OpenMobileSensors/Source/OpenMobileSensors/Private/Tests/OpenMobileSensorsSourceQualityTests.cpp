@@ -42,6 +42,15 @@ namespace OpenMobileSensorsSourceQualityTestsPrivate
 		return Result;
 	}
 
+	FOpenMobileSensorCapability MakeAttitudeCapability()
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor = MakeRequest().Sensor;
+		Capability.Availability.State = EOpenMobileCapabilityState::Available;
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		return Capability;
+	}
+
 	FOpenMobileSensorFusionInputObservation MakeInput(
 		EOpenMobileSensorType Sensor,
 		bool bAvailable,
@@ -278,6 +287,7 @@ bool FOpenMobileSensorsNativeToDerivedFallbackTest::RunTest(
 	using namespace OpenMobileSensorsSourceQualityTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("SourceFallback"));
+	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	const FOpenMobileSensorSubscriptionResult Subscription = StartActive(
@@ -337,6 +347,7 @@ bool FOpenMobileSensorsSourceTransportPreservationTest::RunTest(
 	using namespace OpenMobileSensorsSourceQualityTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("SourceTransport"));
+	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	const FOpenMobileSensorSubscriptionResult Latest = StartActive(

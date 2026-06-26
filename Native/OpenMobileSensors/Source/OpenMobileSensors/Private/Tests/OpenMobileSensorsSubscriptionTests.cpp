@@ -27,6 +27,19 @@ namespace OpenMobileSensorsSubscriptionTestsPrivate
 		return Request;
 	}
 
+	FOpenMobileSensorCapability MakeAttitudeCapability()
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor = MakeRequest(
+			60.0,
+			30.0,
+			EOpenMobileSensorType::Attitude
+		).Sensor;
+		Capability.Availability.State = EOpenMobileCapabilityState::Available;
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		return Capability;
+	}
+
 	void ResetServices()
 	{
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
@@ -321,6 +334,7 @@ bool FOpenMobileSensorsSubscriptionIncompatibleOptionsTest::RunTest(
 	using namespace OpenMobileSensorsSubscriptionTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("Compatibility"));
+	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	FOpenMobileSensorSubscriptionRequest GameRelative = MakeRequest(
 		60.0,
