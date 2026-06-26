@@ -1,0 +1,39 @@
+{
+	"schema_version": 1,
+	"packages": [
+		{
+			"name": "Google Mobile Ads Mediation Adapter for AppLovin",
+			"version": "13.6.3.0",
+			"source_url": "https://dl.google.com/googleadmobadssdk/mediation/ios/applovin/AppLovinAdapter-13.6.3.0.zip",
+			"terms_url": "https://developers.google.com/terms/site-terms",
+			"redistribution": "Distributed under the Apache License 2.0 included with this plugin.",
+			"license_files": [
+				"Licenses/GoogleAdapter-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "AppLovinAdapter.xcframework.zip",
+					"sha256": "56eb508dbb822dfd6cb1793b2ff2e1b797b6e86da0a486eaf745aa2e1a00cfa9",
+					"role": "Runtime AppLovin mediation adapter repackaged with the xcframework at the archive root"
+				}
+			]
+		},
+		{
+			"name": "AppLovin SDK for iOS",
+			"version": "13.6.3",
+			"source_url": "https://artifacts.applovin.com/ios/com/applovin/applovin-sdk/AppLovinSDK-13.6.3.xcframework.zip",
+			"terms_url": "https://www.applovin.com/eula",
+			"redistribution": "Distribution is subject to the AppLovin SDK EULA referenced by the included notice.",
+			"license_files": [
+				"Licenses/AppLovinSDK-NOTICE"
+			],
+			"artifacts": [
+				{
+					"path": "AppLovinSDK.xcframework.zip",
+					"sha256": "a65e11de25a923c4cddb5b19e852ed65b59060bfcb9b6fa065c1a8d3deabf4ae",
+					"role": "Runtime AppLovin framework with resources and privacy manifest"
+				}
+			]
+		}
+	]
+}

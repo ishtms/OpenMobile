@@ -22,6 +22,9 @@ ADMOB_PLUGIN = REPOSITORY_ROOT / "Providers" / "Ads" / "OpenMobileAdsAdMob"
 ADMOB_META_ADAPTER = (
 	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobMeta"
 )
+ADMOB_APPLOVIN_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobAppLovin"
+)
 
 
 def load_descriptor(plugin_root: Path) -> dict:
@@ -202,6 +205,111 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			self.assertEqual("Framework", dependency["kind"])
 			self.assertIn(dependency["relationship"], {"Direct", "Transitive"})
 			self.assertIn(dependency["ownership"], {"Owned", "External"})
+
+	def test_admob_applovin_adapter_owns_one_versioned_manifest(self) -> None:
+		descriptor = load_descriptor(ADMOB_APPLOVIN_ADAPTER)
+		self.assertEqual("MediationAdapter", descriptor["OpenMobileAdsType"])
+		self.assertFalse(descriptor["EnabledByDefault"])
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobileAds", "OpenMobileAdsAdMob"},
+			{plugin["Name"] for plugin in descriptor["Plugins"]},
+		)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileAdsAdMobAppLovinAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileAdsAdMobAppLovinIOS"]["PlatformAllowList"],
+		)
+		metadata = json.loads(
+			(ADMOB_APPLOVIN_ADAPTER / "adapter.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual("OpenMobileAdsAdMobAppLovin", metadata["plugin"])
+		self.assertEqual("AppLovin", metadata["network"])
+		self.assertEqual(["Bidding", "Waterfall"], metadata["integration_types"])
+
+		android = metadata["platforms"]["Android"]
+		self.assertEqual("13.6.4.0", android["adapter_version"])
+		self.assertEqual("13.6.4", android["network_sdk_version"])
+		self.assertEqual(
+			{"Interstitial", "Rewarded"},
+			set(android["supported_formats"]["Bidding"]),
+		)
+		self.assertEqual(
+			{"Banner", "Interstitial", "Rewarded"},
+			set(android["supported_formats"]["Waterfall"]),
+		)
+
+		ios = metadata["platforms"]["IOS"]
+		self.assertEqual("13.6.3.0", ios["adapter_version"])
+		self.assertEqual("13.6.3", ios["network_sdk_version"])
+		self.assertEqual(
+			{"Interstitial", "Rewarded"},
+			set(ios["supported_formats"]["Bidding"]),
+		)
+		self.assertEqual(
+			{"Banner", "Interstitial", "Rewarded"},
+			set(ios["supported_formats"]["Waterfall"]),
+		)
+		for platform in (android, ios):
+			self.assertEqual("AdapterConsentConsumer", platform["privacy_signals"]["Gdpr"])
+			self.assertEqual("AdapterConsentConsumer", platform["privacy_signals"]["UsPrivacy"])
+
+		android_upl_path = (
+			ADMOB_APPLOVIN_ADAPTER
+			/ "Source"
+			/ "OpenMobileAdsAdMobAppLovinAndroid"
+			/ "Private"
+			/ "Android"
+			/ "OpenMobileAdsAdMobAppLovin_Android_UPL.xml"
+		)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		self.assertIn("com.google.ads.mediation:applovin", android_upl)
+		self.assertIn("strictly '13.6.4.0'", android_upl)
+		self.assertIn("setHasUserConsent", android_upl)
+		self.assertIn("setDoNotSell", android_upl)
+		ElementTree.parse(android_upl_path)
+
+		for platform_name in ("Android", "IOS"):
+			module_name = f"OpenMobileAdsAdMobAppLovin{platform_name}"
+			module_root = ADMOB_APPLOVIN_ADAPTER / "Source" / module_name
+			module_text = "\n".join(
+				path.read_text(encoding="utf-8")
+				for path in module_root.rglob("*")
+				if path.is_file() and path.suffix in {".cpp", ".h", ".mm"}
+			)
+			self.assertIn("IOpenMobileAdsConsentSignalConsumer", module_text)
+			self.assertIn("RegisterModularFeature", module_text)
+			self.assertIn("AppLovin", module_text)
+
+		ios_upl_path = (
+			ADMOB_APPLOVIN_ADAPTER
+			/ "Source"
+			/ "OpenMobileAdsAdMobAppLovinIOS"
+			/ "Private"
+			/ "IOS"
+			/ "OpenMobileAdsAdMobAppLovin_IOS_UPL.xml"
+		)
+		ios_root = ElementTree.parse(ios_upl_path).getroot()
+		upl_identifiers = [
+			element.text
+			for element in ios_root.findall(".//string")
+			if element.text and element.text.endswith(".skadnetwork")
+		]
+		self.assertEqual(len(upl_identifiers), len(set(upl_identifiers)))
+		self.assertEqual(
+			set(ios["attribution"]["skadnetwork_identifiers"]),
+			set(upl_identifiers),
+		)
+		self.assertIn(
+			"removeElement",
+			ElementTree.tostring(
+				ios_root.find("iosPListUpdates"),
+				encoding="unicode",
+			),
+		)
 
 	def test_admob_provider_owns_native_dependency_metadata(self) -> None:
 		metadata = json.loads(

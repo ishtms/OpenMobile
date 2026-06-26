@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <minimumSDKAPI>
+        <insertValue value="23"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
+    <buildGradleAdditions>
+        <insert>
+repositories {
+    google()
+    mavenCentral()
+}
+dependencies {
+    implementation('com.google.ads.mediation:applovin') {
+        version {
+            strictly '13.6.4.0'
+        }
+    }
+}
+        </insert>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMobAppLovin_Dependencies.gradle')</insert>
+        <insertNewline/>
+    </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>OpenMobileAdsAdMobAppLovinAndroidDependencyContract=1</insert>
+        <insertNewline/>
+    </registerBuildSettings>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobAppLovin_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMobAppLovin_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobAppLovin_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobAppLovin_Dependencies.gradle"/>
+    </gradleCopies>
+
+    <gameActivityClassAdditions>
+        <insert>
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobAppLovinConsentSignals(
+        final boolean applyGdpr,
+        final boolean hasUserConsent,
+        final boolean applyUsPrivacy,
+        final boolean doNotSell
+    )
+    {
+        try
+        {
+            if (applyGdpr)
+            {
+                com.applovin.sdk.AppLovinPrivacySettings.setHasUserConsent(
+                    hasUserConsent,
+                    GameActivity.this
+                );
+                if (!com.applovin.sdk.AppLovinPrivacySettings.isUserConsentSet(GameActivity.this)
+                    || com.applovin.sdk.AppLovinPrivacySettings.hasUserConsent(GameActivity.this)
+                        != hasUserConsent)
+                {
+                    return false;
+                }
+            }
+            if (applyUsPrivacy)
+            {
+                com.applovin.sdk.AppLovinPrivacySettings.setDoNotSell(
+                    doNotSell,
+                    GameActivity.this
+                );
+                if (!com.applovin.sdk.AppLovinPrivacySettings.isDoNotSellSet(GameActivity.this)
+                    || com.applovin.sdk.AppLovinPrivacySettings.isDoNotSell(GameActivity.this)
+                        != doNotSell)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            return false;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+</root>

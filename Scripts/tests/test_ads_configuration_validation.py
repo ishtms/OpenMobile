@@ -93,6 +93,9 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.admob_meta = repository_descriptor(
 			"Adapters/Ads/OpenMobileAdsAdMobMeta/OpenMobileAdsAdMobMeta.uplugin"
 		)
+		self.admob_applovin = repository_descriptor(
+			"Adapters/Ads/OpenMobileAdsAdMobAppLovin/OpenMobileAdsAdMobAppLovin.uplugin"
+		)
 		mock_data = {
 			"Modules": [
 				{
@@ -133,6 +136,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				self.core,
 				self.service,
 				self.admob,
+				self.admob_applovin,
 				self.admob_meta,
 				self.mock,
 				self.mock_adapter,
@@ -156,6 +160,8 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		descriptors = discover_descriptors(REPOSITORY_ROOT)
 		self.assertIn("OpenMobileAdsAdMobMeta", descriptors)
 		self.assertTrue(descriptors["OpenMobileAdsAdMobMeta"].is_ads_adapter)
+		self.assertIn("OpenMobileAdsAdMobAppLovin", descriptors)
+		self.assertTrue(descriptors["OpenMobileAdsAdMobAppLovin"].is_ads_adapter)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -234,6 +240,37 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobMetaIOS", ios_adapter.modules)
 		self.assertNotIn("OpenMobileAdsAdMobMetaAndroid", ios_adapter.modules)
+
+	def test_real_admob_applovin_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMob"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertNotIn("OpenMobileAdsAdMobAppLovin", provider_only.ads_adapters)
+		self.assertNotIn("OpenMobileAdsAdMobAppLovinAndroid", provider_only.modules)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobAppLovin"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsAdMob"}, with_adapter.ads_providers)
+		self.assertEqual({"OpenMobileAdsAdMobAppLovin"}, with_adapter.ads_adapters)
+		self.assertIn("OpenMobileAdsAdMobAppLovinAndroid", with_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobAppLovinIOS", with_adapter.modules)
+		self.assertEqual([], validate_adapter_metadata(self.admob_applovin))
+
+		ios_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobAppLovin"],
+			platform="IOS",
+			target_type="Game",
+		)
+		self.assertIn("OpenMobileAdsAdMobAppLovinIOS", ios_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobAppLovinAndroid", ios_adapter.modules)
 
 	def test_adapter_metadata_requires_explicit_format_and_privacy_contracts(self) -> None:
 		metadata = json.loads(

@@ -27,6 +27,12 @@ ADMOB_PLUGIN = REPOSITORY_ROOT / "Providers" / "Ads" / "OpenMobileAdsAdMob"
 IOS_PACKAGE_MANIFEST = ADMOB_PLUGIN / "ThirdParty" / "IOS" / "packages.json"
 ADMOB_META_ADAPTER = REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobMeta"
 META_IOS_PACKAGE_MANIFEST = ADMOB_META_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
+ADMOB_APPLOVIN_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobAppLovin"
+)
+APPLOVIN_IOS_PACKAGE_MANIFEST = (
+	ADMOB_APPLOVIN_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
+)
 
 
 def mach_o_header(cpu_type: int) -> bytes:
@@ -185,6 +191,53 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 			)
 			self.assertTrue(any("disabled native payload" in error for error in errors))
 
+	def test_applovin_adapter_payload_is_opt_in(self) -> None:
+		self.assertIn("OpenMobileAdsAdMobAppLovin", ADAPTER_SIGNATURES)
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			android_package = Path(temporary_directory) / "Game.apk"
+			with zipfile.ZipFile(android_package, "w") as archive:
+				archive.writestr(
+					"classes.dex",
+					b"com/google/android/gms/ads "
+					b"com/google/ads/mediation/applovin/AppLovinMediationAdapter",
+				)
+
+			android_inventory = inspect_artifact(android_package)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobAppLovin"},
+					),
+				),
+			)
+			self.assertTrue(any(
+				"disabled native payload" in error
+				for error in validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						forbidden_adapters={"OpenMobileAdsAdMobAppLovin"},
+					),
+				)
+			))
+
+			ios_package = Path(temporary_directory) / "Game.ipa"
+			with zipfile.ZipFile(ios_package, "w") as archive:
+				add_ios_framework(archive, "GoogleMobileAds")
+				add_ios_framework(archive, "AppLovinSDK")
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inspect_artifact(ios_package),
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobAppLovin"},
+					),
+				),
+			)
+
 	def test_third_party_manifest_checks_every_binary_and_license(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			root = Path(temporary_directory)
@@ -225,6 +278,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 	def test_checked_in_ios_packages_have_current_provenance(self) -> None:
 		self.assertEqual([], validate_third_party_packages(IOS_PACKAGE_MANIFEST))
 		self.assertEqual([], validate_third_party_packages(META_IOS_PACKAGE_MANIFEST))
+		self.assertEqual([], validate_third_party_packages(APPLOVIN_IOS_PACKAGE_MANIFEST))
 
 	def test_ios_build_rules_embed_both_google_frameworks(self) -> None:
 		build_rules = (
@@ -250,6 +304,19 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		self.assertIn('"MetaAdapter"', build_rules)
 		self.assertIn('"FBAudienceNetwork"', build_rules)
 		self.assertNotIn('"GoogleMobileAds"', build_rules)
+
+	def test_ios_applovin_build_rules_embed_only_the_network_framework(self) -> None:
+		build_rules = (
+			ADMOB_APPLOVIN_ADAPTER
+			/ "Source"
+			/ "OpenMobileAdsAdMobAppLovinIOS"
+			/ "OpenMobileAdsAdMobAppLovinIOS.Build.cs"
+		).read_text(encoding="utf-8")
+
+		self.assertEqual(1, build_rules.count("Framework.FrameworkMode.LinkAndCopy"))
+		self.assertIn('"AppLovinAdapter"', build_rules)
+		self.assertIn('"AppLovinSDK"', build_rules)
+		self.assertNotIn('new Framework(\n\t\t\t"GoogleMobileAds"', build_rules)
 
 
 if __name__ == "__main__":

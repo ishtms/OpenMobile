@@ -23,6 +23,13 @@ PROVIDER_SIGNATURES = {
 	),
 }
 ADAPTER_SIGNATURES = {
+	"OpenMobileAdsAdMobAppLovin": (
+		b"com.google.ads.mediation:applovin",
+		b"com/google/ads/mediation/applovin",
+		b"com/applovin/sdk",
+		b"applovinadapter",
+		b"applovinsdk",
+	),
 	"OpenMobileAdsAdMobMeta": (
 		b"com.google.ads.mediation:facebook",
 		b"com/google/ads/mediation/facebook",
@@ -123,6 +130,11 @@ IOS_PACKAGE_CONTRACTS = {
 	},
 }
 IOS_ADAPTER_PACKAGE_CONTRACTS = {
+	"OpenMobileAdsAdMobAppLovin": {
+		"frameworks": {"AppLovinSDK"},
+		"static_frameworks": {"AppLovinAdapter"},
+		"privacy_manifest_frameworks": {"AppLovinSDK"},
+	},
 	"OpenMobileAdsAdMobMeta": {
 		"frameworks": {"FBAudienceNetwork"},
 		"static_frameworks": {"MetaAdapter"},
