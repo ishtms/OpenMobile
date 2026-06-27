@@ -5,6 +5,8 @@
 #include "OpenMobileHapticsTypes.h"
 #include "OpenMobileHapticPlatformAssets.generated.h"
 
+class UAssetImportData;
+
 UENUM(BlueprintType)
 enum class EOpenMobileHapticOverridePlatform : uint8
 {
@@ -169,11 +171,44 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticIOSPatternAsset final
 	GENERATED_BODY()
 
 public:
+	virtual void PostInitProperties() override;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "iOS", meta = (ClampMin = "13"))
 	int32 MinimumIOSMajorVersion = 13;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "iOS", meta = (MultiLine = "true"))
-	FString AHAPJson;
+	bool SetAHAPSource(const FString& Source, TArray<FString>& Errors);
+
+	const FString& GetNormalizedAHAPJson() const
+	{
+		return AHAPJson;
+	}
+
+	double GetAHAPDurationSeconds() const
+	{
+		return AHAPDurationSeconds;
+	}
+
+	bool RequiresAdvancedPlayer() const
+	{
+		return bRequiresAdvancedPlayer;
+	}
+
+	bool ContainsAudioEvents() const
+	{
+		return bContainsAudioEvents;
+	}
+
+#if WITH_EDITOR
+	UAssetImportData* GetAssetImportData()
+	{
+		return AssetImportData;
+	}
+
+	const UAssetImportData* GetAssetImportData() const
+	{
+		return AssetImportData;
+	}
+#endif
 
 	virtual EOpenMobileHapticOverridePlatform GetOverridePlatform() const override
 	{
@@ -188,4 +223,22 @@ public:
 		int32 OSVersion
 	) const override;
 	virtual bool Validate(TArray<FString>& Errors) const override;
+
+private:
+	UPROPERTY(VisibleAnywhere, Category = "iOS", meta = (MultiLine = "true"))
+	FString AHAPJson;
+
+	UPROPERTY(VisibleAnywhere, Category = "iOS", meta = (Units = "s"))
+	double AHAPDurationSeconds = 0.0;
+
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	bool bRequiresAdvancedPlayer = false;
+
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	bool bContainsAudioEvents = false;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(VisibleAnywhere, Instanced, Category = "Import")
+	TObjectPtr<UAssetImportData> AssetImportData;
+#endif
 };

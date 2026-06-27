@@ -64,6 +64,19 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return ContinuousSubmissionResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			++AHAPSubmissionCount;
+			LastRequestId = RequestId;
+			LastAHAPPattern = Pattern;
+			PlaybackCallback = MoveTemp(Callback);
+			return AHAPSubmissionResult;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 			uint64 RequestId
 		) override
@@ -120,6 +133,8 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult ContinuousSubmissionResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult AHAPSubmissionResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult StopResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult UpdateResult =
@@ -129,11 +144,13 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		int32 ShutdownCount = 0;
 		int32 TransientSubmissionCount = 0;
 		int32 ContinuousSubmissionCount = 0;
+		int32 AHAPSubmissionCount = 0;
 		int32 StopCount = 0;
 		int32 UpdateCount = 0;
 		uint64 LastRequestId = 0;
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
+		FOpenMobileHapticsAppleAHAPPattern LastAHAPPattern;
 		FOpenMobileHapticDynamicParameterUpdate LastUpdate;
 		FOpenMobileHapticsAppleBridgeEventCallback EventCallback;
 		FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
@@ -344,6 +361,70 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 	);
 	TestEqual(TEXT("Shutdown drops queued playback callbacks"),
 		CallbackCount, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAppleAHAPBridgeTest,
+	"OpenMobile.Haptics.Apple.Bridge.AHAPOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAppleAHAPBridgeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsAppleBridgeServiceTests;
+	TUniquePtr<FMockAppleBridge> Bridge = MakeUnique<FMockAppleBridge>();
+	FMockAppleBridge* Mock = Bridge.Get();
+	FOpenMobileHapticsAppleBridgeService Service(MoveTemp(Bridge));
+	FOpenMobileHapticsAppleAHAPPattern Pattern;
+	Pattern.NormalizedJson = TEXT(
+		"{\"Version\":1,\"Pattern\":[{\"Event\":{"
+		"\"EventType\":\"HapticTransient\",\"Time\":0}}]}"
+	);
+	Pattern.DurationSeconds = 0.1;
+	Pattern.SafetyDurationSeconds = 0.1;
+	int32 CallbackCount = 0;
+	TestEqual(TEXT("AHAP reaches the injected bridge"),
+		Service.PlayAHAPPattern(
+			91,
+			Pattern,
+			[&CallbackCount](EOpenMobileHapticsApplePlaybackEvent Event)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("One request-owned AHAP is submitted"),
+		Mock->AHAPSubmissionCount, 1);
+	TestEqual(TEXT("AHAP request identity crosses the bridge"),
+		Mock->LastRequestId, static_cast<uint64>(91));
+	TestEqual(TEXT("Normalized AHAP crosses unchanged"),
+		Mock->LastAHAPPattern.NormalizedJson, Pattern.NormalizedJson);
+	TestFalse(TEXT("Fixed AHAP retains standard player selection"),
+		Mock->LastAHAPPattern.bRequiresAdvancedPlayer);
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Completed);
+	TestEqual(TEXT("AHAP completion is not inline"), CallbackCount, 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread);
+	TestEqual(TEXT("AHAP completion reaches the game thread"),
+		CallbackCount, 1);
+
+	Pattern.bRequiresAdvancedPlayer = true;
+	Pattern.bLoop = true;
+	Pattern.SafetyDurationSeconds = 1.0;
+	TestEqual(TEXT("Advanced AHAP controls reach the bridge"),
+		Service.PlayAHAPPattern(92, Pattern, {}),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestTrue(TEXT("Advanced selection is retained"),
+		Mock->LastAHAPPattern.bRequiresAdvancedPlayer);
+	TestTrue(TEXT("AHAP loop ownership is retained"),
+		Mock->LastAHAPPattern.bLoop);
+	TestEqual(TEXT("AHAP safety duration is retained"),
+		Mock->LastAHAPPattern.SafetyDurationSeconds, 1.0);
 	return true;
 }
 

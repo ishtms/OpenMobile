@@ -41,7 +41,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 
 	bool SendDynamicParameters(
-		id<CHHapticAdvancedPatternPlayer> Player,
+		id<CHHapticPatternPlayer> Player,
 		const FOpenMobileHapticDynamicParameterUpdate& Update
 	)
 	{
@@ -80,6 +80,28 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			error:&Error] && !Error;
 		[Parameters release];
 		return bSent;
+	}
+
+	id<CHHapticAdvancedPatternPlayer> AsAdvancedPlayer(
+		id<CHHapticPatternPlayer> Player
+	)
+	{
+		return Player
+			&& [Player conformsToProtocol:@protocol(CHHapticAdvancedPatternPlayer)]
+				? static_cast<id<CHHapticAdvancedPatternPlayer>>(Player)
+				: nil;
+	}
+
+	void ClearCompletionHandler(id<CHHapticPatternPlayer> Player)
+	{
+		id<CHHapticAdvancedPatternPlayer> Advanced = AsAdvancedPlayer(Player);
+		if (Advanced)
+		{
+			Advanced.completionHandler = ^(NSError* Error)
+			{
+				static_cast<void>(Error);
+			};
+		}
 	}
 
 	bool ValidateContinuousPattern(
@@ -239,7 +261,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	UIImpactFeedbackGenerator* ImpactGenerators[5];
 	UINotificationFeedbackGenerator* NotificationGenerator;
 	CHHapticEngine* Engine;
-	NSMutableDictionary<NSNumber*, id<CHHapticAdvancedPatternPlayer>>* Players;
+	NSMutableDictionary<NSNumber*, id<CHHapticPatternPlayer>>* Players;
 	NSMutableDictionary<NSNumber*, NSTimer*>* SafetyTimers;
 	TMap<
 		uint64,
@@ -268,6 +290,10 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (void)handleSafetyTimer:(NSTimer*)Timer;
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key;
@@ -484,15 +510,12 @@ namespace OpenMobileHapticsIOSBridgePrivate
 
 	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
 	[self cancelSafetyTimerForKey:Key];
-	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
 		return;
 	}
-	Player.completionHandler = ^(NSError* Error)
-	{
-		static_cast<void>(Error);
-	};
+	OpenMobileHapticsIOSBridgePrivate::ClearCompletionHandler(Player);
 	[Players removeObjectForKey:Key];
 	TSharedPtr<
 		FOpenMobileHapticsApplePlaybackEventCallback,
@@ -851,6 +874,171 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 }
 
+- (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	using namespace OpenMobileHapticsIOSBridgePrivate;
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	if (!Engine
+		|| RequestId == 0
+		|| Pattern.NormalizedJson.IsEmpty()
+		|| !IsFiniteInRange(
+			Pattern.DurationSeconds,
+			0.0,
+			MaximumNativePatternDurationSeconds
+		)
+		|| !IsFiniteInRange(
+			Pattern.SafetyDurationSeconds,
+			TimingToleranceSeconds,
+			MaximumNativePatternDurationSeconds
+		)
+		|| Pattern.SafetyDurationSeconds + TimingToleranceSeconds
+			< Pattern.DurationSeconds
+		|| (Pattern.bLoop && !Pattern.bRequiresAdvancedPlayer)
+		|| (Pattern.bHasInitialDynamicParameters
+			&& !ValidateDynamicParameters(
+				Pattern.InitialDynamicParameters
+			)))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	if ([Players objectForKey:Key])
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+
+	const FTCHARToUTF8 UTF8(*Pattern.NormalizedJson);
+	if (UTF8.Length() <= 0 || UTF8.Length() > 256 * 1024)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	NSData* Data = [NSData
+		dataWithBytes:UTF8.Get()
+		length:static_cast<NSUInteger>(UTF8.Length())];
+	NSError* Error = nil;
+	id JsonObject = [NSJSONSerialization
+		JSONObjectWithData:Data
+		options:0
+		error:&Error];
+	if (!JsonObject || Error || ![JsonObject isKindOfClass:[NSDictionary class]])
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
+		initWithDictionary:static_cast<NSDictionary*>(JsonObject)
+		error:&Error];
+	if (!NativePattern || Error)
+	{
+		[NativePattern release];
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+
+	Error = nil;
+	if (![Engine startAndReturnError:&Error] || Error)
+	{
+		[NativePattern release];
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	id<CHHapticPatternPlayer> Player = nil;
+	id<CHHapticAdvancedPatternPlayer> AdvancedPlayer = nil;
+	if (Pattern.bRequiresAdvancedPlayer)
+	{
+		AdvancedPlayer = [Engine
+			createAdvancedPlayerWithPattern:NativePattern
+			error:&Error];
+		Player = AdvancedPlayer;
+	}
+	else
+	{
+		Player = [Engine createPlayerWithPattern:NativePattern error:&Error];
+	}
+	[NativePattern release];
+	if (!Player || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (Pattern.bHasInitialDynamicParameters
+		&& !SendDynamicParameters(
+			Player,
+			Pattern.InitialDynamicParameters
+		))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (AdvancedPlayer)
+	{
+		AdvancedPlayer.loopEnabled = Pattern.bLoop;
+		if (Pattern.bLoop)
+		{
+			AdvancedPlayer.loopEnd = Pattern.DurationSeconds;
+		}
+	}
+
+	const bool bUsesTimer = !AdvancedPlayer || Pattern.bLoop;
+	NSTimer* SafetyTimer = bUsesTimer
+		? [NSTimer
+			timerWithTimeInterval:Pattern.SafetyDurationSeconds
+			target:self
+			selector:@selector(handleSafetyTimer:)
+			userInfo:Key
+			repeats:NO]
+		: nil;
+	if (bUsesTimer && !SafetyTimer)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (!Players)
+	{
+		Players = [[NSMutableDictionary alloc] init];
+	}
+	OpenMobileHapticsAppleNativeService* Service = self;
+	if (AdvancedPlayer)
+	{
+		AdvancedPlayer.completionHandler = ^(NSError* CompletionError)
+		{
+			[Service completePattern:RequestId
+				event:CompletionError
+					? EOpenMobileHapticsApplePlaybackEvent::Failed
+					: EOpenMobileHapticsApplePlaybackEvent::Completed];
+		};
+	}
+	[Players setObject:Player forKey:Key];
+	PlaybackCallbacks.Add(
+		RequestId,
+		MakeShared<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		>(MoveTemp(Callback))
+	);
+	Error = nil;
+	if (![Player startAtTime:CHHapticTimeImmediate error:&Error] || Error)
+	{
+		[SafetyTimer invalidate];
+		ClearCompletionHandler(Player);
+		[Players removeObjectForKey:Key];
+		PlaybackCallbacks.Remove(RequestId);
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (bUsesTimer)
+	{
+		if (!SafetyTimers)
+		{
+			SafetyTimers = [[NSMutableDictionary alloc] init];
+		}
+		[SafetyTimers setObject:SafetyTimer forKey:Key];
+		[[NSRunLoop mainRunLoop]
+			addTimer:SafetyTimer
+			forMode:NSRunLoopCommonModes];
+	}
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key
 {
 	NSTimer* Timer = [SafetyTimers objectForKey:Key];
@@ -883,7 +1071,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 
 	const uint64 RequestId = Key.unsignedLongLongValue;
-	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
 		return;
@@ -914,7 +1102,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
 	}
 	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
-	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::Accepted;
@@ -926,10 +1114,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 	[self cancelSafetyTimerForKey:Key];
-	Player.completionHandler = ^(NSError* CompletionError)
-	{
-		static_cast<void>(CompletionError);
-	};
+	OpenMobileHapticsIOSBridgePrivate::ClearCompletionHandler(Player);
 	[Players removeObjectForKey:Key];
 	PlaybackCallbacks.Remove(RequestId);
 	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
@@ -949,7 +1134,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
-	id<CHHapticAdvancedPatternPlayer> Player = [Players objectForKey:Key];
+	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
@@ -985,12 +1170,9 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	[SafetyTimers removeAllObjects];
 	[SafetyTimers release];
 	SafetyTimers = nil;
-	for (id<CHHapticAdvancedPatternPlayer> Player in [Players allValues])
+	for (id<CHHapticPatternPlayer> Player in [Players allValues])
 	{
-		Player.completionHandler = ^(NSError* CompletionError)
-		{
-			static_cast<void>(CompletionError);
-		};
+		OpenMobileHapticsIOSBridgePrivate::ClearCompletionHandler(Player);
 		NSError* Error = nil;
 		[Player stopAtTime:CHHapticTimeImmediate error:&Error];
 	}
@@ -1182,6 +1364,31 @@ namespace OpenMobileHapticsIOSBridgePrivate
 				{
 					Result = [Service
 						playContinuousPattern:RequestId
+						pattern:Pattern
+						callback:MoveTemp(Callback)];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, &Pattern, &Callback, &Result]()
+				{
+					Result = [Service
+						playAHAPPattern:RequestId
 						pattern:Pattern
 						callback:MoveTemp(Callback)];
 				}

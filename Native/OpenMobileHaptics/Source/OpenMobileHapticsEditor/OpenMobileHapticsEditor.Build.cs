@@ -10,7 +10,9 @@ public class OpenMobileHapticsEditor : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
-			"OpenMobileHaptics"
+			"Engine",
+			"OpenMobileHaptics",
+			"UnrealEd"
 		});
 	}
 }

@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsIOSBackend.h"
 
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticsAppleAHAPPlaybackPolicy.h"
 #include "OpenMobileHapticsAppleBridgeService.h"
 #include "OpenMobileHapticsAppleContinuousPolicy.h"
 #include "OpenMobileHapticsBackendRegistry.h"
@@ -9,6 +10,7 @@
 #include "OpenMobileHapticsIOSBridge.h"
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "Misc/ScopeLock.h"
 
 namespace OpenMobileHapticsIOSBackendPrivate
 {
@@ -215,6 +217,7 @@ FOpenMobileHapticsIOSBackend::FOpenMobileHapticsIOSBackend()
 		[this](EOpenMobileHapticsAppleBridgeEvent Event)
 		{
 			static_cast<void>(Event);
+			ForgetAllAHAPIntensityScales();
 			BridgeService->InvalidateHardwareProbe();
 			FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 		}
@@ -222,6 +225,43 @@ FOpenMobileHapticsIOSBackend::FOpenMobileHapticsIOSBackend()
 }
 
 FOpenMobileHapticsIOSBackend::~FOpenMobileHapticsIOSBackend() = default;
+
+void FOpenMobileHapticsIOSBackend::RememberAHAPIntensityScale(
+	uint64 RequestId,
+	float Scale
+)
+{
+	FScopeLock Lock(&AHAPIntensityMutex);
+	AHAPStaticIntensityScales.Add(RequestId, Scale);
+}
+
+void FOpenMobileHapticsIOSBackend::ForgetAHAPIntensityScale(uint64 RequestId)
+{
+	FScopeLock Lock(&AHAPIntensityMutex);
+	AHAPStaticIntensityScales.Remove(RequestId);
+}
+
+void FOpenMobileHapticsIOSBackend::ForgetAllAHAPIntensityScales()
+{
+	FScopeLock Lock(&AHAPIntensityMutex);
+	AHAPStaticIntensityScales.Reset();
+}
+
+FOpenMobileHapticDynamicParameterUpdate
+FOpenMobileHapticsIOSBackend::ComposeAHAPDynamicUpdate(
+	uint64 RequestId,
+	const FOpenMobileHapticDynamicParameterUpdate& Update
+) const
+{
+	FScopeLock Lock(&AHAPIntensityMutex);
+	const float* Scale = AHAPStaticIntensityScales.Find(RequestId);
+	return Scale
+		? FOpenMobileHapticsAppleAHAPPlaybackPolicy::ComposeDynamicUpdate(
+			Update,
+			*Scale
+		)
+		: Update;
+}
 
 FOpenMobileHapticCapabilities
 FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
@@ -276,6 +316,8 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	const bool bSemanticEnabled = Settings->IOS.bEnableSemanticFeedback;
 	const bool bCoreHapticsEnabled = Settings->bEnableCustomPlayback
 		&& Settings->IOS.bEnableCoreHaptics;
+	const bool bAHAPEnabled = bCoreHapticsEnabled
+		&& Settings->IOS.bPackageAHAPResources;
 	const EOpenMobileHapticSupportState Supported =
 		EOpenMobileHapticSupportState::Supported;
 	const EOpenMobileHapticSupportState Unsupported =
@@ -309,8 +351,10 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.DynamicParameters = bCoreHapticsEnabled
 		? Supported
 		: Unsupported;
-	Capabilities.AudioEvents = Unsupported;
-	Capabilities.AHAP = Unsupported;
+	Capabilities.AudioEvents = bAHAPEnabled && Probe.bSupportsAudio
+		? Supported
+		: Unsupported;
+	Capabilities.AHAP = bAHAPEnabled ? Supported : Unsupported;
 	Capabilities.Scheduling = Unsupported;
 	Capabilities.Pause = Unsupported;
 	Capabilities.Resume = Unsupported;
@@ -533,6 +577,11 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
 	const FOpenMobileHapticsAppleHardwareProbe Hardware =
 		BridgeService->GetHardwareProbe();
+	FOpenMobileHapticLoopOptions EffectiveLoop = Pattern->Loop;
+	if (Request.Options.Loop.bLoop)
+	{
+		EffectiveLoop = Request.Options.Loop;
+	}
 	FOpenMobileHapticsPlatformOverrideResolution Override =
 		FOpenMobileHapticsPlatformOverridePolicy::Resolve(
 			*Pattern,
@@ -541,12 +590,180 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			Capabilities,
 			Request.Options.FallbackPolicy
 		);
-	if (Override.Path
-		== EOpenMobileHapticsPlatformOverridePath::ExactOverride)
+	if (Override.Path == EOpenMobileHapticsPlatformOverridePath::ExactOverride)
 	{
-		Override.Path = EOpenMobileHapticsPlatformOverridePath::PortablePattern;
-		Override.OverrideAsset.Reset();
-		Override.Reason = TEXT("AHAPPlaybackPending");
+		const UOpenMobileHapticIOSPatternAsset* IOSAsset =
+			Cast<UOpenMobileHapticIOSPatternAsset>(
+				Override.OverrideAsset.ResolveObject()
+			);
+		if (!IOSAsset)
+		{
+			Override.Path =
+				EOpenMobileHapticsPlatformOverridePath::PortablePattern;
+			Override.OverrideAsset.Reset();
+			Override.Reason = TEXT("InvalidAHAPOverride");
+		}
+		else
+		{
+			FOpenMobileHapticsAppleAHAPResolution AHAP =
+				FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+					*IOSAsset,
+					EffectiveLoop,
+					Capabilities,
+					FOpenMobileHapticsAppleAHAPPlaybackPolicy::MakeLimits(
+						*GetDefault<UOpenMobileHapticsSettings>()
+					)
+				);
+			if (AHAP.Outcome
+				== EOpenMobileHapticsAppleAHAPOutcome::Invalid)
+			{
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result =
+					FOpenMobileHapticPlaybackResult::MakeRejected(
+						EOpenMobileErrorCode::InvalidArgument,
+						TEXT("The Apple AHAP pattern or loop is invalid.")
+					);
+				Submission.Result.FallbackAttempts.Add(TranslationAttempt(
+					TEXT("AppleAHAP"),
+					AHAP.Reason
+				));
+				return Submission;
+			}
+			if (AHAP.Outcome
+				== EOpenMobileHapticsAppleAHAPOutcome::FallbackRequired)
+			{
+				Override.Path =
+					EOpenMobileHapticsPlatformOverridePath::PortablePattern;
+				Override.OverrideAsset.Reset();
+				Override.Reason = AHAP.Reason;
+			}
+			else
+			{
+				AHAP.Pattern.bHasInitialDynamicParameters = true;
+				if (Parameters.bHasInitialDynamicParameters)
+				{
+					AHAP.Pattern.InitialDynamicParameters =
+						Parameters.InitialDynamicParameters;
+				}
+				AHAP.Pattern.InitialDynamicParameters.bUpdateIntensity = true;
+				const float PolicyIntensity =
+					Parameters.bHasInitialDynamicParameters
+						&& Parameters.InitialDynamicParameters.bUpdateIntensity
+							? Parameters.InitialDynamicParameters.Intensity
+							: 1.0f;
+				AHAP.Pattern.InitialDynamicParameters.Intensity =
+					FOpenMobileHapticsIntensityPolicy::Scale(
+						Request.Intensity,
+						PolicyIntensity,
+						1.0f,
+						1.0f,
+						1.0f,
+						1.0f
+					);
+				TArray<FName> Attempts;
+				Attempts.Add(TranslationAttempt(
+					TEXT("AppleAHAP"),
+					AHAP.Reason
+				));
+				const EOpenMobileHapticsAppleEngineResult EngineResult =
+					BridgeService->EnsureEngine();
+				if (EngineResult
+					!= EOpenMobileHapticsAppleEngineResult::Ready)
+				{
+					if (EngineResult
+						== EOpenMobileHapticsAppleEngineResult::
+							UnsupportedHardware
+						|| EngineResult
+							== EOpenMobileHapticsAppleEngineResult::
+								TemporarilyUnavailable)
+					{
+						Attempts.Add(TranslationAttempt(
+							TEXT("AppleAHAP"),
+							TEXT("EngineUnavailable")
+						));
+						const FOpenMobileHapticsFallbackResolution Fallback =
+							ResolveWithoutRichPlayback(
+								*Pattern,
+								Capabilities,
+								Request.Options.FallbackPolicy
+							);
+						Attempts.Append(
+							FOpenMobileHapticsFallbackPolicy::
+								MakeDiagnosticTrace(Fallback)
+						);
+						return SubmitFallbackResolution(
+							*BridgeService,
+							FallbackRequest,
+							*Pattern,
+							Fallback,
+							MoveTemp(Attempts)
+						);
+					}
+					FOpenMobileHapticsBackendSubmission Submission;
+					Submission.Result =
+						FOpenMobileHapticPlaybackResult::MakeRejected(
+							EOpenMobileErrorCode::NativeFailure,
+							TEXT("Apple could not create the Core Haptics engine.")
+						);
+					AppendAttempts(Submission, Attempts);
+					return Submission;
+				}
+
+				const FName ResolvedPath =
+					AHAP.Pattern.bRequiresAdvancedPlayer
+						? FName(TEXT("AppleAHAPAdvancedPattern"))
+						: FName(TEXT("AppleAHAPStandardPattern"));
+				RememberAHAPIntensityScale(
+					Token.RequestId,
+					Request.Intensity
+				);
+				FOpenMobileHapticsBackendEventCallback AHAPCallback =
+					[this,
+					 RequestId = Token.RequestId,
+					 Callback = MoveTemp(Callback)](
+						const FOpenMobileHapticsBackendCallback& Event
+					) mutable
+					{
+						ForgetAHAPIntensityScale(RequestId);
+						if (Callback)
+						{
+							Callback(Event);
+						}
+					};
+				const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
+					BridgeService->PlayAHAPPattern(
+						Token.RequestId,
+						AHAP.Pattern,
+						MakePlaybackCallback(
+							Token,
+							Request.PatternName,
+							Request.Options.Channel,
+							ResolvedPath,
+							TEXT("Apple AHAP playback failed."),
+							MoveTemp(AHAPCallback)
+						)
+					);
+				if (BridgeResult
+					!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+				{
+					ForgetAHAPIntensityScale(Token.RequestId);
+					FOpenMobileHapticsBackendSubmission Submission =
+						MakeBridgeFailure(BridgeResult);
+					AppendAttempts(Submission, Attempts);
+					return Submission;
+				}
+				FOpenMobileHapticsBackendSubmission Submission;
+				Submission.Result.Outcome =
+					EOpenMobileHapticPlaybackOutcome::Accepted;
+				Submission.Result.State =
+					EOpenMobileHapticPlaybackState::Accepted;
+				Submission.Result.ResolvedPath = ResolvedPath;
+				AppendAttempts(Submission, Attempts);
+				Submission.bCreatesControllablePlayback = true;
+				Submission.bExpectsCallbacks = true;
+				return Submission;
+			}
+		}
 	}
 	const FOpenMobileHapticsFallbackResolution Ladder =
 		FOpenMobileHapticsFallbackPolicy::Resolve(
@@ -570,11 +787,6 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 
 	const FOpenMobileHapticCookedPatternData& CookedPattern =
 		Pattern->GetCookedPattern();
-	FOpenMobileHapticLoopOptions EffectiveLoop = Pattern->Loop;
-	if (Request.Options.Loop.bLoop)
-	{
-		EffectiveLoop = Request.Options.Loop;
-	}
 	bool bUseContinuousTranslation = !CookedPattern.ParameterCurves.IsEmpty();
 	bUseContinuousTranslation |= EffectiveLoop.bLoop;
 	for (const FOpenMobileHapticCookedPatternEvent& Event
@@ -814,6 +1026,7 @@ FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::StopPlayback(
 		BridgeService->StopPattern(Token.RequestId);
 	if (Result == EOpenMobileHapticsAppleSubmissionResult::Accepted)
 	{
+		ForgetAHAPIntensityScale(Token.RequestId);
 		FOpenMobileHapticControlResult Accepted;
 		Accepted.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 		return Accepted;
@@ -833,7 +1046,10 @@ FOpenMobileHapticsIOSBackend::UpdatePlaybackParameters(
 )
 {
 	const EOpenMobileHapticsAppleSubmissionResult Result =
-		BridgeService->UpdatePattern(Token.RequestId, Update);
+		BridgeService->UpdatePattern(
+			Token.RequestId,
+			ComposeAHAPDynamicUpdate(Token.RequestId, Update)
+		);
 	FOpenMobileHapticControlResult Control;
 	if (Result == EOpenMobileHapticsAppleSubmissionResult::Accepted)
 	{
@@ -842,6 +1058,7 @@ FOpenMobileHapticsIOSBackend::UpdatePlaybackParameters(
 	}
 	if (Result == EOpenMobileHapticsAppleSubmissionResult::StaleRequest)
 	{
+		ForgetAHAPIntensityScale(Token.RequestId);
 		Control.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
 		Control.Error = FOpenMobileHapticError::FromCommon(
 			EOpenMobileErrorCode::Unavailable,
@@ -868,5 +1085,6 @@ FOpenMobileHapticsIOSBackend::UpdatePlaybackParameters(
 
 void FOpenMobileHapticsIOSBackend::BeginShutdown()
 {
+	ForgetAllAHAPIntensityScales();
 	BridgeService->Shutdown();
 }

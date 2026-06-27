@@ -1,9 +1,12 @@
 #include "OpenMobileHapticPlatformAssets.h"
 
-#include "Dom/JsonObject.h"
+#include "OpenMobileHapticsAHAPPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
-#include "Serialization/JsonReader.h"
-#include "Serialization/JsonSerializer.h"
+#include "OpenMobileHapticsSettings.h"
+
+#if WITH_EDITORONLY_DATA
+#include "EditorFramework/AssetImportData.h"
+#endif
 
 #if WITH_EDITOR
 #include "Interfaces/ITargetPlatform.h"
@@ -67,7 +70,9 @@ bool UOpenMobileHapticPlatformPatternAsset::ShouldCookForPlatform(
 	}
 	if (GetOverridePlatform() == EOpenMobileHapticOverridePlatform::IOS)
 	{
-		return PlatformName == TEXT("IOS");
+		return PlatformName == TEXT("IOS")
+			&& GetDefault<UOpenMobileHapticsSettings>()
+				->IOS.bPackageAHAPResources;
 	}
 	return false;
 }
@@ -323,7 +328,44 @@ bool UOpenMobileHapticIOSPatternAsset::Supports(
 ) const
 {
 	return OSVersion >= GetMinimumOSVersion()
-		&& Capabilities.AHAP == EOpenMobileHapticSupportState::Supported;
+		&& Capabilities.AHAP == EOpenMobileHapticSupportState::Supported
+		&& (!ContainsAudioEvents()
+			|| Capabilities.AudioEvents
+				== EOpenMobileHapticSupportState::Supported);
+}
+
+void UOpenMobileHapticIOSPatternAsset::PostInitProperties()
+{
+	Super::PostInitProperties();
+#if WITH_EDITORONLY_DATA
+	if (!HasAnyFlags(RF_ClassDefaultObject) && !AssetImportData)
+	{
+		AssetImportData = NewObject<UAssetImportData>(
+			this,
+			TEXT("AssetImportData")
+		);
+	}
+#endif
+}
+
+bool UOpenMobileHapticIOSPatternAsset::SetAHAPSource(
+	const FString& Source,
+	TArray<FString>& Errors
+)
+{
+	Errors.Reset();
+	const FOpenMobileHapticsAHAPNormalizationResult Result =
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source);
+	if (!Result.bSuccess)
+	{
+		Errors.Add(FOpenMobileHapticsAHAPPolicy::DescribeError(Result));
+		return false;
+	}
+	AHAPJson = Result.Resource.NormalizedJson;
+	AHAPDurationSeconds = Result.Resource.DurationSeconds;
+	bRequiresAdvancedPlayer = Result.Resource.bRequiresAdvancedPlayer;
+	bContainsAudioEvents = Result.Resource.bContainsAudioEvents;
+	return true;
 }
 
 bool UOpenMobileHapticIOSPatternAsset::Validate(
@@ -335,30 +377,20 @@ bool UOpenMobileHapticIOSPatternAsset::Validate(
 	{
 		Errors.Add(TEXT("MinimumIOSMajorVersion must be at least 13."));
 	}
-	if (AHAPJson.Len() > 256 * 1024)
+	const FOpenMobileHapticsAHAPNormalizationResult Result =
+		FOpenMobileHapticsAHAPPolicy::Normalize(AHAPJson);
+	if (!Result.bSuccess)
 	{
-		Errors.Add(TEXT("AHAPJson exceeds the 256 KiB asset limit."));
+		Errors.Add(FOpenMobileHapticsAHAPPolicy::DescribeError(Result));
 		return false;
 	}
-	TSharedPtr<FJsonObject> Root;
-	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(
-		AHAPJson
-	);
-	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	if (Result.Resource.NormalizedJson != AHAPJson
+		|| Result.Resource.DurationSeconds != AHAPDurationSeconds
+		|| Result.Resource.bRequiresAdvancedPlayer
+			!= bRequiresAdvancedPlayer
+		|| Result.Resource.bContainsAudioEvents != bContainsAudioEvents)
 	{
-		Errors.Add(TEXT("AHAPJson must contain a valid JSON object."));
-		return false;
-	}
-	double Version = 0.0;
-	if (!Root->TryGetNumberField(TEXT("Version"), Version) || Version <= 0.0)
-	{
-		Errors.Add(TEXT("AHAPJson must contain a positive Version."));
-	}
-	const TArray<TSharedPtr<FJsonValue>>* Pattern = nullptr;
-	if (!Root->TryGetArrayField(TEXT("Pattern"), Pattern)
-		|| !Pattern || Pattern->IsEmpty())
-	{
-		Errors.Add(TEXT("AHAPJson must contain a nonempty Pattern array."));
+		Errors.Add(TEXT("AHAP derived data is stale."));
 	}
 	return Errors.IsEmpty();
 }

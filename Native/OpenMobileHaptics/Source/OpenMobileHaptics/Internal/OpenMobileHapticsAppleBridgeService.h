@@ -56,6 +56,17 @@ enum class EOpenMobileHapticsApplePlaybackEvent : uint8
 using FOpenMobileHapticsApplePlaybackEventCallback =
 	TFunction<void(EOpenMobileHapticsApplePlaybackEvent)>;
 
+struct FOpenMobileHapticsAppleAHAPPattern
+{
+	FString NormalizedJson;
+	double DurationSeconds = 0.0;
+	double SafetyDurationSeconds = 0.0;
+	bool bRequiresAdvancedPlayer = false;
+	bool bLoop = false;
+	bool bHasInitialDynamicParameters = false;
+	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
+};
+
 class OPENMOBILEHAPTICS_API IOpenMobileHapticsAppleBridge
 {
 public:
@@ -77,6 +88,11 @@ public:
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
@@ -116,6 +132,11 @@ public:
 	EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
+	EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	);
 	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);

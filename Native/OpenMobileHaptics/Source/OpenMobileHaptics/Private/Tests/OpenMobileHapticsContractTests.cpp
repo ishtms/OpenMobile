@@ -17,6 +17,8 @@
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsDynamicParameterPolicy.h"
+#include "OpenMobileHapticsAHAPPolicy.h"
+#include "OpenMobileHapticsAppleAHAPPlaybackPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
@@ -1181,6 +1183,254 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAppleAHAPPlaybackPolicyTest,
+	"OpenMobile.Haptics.Apple.AHAP.PlaybackPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAppleAHAPPlaybackPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticCapabilities Capabilities;
+	Capabilities.AHAP = EOpenMobileHapticSupportState::Supported;
+	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsAppleAHAPLimits Limits;
+	Limits.MaximumFiniteRepeatCount = 4;
+	Limits.MaximumDurationSeconds = 5.0;
+	Limits.MinimumCompletionDurationSeconds = 0.1;
+	TArray<FString> Errors;
+
+	UOpenMobileHapticIOSPatternAsset* Fixed =
+		NewObject<UOpenMobileHapticIOSPatternAsset>();
+	TestTrue(TEXT("Fixed AHAP fixture builds"), Fixed->SetAHAPSource(
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{"
+			"\"EventType\":\"HapticTransient\",\"Time\":0}}]}"),
+		Errors));
+	FOpenMobileHapticsAppleAHAPResolution Resolution =
+		FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+			*Fixed,
+			{},
+			Capabilities,
+			Limits
+		);
+	TestEqual(TEXT("Fixed AHAP is ready"), Resolution.Outcome,
+		EOpenMobileHapticsAppleAHAPOutcome::Ready);
+	TestFalse(TEXT("Fixed AHAP selects a standard player"),
+		Resolution.Pattern.bRequiresAdvancedPlayer);
+	TestEqual(TEXT("Transient AHAP has a bounded completion window"),
+		Resolution.Pattern.SafetyDurationSeconds, 0.1);
+	FOpenMobileHapticDynamicParameterUpdate RuntimeUpdate;
+	RuntimeUpdate.Intensity = 0.8f;
+	RuntimeUpdate.bUpdateSharpness = true;
+	RuntimeUpdate.Sharpness = 0.7f;
+	const FOpenMobileHapticDynamicParameterUpdate ComposedUpdate =
+		FOpenMobileHapticsAppleAHAPPlaybackPolicy::ComposeDynamicUpdate(
+			RuntimeUpdate,
+			0.5f
+		);
+	TestEqual(TEXT("AHAP runtime intensity retains the request scale"),
+		ComposedUpdate.Intensity, 0.4f);
+	TestEqual(TEXT("AHAP runtime sharpness remains unchanged"),
+		ComposedUpdate.Sharpness, 0.7f);
+
+	UOpenMobileHapticIOSPatternAsset* Controlled =
+		NewObject<UOpenMobileHapticIOSPatternAsset>();
+	TestTrue(TEXT("Controlled AHAP fixture builds"),
+		Controlled->SetAHAPSource(
+			TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{"
+				"\"EventType\":\"HapticContinuous\",\"Time\":0,"
+				"\"Duration\":0.5}},{\"ParameterCurve\":{"
+				"\"ParameterID\":\"HapticIntensityControl\",\"Time\":0,"
+				"\"ParameterCurveControlPoints\":[{\"Time\":0,"
+				"\"ParameterValue\":0.2},{\"Time\":0.5,"
+				"\"ParameterValue\":0.8}]}}]}"),
+			Errors));
+	Resolution = FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+		*Controlled, {}, Capabilities, Limits);
+	TestEqual(TEXT("Controlled AHAP is ready"), Resolution.Outcome,
+		EOpenMobileHapticsAppleAHAPOutcome::Ready);
+	TestTrue(TEXT("Authored controls select an advanced player"),
+		Resolution.Pattern.bRequiresAdvancedPlayer);
+
+	FOpenMobileHapticLoopOptions Loop;
+	Loop.bLoop = true;
+	Loop.RepeatCount = 2;
+	Loop.MaximumDurationSeconds = 2.0;
+	Resolution = FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+		*Controlled, Loop, Capabilities, Limits);
+	TestEqual(TEXT("Full-pattern finite AHAP loop is ready"),
+		Resolution.Outcome, EOpenMobileHapticsAppleAHAPOutcome::Ready);
+	TestTrue(TEXT("Looping selects an advanced player"),
+		Resolution.Pattern.bRequiresAdvancedPlayer);
+	TestTrue(TEXT("Native player owns the full-pattern loop"),
+		Resolution.Pattern.bLoop);
+	TestEqual(TEXT("Finite loop safety covers every iteration"),
+		Resolution.Pattern.SafetyDurationSeconds, 1.5);
+	Loop.RepeatStartTimeSeconds = 0.1;
+	Resolution = FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+		*Controlled, Loop, Capabilities, Limits);
+	TestEqual(TEXT("Suffix AHAP loops preserve the portable fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAppleAHAPOutcome::FallbackRequired);
+
+	UOpenMobileHapticIOSPatternAsset* Audio =
+		NewObject<UOpenMobileHapticIOSPatternAsset>();
+	TestTrue(TEXT("Synthesized audio AHAP fixture builds"),
+		Audio->SetAHAPSource(
+			TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{"
+				"\"EventType\":\"AudioContinuous\",\"Time\":0,"
+				"\"Duration\":0.2}}]}"), Errors));
+	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
+	Resolution = FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+		*Audio, {}, Capabilities, Limits);
+	TestEqual(TEXT("Unavailable AHAP audio preserves the fallback"),
+		Resolution.Outcome,
+		EOpenMobileHapticsAppleAHAPOutcome::FallbackRequired);
+	Resolution = FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
+		*NewObject<UOpenMobileHapticIOSPatternAsset>(),
+		{}, Capabilities, Limits);
+	TestEqual(TEXT("Invalid AHAP never reaches native playback"),
+		Resolution.Outcome, EOpenMobileHapticsAppleAHAPOutcome::Invalid);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAHAPNormalizationTest,
+	"OpenMobile.Haptics.Apple.AHAP.Normalization",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAHAPNormalizationTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FString Source = TEXT(
+		"{\n"
+		"  \"Pattern\": [\n"
+		"    {\"Event\":{\"Time\":0,\"EventParameters\":["
+		"{\"ParameterValue\":0.75,\"ParameterID\":\"HapticIntensity\"}],"
+		"\"EventType\":\"HapticTransient\"}},\n"
+		"    {\"Parameter\":{\"ParameterValue\":0.6,\"Time\":0.1,"
+		"\"ParameterID\":\"HapticIntensityControl\"}},\n"
+		"    {\"ParameterCurve\":{\"ParameterCurveControlPoints\":["
+		"{\"ParameterValue\":0.25,\"Time\":0},"
+		"{\"Time\":0.2,\"ParameterValue\":0.8}],\"Time\":0.2,"
+		"\"ParameterID\":\"HapticSharpnessControl\"}},\n"
+		"    {\"Event\":{\"Duration\":0.4,"
+		"\"EventType\":\"AudioContinuous\",\"Time\":0.3,"
+		"\"EventParameters\":[{\"ParameterID\":\"AudioVolume\","
+		"\"ParameterValue\":0.5}]}}\n"
+		"  ],\n"
+		"  \"Version\": 1\n"
+		"}"
+	);
+	const FOpenMobileHapticsAHAPNormalizationResult Result =
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source);
+	TestTrue(TEXT("Reference AHAP normalizes"), Result.bSuccess);
+	TestEqual(TEXT("All pattern entries are retained"),
+		Result.Resource.PatternEntryCount, 4);
+	TestEqual(TEXT("Haptic event count is retained"),
+		Result.Resource.HapticEventCount, 1);
+	TestEqual(TEXT("Audio event count is retained"),
+		Result.Resource.AudioEventCount, 1);
+	TestEqual(TEXT("Dynamic parameter count is retained"),
+		Result.Resource.ParameterCount, 1);
+	TestEqual(TEXT("Parameter curve count is retained"),
+		Result.Resource.ParameterCurveCount, 1);
+	TestTrue(TEXT("Controls require the advanced player"),
+		Result.Resource.bRequiresAdvancedPlayer);
+	TestTrue(TEXT("Audio presence is retained"),
+		Result.Resource.bContainsAudioEvents);
+	TestEqual(TEXT("Pattern duration includes event endings"),
+		Result.Resource.DurationSeconds, 0.7);
+	TestEqual(TEXT("Normalization is deterministic"),
+		FOpenMobileHapticsAHAPPolicy::Normalize(
+			Result.Resource.NormalizedJson
+		).Resource.NormalizedJson,
+		Result.Resource.NormalizedJson);
+
+	auto ExpectError = [this](
+		const TCHAR* Label,
+		const TCHAR* Json,
+		EOpenMobileHapticsAHAPError Expected
+	)
+	{
+		const FOpenMobileHapticsAHAPNormalizationResult Invalid =
+			FOpenMobileHapticsAHAPPolicy::Normalize(Json);
+		TestFalse(Label, Invalid.bSuccess);
+		TestEqual(Label, Invalid.Error, Expected);
+	};
+	ExpectError(
+		TEXT("Malformed JSON is rejected"),
+		TEXT("{invalid"),
+		EOpenMobileHapticsAHAPError::MalformedJson
+	);
+	ExpectError(
+		TEXT("Missing version is rejected"),
+		TEXT("{\"Pattern\":[{\"Event\":{\"EventType\":"
+			"\"HapticTransient\",\"Time\":0}}]}"),
+		EOpenMobileHapticsAHAPError::MissingVersion
+	);
+	ExpectError(
+		TEXT("Missing pattern is rejected"),
+		TEXT("{\"Version\":1}"),
+		EOpenMobileHapticsAHAPError::MissingPattern
+	);
+	ExpectError(
+		TEXT("Missing event keys are rejected"),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{\"Time\":0}}]}"),
+		EOpenMobileHapticsAHAPError::MissingKey
+	);
+	ExpectError(
+		TEXT("Future versions are rejected"),
+		TEXT("{\"Version\":2,\"Pattern\":[{\"Event\":{\"EventType\":"
+			"\"HapticTransient\",\"Time\":0}}]}"),
+		EOpenMobileHapticsAHAPError::UnsupportedVersion
+	);
+	ExpectError(
+		TEXT("Future keys are rejected"),
+		TEXT("{\"Version\":1,\"Future\":true,\"Pattern\":[{\"Event\":{"
+			"\"EventType\":\"HapticTransient\",\"Time\":0}}]}"),
+		EOpenMobileHapticsAHAPError::UnsupportedKey
+	);
+	ExpectError(
+		TEXT("Nonfinite values are rejected"),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{\"EventType\":"
+			"\"HapticTransient\",\"Time\":1e400}}]}"),
+		EOpenMobileHapticsAHAPError::Nonfinite
+	);
+	ExpectError(
+		TEXT("Out-of-range parameters are rejected"),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{\"EventType\":"
+			"\"HapticTransient\",\"Time\":0,\"EventParameters\":[{"
+			"\"ParameterID\":\"HapticIntensity\","
+			"\"ParameterValue\":1.1}]}}]}"),
+		EOpenMobileHapticsAHAPError::InvalidValue
+	);
+	ExpectError(
+		TEXT("External audio paths are rejected"),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{\"EventType\":"
+			"\"AudioCustom\",\"Time\":0,\"EventWaveformPath\":"
+			"\"../outside.caf\"}}]}"),
+		EOpenMobileHapticsAHAPError::ExternalResourcePath
+	);
+	FOpenMobileHapticsAHAPLimits Limits;
+	Limits.MaximumSourceBytes = 32;
+	TestEqual(TEXT("Source byte limits are enforced"),
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source, Limits).Error,
+		EOpenMobileHapticsAHAPError::SourceTooLarge);
+	Limits = {};
+	Limits.MaximumPatternEntries = 1;
+	TestEqual(TEXT("Pattern entry limits are enforced"),
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source, Limits).Error,
+		EOpenMobileHapticsAHAPError::LimitExceeded);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticPlatformOverrideAssetTest,
 	"OpenMobile.Haptics.Pattern.PlatformOverrides",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -1218,21 +1468,41 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 
 	UOpenMobileHapticIOSPatternAsset* IOS =
 		NewObject<UOpenMobileHapticIOSPatternAsset>();
-	IOS->AHAPJson = TEXT(
+	const FString AHAPSource = TEXT(
 		"{\"Version\":1.0,\"Pattern\":[{\"Event\":"
 		"{\"EventType\":\"HapticTransient\",\"Time\":0}}]}"
 	);
+	TestTrue(TEXT("Valid AHAP source is accepted"),
+		IOS->SetAHAPSource(AHAPSource, Errors));
 	TestTrue(TEXT("Valid AHAP asset validates"), IOS->Validate(Errors));
+	TestEqual(TEXT("Imported AHAP is stored in normalized form"),
+		IOS->GetNormalizedAHAPJson(),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{"
+			"\"EventType\":\"HapticTransient\",\"Time\":0}}]}"));
+	TestEqual(TEXT("Imported AHAP duration is retained"),
+		IOS->GetAHAPDurationSeconds(), 0.0);
+	TestFalse(TEXT("Fixed haptic AHAP uses a standard player"),
+		IOS->RequiresAdvancedPlayer());
+	TestFalse(TEXT("Haptic-only AHAP has no audio"),
+		IOS->ContainsAudioEvents());
 	TestTrue(TEXT("iOS override cooks only for iOS"),
 		IOS->ShouldCookForPlatform(TEXT("IOS")));
 	TestFalse(TEXT("iOS override is filtered from Android cooks"),
 		IOS->ShouldCookForPlatform(TEXT("Android")));
-	IOS->AHAPJson = TEXT("{invalid");
-	TestFalse(TEXT("Malformed AHAP JSON is invalid"), IOS->Validate(Errors));
-	IOS->AHAPJson = TEXT(
-		"{\"Version\":1.0,\"Pattern\":[{\"Event\":"
-		"{\"EventType\":\"HapticTransient\",\"Time\":0}}]}"
-	);
+	UOpenMobileHapticsSettings* MutableSettings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const bool bPackageAHAPResources =
+		MutableSettings->IOS.bPackageAHAPResources;
+	MutableSettings->IOS.bPackageAHAPResources = false;
+	TestFalse(TEXT("Disabled AHAP packaging filters the iOS resource"),
+		IOS->ShouldCookForPlatform(TEXT("IOS")));
+	MutableSettings->IOS.bPackageAHAPResources = bPackageAHAPResources;
+	TestFalse(TEXT("Malformed replacement source is rejected"),
+		IOS->SetAHAPSource(TEXT("{invalid"), Errors));
+	TestEqual(TEXT("Failed replacement preserves the cooked resource"),
+		IOS->GetNormalizedAHAPJson(),
+		TEXT("{\"Version\":1,\"Pattern\":[{\"Event\":{"
+			"\"EventType\":\"HapticTransient\",\"Time\":0}}]}"));
 
 	UOpenMobileHapticPatternAsset* Portable =
 		NewObject<UOpenMobileHapticPatternAsset>();

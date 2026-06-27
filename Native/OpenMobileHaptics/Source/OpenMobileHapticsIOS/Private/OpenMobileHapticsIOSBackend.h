@@ -45,6 +45,15 @@ public:
 
 private:
 	FOpenMobileHapticCapabilities ProbeHardwareCapabilities() const;
+	void RememberAHAPIntensityScale(uint64 RequestId, float Scale);
+	void ForgetAHAPIntensityScale(uint64 RequestId);
+	void ForgetAllAHAPIntensityScales();
+	FOpenMobileHapticDynamicParameterUpdate ComposeAHAPDynamicUpdate(
+		uint64 RequestId,
+		const FOpenMobileHapticDynamicParameterUpdate& Update
+	) const;
 
 	TUniquePtr<FOpenMobileHapticsAppleBridgeService> BridgeService;
+	mutable FCriticalSection AHAPIntensityMutex;
+	TMap<uint64, float> AHAPStaticIntensityScales;
 };

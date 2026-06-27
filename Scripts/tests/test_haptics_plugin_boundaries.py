@@ -506,7 +506,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("if (!bStopped || Error)", stop_pattern)
 		self.assertLess(
 			stop_pattern.index("if (!bStopped || Error)"),
-			stop_pattern.index("Player.completionHandler"),
+			stop_pattern.index("ClearCompletionHandler(Player)"),
 		)
 
 		self.assertIn("FOpenMobileHapticsAppleTransientPolicy::Resolve", backend)
@@ -636,6 +636,63 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			android_backend,
 		)
 		self.assertIn("static_cast<void>(Parameters)", android_backend)
+
+	def test_apple_ahap_import_and_native_playback_are_bounded(self) -> None:
+		editor_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsEditor"
+		factory = (
+			editor_root / "Private" / "OpenMobileHapticAHAPFactory.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FactoryCanImport", factory)
+		self.assertIn("SourceSize > 256 * 1024", factory)
+		self.assertIn("SetAHAPSource", factory)
+		self.assertIn("ImportData->Update(Filename)", factory)
+		for native_token in (
+			"CoreHaptics",
+			"CHHaptic",
+			"OpenMobileHapticsIOS",
+		):
+			self.assertNotIn(native_token, factory)
+
+		bridge = load_ios_bridge()
+		backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("playAHAPPattern", bridge)
+		self.assertIn("NSJSONSerialization", bridge)
+		self.assertIn("initWithDictionary", bridge)
+		self.assertIn("createPlayerWithPattern", bridge)
+		self.assertIn("createAdvancedPlayerWithPattern", bridge)
+		ahap_native = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:\n"
+			"\t(uint64)RequestId\n"
+			"\tpattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern\n"
+			"\tcallback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback\n{",
+			1,
+		)[1].split("\n}\n\n- (void)cancelSafetyTimerForKey", 1)[0]
+		self.assertLess(
+			ahap_native.index("NSJSONSerialization"),
+			ahap_native.index("startAndReturnError"),
+		)
+		self.assertLess(
+			ahap_native.index("bRequiresAdvancedPlayer"),
+			ahap_native.index("startAtTime:CHHapticTimeImmediate"),
+		)
+		self.assertIn("BridgeService->PlayAHAPPattern", backend)
+		self.assertIn("FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve", backend)
+		self.assertIn("Capabilities.AHAP = bAHAPEnabled", backend)
+		self.assertIn("Capabilities.AudioEvents =", backend)
+		self.assertIn(
+			"AHAP.Pattern.InitialDynamicParameters.Intensity =",
+			backend,
+		)
+		self.assertIn("AHAPStaticIntensityScales", backend)
+		self.assertIn("ComposeDynamicUpdate", backend)
+		self.assertGreaterEqual(backend.count("ForgetAHAPIntensityScale"), 3)
+		self.assertNotIn("AHAPPlaybackPending", backend)
 
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
