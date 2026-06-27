@@ -96,6 +96,9 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.admob_applovin = repository_descriptor(
 			"Adapters/Ads/OpenMobileAdsAdMobAppLovin/OpenMobileAdsAdMobAppLovin.uplugin"
 		)
+		self.admob_chartboost = repository_descriptor(
+			"Adapters/Ads/OpenMobileAdsAdMobChartboost/OpenMobileAdsAdMobChartboost.uplugin"
+		)
 		mock_data = {
 			"Modules": [
 				{
@@ -137,6 +140,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				self.service,
 				self.admob,
 				self.admob_applovin,
+				self.admob_chartboost,
 				self.admob_meta,
 				self.mock,
 				self.mock_adapter,
@@ -162,6 +166,8 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertTrue(descriptors["OpenMobileAdsAdMobMeta"].is_ads_adapter)
 		self.assertIn("OpenMobileAdsAdMobAppLovin", descriptors)
 		self.assertTrue(descriptors["OpenMobileAdsAdMobAppLovin"].is_ads_adapter)
+		self.assertIn("OpenMobileAdsAdMobChartboost", descriptors)
+		self.assertTrue(descriptors["OpenMobileAdsAdMobChartboost"].is_ads_adapter)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -271,6 +277,37 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobAppLovinIOS", ios_adapter.modules)
 		self.assertNotIn("OpenMobileAdsAdMobAppLovinAndroid", ios_adapter.modules)
+
+	def test_real_admob_chartboost_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMob"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertNotIn("OpenMobileAdsAdMobChartboost", provider_only.ads_adapters)
+		self.assertNotIn("OpenMobileAdsAdMobChartboostAndroid", provider_only.modules)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobChartboost"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsAdMob"}, with_adapter.ads_providers)
+		self.assertEqual({"OpenMobileAdsAdMobChartboost"}, with_adapter.ads_adapters)
+		self.assertIn("OpenMobileAdsAdMobChartboostAndroid", with_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobChartboostIOS", with_adapter.modules)
+		self.assertEqual([], validate_adapter_metadata(self.admob_chartboost))
+
+		ios_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobChartboost"],
+			platform="IOS",
+			target_type="Game",
+		)
+		self.assertIn("OpenMobileAdsAdMobChartboostIOS", ios_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobChartboostAndroid", ios_adapter.modules)
 
 	def test_adapter_metadata_requires_explicit_format_and_privacy_contracts(self) -> None:
 		metadata = json.loads(
@@ -400,6 +437,33 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertEqual([], ios.errors)
 		self.assertEqual([], ios.warnings)
+
+	def test_chartboost_adapter_compatibility_rejects_unverified_sdk_updates(self) -> None:
+		android = validate_adapter_compatibility(
+			self.admob_chartboost,
+			"Android",
+			provider_versions={"compiled": "25.4.0"},
+			adapter_versions={"compiled": "9.13.0.0"},
+			network_versions={"compiled": "9.13.0"},
+		)
+		ios = validate_adapter_compatibility(
+			self.admob_chartboost,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "9.13.0.0"},
+			network_versions={"compiled": "9.13.0"},
+		)
+		unverified = validate_adapter_compatibility(
+			self.admob_chartboost,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "9.13.0.0"},
+			network_versions={"compiled": "9.14.0"},
+		)
+
+		self.assertEqual([], android.errors)
+		self.assertEqual([], ios.errors)
+		self.assertTrue(any("outside supported range" in error for error in unverified.errors))
 
 	def test_adapter_metadata_rejects_versions_that_conflict_with_compatibility(self) -> None:
 		metadata_path = self.admob_meta.path.parent / "adapter.json"
@@ -582,6 +646,44 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertIn("com.example:shared", errors[0])
 		self.assertIn("ProviderB -> com.example:adapter", errors[0])
 		self.assertIn("align", errors[0].lower())
+
+	def test_native_dependency_requirements_allow_external_gradle_resolution(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			first = native_dependency_fixture(
+				root,
+				"AdapterA",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:shared-runtime",
+					"version": "1.0.0",
+					"relationship": "Transitive",
+					"via": "com.example:first-adapter",
+					"ownership": "External",
+				}],
+			)
+			second = native_dependency_fixture(
+				root,
+				"AdapterB",
+				"Android",
+				[{
+					"kind": "Gradle",
+					"name": "com.example:shared-runtime",
+					"version": "1.1.0",
+					"relationship": "Transitive",
+					"via": "com.example:second-adapter",
+					"ownership": "External",
+				}],
+			)
+
+			errors = validate_native_dependency_compatibility(
+				{first.name: first, second.name: second},
+				{first.name, second.name},
+				"Android",
+			)
+
+		self.assertEqual([], errors)
 
 	def test_native_dependency_requirements_report_missing_metadata(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:

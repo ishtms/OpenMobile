@@ -26,16 +26,20 @@ ADAPTER_SIGNATURES = {
 	"OpenMobileAdsAdMobAppLovin": (
 		b"com.google.ads.mediation:applovin",
 		b"com/google/ads/mediation/applovin",
-		b"com/applovin/sdk",
 		b"applovinadapter",
-		b"applovinsdk",
+		b"gadmediationadapterapplovin",
+	),
+	"OpenMobileAdsAdMobChartboost": (
+		b"com.google.ads.mediation:chartboost",
+		b"com/google/ads/mediation/chartboost",
+		b"chartboostadapter",
+		b"gadmediationadapterchartboost",
 	),
 	"OpenMobileAdsAdMobMeta": (
 		b"com.google.ads.mediation:facebook",
 		b"com/google/ads/mediation/facebook",
-		b"com/facebook/ads",
 		b"metaadapter",
-		b"fbaudiencenetwork",
+		b"gadmediationadapterfacebook",
 	),
 }
 ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
@@ -134,6 +138,11 @@ IOS_ADAPTER_PACKAGE_CONTRACTS = {
 		"frameworks": {"AppLovinSDK"},
 		"static_frameworks": {"AppLovinAdapter"},
 		"privacy_manifest_frameworks": {"AppLovinSDK"},
+	},
+	"OpenMobileAdsAdMobChartboost": {
+		"frameworks": set(),
+		"static_frameworks": {"ChartboostAdapter", "ChartboostSDK"},
+		"privacy_manifest_frameworks": set(),
 	},
 	"OpenMobileAdsAdMobMeta": {
 		"frameworks": {"FBAudienceNetwork"},
@@ -506,6 +515,14 @@ def validate_native_dependency_compatibility(
 		for index, left in enumerate(group):
 			for right in group[index + 1:]:
 				if _native_versions_overlap(left, right):
+					continue
+				if (
+					platform_name == "Android"
+					and left.kind.casefold() == "gradle"
+					and right.kind.casefold() == "gradle"
+					and left.ownership == "External"
+					and right.ownership == "External"
+				):
 					continue
 				errors.append(
 					f"{platform_name} native dependency conflict for {left.name}: "
@@ -1081,6 +1098,16 @@ def is_native_artifact_entry(name: str) -> bool:
 	return parts[-1] == Path(parts[-2]).stem
 
 
+def is_app_executable_entry(name: str) -> bool:
+	path = Path(name)
+	if path.suffix:
+		return False
+	for parent in reversed(path.parts[:-1]):
+		if parent.lower().endswith(".app"):
+			return path.name.casefold() == Path(parent).stem.casefold()
+	return len(path.parts) == 1
+
+
 def inspect_artifact(
 	path: Path,
 	*,
@@ -1122,10 +1149,12 @@ def inspect_artifact(
 		for adapter, markers in adapter_markers.items():
 			if any(marker.decode("ascii") in lower_name for marker in markers):
 				detected_adapters.add(adapter)
+		scan_architectures = is_native_artifact_entry(lower_name) \
+			or is_app_executable_entry(lower_name)
 		return (
 			lower_name,
-			Path(lower_name).suffix in SCANNABLE_SUFFIXES,
-			is_native_artifact_entry(lower_name),
+			Path(lower_name).suffix in SCANNABLE_SUFFIXES or scan_architectures,
+			scan_architectures,
 		)
 
 	def inspect_stream(

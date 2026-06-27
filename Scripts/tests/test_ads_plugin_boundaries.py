@@ -25,6 +25,9 @@ ADMOB_META_ADAPTER = (
 ADMOB_APPLOVIN_ADAPTER = (
 	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobAppLovin"
 )
+ADMOB_CHARTBOOST_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobChartboost"
+)
 
 
 def load_descriptor(plugin_root: Path) -> dict:
@@ -298,6 +301,102 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 			for element in ios_root.findall(".//string")
 			if element.text and element.text.endswith(".skadnetwork")
 		]
+		self.assertEqual(len(upl_identifiers), len(set(upl_identifiers)))
+		self.assertEqual(
+			set(ios["attribution"]["skadnetwork_identifiers"]),
+			set(upl_identifiers),
+		)
+		self.assertIn(
+			"removeElement",
+			ElementTree.tostring(
+				ios_root.find("iosPListUpdates"),
+				encoding="unicode",
+			),
+		)
+
+	def test_admob_chartboost_adapter_owns_one_versioned_manifest(self) -> None:
+		descriptor = load_descriptor(ADMOB_CHARTBOOST_ADAPTER)
+		self.assertEqual("MediationAdapter", descriptor["OpenMobileAdsType"])
+		self.assertFalse(descriptor["EnabledByDefault"])
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobileAds", "OpenMobileAdsAdMob"},
+			{plugin["Name"] for plugin in descriptor["Plugins"]},
+		)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileAdsAdMobChartboostAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileAdsAdMobChartboostIOS"]["PlatformAllowList"],
+		)
+		metadata = json.loads(
+			(ADMOB_CHARTBOOST_ADAPTER / "adapter.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual("OpenMobileAdsAdMobChartboost", metadata["plugin"])
+		self.assertEqual("Chartboost", metadata["network"])
+		self.assertEqual(["Bidding", "Waterfall"], metadata["integration_types"])
+		for platform_name, provider_version in (("Android", "25.4.0"), ("IOS", "13.8.0")):
+			platform = metadata["platforms"][platform_name]
+			self.assertEqual("9.13.0.0", platform["adapter_version"])
+			self.assertEqual("9.13.0", platform["network_sdk_version"])
+			self.assertEqual([provider_version], platform["tested_provider_sdk_versions"])
+			self.assertEqual(
+				{"Banner", "Interstitial", "Rewarded"},
+				set(platform["supported_formats"]["Bidding"]),
+			)
+			self.assertEqual(
+				{"Banner", "Interstitial", "Rewarded"},
+				set(platform["supported_formats"]["Waterfall"]),
+			)
+			self.assertEqual(
+				"AdapterConsentConsumer",
+				platform["privacy_signals"]["Gdpr"],
+			)
+			self.assertEqual(
+				"AdapterConsentConsumer",
+				platform["privacy_signals"]["UsPrivacy"],
+			)
+
+		android_upl_path = (
+			ADMOB_CHARTBOOST_ADAPTER
+			/ "Source/OpenMobileAdsAdMobChartboostAndroid/Private/Android"
+			/ "OpenMobileAdsAdMobChartboost_Android_UPL.xml"
+		)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		self.assertIn("com.google.ads.mediation:chartboost", android_upl)
+		self.assertIn("strictly '9.13.0.0'", android_upl)
+		self.assertIn("addDataUseConsent", android_upl)
+		self.assertIn("GDPR_CONSENT", android_upl)
+		self.assertIn("CCPA_CONSENT", android_upl)
+		ElementTree.parse(android_upl_path)
+
+		for platform_name in ("Android", "IOS"):
+			module_name = f"OpenMobileAdsAdMobChartboost{platform_name}"
+			module_root = ADMOB_CHARTBOOST_ADAPTER / "Source" / module_name
+			module_text = "\n".join(
+				path.read_text(encoding="utf-8")
+				for path in module_root.rglob("*")
+				if path.is_file() and path.suffix in {".cpp", ".h", ".mm"}
+			)
+			self.assertIn("IOpenMobileAdsConsentSignalConsumer", module_text)
+			self.assertIn("RegisterModularFeature", module_text)
+			self.assertIn("Chartboost", module_text)
+
+		ios = metadata["platforms"]["IOS"]
+		ios_upl_path = (
+			ADMOB_CHARTBOOST_ADAPTER
+			/ "Source/OpenMobileAdsAdMobChartboostIOS/Private/IOS"
+			/ "OpenMobileAdsAdMobChartboost_IOS_UPL.xml"
+		)
+		ios_root = ElementTree.parse(ios_upl_path).getroot()
+		upl_identifiers = [
+			element.text
+			for element in ios_root.findall(".//string")
+			if element.text and element.text.endswith(".skadnetwork")
+		]
+		self.assertEqual(183, len(upl_identifiers))
 		self.assertEqual(len(upl_identifiers), len(set(upl_identifiers)))
 		self.assertEqual(
 			set(ios["attribution"]["skadnetwork_identifiers"]),

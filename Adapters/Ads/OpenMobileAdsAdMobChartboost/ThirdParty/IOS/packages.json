@@ -1,0 +1,39 @@
+{
+	"schema_version": 1,
+	"packages": [
+		{
+			"name": "Google Mobile Ads Mediation Adapter for Chartboost",
+			"version": "9.13.0.0",
+			"source_url": "https://dl.google.com/googleadmobadssdk/mediation/ios/chartboost/ChartboostAdapter-9.13.0.0.zip",
+			"terms_url": "https://developers.google.com/terms/site-terms",
+			"redistribution": "Distributed under the Apache License 2.0 included with this plugin.",
+			"license_files": [
+				"Licenses/GoogleAdapter-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "ChartboostAdapter.xcframework.zip",
+					"sha256": "a41372b0e467f1208f51b187d0cb74a9fb286dec57f9728c203bdbfc0790e2b5",
+					"role": "Runtime Chartboost mediation adapter repackaged with the xcframework at the archive root"
+				}
+			]
+		},
+		{
+			"name": "Chartboost SDK for iOS",
+			"version": "9.13.0",
+			"source_url": "https://s3.amazonaws.com/chartboost/sdk/9.13.0/Chartboost-iOS-9.13.0.zip",
+			"terms_url": "https://docs.chartboost.com/en/legal/terms-conditions/",
+			"redistribution": "Distribution is subject to the Chartboost publisher terms referenced by the included notice.",
+			"license_files": [
+				"Licenses/ChartboostSDK-NOTICE"
+			],
+			"artifacts": [
+				{
+					"path": "ChartboostSDK.xcframework.zip",
+					"sha256": "5935bcf4315014048cdb7bb4a43508bf626fc18f57e19a6b3829ca305b2b1ce6",
+					"role": "Runtime Chartboost static framework with resources and privacy manifest"
+				}
+			]
+		}
+	]
+}

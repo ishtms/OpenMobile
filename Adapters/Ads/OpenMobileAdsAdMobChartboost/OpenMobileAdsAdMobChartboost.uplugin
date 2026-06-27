@@ -1,0 +1,42 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Ads - AdMob Chartboost Adapter",
+	"Description": "Optional Chartboost bidding and waterfall adapter for the OpenMobile Ads AdMob provider.",
+	"Category": "OpenMobile|Adapters",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"OpenMobileAdsType": "MediationAdapter",
+	"Modules": [
+		{
+			"Name": "OpenMobileAdsAdMobChartboostAndroid",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["Android"]
+		},
+		{
+			"Name": "OpenMobileAdsAdMobChartboostIOS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["IOS"]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileAds",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileAdsAdMob",
+			"Enabled": true
+		}
+	]
+}

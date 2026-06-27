@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <minimumSDKAPI>
+        <insertValue value="23"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
+    <buildGradleAdditions>
+        <insert>
+repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://cboost.jfrog.io/artifactory/chartboost-ads/' }
+}
+dependencies {
+    implementation('com.google.ads.mediation:chartboost') {
+        version {
+            strictly '9.13.0.0'
+        }
+    }
+}
+        </insert>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMobChartboost_Dependencies.gradle')</insert>
+        <insertNewline/>
+    </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>OpenMobileAdsAdMobChartboostAndroidDependencyContract=1</insert>
+        <insertNewline/>
+    </registerBuildSettings>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobChartboost_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMobChartboost_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobChartboost_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobChartboost_Dependencies.gradle"/>
+    </gradleCopies>
+
+    <gameActivityClassAdditions>
+        <insert>
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobChartboostConsentSignals(
+        final boolean applyGdpr,
+        final boolean hasUserConsent,
+        final boolean applyUsPrivacy,
+        final boolean doNotSell
+    )
+    {
+        try
+        {
+            if (applyGdpr)
+            {
+                com.chartboost.sdk.privacy.model.GDPR consent =
+                    new com.chartboost.sdk.privacy.model.GDPR(
+                        hasUserConsent
+                            ? com.chartboost.sdk.privacy.model.GDPR.GDPR_CONSENT.BEHAVIORAL
+                            : com.chartboost.sdk.privacy.model.GDPR.GDPR_CONSENT.NON_BEHAVIORAL
+                    );
+                com.chartboost.sdk.Chartboost.addDataUseConsent(GameActivity.this, consent);
+                com.chartboost.sdk.privacy.model.DataUseConsent applied =
+                    com.chartboost.sdk.Chartboost.getDataUseConsent(
+                        GameActivity.this,
+                        com.chartboost.sdk.privacy.model.GDPR.GDPR_STANDARD
+                    );
+                if (!(applied instanceof com.chartboost.sdk.privacy.model.GDPR)
+                    || !((com.chartboost.sdk.privacy.model.GDPR) applied).getConsent()
+                        .equals(consent.getConsent()))
+                {
+                    return false;
+                }
+            }
+            if (applyUsPrivacy)
+            {
+                com.chartboost.sdk.privacy.model.CCPA consent =
+                    new com.chartboost.sdk.privacy.model.CCPA(
+                        doNotSell
+                            ? com.chartboost.sdk.privacy.model.CCPA.CCPA_CONSENT.OPT_OUT_SALE
+                            : com.chartboost.sdk.privacy.model.CCPA.CCPA_CONSENT.OPT_IN_SALE
+                    );
+                com.chartboost.sdk.Chartboost.addDataUseConsent(GameActivity.this, consent);
+                com.chartboost.sdk.privacy.model.DataUseConsent applied =
+                    com.chartboost.sdk.Chartboost.getDataUseConsent(
+                        GameActivity.this,
+                        com.chartboost.sdk.privacy.model.CCPA.CCPA_STANDARD
+                    );
+                if (!(applied instanceof com.chartboost.sdk.privacy.model.CCPA)
+                    || !((com.chartboost.sdk.privacy.model.CCPA) applied).getConsent()
+                        .equals(consent.getConsent()))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            return false;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+</root>

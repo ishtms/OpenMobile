@@ -33,6 +33,12 @@ ADMOB_APPLOVIN_ADAPTER = (
 APPLOVIN_IOS_PACKAGE_MANIFEST = (
 	ADMOB_APPLOVIN_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
 )
+ADMOB_CHARTBOOST_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobChartboost"
+)
+CHARTBOOST_IOS_PACKAGE_MANIFEST = (
+	ADMOB_CHARTBOOST_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
+)
 
 
 def mach_o_header(cpu_type: int) -> bytes:
@@ -127,6 +133,10 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 				add_ios_framework(archive, "GoogleMobileAds")
 				add_ios_framework(archive, "UserMessagingPlatform")
 				add_ios_framework(archive, "FBAudienceNetwork")
+				archive.writestr(
+					"Payload/Game.app/Game",
+					mach_o_header(0x0100000C) + b" GADMediationAdapterFacebook",
+				)
 
 			errors = validate_package(
 				inspect_artifact(package),
@@ -227,6 +237,10 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 			with zipfile.ZipFile(ios_package, "w") as archive:
 				add_ios_framework(archive, "GoogleMobileAds")
 				add_ios_framework(archive, "AppLovinSDK")
+				archive.writestr(
+					"Payload/Game.app/Game",
+					mach_o_header(0x0100000C) + b" GADMediationAdapterAppLovin",
+				)
 			self.assertEqual(
 				[],
 				validate_artifact(
@@ -237,6 +251,114 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 					),
 				),
 			)
+
+	def test_chartboost_adapter_payload_is_opt_in(self) -> None:
+		self.assertIn("OpenMobileAdsAdMobChartboost", ADAPTER_SIGNATURES)
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			android_package = Path(temporary_directory) / "Game.apk"
+			with zipfile.ZipFile(android_package, "w") as archive:
+				archive.writestr(
+					"classes.dex",
+					b"com/google/android/gms/ads "
+					b"com/google/ads/mediation/chartboost/ChartboostMediationAdapter",
+				)
+			android_inventory = inspect_artifact(android_package)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobChartboost"},
+					),
+				),
+			)
+			self.assertTrue(any(
+				"disabled native payload" in error
+				for error in validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						forbidden_adapters={"OpenMobileAdsAdMobChartboost"},
+					),
+				)
+			))
+
+			ios_package = Path(temporary_directory) / "Game.ipa"
+			with zipfile.ZipFile(ios_package, "w") as archive:
+				add_ios_framework(archive, "GoogleMobileAds")
+				archive.writestr(
+					"Payload/Game.app/Game",
+					b"GADMediationAdapterChartboost ChartboostSDK",
+				)
+				archive.writestr(
+					"Payload/Game.app/OpenMobileAdsAdMobChartboostPrivacy.bundle/PrivacyInfo.xcprivacy",
+					b"privacy",
+				)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inspect_artifact(ios_package),
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobChartboost"},
+					),
+				),
+			)
+
+	def test_ios_app_executable_exposes_static_adapter_markers(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			package = Path(temporary_directory) / "Game.ipa"
+			with zipfile.ZipFile(package, "w") as archive:
+				archive.writestr(
+					"Payload/Game.app/Game",
+					mach_o_header(0x0100000C)
+					+ b" GADMediationAdapterAppLovin"
+					+ b" GADMediationAdapterChartboost"
+					+ b" GADMediationAdapterFacebook",
+				)
+
+			inventory = inspect_artifact(package)
+
+		self.assertEqual(
+			{
+				"OpenMobileAdsAdMobAppLovin",
+				"OpenMobileAdsAdMobChartboost",
+				"OpenMobileAdsAdMobMeta",
+			},
+			inventory.detected_adapters,
+		)
+
+	def test_ios_network_payload_does_not_substitute_for_static_adapter(self) -> None:
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			root = Path(temporary_directory)
+			cases = (
+				("OpenMobileAdsAdMobAppLovin", "AppLovinSDK"),
+				("OpenMobileAdsAdMobMeta", "FBAudienceNetwork"),
+			)
+			for adapter, framework in cases:
+				package = root / f"{adapter}.ipa"
+				with zipfile.ZipFile(package, "w") as archive:
+					add_ios_framework(archive, "GoogleMobileAds")
+					add_ios_framework(archive, framework)
+				errors = validate_artifact(
+					inspect_artifact(package),
+					ArtifactExpectation(required_adapters={adapter}),
+				)
+				self.assertTrue(any("missing native payload" in error for error in errors))
+
+			chartboost_package = root / "OpenMobileAdsAdMobChartboost.ipa"
+			with zipfile.ZipFile(chartboost_package, "w") as archive:
+				archive.writestr(
+					"Payload/Game.app/OpenMobileAdsAdMobChartboostPrivacy.bundle/PrivacyInfo.xcprivacy",
+					b"privacy",
+				)
+			chartboost_errors = validate_artifact(
+				inspect_artifact(chartboost_package),
+				ArtifactExpectation(
+					required_adapters={"OpenMobileAdsAdMobChartboost"},
+				),
+			)
+		self.assertTrue(any("missing native payload" in error for error in chartboost_errors))
 
 	def test_third_party_manifest_checks_every_binary_and_license(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
@@ -279,6 +401,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		self.assertEqual([], validate_third_party_packages(IOS_PACKAGE_MANIFEST))
 		self.assertEqual([], validate_third_party_packages(META_IOS_PACKAGE_MANIFEST))
 		self.assertEqual([], validate_third_party_packages(APPLOVIN_IOS_PACKAGE_MANIFEST))
+		self.assertEqual([], validate_third_party_packages(CHARTBOOST_IOS_PACKAGE_MANIFEST))
 
 	def test_ios_build_rules_embed_both_google_frameworks(self) -> None:
 		build_rules = (
@@ -317,6 +440,32 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		self.assertIn('"AppLovinAdapter"', build_rules)
 		self.assertIn('"AppLovinSDK"', build_rules)
 		self.assertNotIn('new Framework(\n\t\t\t"GoogleMobileAds"', build_rules)
+
+	def test_ios_chartboost_build_rules_link_static_payload_and_bundle_privacy(self) -> None:
+		build_rules = (
+			ADMOB_CHARTBOOST_ADAPTER
+			/ "Source/OpenMobileAdsAdMobChartboostIOS"
+			/ "OpenMobileAdsAdMobChartboostIOS.Build.cs"
+		).read_text(encoding="utf-8")
+
+		self.assertEqual(2, build_rules.count("Framework.FrameworkMode.Link"))
+		self.assertNotIn("Framework.FrameworkMode.LinkAndCopy", build_rules)
+		self.assertIn('"ChartboostAdapter"', build_rules)
+		self.assertIn('"ChartboostSDK"', build_rules)
+		self.assertIn("OpenMobileAdsAdMobChartboostPrivacy.bundle", build_rules)
+		self.assertNotIn('new Framework(\n\t\t\t"GoogleMobileAds"', build_rules)
+
+		privacy_bundle = (
+			ADMOB_CHARTBOOST_ADAPTER
+			/ "Resources/IOS/OpenMobileAdsAdMobChartboostPrivacy.bundle/PrivacyInfo.xcprivacy"
+		)
+		with zipfile.ZipFile(
+			ADMOB_CHARTBOOST_ADAPTER / "ThirdParty/IOS/ChartboostSDK.xcframework.zip"
+		) as archive:
+			packaged_manifest = archive.read(
+				"ChartboostSDK.xcframework/ios-arm64/ChartboostSDK.framework/PrivacyInfo.xcprivacy"
+			)
+		self.assertEqual(packaged_manifest, privacy_bundle.read_bytes())
 
 
 if __name__ == "__main__":
