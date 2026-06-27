@@ -20,6 +20,7 @@ public class OpenMobileDeviceEditor : ModuleRules
 		{
 			"ApplicationCore",
 			"DesktopPlatform",
+			"Engine",
 			"Json",
 			"Projects",
 			"Slate",

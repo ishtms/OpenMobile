@@ -3274,6 +3274,73 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(required_token, readme)
 
+	def test_device_unit_suite_covers_the_contract_matrix(self) -> None:
+		runtime_tests = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDevice"
+			/ "Private"
+			/ "Tests"
+			/ "OpenMobileDeviceTests.cpp"
+		).read_text(encoding="utf-8")
+		editor_tests = "\n".join(
+			path.read_text(encoding="utf-8")
+			for path in (
+				DEVICE_PLUGIN / "Source" / "OpenMobileDeviceEditor" / "Private" / "Tests"
+			).glob("*.cpp")
+		)
+		for required_test in (
+			"OpenMobile.Device.Capabilities.Report",
+			"OpenMobile.Device.Snapshots.SynchronousLifecycle",
+			"OpenMobile.Device.Async.ExactlyOnceAndTeardown",
+			"OpenMobile.Device.Monitoring.DemandDriven",
+			"OpenMobile.Device.Network.ChangeEvents",
+			"OpenMobile.Device.Callbacks.GameThreadOrdering",
+			"OpenMobile.Device.Backend.Registry",
+			"OpenMobile.Device.Network.EndpointReachabilityPolicy",
+			"OpenMobile.Device.Display.BrightnessControlService",
+			"OpenMobile.Device.Display.KeepScreenAwakeControlService",
+			"OpenMobile.Device.Display.RefreshRateControlService",
+			"OpenMobile.Device.Diagnostics.Output",
+			"OpenMobile.Device.EditorMock.PublicContracts",
+		):
+			self.assertIn(required_test, runtime_tests + editor_tests)
+
+		for required_case in (
+			"PermissionRequired",
+			"Restricted",
+			"Unsupported",
+			"Cancelled",
+			"Timeout",
+			"Busy",
+			"Duplicate",
+			"stale",
+			"shutdown",
+			"Game Instance teardown",
+			"PIE consumers",
+			"backend replacement",
+		):
+			self.assertIn(required_case.lower(), (runtime_tests + editor_tests).lower())
+
+		for forbidden_platform_include in (
+			"#include <UIKit",
+			"#include <AVFoundation",
+			"#include <android/",
+			"#include <jni.h>",
+		):
+			self.assertNotIn(forbidden_platform_include, runtime_tests + editor_tests)
+
+		validation = (DEVICE_PLUGIN / "DEVICE_VALIDATION.md").read_text(
+			encoding="utf-8"
+		)
+		for required_token in (
+			"Automated platform-neutral contracts",
+			"Physical-device-only acceptance",
+			"Simulator and compile results are not device evidence",
+			"sanitized failure details",
+		):
+			self.assertIn(required_token, validation)
+
 
 if __name__ == "__main__":
 	unittest.main()

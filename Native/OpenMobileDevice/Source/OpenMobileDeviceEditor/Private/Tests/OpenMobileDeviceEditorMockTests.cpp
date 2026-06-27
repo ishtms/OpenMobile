@@ -1,11 +1,14 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Engine/GameInstance.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceBlueprintLibrary.h"
 #include "OpenMobileDeviceEditorMock.h"
 #include "OpenMobileDeviceMockSettings.h"
 #include "OpenMobileDeviceMonitoringService.h"
+#include "OpenMobileDeviceSubsystem.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceEditorMockSettingsTest,
@@ -247,6 +250,90 @@ bool FOpenMobileDeviceEditorMockEventsTest::RunTest(const FString& Parameters)
 
 	FOpenMobileDeviceMonitoringService::RemoveSubscription(Subscription);
 	FOpenMobileDeviceMonitoringService::OnGroupChanged().Remove(EventHandle);
+	FOpenMobileDeviceEditorMock::ResetForTests();
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceEditorMockPublicContractsTest,
+	"OpenMobile.Device.EditorMock.PublicContracts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceEditorMockPublicContractsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	FOpenMobileDeviceMonitoringService::ResetForTests();
+	FOpenMobileDeviceEditorMock::ResetForTests();
+	FOpenMobileDeviceEditorMock::SetEnabled(true);
+
+	FOpenMobileDeviceMockState State;
+	State.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(42.0f);
+	FOpenMobileDeviceEditorMock::SetState(State);
+	TestEqual(
+		TEXT("Blueprint battery node reads the selected mock"),
+		UOpenMobileDeviceBlueprintLibrary::GetBatteryPercent(),
+		int32(42)
+	);
+	TestEqual(
+		TEXT("Blueprint capability node reports mock support"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::BatteryLevel
+		).State,
+		EOpenMobileCapabilityState::Available
+	);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileDeviceSubsystem* Subsystem =
+		NewObject<UOpenMobileDeviceSubsystem>(GameInstance);
+	TestEqual(
+		TEXT("Public C++ snapshot reads the same mock state"),
+		Subsystem->GetPowerSnapshot().BatteryPercent.Value,
+		42.0f
+	);
+	int32 PublicEventCount = 0;
+	Subsystem->OnNativePowerSnapshotChanged().AddLambda(
+		[&PublicEventCount](const FOpenMobilePowerSnapshot& Snapshot)
+		{
+			if (Snapshot.BatteryPercent.bIsAvailable
+				&& Snapshot.BatteryPercent.Value == 21.0f)
+			{
+				++PublicEventCount;
+			}
+		}
+	);
+	UOpenMobileDeviceMonitoringSubscription* Subscription =
+		Subsystem->StartMonitoring(GameInstance, {Group::Power}, 1.0f);
+	TestNotNull(TEXT("Blueprint monitoring contract returns a subscription"), Subscription);
+
+	FOpenMobileDeviceMockScriptStep Step;
+	Step.Group = Group::Power;
+	Step.State.Power.BatteryPercent =
+		FOpenMobileDeviceOptionalFloat::MakeAvailable(21.0f);
+	FOpenMobileDeviceEditorMock::QueueScriptStep(Step);
+	TestTrue(TEXT("Scripted public event runs"), FOpenMobileDeviceEditorMock::RunNextScriptStep());
+	TestEqual(TEXT("Public snapshot delegate receives the scripted state"), PublicEventCount, 1);
+
+	Subscription->Stop();
+	Subsystem->Deinitialize();
+	FOpenMobileDeviceEditorMock::SetEnabled(false);
+	TestEqual(
+		TEXT("Blueprint battery node returns its unsupported sentinel"),
+		UOpenMobileDeviceBlueprintLibrary::GetBatteryPercent(),
+		int32(-1)
+	);
+	TestEqual(
+		TEXT("Blueprint capability node preserves unsupported state"),
+		UOpenMobileDeviceBlueprintLibrary::GetDeviceCapability(
+			FOpenMobileDeviceCapabilityNames::BatteryLevel
+		).State,
+		EOpenMobileCapabilityState::NotSupported
+	);
 	FOpenMobileDeviceEditorMock::ResetForTests();
 	FOpenMobileDeviceMonitoringService::ResetForTests();
 	return true;
