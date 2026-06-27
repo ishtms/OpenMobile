@@ -70,6 +70,95 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		return Sensors;
 	}
 
+	FOpenMobileAttitudeReferenceFrameCapability MakeReferenceCapability(
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame,
+		EOpenMobileCapabilityState State,
+		const TCHAR* Detail
+	)
+	{
+		FOpenMobileAttitudeReferenceFrameCapability Capability;
+		Capability.ReferenceFrame = ReferenceFrame;
+		Capability.Availability.Name = TEXT("AttitudeReference");
+		Capability.Availability.State = State;
+		Capability.Availability.Detail = Detail;
+		return Capability;
+	}
+
+	void PopulateAttitudeReferenceCapabilities(
+		FOpenMobileSensorCapability& Capability,
+		const FOpenMobileSensorsIOSAvailability& Availability
+	)
+	{
+		FOpenMobileAttitudeReferenceFrameCapability Game =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::GameRelative,
+				EOpenMobileCapabilityState::Available,
+				TEXT("Uses Core Motion's arbitrary vertical frame.")
+			);
+		Game.bMayUseFallback = true;
+		Game.bExpectedToDrift = true;
+		FOpenMobileAttitudeReferenceFrameCapability Arbitrary =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::ArbitraryVertical,
+				EOpenMobileCapabilityState::Available,
+				TEXT("Uses Core Motion's arbitrary vertical frame.")
+			);
+		Arbitrary.bExpectedToDrift = true;
+		FOpenMobileAttitudeReferenceFrameCapability Magnetic =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+				Availability.bMagneticNorthReference
+					? EOpenMobileCapabilityState::Available
+					: EOpenMobileCapabilityState::NotSupported,
+				TEXT("Uses Core Motion's magnetic north frame.")
+			);
+		Magnetic.bHeadingDependent = true;
+		Magnetic.bCalibrationRequired = true;
+		FOpenMobileAttitudeReferenceFrameCapability TrueNorth =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::TrueNorth,
+				EOpenMobileCapabilityState::NotSupported,
+				TEXT("True north requires caller-owned location input.")
+			);
+		TrueNorth.bHeadingDependent = true;
+		TrueNorth.bLocationDependent = true;
+		TrueNorth.bCalibrationRequired = true;
+		Capability.AttitudeReferenceFrames = {
+			MoveTemp(Game),
+			MoveTemp(Arbitrary),
+			MoveTemp(Magnetic),
+			MoveTemp(TrueNorth)
+		};
+	}
+
+	void ApplyAttitudeReferenceState(
+		FOpenMobileSensorPhysicalStreamRequest& Request
+	)
+	{
+		if (Request.Sensor.Type != EOpenMobileSensorType::Attitude)
+		{
+			return;
+		}
+		FOpenMobileAttitudeReferenceState& State =
+			Request.AttitudeReferenceState;
+		State = {};
+		State.RequestedReferenceFrame = Request.AttitudeReferenceFrame;
+		State.AppliedReferenceFrame =
+			Request.AttitudeReferenceFrame ==
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth
+			? EOpenMobileAttitudeReferenceFrame::MagneticNorth
+			: EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
+		State.bFallbackApplied = State.RequestedReferenceFrame !=
+			State.AppliedReferenceFrame;
+		State.bHeadingDependent = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+		State.bLocationDependent = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::TrueNorth;
+		State.bCalibrationRequired = State.bHeadingDependent;
+		State.bExpectedToDrift = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
+	}
+
 	FString FailureCode(EOpenMobileSensorsIOSBridgeFailure Failure)
 	{
 		switch (Failure)
@@ -189,8 +278,9 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 {
 	using namespace OpenMobileSensorsIOSBackendPrivate;
 	TArray<FOpenMobileSensorCapability> Capabilities;
+	const FOpenMobileSensorsIOSAvailability Availability = QueryAvailability();
 	for (const FSupportedSensor& Supported :
-		GetSupportedSensors(QueryAvailability()))
+		GetSupportedSensors(Availability))
 	{
 		FOpenMobileSensorCapability Capability;
 		Capability.Sensor.Type = Supported.Type;
@@ -203,6 +293,10 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		Capability.bSupportsNativeBatching = false;
 		Capability.BackgroundSupport =
 			EOpenMobileSensorBackgroundSupport::Suspended;
+		if (Supported.Type == EOpenMobileSensorType::Attitude)
+		{
+			PopulateAttitudeReferenceCapabilities(Capability, Availability);
+		}
 		Capabilities.Add(MoveTemp(Capability));
 	}
 	return Capabilities;
@@ -260,6 +354,7 @@ FOpenMobileSensorsIOSBackend::StartSensorStream(
 	LastBridgeFailure.Store(
 		static_cast<uint8>(EOpenMobileSensorsIOSBridgeFailure::None));
 	ApplyBridgeRate(Result, InOutRequest);
+	ApplyAttitudeReferenceState(InOutRequest);
 	return {EOpenMobileSensorResultCode::Success};
 }
 
@@ -289,6 +384,7 @@ FOpenMobileSensorsIOSBackend::ReconfigureSensorStream(
 	LastBridgeFailure.Store(
 		static_cast<uint8>(EOpenMobileSensorsIOSBridgeFailure::None));
 	ApplyBridgeRate(Result, InOutRequest);
+	ApplyAttitudeReferenceState(InOutRequest);
 	return {EOpenMobileSensorResultCode::Success};
 }
 

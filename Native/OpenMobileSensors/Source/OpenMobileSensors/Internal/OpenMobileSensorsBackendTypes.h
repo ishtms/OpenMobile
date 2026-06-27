@@ -65,6 +65,7 @@ struct FOpenMobileSensorPhysicalStreamRequest
 	double MaximumDeliveryLatencySeconds = 0.0;
 	EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
 		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	FOpenMobileAttitudeReferenceState AttitudeReferenceState;
 	bool bAllowDerivedFallback = true;
 	bool bAllowHighSamplingRate = false;
 	bool bLowLatency = false;

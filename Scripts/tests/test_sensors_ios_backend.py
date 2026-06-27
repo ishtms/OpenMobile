@@ -138,6 +138,26 @@ class SensorsIOSBackendTests(unittest.TestCase):
 		):
 			self.assertIn(token, bridge)
 
+	def test_attitude_frames_report_native_selection_and_dependencies(self):
+		backend = (PRIVATE / "OpenMobileSensorsIOSBackend.mm").read_text(
+			encoding="utf-8"
+		)
+		bridge = BRIDGE.read_text(encoding="utf-8")
+
+		for token in (
+			"AttitudeReferenceFrames",
+			"AppliedReferenceFrame",
+			"bFallbackApplied",
+			"bHeadingDependent",
+			"bLocationDependent",
+			"bCalibrationRequired",
+			"bExpectedToDrift",
+		):
+			self.assertIn(token, backend)
+		self.assertIn("CMAttitudeReferenceFrameXArbitraryZVertical", bridge)
+		self.assertIn("CMAttitudeReferenceFrameXMagneticNorthZVertical", bridge)
+		self.assertIn("ReferenceFrameUnavailable", bridge)
+
 	def test_calibrated_magnetic_quality_precedes_its_sample(self):
 		bridge = BRIDGE.read_text(encoding="utf-8")
 		device_motion = bridge[

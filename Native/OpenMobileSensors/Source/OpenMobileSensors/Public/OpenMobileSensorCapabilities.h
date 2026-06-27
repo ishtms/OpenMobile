@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorCapabilities.generated.h"
 
 UENUM(BlueprintType)
@@ -41,6 +42,49 @@ enum class EOpenMobileSensorBackgroundSupport : uint8
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceFrameCapability
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileAttitudeReferenceFrame ReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileCapability Availability;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bMayUseFallback = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHeadingDependent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bLocationDependent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bCalibrationRequired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bExpectedToDrift = false;
+
+	bool operator==(
+		const FOpenMobileAttitudeReferenceFrameCapability& Other
+	) const
+	{
+		return ReferenceFrame == Other.ReferenceFrame
+			&& Availability.Name == Other.Availability.Name
+			&& Availability.State == Other.Availability.State
+			&& Availability.Detail == Other.Availability.Detail
+			&& bMayUseFallback == Other.bMayUseFallback
+			&& bHeadingDependent == Other.bHeadingDependent
+			&& bLocationDependent == Other.bLocationDependent
+			&& bCalibrationRequired == Other.bCalibrationRequired
+			&& bExpectedToDrift == Other.bExpectedToDrift;
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 {
 	GENERATED_BODY()
@@ -75,6 +119,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 	EOpenMobileSensorBackgroundSupport BackgroundSupport =
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileAttitudeReferenceFrameCapability>
+		AttitudeReferenceFrames;
+
 	bool operator==(const FOpenMobileSensorCapability& Other) const
 	{
 		return Sensor == Other.Sensor
@@ -87,7 +135,8 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 			&& MinimumFrequencyHz == Other.MinimumFrequencyHz
 			&& MaximumFrequencyHz == Other.MaximumFrequencyHz
 			&& bSupportsNativeBatching == Other.bSupportsNativeBatching
-			&& BackgroundSupport == Other.BackgroundSupport;
+			&& BackgroundSupport == Other.BackgroundSupport
+			&& AttitudeReferenceFrames == Other.AttitudeReferenceFrames;
 	}
 
 	bool operator!=(const FOpenMobileSensorCapability& Other) const

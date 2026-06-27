@@ -84,7 +84,8 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		int32 SamplingPeriodMicroseconds,
 		int32 MaximumReportLatencyMicroseconds,
-		bool bLowLatency
+		bool bLowLatency,
+		EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame
 	);
 	bool GetActiveSensorDescriptor(
 		const FOpenMobileSensorBackendStreamHandle& Handle,

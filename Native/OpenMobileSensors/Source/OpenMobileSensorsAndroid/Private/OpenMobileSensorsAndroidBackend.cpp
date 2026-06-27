@@ -95,6 +95,118 @@ namespace OpenMobileSensorsAndroidBackendPrivate
 		}
 	}
 
+	FOpenMobileAttitudeReferenceFrameCapability MakeReferenceCapability(
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame,
+		EOpenMobileCapabilityState State,
+		const TCHAR* Detail
+	)
+	{
+		FOpenMobileAttitudeReferenceFrameCapability Capability;
+		Capability.ReferenceFrame = ReferenceFrame;
+		Capability.Availability.Name = TEXT("AttitudeReference");
+		Capability.Availability.State = State;
+		Capability.Availability.Detail = Detail;
+		return Capability;
+	}
+
+	void PopulateAttitudeReferenceCapabilities(
+		FOpenMobileSensorCapability& Capability,
+		const TArray<FOpenMobileSensorsAndroidSensorDescriptor>& Descriptors
+	)
+	{
+		const bool bHasGameRotationVector = Descriptors.ContainsByPredicate(
+			[](const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor)
+			{
+				return Descriptor.Sensor.Type == EOpenMobileSensorType::Attitude
+					&& Descriptor.NativeType == 15;
+			}
+		);
+		const bool bHasMagneticRotationVector = Descriptors.ContainsByPredicate(
+			[](const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor)
+			{
+				return Descriptor.Sensor.Type == EOpenMobileSensorType::Attitude
+					&& (Descriptor.NativeType == 11
+						|| Descriptor.NativeType == 20);
+			}
+		);
+		const bool bHasAttitude =
+			bHasGameRotationVector || bHasMagneticRotationVector;
+		FOpenMobileAttitudeReferenceFrameCapability Game =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::GameRelative,
+				bHasAttitude
+					? EOpenMobileCapabilityState::Available
+					: EOpenMobileCapabilityState::NotSupported,
+				TEXT("Uses the closest Android rotation-vector sensor.")
+			);
+		Game.bMayUseFallback = !bHasGameRotationVector;
+		Game.bExpectedToDrift = bHasGameRotationVector;
+		FOpenMobileAttitudeReferenceFrameCapability Arbitrary =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::ArbitraryVertical,
+				bHasAttitude
+					? EOpenMobileCapabilityState::Available
+					: EOpenMobileCapabilityState::NotSupported,
+				TEXT("Uses a vertical Android rotation-vector frame.")
+			);
+		Arbitrary.bMayUseFallback = !bHasGameRotationVector;
+		Arbitrary.bExpectedToDrift = bHasGameRotationVector;
+		FOpenMobileAttitudeReferenceFrameCapability Magnetic =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+				bHasMagneticRotationVector
+					? EOpenMobileCapabilityState::Available
+					: EOpenMobileCapabilityState::NotSupported,
+				TEXT("Requires an Android magnetic rotation-vector sensor.")
+			);
+		Magnetic.bHeadingDependent = true;
+		Magnetic.bCalibrationRequired = true;
+		FOpenMobileAttitudeReferenceFrameCapability TrueNorth =
+			MakeReferenceCapability(
+				EOpenMobileAttitudeReferenceFrame::TrueNorth,
+				EOpenMobileCapabilityState::NotSupported,
+				TEXT("True north requires caller-owned location input.")
+			);
+		TrueNorth.bHeadingDependent = true;
+		TrueNorth.bLocationDependent = true;
+		TrueNorth.bCalibrationRequired = true;
+		Capability.AttitudeReferenceFrames = {
+			MoveTemp(Game),
+			MoveTemp(Arbitrary),
+			MoveTemp(Magnetic),
+			MoveTemp(TrueNorth)
+		};
+	}
+
+	void ApplyAttitudeReferenceState(
+		FOpenMobileSensorPhysicalStreamRequest& Request,
+		const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+	)
+	{
+		if (Request.Sensor.Type != EOpenMobileSensorType::Attitude)
+		{
+			return;
+		}
+		FOpenMobileAttitudeReferenceState& State =
+			Request.AttitudeReferenceState;
+		State = {};
+		State.RequestedReferenceFrame = Request.AttitudeReferenceFrame;
+		State.AppliedReferenceFrame = Descriptor.NativeType == 15
+			? EOpenMobileAttitudeReferenceFrame::GameRelative
+			: EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+		State.bFallbackApplied = State.RequestedReferenceFrame !=
+			State.AppliedReferenceFrame;
+		State.bHeadingDependent = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+		State.bLocationDependent = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::TrueNorth;
+		State.bCalibrationRequired = State.bHeadingDependent;
+		State.bExpectedToDrift = State.AppliedReferenceFrame ==
+			EOpenMobileAttitudeReferenceFrame::GameRelative
+			|| State.AppliedReferenceFrame ==
+				EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
+	}
+
 	int32 DescriptorPreference(
 		const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor,
 		EOpenMobileAttitudeReferenceFrame ReferenceFrame
@@ -275,6 +387,10 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 			Descriptor.FifoCapacitySamples > 0;
 		Capability.BackgroundSupport =
 			EOpenMobileSensorBackgroundSupport::Suspended;
+		if (Descriptor.Sensor.Type == EOpenMobileSensorType::Attitude)
+		{
+			PopulateAttitudeReferenceCapabilities(Capability, Descriptors);
+		}
 		Capabilities.Add(MoveTemp(Capability));
 	}
 	Capabilities.Sort(
@@ -465,6 +581,13 @@ FOpenMobileSensorsAndroidBackend::StartSensorStream(
 			InOutRequest.bLowLatency,
 			InOutRequest.AttitudeReferenceFrame
 		);
+	if (Result.IsSuccess())
+	{
+		OpenMobileSensorsAndroidBackendPrivate::ApplyAttitudeReferenceState(
+			InOutRequest,
+			Descriptor
+		);
+	}
 	return Result.IsSuccess()
 		? FOpenMobileSensorOperationResult{
 			EOpenMobileSensorResultCode::Success
@@ -485,6 +608,28 @@ FOpenMobileSensorsAndroidBackend::ReconfigureSensorStream(
 			EOpenMobileSensorsAndroidBridgeFailure::StreamMissing
 		);
 	}
+	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
+	FOpenMobileSensorOperationResult Failure;
+	if (!QuerySensorDescriptors(Descriptors, &Failure))
+	{
+		return Failure;
+	}
+	FOpenMobileSensorsAndroidSensorDescriptor RequestedDescriptor;
+	if (!SelectDescriptor(
+		InOutRequest,
+		Descriptors,
+		RequestedDescriptor,
+		Failure
+	))
+	{
+		return Failure;
+	}
+	if (RequestedDescriptor.NativeIdentifier != Descriptor.NativeIdentifier)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
 	int32 SamplingPeriodMicroseconds = 0;
 	int32 MaximumReportLatencyMicroseconds = 0;
 	ResolveNativeRequest(
@@ -498,8 +643,16 @@ FOpenMobileSensorsAndroidBackend::ReconfigureSensorStream(
 			Handle,
 			SamplingPeriodMicroseconds,
 			MaximumReportLatencyMicroseconds,
-			InOutRequest.bLowLatency
+			InOutRequest.bLowLatency,
+			InOutRequest.AttitudeReferenceFrame
 		);
+	if (Result.IsSuccess())
+	{
+		OpenMobileSensorsAndroidBackendPrivate::ApplyAttitudeReferenceState(
+			InOutRequest,
+			RequestedDescriptor
+		);
+	}
 	return Result.IsSuccess()
 		? FOpenMobileSensorOperationResult{
 			EOpenMobileSensorResultCode::Success

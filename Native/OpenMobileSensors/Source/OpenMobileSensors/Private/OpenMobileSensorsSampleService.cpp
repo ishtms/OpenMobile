@@ -1977,6 +1977,9 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
 	const EOpenMobileSensorDeliveryMode PreviousDeliveryMode =
 		(*SlotPointer)->DeliveryMode;
+	const bool bReferenceFrameChanged =
+		(*SlotPointer)->AttitudeReferenceFrame !=
+			Options.AttitudeReferenceFrame;
 	(*SlotPointer)->StaleAfterSeconds = GetStaleAfterSeconds(Options);
 	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	ResetRateStatistics(**SlotPointer);
@@ -1995,6 +1998,15 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	(*SlotPointer)->FilterOptions = Options.Filters;
 	(*SlotPointer)->VectorFilter.Reset();
+	if (bReferenceFrameChanged)
+	{
+		(*SlotPointer)->bHasSample = false;
+		(*SlotPointer)->Family = ELatestSampleFamily::None;
+		(*SlotPointer)->LatestTimestampSeconds = 0.0;
+		(*SlotPointer)->bPendingStatefulProcessingReset = true;
+		ClearPendingEvents(**SlotPointer);
+		ClearBufferedStorage(**SlotPointer);
+	}
 	if (Options.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
 		if (PreviousDeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)

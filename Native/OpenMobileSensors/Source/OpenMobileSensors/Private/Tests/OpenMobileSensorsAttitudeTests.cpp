@@ -26,6 +26,26 @@ namespace OpenMobileSensorsAttitudeTestsPrivate
 		return Capability;
 	}
 
+	FOpenMobileAttitudeReferenceFrameCapability MakeReferenceCapability(
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame,
+		EOpenMobileCapabilityState State,
+		bool bHeadingDependent = false,
+		bool bLocationDependent = false,
+		bool bCalibrationRequired = false,
+		bool bExpectedToDrift = false
+	)
+	{
+		FOpenMobileAttitudeReferenceFrameCapability Capability;
+		Capability.ReferenceFrame = ReferenceFrame;
+		Capability.Availability.Name = TEXT("AttitudeReference");
+		Capability.Availability.State = State;
+		Capability.bHeadingDependent = bHeadingDependent;
+		Capability.bLocationDependent = bLocationDependent;
+		Capability.bCalibrationRequired = bCalibrationRequired;
+		Capability.bExpectedToDrift = bExpectedToDrift;
+		return Capability;
+	}
+
 	FOpenMobileSensorSubscriptionRequest MakeRequest(
 		EOpenMobileAttitudeReferenceFrame ReferenceFrame =
 			EOpenMobileAttitudeReferenceFrame::GameRelative
@@ -86,6 +106,516 @@ namespace OpenMobileSensorsAttitudeTestsPrivate
 		FOpenMobileSensorsCapabilityService::ResetForTests();
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferenceCapabilityTest,
+	"OpenMobile.Sensors.Attitude.ReferenceCapabilities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferenceCapabilityTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferences"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available,
+			false,
+			false,
+			false,
+			true
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::ArbitraryVertical,
+			EOpenMobileCapabilityState::Available,
+			false,
+			false,
+			false,
+			true
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+			EOpenMobileCapabilityState::Available,
+			true,
+			false,
+			true
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::TrueNorth,
+			EOpenMobileCapabilityState::NotSupported,
+			true,
+			true
+		)
+	};
+	Backend.SetSensorCapabilities({Attitude});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileSensorCapabilitySnapshot Snapshot =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* Reported =
+		Snapshot.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::Attitude;
+			}
+		);
+	TestNotNull(TEXT("Attitude capability is reported"), Reported);
+	if (Reported)
+	{
+		TestEqual(TEXT("Every reference frame has a capability result"),
+			Reported->AttitudeReferenceFrames.Num(), 4);
+		TestTrue(TEXT("True north declares its location dependency"),
+			Reported->AttitudeReferenceFrames[3].bLocationDependent);
+	}
+	const FOpenMobileSensorSubscriptionResult Unsupported =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			FGuid::NewGuid(),
+			MakeRequest(EOpenMobileAttitudeReferenceFrame::TrueNorth)
+		);
+	TestEqual(TEXT("An unsupported reference is rejected immediately"),
+		Unsupported.Operation.Code,
+		EOpenMobileSensorResultCode::InvalidArgument);
+	TestEqual(TEXT("An unsupported reference starts no native stream"),
+		Backend.GetStartSensorStreamCount(), 0);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferenceActiveStateTest,
+	"OpenMobile.Sensors.Attitude.ReferenceActiveState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferenceActiveStateTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferenceState"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::ArbitraryVertical,
+			EOpenMobileCapabilityState::Available,
+			false,
+			false,
+			false,
+			true
+		)
+	};
+	Backend.SetSensorCapabilities({Attitude});
+	FOpenMobileAttitudeReferenceState AppliedReference;
+	AppliedReference.RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	AppliedReference.AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
+	AppliedReference.bFallbackApplied = true;
+	AppliedReference.bExpectedToDrift = true;
+	Backend.SetAppliedAttitudeReferenceForTests(AppliedReference);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	TestTrue(TEXT("Active attitude state is queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Subscription.Handle,
+			State
+		));
+	TestEqual(TEXT("The requested reference remains visible"),
+		State.AttitudeReference.RequestedReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::GameRelative);
+	TestEqual(TEXT("The closest native reference is visible"),
+		State.AttitudeReference.AppliedReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::ArbitraryVertical);
+	TestTrue(TEXT("Native fallback is explicit"),
+		State.AttitudeReference.bFallbackApplied);
+	TestFalse(TEXT("Arbitrary vertical has no heading dependency"),
+		State.AttitudeReference.bHeadingDependent);
+	TestFalse(TEXT("Arbitrary vertical has no location dependency"),
+		State.AttitudeReference.bLocationDependent);
+	TestFalse(TEXT("Arbitrary vertical does not require calibration"),
+		State.AttitudeReference.bCalibrationRequired);
+	TestTrue(TEXT("Arbitrary yaw drift is explicit"),
+		State.AttitudeReference.bExpectedToDrift);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferenceChangeTest,
+	"OpenMobile.Sensors.Attitude.ReferenceChange",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferenceChangeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferenceChange"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+			EOpenMobileCapabilityState::Available,
+			true,
+			false,
+			true
+		)
+	};
+	Backend.SetSensorCapabilities({Attitude});
+	FOpenMobileAttitudeReferenceState GameReference;
+	GameReference.RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	GameReference.AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	GameReference.bExpectedToDrift = true;
+	Backend.SetAppliedAttitudeReferenceForTests(GameReference);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FOpenMobileSensorBackendStreamHandle PreviousPhysicalHandle =
+		Backend.GetLastStartedPhysicalHandle();
+
+	FOpenMobileAttitudeReferenceState MagneticReference;
+	MagneticReference.RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+	MagneticReference.AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+	MagneticReference.bHeadingDependent = true;
+	MagneticReference.bCalibrationRequired = true;
+	Backend.SetAppliedAttitudeReferenceForTests(MagneticReference);
+	const FOpenMobileSensorOperationResult Updated =
+		FOpenMobileSensorsSubscriptionService::UpdateSubscription(
+			Owner,
+			Subscription.Handle,
+			MakeRequest(
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth
+			).Options
+		);
+	TestTrue(TEXT("An active subscription can change reference frame"),
+		Updated.IsSuccess());
+	TestEqual(TEXT("Changing frame starts one replacement stream"),
+		Backend.GetStartSensorStreamCount(), 2);
+	TestEqual(TEXT("The old physical stream is released"),
+		Backend.GetStopSensorStreamCount(), 1);
+	const FOpenMobileSensorBackendStreamHandle NewPhysicalHandle =
+		Backend.GetLastStartedPhysicalHandle();
+	TestNotEqual(TEXT("Changing frame replaces the physical stream"),
+		NewPhysicalHandle.Identifier,
+		PreviousPhysicalHandle.Identifier);
+
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	TestTrue(TEXT("The changed subscription remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Subscription.Handle,
+			State
+		));
+	TestEqual(TEXT("The changed subscription remains active"),
+		State.State,
+		EOpenMobileSensorSubscriptionState::Active);
+	TestEqual(TEXT("Active state reports the new reference"),
+		State.AttitudeReference.AppliedReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth);
+
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		2.0,
+		FQuat::Identity,
+		EOpenMobileSensorAccuracy::High,
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		NewPhysicalHandle,
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileAttitudeSensorSample Output;
+	TestTrue(TEXT("The new reference produces samples"),
+		FOpenMobileSensorsSampleService::ReadLatestAttitude(
+			Owner,
+			Subscription.Handle,
+			0,
+			2.1,
+			Read,
+			Output
+		));
+	TestTrue(TEXT("The first sample after a frame change resets state"),
+		Output.Header.bStatefulProcessingReset);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferenceRestartTest,
+	"OpenMobile.Sensors.Attitude.ReferenceRestart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferenceRestartTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferenceRestart"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+			EOpenMobileCapabilityState::Available,
+			true,
+			false,
+			true
+		)
+	};
+	Backend.SetSensorCapabilities({Attitude});
+	FOpenMobileAttitudeReferenceState GameReference;
+	GameReference.RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	GameReference.AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+	Backend.SetAppliedAttitudeReferenceForTests(GameReference);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+
+	Backend.SetStartSensorStreamResult(
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		)
+	);
+	FOpenMobileAttitudeReferenceState MagneticReference;
+	MagneticReference.RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+	MagneticReference.AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+	MagneticReference.bHeadingDependent = true;
+	MagneticReference.bCalibrationRequired = true;
+	Backend.SetAppliedAttitudeReferenceForTests(MagneticReference);
+	const FOpenMobileSensorOperationResult Updated =
+		FOpenMobileSensorsSubscriptionService::UpdateSubscription(
+			Owner,
+			Subscription.Handle,
+			MakeRequest(
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth
+			).Options
+		);
+	TestTrue(TEXT("A single-stream backend can restart in place"),
+		Updated.IsSuccess());
+	TestEqual(TEXT("The replacement start is attempted first"),
+		Backend.GetStartSensorStreamCount(), 2);
+	TestEqual(TEXT("The existing physical stream is reconfigured once"),
+		Backend.GetReconfigureSensorStreamCount(), 1);
+	TestEqual(TEXT("An in-place restart does not stop its handle"),
+		Backend.GetStopSensorStreamCount(), 0);
+	TestEqual(TEXT("The in-place restart keeps one physical stream"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		1);
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		Subscription.Handle,
+		State
+	);
+	TestEqual(TEXT("The restarted stream reports its new frame"),
+		State.AttitudeReference.AppliedReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::MagneticNorth);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferenceFailureTest,
+	"OpenMobile.Sensors.Attitude.ReferenceFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferenceFailureTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferenceFailure"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::MagneticNorth,
+			EOpenMobileCapabilityState::Available,
+			true,
+			false,
+			true
+		)
+	};
+	Backend.SetSensorCapabilities({Attitude});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FOpenMobileSensorOperationResult Failure =
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::OperationalFailure
+		);
+	Backend.SetStartSensorStreamResult(Failure);
+	Backend.SetReconfigureSensorStreamResult(Failure);
+	const FOpenMobileSensorOperationResult Updated =
+		FOpenMobileSensorsSubscriptionService::UpdateSubscription(
+			Owner,
+			Subscription.Handle,
+			MakeRequest(
+				EOpenMobileAttitudeReferenceFrame::MagneticNorth
+			).Options
+		);
+	TestFalse(TEXT("A failed frame change is reported"),
+		Updated.IsSuccess());
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		Subscription.Handle,
+		State
+	);
+	TestEqual(TEXT("A failed change preserves the requested frame"),
+		State.RequestedOptions.AttitudeReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::GameRelative);
+	TestEqual(TEXT("A failed change preserves the applied frame"),
+		State.AttitudeReference.AppliedReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::GameRelative);
+	TestEqual(TEXT("A failed change preserves the physical stream"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		1);
+	TestEqual(TEXT("A failed change does not stop the old stream"),
+		Backend.GetStopSensorStreamCount(), 0);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeReferencePermissionLossTest,
+	"OpenMobile.Sensors.Attitude.ReferencePermissionLoss",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeReferencePermissionLossTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeReferencePermission"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Attitude)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest(EOpenMobileAttitudeReferenceFrame::MagneticNorth)
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestTrue(TEXT("Permission loss fails the active physical stream"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			FOpenMobileSensorsBackendRegistry::CaptureToken(),
+			Backend.GetLastStartedPhysicalHandle(),
+			FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::PermissionDenied
+			)
+		));
+	FOpenMobileSensorSubscriptionStateSnapshot FailedState;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		Subscription.Handle,
+		FailedState
+	);
+	TestEqual(TEXT("Permission loss is visible on the subscription"),
+		FailedState.State,
+		EOpenMobileSensorSubscriptionState::Failed);
+	const FOpenMobileSensorSubscriptionResult Restarted =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest(EOpenMobileAttitudeReferenceFrame::MagneticNorth)
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorSubscriptionStateSnapshot RestartedState;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		Restarted.Handle,
+		RestartedState
+	);
+	TestEqual(TEXT("A fresh subscription restarts after permission recovery"),
+		RestartedState.State,
+		EOpenMobileSensorSubscriptionState::Active);
+	TestEqual(TEXT("Restart uses a fresh physical stream"),
+		Backend.GetStartSensorStreamCount(), 2);
+	FinishBackend(Backend);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

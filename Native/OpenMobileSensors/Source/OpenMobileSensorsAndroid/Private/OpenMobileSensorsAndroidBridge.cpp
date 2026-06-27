@@ -659,7 +659,8 @@ FOpenMobileSensorsAndroidBridge::ReconfigureStream(
 	const FOpenMobileSensorBackendStreamHandle& Handle,
 	int32 SamplingPeriodMicroseconds,
 	int32 MaximumReportLatencyMicroseconds,
-	bool bLowLatency
+	bool bLowLatency,
+	EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame
 )
 {
 	const FOpenMobileSensorsAndroidBridgeResult Initialization =
@@ -700,7 +701,17 @@ FOpenMobileSensorsAndroidBridge::ReconfigureStream(
 		ClearException(Env);
 		return {EOpenMobileSensorsAndroidBridgeFailure::JavaException};
 	}
-	return MapNativeResult(NativeResult);
+	const FOpenMobileSensorsAndroidBridgeResult Result =
+		MapNativeResult(NativeResult);
+	if (Result.IsSuccess())
+	{
+		FScopeLock Lock(&Mutex);
+		if (FActiveStream* Active = ActiveStreams.Find(Handle.Identifier))
+		{
+			Active->AttitudeReferenceFrame = AttitudeReferenceFrame;
+		}
+	}
+	return Result;
 }
 
 bool FOpenMobileSensorsAndroidBridge::GetActiveSensorDescriptor(

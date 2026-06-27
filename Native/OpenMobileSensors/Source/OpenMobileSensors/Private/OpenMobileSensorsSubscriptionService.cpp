@@ -384,10 +384,13 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	bool ResolvePhysicalSensor(
 		const FOpenMobileSensorIdentifier& LogicalSensor,
 		const FOpenMobileSensorStreamOptions& Options,
-		FOpenMobileSensorIdentifier& OutPhysicalSensor
+		FOpenMobileSensorIdentifier& OutPhysicalSensor,
+		EOpenMobileSensorFailureReason& OutFailureReason
 	)
 	{
 		OutPhysicalSensor = LogicalSensor;
+		OutFailureReason =
+			EOpenMobileSensorFailureReason::DerivedInputUnavailable;
 		if (LogicalSensor.Type == EOpenMobileSensorType::Attitude)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
@@ -405,11 +408,37 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 									LogicalSensor.InstanceId);
 					}
 				);
-			return Attitude
-				&& Attitude->Availability.State ==
+			if (!Attitude
+				|| Attitude->Availability.State !=
 					EOpenMobileCapabilityState::Available
-				&& Attitude->Source !=
-					EOpenMobileSensorAvailabilitySource::Derived;
+				|| Attitude->Source ==
+					EOpenMobileSensorAvailabilitySource::Derived)
+			{
+				return false;
+			}
+			if (Attitude->AttitudeReferenceFrames.IsEmpty())
+			{
+				return true;
+			}
+			const FOpenMobileAttitudeReferenceFrameCapability* Reference =
+				Attitude->AttitudeReferenceFrames.FindByPredicate(
+					[&Options](
+						const FOpenMobileAttitudeReferenceFrameCapability& Candidate
+					)
+					{
+						return Candidate.ReferenceFrame ==
+							Options.AttitudeReferenceFrame;
+					}
+				);
+			const bool bAvailable = Reference
+				&& Reference->Availability.State ==
+					EOpenMobileCapabilityState::Available;
+			if (!bAvailable)
+			{
+				OutFailureReason =
+					EOpenMobileSensorFailureReason::InvalidReferenceFrame;
+			}
+			return bAvailable;
 		}
 		const bool bSupportsAccelerometerFallback =
 			LogicalSensor.Type == EOpenMobileSensorType::Gravity
@@ -506,6 +535,19 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		Snapshot.RequestedOptions = Entry.Request.Options;
 		Snapshot.AppliedOptions = Entry.AppliedOptions;
 		Snapshot.RateResolution = Entry.RateResolution;
+		Snapshot.AttitudeReference.RequestedReferenceFrame =
+			Entry.Request.Options.AttitudeReferenceFrame;
+		Snapshot.AttitudeReference.AppliedReferenceFrame =
+			Entry.AppliedOptions.AttitudeReferenceFrame;
+		if (Entry.Request.Sensor.Type == EOpenMobileSensorType::Attitude)
+		{
+			if (const FPhysicalStreamEntry* Physical =
+				PhysicalStreams.Find(Entry.PhysicalKey))
+			{
+				Snapshot.AttitudeReference =
+					Physical->Request.AttitudeReferenceState;
+			}
+		}
 		Snapshot.Error = Entry.Error;
 		return Snapshot;
 	}
@@ -766,6 +808,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		OutRequest = {};
 		OutRequest.Sensor = Key.Sensor;
 		OutRequest.AttitudeReferenceFrame = Key.AttitudeReferenceFrame;
+		OutRequest.AttitudeReferenceState.RequestedReferenceFrame =
+			Key.AttitudeReferenceFrame;
+		OutRequest.AttitudeReferenceState.AppliedReferenceFrame =
+			Key.AttitudeReferenceFrame;
 		OutRequest.bAllowDerivedFallback = Key.bAllowDerivedFallback;
 		for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
 		{
@@ -1190,15 +1236,17 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		return Result;
 	}
 	FOpenMobileSensorIdentifier PhysicalSensor;
+	EOpenMobileSensorFailureReason ResolutionFailure;
 	if (!ResolvePhysicalSensor(
 		Request.Sensor,
 		Request.Options,
-		PhysicalSensor
+		PhysicalSensor,
+		ResolutionFailure
 	))
 	{
 		Result.AppliedOptions = Request.Options;
 		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::DerivedInputUnavailable
+			ResolutionFailure
 		);
 		return Result;
 	}
@@ -1298,14 +1346,16 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 		);
 	}
 	FOpenMobileSensorIdentifier PhysicalSensor;
+	EOpenMobileSensorFailureReason ResolutionFailure;
 	if (!ResolvePhysicalSensor(
 		Entry->Request.Sensor,
 		Options,
-		PhysicalSensor
+		PhysicalSensor,
+		ResolutionFailure
 	))
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::DerivedInputUnavailable
+			ResolutionFailure
 		);
 	}
 	FOpenMobileSensorStreamOptions AppliedOptions;
@@ -1328,9 +1378,165 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	if (Entry->State == EOpenMobileSensorSubscriptionState::Active
 		&& !(NewKey == Entry->PhysicalKey))
 	{
-		return FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::UnsupportedOperation
+		const FOpenMobileSensorStreamOptions PreviousRequested =
+			Entry->Request.Options;
+		const FOpenMobileSensorStreamOptions PreviousApplied =
+			Entry->AppliedOptions;
+		const FOpenMobileSensorRateResolution PreviousRateResolution =
+			Entry->RateResolution;
+		const EOpenMobileSensorRateAdjustmentReason PreviousCommonRateReason =
+			Entry->CommonRateAdjustmentReason;
+		const FPhysicalStreamKey PreviousKey = Entry->PhysicalKey;
+		FPhysicalStreamEntry* PreviousPhysical =
+			PhysicalStreams.Find(PreviousKey);
+		if (!PreviousPhysical
+			|| !PreviousPhysical->Backend
+			|| !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
+				PreviousPhysical->BackendToken
+			))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::TemporarilyUnavailable
+			);
+		}
+		CancelFlushesForPhysicalStream(PreviousPhysical->Handle);
+		Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+		PreviousPhysical = PhysicalStreams.Find(PreviousKey);
+		if (!Entry || !PreviousPhysical)
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::TemporarilyUnavailable
+			);
+		}
+		bool bPreviousStreamHasOtherSubscribers = false;
+		for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+		{
+			if (Pair.Key != Handle.GetIdentifier()
+				&& Pair.Value.PhysicalKey == PreviousKey
+				&& Pair.Value.State ==
+					EOpenMobileSensorSubscriptionState::Active)
+			{
+				bPreviousStreamHasOtherSubscribers = true;
+				break;
+			}
+		}
+		auto RestoreEntry = [&]()
+		{
+			Entry->Request.Options = PreviousRequested;
+			Entry->AppliedOptions = PreviousApplied;
+			Entry->RateResolution = PreviousRateResolution;
+			Entry->CommonRateAdjustmentReason = PreviousCommonRateReason;
+			Entry->PhysicalKey = PreviousKey;
+		};
+		Entry->Request.Options = Options;
+		Entry->AppliedOptions = AppliedOptions;
+		Entry->RateResolution = RateResolution;
+		Entry->CommonRateAdjustmentReason = RateResolution.AdjustmentReason;
+		Entry->PhysicalKey = NewKey;
+		FOpenMobileSensorPhysicalStreamRequest DesiredRequest;
+		if (!BuildPhysicalRequest(NewKey, DesiredRequest))
+		{
+			RestoreEntry();
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::TemporarilyUnavailable
+			);
+		}
+
+		FOpenMobileSensorOperationResult Operation;
+		Operation.Code = EOpenMobileSensorResultCode::Failed;
+		FOpenMobileSensorBackendStreamHandle ActivePhysicalHandle;
+		bool bMovedPreviousPhysical = false;
+		FPhysicalStreamEntry* TargetPhysical = PhysicalStreams.Find(NewKey);
+		if (TargetPhysical)
+		{
+			if (DesiredRequest == TargetPhysical->Request)
+			{
+				Operation = MakeSuccess();
+			}
+			else
+			{
+				Operation = TargetPhysical->Backend->ReconfigureSensorStream(
+					TargetPhysical->Handle,
+					DesiredRequest
+				);
+				if (Operation.IsSuccess())
+				{
+					TargetPhysical->Request = DesiredRequest;
+				}
+			}
+			ActivePhysicalHandle = TargetPhysical->Handle;
+		}
+		else
+		{
+			FOpenMobileSensorBackendStreamHandle NewPhysicalHandle;
+			NewPhysicalHandle.Identifier = FGuid::NewGuid();
+			Operation = PreviousPhysical->Backend->StartSensorStream(
+				NewPhysicalHandle,
+				DesiredRequest
+			);
+			if (Operation.IsSuccess())
+			{
+				FPhysicalStreamEntry NewPhysical;
+				NewPhysical.Handle = NewPhysicalHandle;
+				NewPhysical.Key = NewKey;
+				NewPhysical.Request = DesiredRequest;
+				NewPhysical.BackendToken = PreviousPhysical->BackendToken;
+				NewPhysical.Backend = PreviousPhysical->Backend;
+				PhysicalStreams.Add(NewKey, MoveTemp(NewPhysical));
+				ActivePhysicalHandle = NewPhysicalHandle;
+			}
+			else if (!bPreviousStreamHasOtherSubscribers)
+			{
+				PreviousPhysical = PhysicalStreams.Find(PreviousKey);
+				FOpenMobileSensorPhysicalStreamRequest ReconfiguredRequest =
+					DesiredRequest;
+				if (PreviousPhysical)
+				{
+					Operation = PreviousPhysical->Backend->
+						ReconfigureSensorStream(
+							PreviousPhysical->Handle,
+							ReconfiguredRequest
+						);
+				}
+				if (PreviousPhysical && Operation.IsSuccess())
+				{
+					FPhysicalStreamEntry MovedPhysical;
+					PhysicalStreams.RemoveAndCopyValue(
+						PreviousKey,
+						MovedPhysical
+					);
+					MovedPhysical.Key = NewKey;
+					MovedPhysical.Request = MoveTemp(ReconfiguredRequest);
+					ActivePhysicalHandle = MovedPhysical.Handle;
+					PhysicalStreams.Add(NewKey, MoveTemp(MovedPhysical));
+					bMovedPreviousPhysical = true;
+				}
+			}
+		}
+		if (!Operation.IsSuccess())
+		{
+			RestoreEntry();
+			return Operation;
+		}
+		if (!bMovedPreviousPhysical)
+		{
+			ReconcilePhysicalStream(PreviousKey);
+		}
+		FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
+			Handle,
+			AppliedOptions
 		);
+		FOpenMobileSensorsSampleService::SetPhysicalStreamHandle(
+			Handle,
+			ActivePhysicalHandle
+		);
+		if (const FPhysicalStreamEntry* ActivePhysical =
+			PhysicalStreams.Find(NewKey))
+		{
+			UpdateAppliedNativeRate(NewKey, ActivePhysical->Request);
+		}
+		BroadcastState(*Entry);
+		return MakeSuccess();
 	}
 	if (Entry->State == EOpenMobileSensorSubscriptionState::Active)
 	{

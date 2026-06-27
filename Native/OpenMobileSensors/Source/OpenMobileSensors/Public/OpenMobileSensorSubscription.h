@@ -77,6 +77,35 @@ enum class EOpenMobileSensorSubscriptionState : uint8
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileAttitudeReferenceFrame RequestedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileAttitudeReferenceFrame AppliedReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bFallbackApplied = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHeadingDependent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bLocationDependent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bCalibrationRequired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bExpectedToDrift = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 {
 	GENERATED_BODY()
@@ -99,6 +128,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorRateResolution RateResolution;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileAttitudeReferenceState AttitudeReference;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;

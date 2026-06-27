@@ -126,6 +126,11 @@ public:
 				&& NativeBatchingAppliedForTests.Get(false);
 			InOutRequest.AppliedRateAdjustmentReason =
 				AppliedRateAdjustmentReasonForTests;
+			if (AppliedAttitudeReferenceForTests.IsSet())
+			{
+				InOutRequest.AttitudeReferenceState =
+					AppliedAttitudeReferenceForTests.GetValue();
+			}
 		}
 		LastStartedPhysicalRequest = InOutRequest;
 		if (StartSensorStreamResult.IsSuccess())
@@ -160,6 +165,11 @@ public:
 				&& NativeBatchingAppliedForTests.Get(false);
 			InOutRequest.AppliedRateAdjustmentReason =
 				AppliedRateAdjustmentReasonForTests;
+			if (AppliedAttitudeReferenceForTests.IsSet())
+			{
+				InOutRequest.AttitudeReferenceState =
+					AppliedAttitudeReferenceForTests.GetValue();
+			}
 		}
 		LastReconfiguredPhysicalRequest = InOutRequest;
 		return ReconfigureSensorStreamResult;
@@ -296,6 +306,13 @@ public:
 	)
 	{
 		AppliedRateAdjustmentReasonForTests = Reason;
+	}
+
+	void SetAppliedAttitudeReferenceForTests(
+		const FOpenMobileAttitudeReferenceState& State
+	)
+	{
+		AppliedAttitudeReferenceForTests = State;
 	}
 
 	void AddCapability(FOpenMobileCapability Capability)
@@ -483,6 +500,8 @@ private:
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
 	TOptional<bool> NativeBatchingAppliedForTests;
+	TOptional<FOpenMobileAttitudeReferenceState>
+		AppliedAttitudeReferenceForTests;
 	EOpenMobileSensorRateAdjustmentReason AppliedRateAdjustmentReasonForTests =
 		EOpenMobileSensorRateAdjustmentReason::None;
 	bool bHighSamplingRateDeclarationRequired = false;

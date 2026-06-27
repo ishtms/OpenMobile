@@ -184,6 +184,26 @@ class SensorsAndroidBackendTests(unittest.TestCase):
 		count_round = source.index("FMath::RoundToInt64(Count)", count_read)
 		self.assertLess(finite_check, count_round)
 
+	def test_attitude_frames_report_native_selection_and_dependencies(self):
+		source = (
+			PRIVATE / "OpenMobileSensorsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"AttitudeReferenceFrames",
+			"AppliedReferenceFrame",
+			"bFallbackApplied",
+			"bHeadingDependent",
+			"bLocationDependent",
+			"bCalibrationRequired",
+			"bExpectedToDrift",
+			"NativeType == 15",
+			"NativeType == 11",
+			"NativeType == 20",
+			"TrueNorthUnavailable",
+		):
+			self.assertIn(token, source)
+
 	def test_packaging_is_permission_scoped_and_has_no_unrelated_sdk(self):
 		upl = (
 			PRIVATE / "Android" / "OpenMobileSensors_Android_UPL.xml"
