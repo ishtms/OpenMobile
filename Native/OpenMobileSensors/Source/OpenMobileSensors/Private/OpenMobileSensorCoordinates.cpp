@@ -84,6 +84,12 @@ void FOpenMobileSensorCoordinateConverter::UpdateEulerAndRotationMatrix(
 	FOpenMobileAttitudeSensorSample& Sample
 )
 {
+	if (Sample.Quaternion.ContainsNaN()
+		|| Sample.Quaternion.SizeSquared() <= UE_DOUBLE_SMALL_NUMBER)
+	{
+		return;
+	}
+	Sample.Quaternion.Normalize();
 	if (Sample.bHasEulerDegrees)
 	{
 		Sample.EulerDegrees = Sample.Quaternion.Rotator();

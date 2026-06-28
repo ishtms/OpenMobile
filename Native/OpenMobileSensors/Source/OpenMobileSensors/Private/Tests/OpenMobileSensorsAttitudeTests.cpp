@@ -7,6 +7,7 @@
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsSampleService.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
 namespace OpenMobileSensorsAttitudeTestsPrivate
@@ -106,6 +107,115 @@ namespace OpenMobileSensorsAttitudeTestsPrivate
 		FOpenMobileSensorsCapabilityService::ResetForTests();
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeRepresentationDeliveryTest,
+	"OpenMobile.Sensors.Attitude.Representations.Delivery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeRepresentationDeliveryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsScreenRotationService::ResetForTests();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeRepresentations"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Attitude)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	FOpenMobileSensorsScreenRotationService::CaptureApplicationWindowRotation(
+		Owner,
+		EOpenMobileSensorScreenRotation::Rotation90,
+		0.5,
+		false
+	);
+	FOpenMobileSensorSubscriptionRequest AllRepresentations = MakeRequest();
+	AllRepresentations.Options.CoordinateSpace =
+		EOpenMobileSensorCoordinateSpace::CurrentScreen;
+	AllRepresentations.Options.AttitudeRepresentations =
+		static_cast<int32>(EOpenMobileAttitudeRepresentation::Quaternion)
+		| static_cast<int32>(EOpenMobileAttitudeRepresentation::EulerAngles)
+		| static_cast<int32>(
+			EOpenMobileAttitudeRepresentation::RotationMatrix
+		);
+	FOpenMobileSensorSubscriptionRequest QuaternionOnly = MakeRequest();
+	QuaternionOnly.Options.AttitudeRepresentations =
+		static_cast<int32>(EOpenMobileAttitudeRepresentation::Quaternion);
+	const FOpenMobileSensorSubscriptionResult AllSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			AllRepresentations
+		);
+	const FOpenMobileSensorSubscriptionResult QuaternionSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			QuaternionOnly
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestEqual(TEXT("Representation choices share a physical stream"),
+		Backend.GetStartSensorStreamCount(), 1);
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		1.0,
+		FQuat(FVector::RightVector, UE_DOUBLE_PI * 0.25),
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileAttitudeSensorSample AllOutput;
+	FOpenMobileAttitudeSensorSample QuaternionOutput;
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		AllSubscription.Handle,
+		0,
+		1.1,
+		Read,
+		AllOutput
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		QuaternionSubscription.Handle,
+		0,
+		1.1,
+		Read,
+		QuaternionOutput
+	);
+	TestTrue(TEXT("Requested Euler output is present"),
+		AllOutput.bHasEulerDegrees);
+	TestTrue(TEXT("Requested matrix output is present"),
+		AllOutput.bHasRotationMatrix);
+	TestTrue(TEXT("Euler output matches the delivered quaternion"),
+		SameRotation(
+			AllOutput.EulerDegrees.Quaternion(),
+			AllOutput.Quaternion
+		));
+	TestEqual(TEXT("Matrix X basis matches the delivered quaternion"),
+		AllOutput.RotationMatrix.XAxis,
+		AllOutput.Quaternion.RotateVector(FVector::ForwardVector));
+	TestEqual(TEXT("Matrix Y basis matches the delivered quaternion"),
+		AllOutput.RotationMatrix.YAxis,
+		AllOutput.Quaternion.RotateVector(FVector::RightVector));
+	TestEqual(TEXT("Matrix Z basis matches the delivered quaternion"),
+		AllOutput.RotationMatrix.ZAxis,
+		AllOutput.Quaternion.RotateVector(FVector::UpVector));
+	TestFalse(TEXT("Unused Euler output is not calculated"),
+		QuaternionOutput.bHasEulerDegrees);
+	TestFalse(TEXT("Unused matrix output is not calculated"),
+		QuaternionOutput.bHasRotationMatrix);
+	FinishBackend(Backend);
+	FOpenMobileSensorsScreenRotationService::ResetForTests();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

@@ -10,6 +10,7 @@
 #include "OpenMobileSensorGravityEstimator.h"
 #include "OpenMobileSensorLinearAccelerationEstimator.h"
 #include "OpenMobileSensorFusionQuality.h"
+#include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorValidity.h"
@@ -187,6 +188,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EOpenMobileSensorCoordinateSpace::DeviceFixed;
 		EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
 			EOpenMobileAttitudeReferenceFrame::GameRelative;
+		int32 AttitudeRepresentations = static_cast<int32>(
+			EOpenMobileAttitudeRepresentation::Quaternion
+		);
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
@@ -954,8 +958,28 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileAttitudeSensorSample& Sample
 	)
 	{
-		return Slot.Sensor == Sample.Header.Sensor
-			&& Slot.AttitudeReferenceFrame == Sample.ReferenceFrame;
+		if (Slot.Sensor != Sample.Header.Sensor
+			|| Slot.AttitudeReferenceFrame != Sample.ReferenceFrame)
+		{
+			return false;
+		}
+		Sample.bHasEulerDegrees = (Slot.AttitudeRepresentations
+			& static_cast<int32>(
+				EOpenMobileAttitudeRepresentation::EulerAngles
+			)) != 0;
+		Sample.bHasRotationMatrix = (Slot.AttitudeRepresentations
+			& static_cast<int32>(
+				EOpenMobileAttitudeRepresentation::RotationMatrix
+			)) != 0;
+		Sample.EulerDegrees = FRotator::ZeroRotator;
+		Sample.RotationMatrix = {};
+		if (Slot.CoordinateSpace ==
+			EOpenMobileSensorCoordinateSpace::DeviceFixed)
+		{
+			FOpenMobileSensorCoordinateConverter::
+				UpdateEulerAndRotationMatrix(Sample);
+		}
+		return true;
 	}
 
 	bool PrepareSampleForSlot(
@@ -1893,6 +1917,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->OverflowPolicy = Options.OverflowPolicy;
 	Slot->CoordinateSpace = Options.CoordinateSpace;
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
+	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
 	Slot->PendingAccuracyChanges.Reserve(MaximumPendingAccuracyChanges);
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
@@ -1996,6 +2021,8 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->OverflowPolicy = Options.OverflowPolicy;
 	(*SlotPointer)->CoordinateSpace = Options.CoordinateSpace;
 	(*SlotPointer)->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
+	(*SlotPointer)->AttitudeRepresentations =
+		Options.AttitudeRepresentations;
 	(*SlotPointer)->FilterOptions = Options.Filters;
 	(*SlotPointer)->VectorFilter.Reset();
 	if (bReferenceFrameChanged)

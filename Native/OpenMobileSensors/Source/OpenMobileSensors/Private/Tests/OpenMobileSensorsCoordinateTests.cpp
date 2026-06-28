@@ -221,4 +221,116 @@ bool FOpenMobileSensorsCoordinateQuarterTurnsTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeRepresentationConversionTest,
+	"OpenMobile.Sensors.Attitude.Representations.GoldenConversions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeRepresentationConversionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCoordinateTestsPrivate;
+	const FQuat Rotations[] = {
+		FQuat::Identity,
+		FRotator(30.0, 45.0, 60.0).Quaternion(),
+		FRotator(90.0, 25.0, -35.0).Quaternion(),
+		FRotator(-90.0, -80.0, 15.0).Quaternion(),
+		FRotator(0.0, 180.0, 0.0).Quaternion()
+	};
+	bool bNormalized = true;
+	bool bEulerInRange = true;
+	bool bEulerRoundTrips = true;
+	bool bMatrixMatchesQuaternion = true;
+	bool bMatrixOrthonormal = true;
+	bool bPositiveDeterminant = true;
+	bool bSignEquivalent = true;
+	for (const FQuat& Rotation : Rotations)
+	{
+		FOpenMobileAttitudeSensorSample Sample;
+		Sample.Quaternion = FQuat(
+			Rotation.X * 2.0,
+			Rotation.Y * 2.0,
+			Rotation.Z * 2.0,
+			Rotation.W * 2.0
+		);
+		Sample.bHasEulerDegrees = true;
+		Sample.bHasRotationMatrix = true;
+		FOpenMobileSensorCoordinateConverter::UpdateEulerAndRotationMatrix(
+			Sample
+		);
+		bNormalized &= FMath::IsNearlyEqual(
+			Sample.Quaternion.SizeSquared(),
+			1.0,
+			1.e-9
+		);
+		bEulerInRange &= Sample.EulerDegrees.Pitch >= -90.0
+			&& Sample.EulerDegrees.Pitch <= 90.0
+			&& Sample.EulerDegrees.Yaw >= -180.0
+			&& Sample.EulerDegrees.Yaw <= 180.0
+			&& Sample.EulerDegrees.Roll >= -180.0
+			&& Sample.EulerDegrees.Roll <= 180.0;
+		bEulerRoundTrips &= QuaternionsRepresentSameRotation(
+			Sample.EulerDegrees.Quaternion(),
+			Sample.Quaternion
+		);
+		const FVector& X = Sample.RotationMatrix.XAxis;
+		const FVector& Y = Sample.RotationMatrix.YAxis;
+		const FVector& Z = Sample.RotationMatrix.ZAxis;
+		bMatrixMatchesQuaternion &= X.Equals(
+			Sample.Quaternion.RotateVector(FVector::ForwardVector),
+			1.e-9
+		) && Y.Equals(
+			Sample.Quaternion.RotateVector(FVector::RightVector),
+			1.e-9
+		) && Z.Equals(
+			Sample.Quaternion.RotateVector(FVector::UpVector),
+			1.e-9
+		);
+		bMatrixOrthonormal &= FMath::IsNearlyEqual(X.SizeSquared(), 1.0, 1.e-9)
+			&& FMath::IsNearlyEqual(Y.SizeSquared(), 1.0, 1.e-9)
+			&& FMath::IsNearlyEqual(Z.SizeSquared(), 1.0, 1.e-9)
+			&& FMath::IsNearlyZero(X | Y, 1.e-9)
+			&& FMath::IsNearlyZero(X | Z, 1.e-9)
+			&& FMath::IsNearlyZero(Y | Z, 1.e-9);
+		bPositiveDeterminant &= FMath::IsNearlyEqual(
+			X | (Y ^ Z),
+			1.0,
+			1.e-9
+		);
+		FOpenMobileAttitudeSensorSample Negated;
+		Negated.Quaternion = FQuat(
+			-Sample.Quaternion.X,
+			-Sample.Quaternion.Y,
+			-Sample.Quaternion.Z,
+			-Sample.Quaternion.W
+		);
+		Negated.bHasEulerDegrees = true;
+		Negated.bHasRotationMatrix = true;
+		FOpenMobileSensorCoordinateConverter::UpdateEulerAndRotationMatrix(
+			Negated
+		);
+		bSignEquivalent &= QuaternionsRepresentSameRotation(
+			Negated.EulerDegrees.Quaternion(),
+			Sample.EulerDegrees.Quaternion()
+		) && Negated.RotationMatrix.XAxis.Equals(X, 1.e-9)
+			&& Negated.RotationMatrix.YAxis.Equals(Y, 1.e-9)
+			&& Negated.RotationMatrix.ZAxis.Equals(Z, 1.e-9);
+	}
+	TestTrue(TEXT("Canonical quaternions are normalized"), bNormalized);
+	TestTrue(TEXT("Euler output uses documented degree ranges"), bEulerInRange);
+	TestTrue(TEXT("Euler output round-trips through singular poses"),
+		bEulerRoundTrips);
+	TestTrue(TEXT("Matrix bases match the canonical quaternion"),
+		bMatrixMatchesQuaternion);
+	TestTrue(TEXT("Matrix bases remain orthonormal"), bMatrixOrthonormal);
+	TestTrue(TEXT("Rotation matrices keep determinant positive one"),
+		bPositiveDeterminant);
+	TestTrue(TEXT("Quaternion sign leaves derived output unchanged"),
+		bSignEquivalent);
+	return true;
+}
+
 #endif
