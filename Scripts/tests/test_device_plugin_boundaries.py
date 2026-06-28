@@ -3146,6 +3146,23 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 					str(path),
 				)
 
+	def test_editor_mock_shutdown_avoids_config_defaults(self) -> None:
+		mock_source = (
+			DEVICE_PLUGIN
+			/ "Source"
+			/ "OpenMobileDeviceEditor"
+			/ "Private"
+			/ "OpenMobileDeviceEditorMock.cpp"
+		).read_text(encoding="utf-8")
+		shutdown_body = mock_source.split("\t\tvoid Shutdown()", 1)[1].split(
+			"\n\t\tvoid ApplySettings()",
+			1,
+		)[0]
+
+		self.assertNotIn("SetEnabled(", shutdown_body)
+		self.assertNotIn("UpdateVisibleState(", shutdown_body)
+		self.assertIn("UnregisterBackend", shutdown_body)
+
 	def test_device_diagnostics_are_bounded_redacted_and_editor_presented(self) -> None:
 		runtime_header = (
 			DEVICE_PLUGIN
@@ -3340,6 +3357,34 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			"sanitized failure details",
 		):
 			self.assertIn(required_token, validation)
+
+	def test_device_artifact_validator_covers_both_platform_packages(self) -> None:
+		validator = (REPOSITORY_ROOT / "Scripts" / "validate_device_artifacts.py").read_text(
+			encoding="utf-8"
+		)
+		for required_token in (
+			"OpenMobileDeviceValidationHost.target",
+			"ActiveUPL.txt",
+			"AndroidManifest.xml",
+			"buildAdditions.gradle",
+			"classes.dex",
+			"libUnreal.so",
+			"PrivacyInfo.xcprivacy",
+			"Info.plist",
+			"nm",
+			"otool",
+			"codesign",
+		):
+			self.assertIn(required_token, validator)
+		for forbidden_dependency in (
+			"OpenMobileHapticsAndroid",
+			"OpenMobileSensorsAndroid",
+			"OpenMobileMediaAndroid",
+			"OpenMobileAds",
+			"GoogleMobileAds",
+			"AppLovinSDK",
+		):
+			self.assertIn(forbidden_dependency, validator)
 
 
 if __name__ == "__main__":

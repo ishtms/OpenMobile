@@ -305,10 +305,12 @@ namespace OpenMobileDeviceEditorMockPrivate
 			{
 				return;
 			}
-			SetEnabled(false);
 			CancelPendingEvents();
+			if (FOpenMobileDeviceBackendRegistry::IsBackendRegistered(&Backend))
+			{
+				FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+			}
 			bStarted = false;
-			UpdateVisibleState();
 		}
 
 		void ApplySettings()
