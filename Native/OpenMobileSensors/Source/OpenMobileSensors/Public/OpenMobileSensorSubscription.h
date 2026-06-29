@@ -76,6 +76,30 @@ enum class EOpenMobileSensorSubscriptionState : uint8
 	Failed
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorRecenterMode : uint8
+{
+	FullAttitude,
+	YawOnly,
+	Clear
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorRecenterState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bApplied = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorRecenterMode Mode =
+		EOpenMobileSensorRecenterMode::FullAttitude;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FQuat InverseReference = FQuat::Identity;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceState
 {
@@ -131,6 +155,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileAttitudeReferenceState AttitudeReference;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorRecenterState Recenter;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;

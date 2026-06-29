@@ -547,6 +547,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				Snapshot.AttitudeReference =
 					Physical->Request.AttitudeReferenceState;
 			}
+			FOpenMobileSensorsSampleService::GetAttitudeRecenterState(
+				Entry.OwnerIdentifier,
+				Entry.Handle,
+				Snapshot.Recenter
+			);
 		}
 		Snapshot.Error = Entry.Error;
 		return Snapshot;
@@ -1672,6 +1677,47 @@ FOpenMobileSensorsSubscriptionService::StopSubscription(
 	FinalEntry.State = EOpenMobileSensorSubscriptionState::Stopped;
 	FinalEntry.Error = {};
 	BroadcastState(FinalEntry);
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	EOpenMobileSensorRecenterMode Mode
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	const FSubscriptionEntry* Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+	if (!Entry)
+	{
+		return MakeHandleFailure(Handle);
+	}
+	if (Entry->Request.Sensor.Type != EOpenMobileSensorType::Attitude)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
+	if (Mode != EOpenMobileSensorRecenterMode::FullAttitude
+		&& Mode != EOpenMobileSensorRecenterMode::YawOnly
+		&& Mode != EOpenMobileSensorRecenterMode::Clear)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
+		);
+	}
+	if (!FOpenMobileSensorsSampleService::RecenterAttitude(
+		OwnerIdentifier,
+		Handle,
+		Mode
+	))
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		);
+	}
 	return MakeSuccess();
 }
 

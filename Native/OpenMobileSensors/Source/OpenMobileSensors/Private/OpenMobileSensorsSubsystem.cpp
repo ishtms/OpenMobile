@@ -436,16 +436,11 @@ FGuid UOpenMobileSensorsSubsystem::RecenterNative(
 	Result.RequestId = RequestId;
 	Result.Handle = Handle;
 	Result.Mode = Mode;
-	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+	Result.Operation = FOpenMobileSensorsSubscriptionService::RecenterAttitude(
 		SubscriptionOwnerIdentifier,
-		Handle
+		Handle,
+		Mode
 	);
-	if (Result.Operation.IsSuccess())
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::UnsupportedOperation
-		);
-	}
 	OpenMobile::DispatchToGameThread(
 		[Completion = MoveTemp(Completion), Result]() mutable
 		{
@@ -465,16 +460,11 @@ UOpenMobileSensorsSubsystem::RecenterSubscription(
 	Result.RequestId = FGuid::NewGuid();
 	Result.Handle = Handle;
 	Result.Mode = Mode;
-	Result.Operation = FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+	Result.Operation = FOpenMobileSensorsSubscriptionService::RecenterAttitude(
 		SubscriptionOwnerIdentifier,
-		Handle
+		Handle,
+		Mode
 	);
-	if (Result.Operation.IsSuccess())
-	{
-		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::UnsupportedOperation
-		);
-	}
 	return Result;
 }
 

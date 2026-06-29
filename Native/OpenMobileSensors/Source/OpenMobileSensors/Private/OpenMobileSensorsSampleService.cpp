@@ -191,6 +191,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 AttitudeRepresentations = static_cast<int32>(
 			EOpenMobileAttitudeRepresentation::Quaternion
 		);
+		FOpenMobileSensorRecenterState Recenter;
+		FQuat LatestCanonicalAttitude = FQuat::Identity;
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
@@ -201,6 +203,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		bool bHasRateTimestamp = false;
 		bool bHasAccuracyState = false;
 		bool bHasSourceState = false;
+		bool bHasCanonicalAttitude = false;
 		bool bPendingStatefulProcessingReset = false;
 		int32 LastSourceFlags = 0;
 		int64 NextAccuracySequence = 1;
@@ -973,13 +976,36 @@ namespace OpenMobileSensorsSampleServicePrivate
 			)) != 0;
 		Sample.EulerDegrees = FRotator::ZeroRotator;
 		Sample.RotationMatrix = {};
+		return true;
+	}
+
+	template <typename SampleType>
+	void ApplyPostValidationTransforms(FLatestSlot& Slot, SampleType& Sample)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+	}
+
+	void ApplyPostValidationTransforms(
+		FLatestSlot& Slot,
+		FOpenMobileAttitudeSensorSample& Sample
+	)
+	{
+		Sample.Quaternion.Normalize();
+		Slot.LatestCanonicalAttitude = Sample.Quaternion;
+		Slot.bHasCanonicalAttitude = true;
+		if (Slot.Recenter.bApplied)
+		{
+			Sample.Quaternion =
+				Slot.Recenter.InverseReference * Sample.Quaternion;
+			Sample.Quaternion.Normalize();
+		}
 		if (Slot.CoordinateSpace ==
 			EOpenMobileSensorCoordinateSpace::DeviceFixed)
 		{
 			FOpenMobileSensorCoordinateConverter::
 				UpdateEulerAndRotationMatrix(Sample);
 		}
-		return true;
 	}
 
 	bool PrepareSampleForSlot(
@@ -1121,6 +1147,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						Slot.bPendingStatefulProcessingReset = true;
 						continue;
 					}
+					ApplyPostValidationTransforms(Slot, Sample);
 					ApplySourceTransition(Slot, Sample.Header);
 					Sample.Header.TimestampIssueFlags =
 						Slot.PendingTimestampIssueFlags;
@@ -2027,6 +2054,9 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	(*SlotPointer)->VectorFilter.Reset();
 	if (bReferenceFrameChanged)
 	{
+		(*SlotPointer)->Recenter = {};
+		(*SlotPointer)->LatestCanonicalAttitude = FQuat::Identity;
+		(*SlotPointer)->bHasCanonicalAttitude = false;
 		(*SlotPointer)->bHasSample = false;
 		(*SlotPointer)->Family = ELatestSampleFamily::None;
 		(*SlotPointer)->LatestTimestampSeconds = 0.0;
@@ -2225,6 +2255,94 @@ bool FOpenMobileSensorsSampleService::FlushPluginSamples(
 	{
 		DrainPendingEvents(FPlatformTime::Seconds());
 	}
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::RecenterAttitude(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	EOpenMobileSensorRecenterMode Mode
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!OwnerIdentifier.IsValid() || !Handle.IsValid() || !SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier
+		|| Slot.Handle != Handle
+		|| Slot.Sensor.Type != EOpenMobileSensorType::Attitude)
+	{
+		return false;
+	}
+	if (Mode == EOpenMobileSensorRecenterMode::Clear)
+	{
+		Slot.Recenter = {};
+	}
+	else
+	{
+		if (!Slot.bHasCanonicalAttitude)
+		{
+			return false;
+		}
+		FQuat InverseReference;
+		if (Mode == EOpenMobileSensorRecenterMode::FullAttitude)
+		{
+			InverseReference = Slot.LatestCanonicalAttitude.Inverse();
+		}
+		else if (Mode == EOpenMobileSensorRecenterMode::YawOnly)
+		{
+			InverseReference = FRotator(
+				0.0,
+				-Slot.LatestCanonicalAttitude.Rotator().Yaw,
+				0.0
+			).Quaternion();
+		}
+		else
+		{
+			return false;
+		}
+		InverseReference.Normalize();
+		Slot.Recenter.bApplied = true;
+		Slot.Recenter.Mode = Mode;
+		Slot.Recenter.InverseReference = InverseReference;
+	}
+	Slot.bHasSample = false;
+	Slot.Family = ELatestSampleFamily::None;
+	Slot.LatestTimestampSeconds = 0.0;
+	Slot.bPendingStatefulProcessingReset = true;
+	ClearPendingEvents(Slot);
+	ClearBufferedStorage(Slot);
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::GetAttitudeRecenterState(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	FOpenMobileSensorRecenterState& OutState
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	OutState = {};
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!OwnerIdentifier.IsValid() || !Handle.IsValid() || !SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	const FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier
+		|| Slot.Handle != Handle
+		|| Slot.Sensor.Type != EOpenMobileSensorType::Attitude)
+	{
+		return false;
+	}
+	OutState = Slot.Recenter;
 	return true;
 }
 

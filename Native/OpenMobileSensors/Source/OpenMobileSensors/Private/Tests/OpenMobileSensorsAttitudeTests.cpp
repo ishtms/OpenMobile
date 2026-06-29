@@ -985,4 +985,518 @@ bool FOpenMobileSensorsAttitudeReferenceMismatchTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsFullAttitudeRecenterTest,
+	"OpenMobile.Sensors.Attitude.Recenter.FullAttitude",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsFullAttitudeRecenterTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeRecenter"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Attitude)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FQuat Pose = FRotator(20.0, 40.0, 10.0).Quaternion();
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		1.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	const FOpenMobileSensorOperationResult Recenter =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			Subscription.Handle,
+			EOpenMobileSensorRecenterMode::FullAttitude
+		);
+	TestTrue(TEXT("Full-attitude recenter succeeds"), Recenter.IsSuccess());
+	TestEqual(TEXT("Recenter does not restart the physical stream"),
+		Backend.GetStartSensorStreamCount(), 1);
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		2.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileAttitudeSensorSample Output;
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		Subscription.Handle,
+		0,
+		2.1,
+		Read,
+		Output
+	);
+	TestTrue(TEXT("The recentered pose is identity"),
+		SameRotation(Output.Quaternion, FQuat::Identity));
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	TestTrue(TEXT("Recenter state can be queried"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Subscription.Handle,
+			State
+		));
+	TestTrue(TEXT("The state reports an applied reference"),
+		State.Recenter.bApplied);
+	TestEqual(TEXT("The state reports full-attitude mode"),
+		State.Recenter.Mode,
+		EOpenMobileSensorRecenterMode::FullAttitude);
+	const FOpenMobileSensorOperationResult Clear =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			Subscription.Handle,
+			EOpenMobileSensorRecenterMode::Clear
+		);
+	TestTrue(TEXT("The reference can be cleared"), Clear.IsSuccess());
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		3.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		Subscription.Handle,
+		0,
+		3.1,
+		Read,
+		Output
+	);
+	TestTrue(TEXT("Clearing restores the native pose"),
+		SameRotation(Output.Quaternion, Pose));
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		Subscription.Handle,
+		State
+	);
+	TestFalse(TEXT("The query reports a cleared reference"),
+		State.Recenter.bApplied);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsYawAttitudeRecenterTest,
+	"OpenMobile.Sensors.Attitude.Recenter.YawAndMotion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsYawAttitudeRecenterTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("YawAttitudeRecenter"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Attitude)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FQuat InitialPose = FRotator(25.0, 70.0, -15.0).Quaternion();
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		1.0,
+		InitialPose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	const FOpenMobileSensorOperationResult YawRecenter =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			Subscription.Handle,
+			EOpenMobileSensorRecenterMode::YawOnly
+		);
+	TestTrue(TEXT("Yaw-only recenter succeeds"),
+		YawRecenter.IsSuccess());
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		2.0,
+		InitialPose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileAttitudeSensorSample Output;
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		Subscription.Handle,
+		0,
+		2.1,
+		Read,
+		Output
+	);
+	const FQuat YawInverse = FRotator(0.0, -70.0, 0.0).Quaternion();
+	TestTrue(TEXT("Yaw-only recenter preserves the initial tilt"),
+		SameRotation(Output.Quaternion, YawInverse * InitialPose));
+	TestTrue(TEXT("Yaw-only recenter zeros the current yaw"),
+		FMath::IsNearlyZero(Output.Quaternion.Rotator().Yaw, 1.e-6));
+	const FQuat MovingPose = FRotator(-10.0, 110.0, 30.0).Quaternion();
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		3.0,
+		MovingPose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		Subscription.Handle,
+		0,
+		3.1,
+		Read,
+		Output
+	);
+	TestTrue(TEXT("Motion remains relative to the stored yaw"),
+		SameRotation(Output.Quaternion, YawInverse * MovingPose));
+	const FOpenMobileSensorOperationResult Repeated =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			Subscription.Handle,
+			EOpenMobileSensorRecenterMode::FullAttitude
+		);
+	TestTrue(TEXT("A later full recenter replaces the yaw reference"),
+		Repeated.IsSuccess());
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		4.0,
+		MovingPose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		Subscription.Handle,
+		0,
+		4.1,
+		Read,
+		Output
+	);
+	TestTrue(TEXT("Repeated recenter uses the latest raw pose"),
+		SameRotation(Output.Quaternion, FQuat::Identity));
+	TestEqual(TEXT("Repeated recenter keeps the physical stream"),
+		Backend.GetStartSensorStreamCount(), 1);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsScreenAttitudeRecenterTest,
+	"OpenMobile.Sensors.Attitude.Recenter.ScreenAndSubscribers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsScreenAttitudeRecenterTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsScreenRotationService::ResetForTests();
+	FOpenMobileSensorsMockBackend Backend(TEXT("ScreenAttitudeRecenter"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Attitude)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	FOpenMobileSensorSubscriptionRequest ScreenRequest = MakeRequest();
+	ScreenRequest.Options.CoordinateSpace =
+		EOpenMobileSensorCoordinateSpace::CurrentScreen;
+	const FOpenMobileSensorSubscriptionResult ScreenSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			ScreenRequest
+		);
+	const FOpenMobileSensorSubscriptionResult DeviceSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorsScreenRotationService::CaptureApplicationWindowRotation(
+		Owner,
+		EOpenMobileSensorScreenRotation::Rotation90,
+		0.5,
+		false
+	);
+	const FQuat Pose = FRotator(15.0, 35.0, -20.0).Quaternion();
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		1.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+		Owner,
+		ScreenSubscription.Handle,
+		EOpenMobileSensorRecenterMode::FullAttitude
+	);
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		2.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileAttitudeSensorSample ScreenOutput;
+	FOpenMobileAttitudeSensorSample DeviceOutput;
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		ScreenSubscription.Handle,
+		0,
+		2.1,
+		Read,
+		ScreenOutput
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		DeviceSubscription.Handle,
+		0,
+		2.1,
+		Read,
+		DeviceOutput
+	);
+	TestTrue(TEXT("Recenter is applied before screen compensation"),
+		SameRotation(ScreenOutput.Quaternion, FQuat::Identity));
+	TestTrue(TEXT("A concurrent subscriber keeps the native pose"),
+		SameRotation(DeviceOutput.Quaternion, Pose));
+	FOpenMobileSensorSubscriptionStateSnapshot DeviceState;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		DeviceSubscription.Handle,
+		DeviceState
+	);
+	TestFalse(TEXT("Recenter state is isolated per subscriber"),
+		DeviceState.Recenter.bApplied);
+	FOpenMobileSensorsScreenRotationService::CaptureApplicationWindowRotation(
+		Owner,
+		EOpenMobileSensorScreenRotation::Rotation180,
+		2.5,
+		false
+	);
+	Batch.Samples.Reset();
+	Batch.Samples.Add(MakeSample(
+		3.0,
+		Pose,
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitudeBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorsSampleService::ReadLatestAttitude(
+		Owner,
+		ScreenSubscription.Handle,
+		0,
+		3.1,
+		Read,
+		ScreenOutput
+	);
+	TestTrue(TEXT("Screen rotation changes do not alter the raw reference"),
+		SameRotation(ScreenOutput.Quaternion, FQuat::Identity));
+	TestEqual(TEXT("Concurrent recenter shares the physical stream"),
+		Backend.GetStartSensorStreamCount(), 1);
+	FinishBackend(Backend);
+	FOpenMobileSensorsScreenRotationService::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAttitudeRecenterLifecycleTest,
+	"OpenMobile.Sensors.Attitude.Recenter.LifecycleAndValidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAttitudeRecenterLifecycleTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAttitudeTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("AttitudeRecenterLifecycle"));
+	FOpenMobileSensorCapability Attitude =
+		MakeCapability(EOpenMobileSensorType::Attitude);
+	Attitude.AttitudeReferenceFrames = {
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::GameRelative,
+			EOpenMobileCapabilityState::Available
+		),
+		MakeReferenceCapability(
+			EOpenMobileAttitudeReferenceFrame::ArbitraryVertical,
+			EOpenMobileCapabilityState::Available
+		)
+	};
+	Backend.SetSensorCapabilities({
+		Attitude,
+		MakeCapability(EOpenMobileSensorType::Accelerometer)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult AttitudeSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorSubscriptionRequest VectorRequest;
+	VectorRequest.Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	VectorRequest.Sensor.InstanceId = TEXT("Default");
+	const FOpenMobileSensorSubscriptionResult VectorSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			VectorRequest
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FOpenMobileSensorOperationResult NoSample =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			AttitudeSubscription.Handle,
+			EOpenMobileSensorRecenterMode::FullAttitude
+		);
+	TestEqual(TEXT("Recenter before the first pose is unavailable"),
+		NoSample.Code,
+		EOpenMobileSensorResultCode::Unavailable);
+	const FOpenMobileSensorOperationResult WrongSensor =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			VectorSubscription.Handle,
+			EOpenMobileSensorRecenterMode::FullAttitude
+		);
+	TestEqual(TEXT("Non-attitude recenter is unsupported"),
+		WrongSensor.Code,
+		EOpenMobileSensorResultCode::NotSupported);
+	const FOpenMobileSensorOperationResult InvalidMode =
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			AttitudeSubscription.Handle,
+			static_cast<EOpenMobileSensorRecenterMode>(255)
+		);
+	TestEqual(TEXT("Unknown recenter modes are rejected"),
+		InvalidMode.Code,
+		EOpenMobileSensorResultCode::InvalidArgument);
+	FOpenMobileAttitudeSensorBatch Batch;
+	Batch.Samples.Add(MakeSample(
+		1.0,
+		FRotator(10.0, 20.0, 30.0).Quaternion(),
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishAttitude(Batch.Samples[0]);
+	FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+		Owner,
+		AttitudeSubscription.Handle,
+		EOpenMobileSensorRecenterMode::FullAttitude
+	);
+	FOpenMobileSensorStreamOptions UpdatedOptions =
+		MakeRequest().Options;
+	UpdatedOptions.AttitudeReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
+	const FOpenMobileSensorOperationResult Updated =
+		FOpenMobileSensorsSubscriptionService::UpdateSubscription(
+			Owner,
+			AttitudeSubscription.Handle,
+			UpdatedOptions
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestTrue(TEXT("The attitude reference frame can change"),
+		Updated.IsSuccess());
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+		Owner,
+		AttitudeSubscription.Handle,
+		State
+	);
+	TestFalse(TEXT("A reference-frame change clears recenter state"),
+		State.Recenter.bApplied);
+	TestTrue(TEXT("Stopping the handle succeeds"),
+		FOpenMobileSensorsSubscriptionService::StopSubscription(
+			Owner,
+			AttitudeSubscription.Handle
+		).IsSuccess());
+	TestFalse(TEXT("Stopped recenter state cannot be queried"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			AttitudeSubscription.Handle,
+			State
+		));
+	TestEqual(TEXT("A stopped handle cannot be recentered"),
+		FOpenMobileSensorsSubscriptionService::RecenterAttitude(
+			Owner,
+			AttitudeSubscription.Handle,
+			EOpenMobileSensorRecenterMode::Clear
+		).Code,
+		EOpenMobileSensorResultCode::InvalidHandle);
+	FinishBackend(Backend);
+	return true;
+}
+
 #endif

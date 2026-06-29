@@ -200,7 +200,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop All Sensor Subscriptions", ToolTip = "Stops every subscription owned by this Game Instance and returns the number stopped."))
 	int32 StopAllSubscriptionsNative();
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Subscription State", ToolTip = "Returns the current state for an owned subscription handle."))
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Subscription State", ToolTip = "Returns the current state, including attitude reference and recenter state, for an owned subscription handle."))
 	bool GetSubscriptionStateNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOpenMobileSensorSubscriptionStateSnapshot& OutState
@@ -345,7 +345,7 @@ public:
 		FOnOpenMobileSensorRecenterComplete&& Completion
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Recenter Sensor Attitude", ToolTip = "Recenters an attitude subscription or returns an explicit unsupported or invalid-handle result."))
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Recenter Sensor Attitude", ToolTip = "Applies full-attitude, yaw-only, or clear recentering to one attitude subscription without restarting its physical stream."))
 	FOpenMobileSensorRecenterResult RecenterSubscription(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode

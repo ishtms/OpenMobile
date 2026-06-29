@@ -108,6 +108,16 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int32& OutSampleCount
 	);
+	static bool RecenterAttitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		EOpenMobileSensorRecenterMode Mode
+	);
+	static bool GetAttitudeRecenterState(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		FOpenMobileSensorRecenterState& OutState
+	);
 
 	static void PublishVector(const FOpenMobileVectorSensorSample& Sample);
 	static void PublishAttitude(const FOpenMobileAttitudeSensorSample& Sample);

@@ -141,14 +141,6 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFlushResult
 	int32 FlushedSamples = 0;
 };
 
-UENUM(BlueprintType)
-enum class EOpenMobileSensorRecenterMode : uint8
-{
-	FullAttitude,
-	YawOnly,
-	Clear
-};
-
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorRecenterResult
 {

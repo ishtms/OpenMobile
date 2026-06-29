@@ -33,6 +33,11 @@ public:
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+	static FOpenMobileSensorOperationResult RecenterAttitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		EOpenMobileSensorRecenterMode Mode
+	);
 	static int32 StopAllSubscriptions(const FGuid& OwnerIdentifier);
 	static bool GetSubscriptionState(
 		const FGuid& OwnerIdentifier,
