@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <minimumSDKAPI>
+        <insertValue value="23"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
+    <buildGradleAdditions>
+        <insert>
+repositories {
+    google()
+    mavenCentral()
+}
+dependencies {
+    implementation('com.google.ads.mediation:unity') {
+        version {
+            strictly '4.19.0.0'
+        }
+    }
+    implementation('com.unity3d.ads:unity-ads') {
+        version {
+            strictly '4.19.0'
+        }
+    }
+}
+        </insert>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMobUnity_Dependencies.gradle')</insert>
+        <insertNewline/>
+    </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>OpenMobileAdsAdMobUnityAndroidDependencyContract=1</insert>
+        <insertNewline/>
+    </registerBuildSettings>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobUnity_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMobUnity_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobUnity_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobUnity_Dependencies.gradle"/>
+    </gradleCopies>
+
+    <gameActivityClassAdditions>
+        <insert>
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobUnityConsentSignals(
+        final boolean applyGdpr,
+        final boolean hasUserConsent,
+        final boolean applyUsPrivacy,
+        final boolean doNotSell,
+        final boolean applyNonBehavioral,
+        final boolean nonBehavioral
+    )
+    {
+        try
+        {
+            if (applyGdpr)
+            {
+                com.unity3d.ads.UnityAds.setUserConsent(hasUserConsent);
+                if (!java.lang.Boolean.valueOf(hasUserConsent).equals(
+                    com.unity3d.ads.UnityAds.getUserConsent()))
+                {
+                    return false;
+                }
+            }
+            if (applyUsPrivacy)
+            {
+                com.unity3d.ads.UnityAds.setUserOptOut(doNotSell);
+                if (!java.lang.Boolean.valueOf(doNotSell).equals(
+                    com.unity3d.ads.UnityAds.getUserOptOut()))
+                {
+                    return false;
+                }
+            }
+            if (applyNonBehavioral)
+            {
+                com.unity3d.ads.UnityAds.setNonBehavioral(nonBehavioral);
+                if (!java.lang.Boolean.valueOf(nonBehavioral).equals(
+                    com.unity3d.ads.UnityAds.getNonBehavioral()))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            return false;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+</root>

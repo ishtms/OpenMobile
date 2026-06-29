@@ -1,0 +1,39 @@
+{
+	"schema_version": 1,
+	"packages": [
+		{
+			"name": "Google Mobile Ads Mediation Adapter for Unity",
+			"version": "4.19.0.1",
+			"source_url": "https://dl.google.com/googleadmobadssdk/mediation/ios/unity/UnityAdapter-4.19.0.1.zip",
+			"terms_url": "https://developers.google.com/terms/site-terms",
+			"redistribution": "Distributed under the Apache License 2.0 included with this plugin.",
+			"license_files": [
+				"Licenses/GoogleAdapter-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "UnityAdapter.xcframework.zip",
+					"sha256": "3b654a35bcbbe5357b88dd500cf84b3056b24c7fb5a02042511b6b57aca49362",
+					"role": "Runtime Unity Ads mediation adapter repackaged with the xcframework at the archive root"
+				}
+			]
+		},
+		{
+			"name": "Unity Ads SDK for iOS",
+			"version": "4.19.0",
+			"source_url": "https://github.com/Unity-Technologies/unity-ads-ios/releases/download/4.19.0/UnityAds.zip",
+			"terms_url": "https://unity.com/legal/terms-of-service",
+			"redistribution": "Distribution is subject to the Unity terms referenced by the included license.",
+			"license_files": [
+				"Licenses/UnityAds-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "UnityAds.xcframework.zip",
+					"sha256": "bbd66870eb805fcbfaecf8b0aca04cc944d7b8268424733ef9825d708e908700",
+					"role": "Runtime Unity Ads static framework repackaged with the xcframework at the archive root"
+				}
+			]
+		}
+	]
+}

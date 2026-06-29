@@ -31,6 +31,7 @@ from validate_ads_plugins import (
 	validate_android_manifest,
 	validate_adapter_metadata,
 	validate_adapter_compatibility,
+	validate_adapter_integration_selection,
 	validate_ios_plist,
 	validate_native_dependency_compatibility,
 )
@@ -99,6 +100,9 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.admob_chartboost = repository_descriptor(
 			"Adapters/Ads/OpenMobileAdsAdMobChartboost/OpenMobileAdsAdMobChartboost.uplugin"
 		)
+		self.admob_unity = repository_descriptor(
+			"Adapters/Ads/OpenMobileAdsAdMobUnity/OpenMobileAdsAdMobUnity.uplugin"
+		)
 		mock_data = {
 			"Modules": [
 				{
@@ -141,6 +145,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				self.admob,
 				self.admob_applovin,
 				self.admob_chartboost,
+				self.admob_unity,
 				self.admob_meta,
 				self.mock,
 				self.mock_adapter,
@@ -168,6 +173,8 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertTrue(descriptors["OpenMobileAdsAdMobAppLovin"].is_ads_adapter)
 		self.assertIn("OpenMobileAdsAdMobChartboost", descriptors)
 		self.assertTrue(descriptors["OpenMobileAdsAdMobChartboost"].is_ads_adapter)
+		self.assertIn("OpenMobileAdsAdMobUnity", descriptors)
+		self.assertTrue(descriptors["OpenMobileAdsAdMobUnity"].is_ads_adapter)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -308,6 +315,37 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobChartboostIOS", ios_adapter.modules)
 		self.assertNotIn("OpenMobileAdsAdMobChartboostAndroid", ios_adapter.modules)
+
+	def test_real_admob_unity_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMob"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertNotIn("OpenMobileAdsAdMobUnity", provider_only.ads_adapters)
+		self.assertNotIn("OpenMobileAdsAdMobUnityAndroid", provider_only.modules)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobUnity"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsAdMob"}, with_adapter.ads_providers)
+		self.assertEqual({"OpenMobileAdsAdMobUnity"}, with_adapter.ads_adapters)
+		self.assertIn("OpenMobileAdsAdMobUnityAndroid", with_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobUnityIOS", with_adapter.modules)
+		self.assertEqual([], validate_adapter_metadata(self.admob_unity))
+
+		ios_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobUnity"],
+			platform="IOS",
+			target_type="Game",
+		)
+		self.assertIn("OpenMobileAdsAdMobUnityIOS", ios_adapter.modules)
+		self.assertNotIn("OpenMobileAdsAdMobUnityAndroid", ios_adapter.modules)
 
 	def test_adapter_metadata_requires_explicit_format_and_privacy_contracts(self) -> None:
 		metadata = json.loads(
@@ -465,6 +503,54 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual([], ios.errors)
 		self.assertTrue(any("outside supported range" in error for error in unverified.errors))
 
+	def test_unity_rejects_new_waterfall_only_configuration(self) -> None:
+		waterfall_only = validate_adapter_integration_selection(
+			self.admob_unity,
+			{"Waterfall"},
+			new_configuration=True,
+		)
+		bidding = validate_adapter_integration_selection(
+			self.admob_unity,
+			{"Bidding"},
+			new_configuration=True,
+		)
+		legacy_waterfall = validate_adapter_integration_selection(
+			self.admob_unity,
+			{"Waterfall"},
+			new_configuration=False,
+		)
+
+		self.assertTrue(any("requires Bidding" in error for error in waterfall_only))
+		self.assertEqual([], bidding)
+		self.assertEqual([], legacy_waterfall)
+
+	def test_unity_adapter_compatibility_accepts_pinned_sdk_versions(self) -> None:
+		android = validate_adapter_compatibility(
+			self.admob_unity,
+			"Android",
+			provider_versions={"compiled": "25.4.0"},
+			adapter_versions={"compiled": "4.19.0.0"},
+			network_versions={"compiled": "4.19.0"},
+		)
+		ios = validate_adapter_compatibility(
+			self.admob_unity,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "4.19.0.1"},
+			network_versions={"compiled": "4.19.0"},
+		)
+		unverified = validate_adapter_compatibility(
+			self.admob_unity,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "4.20.0.0"},
+			network_versions={"compiled": "4.20.0"},
+		)
+
+		self.assertEqual([], android.errors)
+		self.assertEqual([], ios.errors)
+		self.assertTrue(any("outside supported range" in error for error in unverified.errors))
+
 	def test_adapter_metadata_rejects_versions_that_conflict_with_compatibility(self) -> None:
 		metadata_path = self.admob_meta.path.parent / "adapter.json"
 		metadata = json.loads(
@@ -574,6 +660,40 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertEqual(1, conflicting.returncode)
 		self.assertIn("conflicting provider SDK versions", conflicting.stderr)
+
+	def test_compatibility_command_rejects_new_unity_waterfall_only_setup(self) -> None:
+		command = [
+			sys.executable,
+			str(REPOSITORY_ROOT / "Scripts" / "validate_ads_plugins.py"),
+			"compatibility",
+			"--repository",
+			str(REPOSITORY_ROOT),
+			"--adapter",
+			"OpenMobileAdsAdMobUnity",
+			"--platform",
+			"IOS",
+			"--provider-version",
+			"compiled=13.8.0",
+			"--adapter-version",
+			"compiled=4.19.0.1",
+			"--network-version",
+			"compiled=4.19.0",
+			"--new-configuration",
+		]
+		waterfall = subprocess.run(
+			command + ["--integration-type", "Waterfall"],
+			capture_output=True,
+			text=True,
+		)
+		bidding = subprocess.run(
+			command + ["--integration-type", "Bidding"],
+			capture_output=True,
+			text=True,
+		)
+
+		self.assertEqual(1, waterfall.returncode)
+		self.assertIn("requires Bidding", waterfall.stderr)
+		self.assertEqual(0, bidding.returncode, bidding.stderr)
 
 	def test_native_dependency_requirements_accept_the_supported_adapter_graph(self) -> None:
 		for platform in ("Android", "IOS"):

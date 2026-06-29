@@ -35,6 +35,12 @@ ADAPTER_SIGNATURES = {
 		b"chartboostadapter",
 		b"gadmediationadapterchartboost",
 	),
+	"OpenMobileAdsAdMobUnity": (
+		b"com.google.ads.mediation:unity",
+		b"com/google/ads/mediation/unity",
+		b"unityadapter",
+		b"gadmediationadapterunity",
+	),
 	"OpenMobileAdsAdMobMeta": (
 		b"com.google.ads.mediation:facebook",
 		b"com/google/ads/mediation/facebook",
@@ -142,6 +148,11 @@ IOS_ADAPTER_PACKAGE_CONTRACTS = {
 	"OpenMobileAdsAdMobChartboost": {
 		"frameworks": set(),
 		"static_frameworks": {"ChartboostAdapter", "ChartboostSDK"},
+		"privacy_manifest_frameworks": set(),
+	},
+	"OpenMobileAdsAdMobUnity": {
+		"frameworks": set(),
+		"static_frameworks": {"UnityAdapter", "UnityAds"},
 		"privacy_manifest_frameworks": set(),
 	},
 	"OpenMobileAdsAdMobMeta": {
@@ -330,6 +341,46 @@ def validate_adapter_compatibility(
 			)
 
 	return AdapterCompatibilityResult(errors, warnings)
+
+
+def validate_adapter_integration_selection(
+	descriptor: PluginDescriptor,
+	selected_integration_types: set[str],
+	*,
+	new_configuration: bool,
+) -> list[str]:
+	manifest_path = descriptor.path.parent / "adapter.json"
+	try:
+		metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+	except (json.JSONDecodeError, OSError) as error:
+		return [f"adapter metadata could not be read: {error}"]
+
+	errors: list[str] = []
+	declared = set(metadata.get("integration_types", []))
+	if not selected_integration_types:
+		errors.append("adapter integration selection must not be empty")
+	unsupported = selected_integration_types - declared
+	if unsupported:
+		errors.append(
+			"adapter integration selection is unsupported: "
+			+ ", ".join(sorted(unsupported))
+		)
+	if not new_configuration:
+		return errors
+
+	policy = metadata.get("integration_policy")
+	if not isinstance(policy, dict):
+		return errors
+	required = set(policy.get("new_configuration_requires", []))
+	missing = required - selected_integration_types
+	if missing:
+		deadline = policy.get("effective_date", "the provider cutoff")
+		errors.append(
+			f"new {metadata.get('display_name', descriptor.name)} configuration requires "
+			+ ", ".join(sorted(missing))
+			+ f" after {deadline}"
+		)
+	return errors
 
 
 def _read_native_dependency_data(
@@ -596,6 +647,42 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 		)
 		if isinstance(integration_type, str)
 	}
+	integration_policy = metadata.get("integration_policy")
+	if integration_policy is not None:
+		required_policy_fields = {
+			"new_configuration_requires",
+			"legacy_only_types",
+			"effective_date",
+		}
+		if (
+			not isinstance(integration_policy, dict)
+			or set(integration_policy) != required_policy_fields
+		):
+			errors.append(
+				"adapter metadata integration_policy must define "
+				"new_configuration_requires, legacy_only_types, and effective_date"
+			)
+		else:
+			for field_name in ("new_configuration_requires", "legacy_only_types"):
+				values = integration_policy.get(field_name)
+				if (
+					not isinstance(values, list)
+					or not values
+					or any(value not in declared_integration_types for value in values)
+					or len(values) != len(set(values))
+				):
+					errors.append(
+						f"adapter metadata integration_policy.{field_name} must contain "
+						"unique declared integration types"
+					)
+			effective_date = integration_policy.get("effective_date")
+			if (
+				not isinstance(effective_date, str)
+				or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective_date)
+			):
+				errors.append(
+					"adapter metadata integration_policy.effective_date must use YYYY-MM-DD"
+				)
 	known_formats = {
 		"Banner",
 		"Interstitial",
@@ -2676,6 +2763,19 @@ def run_compatibility_command(arguments: argparse.Namespace) -> int:
 		for error in metadata_errors:
 			print(f"ads adapter metadata validation failed: {error}", file=sys.stderr)
 		return 1
+	if arguments.integration_type or arguments.new_configuration:
+		integration_errors = validate_adapter_integration_selection(
+			descriptor,
+			set(arguments.integration_type),
+			new_configuration=arguments.new_configuration,
+		)
+		if integration_errors:
+			for error in integration_errors:
+				print(
+					f"ads adapter compatibility validation failed: {error}",
+					file=sys.stderr,
+				)
+			return 1
 	try:
 		result = validate_adapter_compatibility(
 			descriptor,
@@ -2956,6 +3056,13 @@ def parse_arguments() -> argparse.Namespace:
 	compatibility_parser.add_argument("--provider-version", action="append", default=[])
 	compatibility_parser.add_argument("--adapter-version", action="append", default=[])
 	compatibility_parser.add_argument("--network-version", action="append", default=[])
+	compatibility_parser.add_argument(
+		"--integration-type",
+		action="append",
+		choices=("Bidding", "Waterfall"),
+		default=[],
+	)
+	compatibility_parser.add_argument("--new-configuration", action="store_true")
 	compatibility_parser.set_defaults(handler=run_compatibility_command)
 
 	native_conflicts_parser = subparsers.add_parser("native-conflicts")

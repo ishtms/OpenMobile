@@ -28,6 +28,9 @@ ADMOB_APPLOVIN_ADAPTER = (
 ADMOB_CHARTBOOST_ADAPTER = (
 	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobChartboost"
 )
+ADMOB_UNITY_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobUnity"
+)
 
 
 def load_descriptor(plugin_root: Path) -> dict:
@@ -400,6 +403,108 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 		self.assertEqual(len(upl_identifiers), len(set(upl_identifiers)))
 		self.assertEqual(
 			set(ios["attribution"]["skadnetwork_identifiers"]),
+			set(upl_identifiers),
+		)
+		self.assertIn(
+			"removeElement",
+			ElementTree.tostring(
+				ios_root.find("iosPListUpdates"),
+				encoding="unicode",
+			),
+		)
+
+	def test_admob_unity_adapter_is_separately_enabled_for_each_platform(self) -> None:
+		descriptor = load_descriptor(ADMOB_UNITY_ADAPTER)
+		self.assertEqual("MediationAdapter", descriptor["OpenMobileAdsType"])
+		self.assertFalse(descriptor["EnabledByDefault"])
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobileAds", "OpenMobileAdsAdMob"},
+			{plugin["Name"] for plugin in descriptor["Plugins"]},
+		)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileAdsAdMobUnityAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileAdsAdMobUnityIOS"]["PlatformAllowList"],
+		)
+
+		metadata = json.loads(
+			(ADMOB_UNITY_ADAPTER / "adapter.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual("Unity Ads", metadata["network"])
+		self.assertEqual(["Bidding", "Waterfall"], metadata["integration_types"])
+		self.assertEqual(
+			["Bidding"],
+			metadata["integration_policy"]["new_configuration_requires"],
+		)
+		self.assertEqual(
+			["Waterfall"],
+			metadata["integration_policy"]["legacy_only_types"],
+		)
+		self.assertEqual(
+			"2026-01-31",
+			metadata["integration_policy"]["effective_date"],
+		)
+		for platform_name, adapter_version, provider_version in (
+			("Android", "4.19.0.0", "25.4.0"),
+			("IOS", "4.19.0.1", "13.8.0"),
+		):
+			platform = metadata["platforms"][platform_name]
+			self.assertEqual(adapter_version, platform["adapter_version"])
+			self.assertEqual("4.19.0", platform["network_sdk_version"])
+			self.assertEqual([provider_version], platform["tested_provider_sdk_versions"])
+			for integration_type in ("Bidding", "Waterfall"):
+				self.assertEqual(
+					{"Banner", "Interstitial", "Rewarded"},
+					set(platform["supported_formats"][integration_type]),
+				)
+			self.assertTrue(all(
+				method == "AdapterConsentConsumer"
+				for method in platform["privacy_signals"].values()
+			))
+
+		android_upl_path = (
+			ADMOB_UNITY_ADAPTER
+			/ "Source/OpenMobileAdsAdMobUnityAndroid/Private/Android"
+			/ "OpenMobileAdsAdMobUnity_Android_UPL.xml"
+		)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		self.assertIn("com.google.ads.mediation:unity", android_upl)
+		self.assertIn("strictly '4.19.0.0'", android_upl)
+		self.assertIn("strictly '4.19.0'", android_upl)
+		self.assertIn("UnityAds.setUserConsent", android_upl)
+		self.assertIn("UnityAds.setUserOptOut", android_upl)
+		self.assertIn("UnityAds.setNonBehavioral", android_upl)
+		ElementTree.parse(android_upl_path)
+
+		ios_consumer = (
+			ADMOB_UNITY_ADAPTER
+			/ "Source/OpenMobileAdsAdMobUnityIOS/Private/IOS"
+			/ "OpenMobileAdsAdMobUnityConsentSignalConsumer.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("GADMediationAdapterUnity.testMode", ios_consumer)
+		self.assertIn("[UnityAds setUserConsent:", ios_consumer)
+		self.assertIn("[UnityAds setUserOptOut:", ios_consumer)
+		self.assertIn("[UnityAds setNonBehavioral:", ios_consumer)
+
+		ios_upl_path = (
+			ADMOB_UNITY_ADAPTER
+			/ "Source/OpenMobileAdsAdMobUnityIOS/Private/IOS"
+			/ "OpenMobileAdsAdMobUnity_IOS_UPL.xml"
+		)
+		ios_root = ElementTree.parse(ios_upl_path).getroot()
+		upl_identifiers = [
+			element.text
+			for element in ios_root.findall(".//string")
+			if element.text and element.text.endswith(".skadnetwork")
+		]
+		self.assertEqual(76, len(upl_identifiers))
+		self.assertEqual(len(upl_identifiers), len(set(upl_identifiers)))
+		self.assertEqual(
+			set(metadata["platforms"]["IOS"]["attribution"]["skadnetwork_identifiers"]),
 			set(upl_identifiers),
 		)
 		self.assertIn(

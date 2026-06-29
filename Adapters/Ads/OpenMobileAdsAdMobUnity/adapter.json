@@ -1,0 +1,386 @@
+{
+	"schema_version": 1,
+	"plugin": "OpenMobileAdsAdMobUnity",
+	"provider": "OpenMobileAdsAdMob",
+	"network": "Unity Ads",
+	"display_name": "Unity Ads",
+	"integration_types": ["Bidding", "Waterfall"],
+	"integration_policy": {
+		"new_configuration_requires": ["Bidding"],
+		"legacy_only_types": ["Waterfall"],
+		"effective_date": "2026-01-31"
+	},
+	"platforms": {
+		"Android": {
+			"adapter_version": "4.19.0.0",
+			"network_sdk_version": "4.19.0",
+			"tested_provider_sdk_versions": ["25.4.0"],
+			"supported_formats": {
+				"Bidding": ["Banner", "Interstitial", "Rewarded"],
+				"Waterfall": ["Banner", "Interstitial", "Rewarded"]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterConsentConsumer",
+				"UsPrivacy": "AdapterConsentConsumer",
+				"ChildDirected": "AdapterConsentConsumer",
+				"UnderAgeOfConsent": "AdapterConsentConsumer"
+			},
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "25.4.0",
+					"maximum_exclusive": "25.4.1",
+					"tested": ["25.4.0"]
+				},
+				"adapter": {
+					"minimum": "4.19.0.0",
+					"maximum_exclusive": "4.19.0.1",
+					"tested": ["4.19.0.0"]
+				},
+				"network_sdk": {
+					"minimum": "4.19.0",
+					"maximum_exclusive": "4.19.1",
+					"tested": ["4.19.0"]
+				}
+			},
+			"minimum_os_version": "23",
+			"dependencies": [
+				{
+					"kind": "Gradle",
+					"name": "com.google.ads.mediation:unity",
+					"version": "4.19.0.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.unity3d.ads:unity-ads",
+					"version": "4.19.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.annotation:annotation",
+					"version": "1.5.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:unity",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.android.gms:play-services-ads",
+					"version": "25.4.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:unity",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlin:kotlin-stdlib",
+					"version": "2.3.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:unity",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.activity:activity-ktx",
+					"version": "1.7.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.core:core-ktx",
+					"version": "1.9.0",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.lifecycle:lifecycle-process",
+					"version": "2.6.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.lifecycle:lifecycle-runtime-ktx",
+					"version": "2.6.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.startup:startup-runtime",
+					"version": "1.1.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.webkit:webkit",
+					"version": "1.6.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.datastore:datastore",
+					"version": "1.0.0",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlinx:kotlinx-coroutines-android",
+					"version": "1.10.2",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlin:kotlin-stdlib-jdk8",
+					"version": "2.1.21",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.squareup.okhttp3:okhttp",
+					"version": "3.12.13",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.protobuf:protobuf-kotlin-lite",
+					"version": "3.25.6",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.work:work-runtime-ktx",
+					"version": "2.7.0",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.android.gms:play-services-cronet",
+					"version": "18.0.1",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.unity3d.ads-mediation:adquality-sdk",
+					"version": "9.9.0",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.unity3d.coherence:coherencelib",
+					"version": "0.1.0",
+					"relationship": "Transitive",
+					"via": "com.unity3d.ads:unity-ads",
+					"ownership": "External"
+				}
+			],
+			"attribution_identifiers": []
+		},
+		"IOS": {
+			"apple_metadata_last_reviewed": "2026-08-22",
+			"adapter_version": "4.19.0.1",
+			"network_sdk_version": "4.19.0",
+			"tested_provider_sdk_versions": ["13.8.0"],
+			"supported_formats": {
+				"Bidding": ["Banner", "Interstitial", "Rewarded"],
+				"Waterfall": ["Banner", "Interstitial", "Rewarded"]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterConsentConsumer",
+				"UsPrivacy": "AdapterConsentConsumer",
+				"ChildDirected": "AdapterConsentConsumer",
+				"UnderAgeOfConsent": "AdapterConsentConsumer"
+			},
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "13.6.0",
+					"maximum_exclusive": "14.0.0",
+					"tested": ["13.8.0"]
+				},
+				"adapter": {
+					"minimum": "4.19.0.1",
+					"maximum_exclusive": "4.19.0.2",
+					"tested": ["4.19.0.1"]
+				},
+				"network_sdk": {
+					"minimum": "4.19.0",
+					"maximum_exclusive": "4.19.1",
+					"tested": ["4.19.0"]
+				}
+			},
+			"minimum_os_version": "15.0",
+			"dependencies": [
+				{
+					"kind": "Framework",
+					"name": "UnityAdapter",
+					"version": "4.19.0.1",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "UnityAdapter"
+				},
+				{
+					"kind": "Framework",
+					"name": "UnityAds",
+					"version": "4.19.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "UnityAds"
+				},
+				{
+					"kind": "Framework",
+					"name": "GoogleMobileAds",
+					"version": "13.8.0",
+					"relationship": "Transitive",
+					"via": "UnityAdapter",
+					"ownership": "External",
+					"binary_name": "GoogleMobileAds"
+				}
+			],
+			"privacy_manifests": [
+				{
+					"bundle_path": "OpenMobileAdsAdMobUnityPrivacy.bundle/PrivacyInfo.xcprivacy",
+					"source": "ThirdParty/IOS/UnityAds.xcframework.zip",
+					"archive_manifest": "UnityAds.xcframework/ios-arm64/UnityAds.framework/PrivacyInfo.xcprivacy",
+					"sha256": "7f71483c998ffd2671dd5960e292e62a797201b9070f624a168ef9928267546e",
+					"tracking": false,
+					"tracking_domains": [],
+					"required_reason_apis": {
+						"NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"],
+						"NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"],
+						"NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"]
+					},
+					"collected_data_types": []
+				}
+			],
+			"attribution_identifiers": [],
+			"attribution": {
+				"source_sdk_version": "4.19.0",
+				"last_reviewed": "2026-08-22",
+				"source_url": "https://skan.mz.unity3d.com/v3/partner/skadnetworks.plist.json",
+				"upl_path": "Source/OpenMobileAdsAdMobUnityIOS/Private/IOS/OpenMobileAdsAdMobUnity_IOS_UPL.xml",
+				"skadnetwork_identifiers": [
+					"22mmun2rn5.skadnetwork",
+					"238da6jt44.skadnetwork",
+					"294l99pt4k.skadnetwork",
+					"2fnua5tdw4.skadnetwork",
+					"2u9pt9hc89.skadnetwork",
+					"32z4fx6l9h.skadnetwork",
+					"3qy4746246.skadnetwork",
+					"3rd42ekr43.skadnetwork",
+					"3sh42y64q3.skadnetwork",
+					"424m5254lk.skadnetwork",
+					"4468km3ulz.skadnetwork",
+					"44jx6755aq.skadnetwork",
+					"488r3q3dtq.skadnetwork",
+					"4dzt52r2t5.skadnetwork",
+					"4fzdc2evr5.skadnetwork",
+					"4pfyvq9l8r.skadnetwork",
+					"4w7y6s5ca2.skadnetwork",
+					"578prtvx9j.skadnetwork",
+					"5a6flpkh64.skadnetwork",
+					"5f5u5tfb26.skadnetwork",
+					"5l3tpt7t6e.skadnetwork",
+					"5lm9lj6jb7.skadnetwork",
+					"5tjdwbrq8w.skadnetwork",
+					"6yxyv74ff7.skadnetwork",
+					"77y3x8wds4.skadnetwork",
+					"7ug5zh24hu.skadnetwork",
+					"8s468mfl3y.skadnetwork",
+					"97r2b46745.skadnetwork",
+					"9nlqeag3gk.skadnetwork",
+					"9rd848q2bz.skadnetwork",
+					"9t245vhmpl.skadnetwork",
+					"a2p9lx4jpn.skadnetwork",
+					"a8cz6cu7e5.skadnetwork",
+					"av6w8kgt66.skadnetwork",
+					"c6k4g5qg8m.skadnetwork",
+					"cstr6suwn9.skadnetwork",
+					"e5fvkxwrpn.skadnetwork",
+					"f38h382jlk.skadnetwork",
+					"f73kdq92p3.skadnetwork",
+					"f7s53z58qe.skadnetwork",
+					"feyaarzu9v.skadnetwork",
+					"g6gcrrvk4p.skadnetwork",
+					"glqzh8vgby.skadnetwork",
+					"hs6bdukanm.skadnetwork",
+					"k674qkevps.skadnetwork",
+					"k6y4y55b64.skadnetwork",
+					"kbd757ywx3.skadnetwork",
+					"klf5c3l5u5.skadnetwork",
+					"lr83yxwka7.skadnetwork",
+					"m8dbw4sv7c.skadnetwork",
+					"mj797d8u6f.skadnetwork",
+					"mlmmfzh3r3.skadnetwork",
+					"mp6xlyr22a.skadnetwork",
+					"mqn7fxpca7.skadnetwork",
+					"n9x2a789qt.skadnetwork",
+					"p78axxw29g.skadnetwork",
+					"ppxm28t8ap.skadnetwork",
+					"prcb7njmu6.skadnetwork",
+					"pwa73g5rt2.skadnetwork",
+					"s39g8k73mm.skadnetwork",
+					"t38b2kh725.skadnetwork",
+					"tl55sbb4fm.skadnetwork",
+					"uw77j35x4d.skadnetwork",
+					"v72qych5uu.skadnetwork",
+					"v79kvwwj4g.skadnetwork",
+					"v9wttpbfk9.skadnetwork",
+					"vhf287vqwu.skadnetwork",
+					"w9q455wk68.skadnetwork",
+					"wg4vff78zm.skadnetwork",
+					"wzmmz9fp6w.skadnetwork",
+					"x44k69ngh6.skadnetwork",
+					"xga6mpmplv.skadnetwork",
+					"yclnxrl5pm.skadnetwork",
+					"ydx93a7ass.skadnetwork",
+					"zmvfpc5aq8.skadnetwork",
+					"zq492l623r.skadnetwork"
+				],
+				"adattributionkit": {
+					"minimum_os_version": "17.4",
+					"identifiers": [],
+					"runtime_hooks": [],
+					"source_url": "https://developer.apple.com/documentation/adattributionkit/configuring-a-publisher-app"
+				}
+			}
+		}
+	},
+	"sources": {
+		"integration_guide": "https://developers.google.com/admob/android/mediation/unity",
+		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:unity",
+		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
+		"network_terms": "https://unity.com/legal/terms-of-service",
+		"privacy_guide": "https://docs.unity.com/en-us/grow/ads/privacy/beta-privacy-api/use-beta-privacy-apis",
+		"ios_package_manifest": "https://developers.google.com/admob/ios/mediation/unity",
+		"ios_attribution": "https://skan.mz.unity3d.com/v3/partner/skadnetworks.plist.json"
+	}
+}
