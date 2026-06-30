@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorQuality.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorCapabilities.generated.h"
 
@@ -39,6 +40,79 @@ enum class EOpenMobileSensorBackgroundSupport : uint8
 	Limited,
 	EventDriven,
 	Supported
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileSensorFallbackPowerCost : uint8
+{
+	Unknown,
+	Low,
+	Moderate,
+	High
+};
+
+UENUM(BlueprintType, meta = (Bitflags))
+enum class EOpenMobileSensorFallbackUnsupportedCondition : uint8
+{
+	None = 0,
+	MissingInput = 1 << 0,
+	InsufficientRate = 1 << 1,
+	UncalibratedInput = 1 << 2,
+	PermissionUnavailable = 1 << 3,
+	LifecycleUnavailable = 1 << 4
+};
+ENUM_CLASS_FLAGS(EOpenMobileSensorFallbackUnsupportedCondition);
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bImplemented = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bAvailable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<EOpenMobileSensorType> RequiredInputs;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double MinimumInputFrequencyHz = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bRequiresCalibratedInput = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorFusionQuality ExpectedQuality =
+		EOpenMobileSensorFusionQuality::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorFallbackPowerCost PowerCost =
+		EOpenMobileSensorFallbackPowerCost::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double CpuBudgetMicrosecondsPerSample = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorFallbackUnsupportedCondition"))
+	int32 UnsupportedConditionFlags = 0;
+
+	bool operator==(
+		const FOpenMobileSensorFallbackCapability& Other
+	) const
+	{
+		return bImplemented == Other.bImplemented
+			&& bAvailable == Other.bAvailable
+			&& RequiredInputs == Other.RequiredInputs
+			&& MinimumInputFrequencyHz == Other.MinimumInputFrequencyHz
+			&& bRequiresCalibratedInput == Other.bRequiresCalibratedInput
+			&& ExpectedQuality == Other.ExpectedQuality
+			&& PowerCost == Other.PowerCost
+			&& CpuBudgetMicrosecondsPerSample ==
+				Other.CpuBudgetMicrosecondsPerSample
+			&& UnsupportedConditionFlags ==
+				Other.UnsupportedConditionFlags;
+	}
 };
 
 USTRUCT(BlueprintType)
@@ -120,6 +194,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorFallbackCapability Fallback;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileAttitudeReferenceFrameCapability>
 		AttitudeReferenceFrames;
 
@@ -136,6 +213,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 			&& MaximumFrequencyHz == Other.MaximumFrequencyHz
 			&& bSupportsNativeBatching == Other.bSupportsNativeBatching
 			&& BackgroundSupport == Other.BackgroundSupport
+			&& Fallback == Other.Fallback
 			&& AttitudeReferenceFrames == Other.AttitudeReferenceFrames;
 	}
 

@@ -468,4 +468,362 @@ bool FOpenMobileSensorsGravityUnsupportedFallbackTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsDerivedFallbackPhysicalSharingTest,
+	"OpenMobile.Sensors.DerivedFallback.PhysicalSharing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsDerivedFallbackPhysicalSharingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsGravityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("DerivedFallbackSharing"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Accelerometer)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	FOpenMobileSensorSubscriptionRequest AccelerometerRequest;
+	AccelerometerRequest.Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	AccelerometerRequest.Sensor.InstanceId = TEXT("Default");
+	AccelerometerRequest.Options.RatePreset =
+		EOpenMobileSensorRatePreset::Custom;
+	AccelerometerRequest.Options.CustomFrequencyHz = 30.0;
+	AccelerometerRequest.Options.bAllowDerivedFallback = false;
+	FOpenMobileSensorSubscriptionRequest GravityRequest =
+		MakeGravityRequest();
+	GravityRequest.Options.CustomFrequencyHz = 60.0;
+	FOpenMobileSensorSubscriptionRequest LinearRequest = GravityRequest;
+	LinearRequest.Sensor.Type = EOpenMobileSensorType::LinearAcceleration;
+	LinearRequest.Options.CustomFrequencyHz = 90.0;
+	const FOpenMobileSensorSubscriptionResult Accelerometer =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			AccelerometerRequest
+		);
+	const FOpenMobileSensorSubscriptionResult GravitySubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			GravityRequest
+		);
+	const FOpenMobileSensorSubscriptionResult LinearSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			LinearRequest
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestEqual(TEXT("Direct and derived consumers share one stream"),
+		Backend.GetStartSensorStreamCount(), 1);
+	TestEqual(TEXT("One physical stream serves all consumers"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		1);
+	TestEqual(TEXT("The shared stream uses the fastest requested rate"),
+		Backend.GetLastStartedPhysicalRequest().RequestedFrequencyHz,
+		90.0);
+	TestTrue(TEXT("Stopping one fallback succeeds"),
+		FOpenMobileSensorsSubscriptionService::StopSubscription(
+			Owner,
+			GravitySubscription.Handle
+		).IsSuccess());
+	TestEqual(TEXT("A remaining consumer keeps the stream active"),
+		Backend.GetStopSensorStreamCount(), 0);
+	TestTrue(TEXT("Stopping the direct consumer succeeds"),
+		FOpenMobileSensorsSubscriptionService::StopSubscription(
+			Owner,
+			Accelerometer.Handle
+		).IsSuccess());
+	TestEqual(TEXT("The final fallback still owns the stream"),
+		Backend.GetStopSensorStreamCount(), 0);
+	TestTrue(TEXT("Stopping the final fallback succeeds"),
+		FOpenMobileSensorsSubscriptionService::StopSubscription(
+			Owner,
+			LinearSubscription.Handle
+		).IsSuccess());
+	TestEqual(TEXT("The final consumer stops the physical stream"),
+		Backend.GetStopSensorStreamCount(), 1);
+	TestEqual(TEXT("No hidden stream remains"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		0);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsDerivedFallbackDescriptorTest,
+	"OpenMobile.Sensors.DerivedFallback.Descriptors",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsDerivedFallbackDescriptorTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsGravityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("DerivedFallbackDescriptors"));
+	Backend.SetSensorCapabilities({
+		MakeCapability(EOpenMobileSensorType::Accelerometer),
+		MakeCapability(EOpenMobileSensorType::Gravity),
+		MakeCapability(EOpenMobileSensorType::LinearAcceleration)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileSensorCapabilitySnapshot Snapshot =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* GravityCapability =
+		Snapshot.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::Gravity;
+			}
+		);
+	const FOpenMobileSensorCapability* LinearCapability =
+		Snapshot.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::LinearAcceleration;
+			}
+		);
+	TestNotNull(TEXT("Gravity capability is present"), GravityCapability);
+	TestNotNull(TEXT("Linear acceleration capability is present"),
+		LinearCapability);
+	if (GravityCapability && LinearCapability)
+	{
+		TestEqual(TEXT("Native gravity remains preferred"),
+			GravityCapability->Source,
+			EOpenMobileSensorAvailabilitySource::Native);
+		TestTrue(TEXT("Gravity declares an implemented fallback"),
+			GravityCapability->Fallback.bImplemented);
+		TestTrue(TEXT("Gravity fallback is available on this device"),
+			GravityCapability->Fallback.bAvailable);
+		TestEqual(TEXT("Gravity declares one fallback input"),
+			GravityCapability->Fallback.RequiredInputs.Num(), 1);
+		if (GravityCapability->Fallback.RequiredInputs.Num() == 1)
+		{
+			TestEqual(TEXT("Gravity requires acceleration"),
+				GravityCapability->Fallback.RequiredInputs[0],
+				EOpenMobileSensorType::Accelerometer);
+		}
+		TestEqual(TEXT("Gravity declares the minimum input rate"),
+			GravityCapability->Fallback.MinimumInputFrequencyHz, 15.0);
+		TestFalse(TEXT("Gravity does not require calibrated acceleration"),
+			GravityCapability->Fallback.bRequiresCalibratedInput);
+		TestEqual(TEXT("Gravity declares nominal expected quality"),
+			GravityCapability->Fallback.ExpectedQuality,
+			EOpenMobileSensorFusionQuality::Nominal);
+		TestEqual(TEXT("Gravity declares bounded power cost"),
+			GravityCapability->Fallback.PowerCost,
+			EOpenMobileSensorFallbackPowerCost::Low);
+		TestTrue(TEXT("Gravity declares a finite CPU budget"),
+			FMath::IsFinite(
+				GravityCapability->Fallback.CpuBudgetMicrosecondsPerSample
+			)
+			&& GravityCapability->Fallback.
+				CpuBudgetMicrosecondsPerSample > 0.0
+			&& GravityCapability->Fallback.
+				CpuBudgetMicrosecondsPerSample <= 100.0);
+		const int32 MissingInput = static_cast<int32>(
+			EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+		);
+		const int32 InsufficientRate = static_cast<int32>(
+			EOpenMobileSensorFallbackUnsupportedCondition::InsufficientRate
+		);
+		TestTrue(TEXT("Gravity declares missing-input rejection"),
+			(GravityCapability->Fallback.UnsupportedConditionFlags
+				& MissingInput) != 0);
+		TestTrue(TEXT("Gravity declares insufficient-rate rejection"),
+			(GravityCapability->Fallback.UnsupportedConditionFlags
+				& InsufficientRate) != 0);
+		TestTrue(TEXT("Linear fallback is available on this device"),
+			LinearCapability->Fallback.bAvailable);
+		TestTrue(TEXT("Linear fallback requires calibrated input"),
+			LinearCapability->Fallback.bRequiresCalibratedInput);
+		TestEqual(TEXT("Linear fallback declares degraded quality"),
+			LinearCapability->Fallback.ExpectedQuality,
+			EOpenMobileSensorFusionQuality::Degraded);
+		TestTrue(TEXT("Linear fallback declares calibration rejection"),
+			(LinearCapability->Fallback.UnsupportedConditionFlags
+				& static_cast<int32>(
+					EOpenMobileSensorFallbackUnsupportedCondition::
+						UncalibratedInput
+				)) != 0);
+	}
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsDerivedFallbackSourceChangeTest,
+	"OpenMobile.Sensors.DerivedFallback.SourceChange",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsDerivedFallbackSourceChangeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsGravityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("DerivedFallbackSourceChange"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Accelerometer)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeGravityRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileVectorSensorBatch Batch;
+	Batch.Samples.Add(MakeAcceleration(
+		1.0,
+		FVector(0.0, 0.0, -Gravity),
+		EOpenMobileSensorAccuracy::High
+	));
+	FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileVectorSensorSample RawInput = MakeAcceleration(
+		2.0,
+		FVector(0.0, 0.0, -Gravity),
+		EOpenMobileSensorAccuracy::High
+	);
+	RawInput.Header.SourceFlags = static_cast<int32>(
+		EOpenMobileSensorSourceFlags::Raw
+	);
+	Batch.Samples.Reset();
+	Batch.Samples.Add(RawInput);
+	FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+		FOpenMobileSensorsBackendRegistry::CaptureToken(),
+		Backend.GetLastStartedPhysicalHandle(),
+		Batch
+	);
+	FOpenMobileSensorReadResult Read;
+	FOpenMobileVectorSensorSample Output;
+	TestTrue(TEXT("The changed input still produces gravity"),
+		FOpenMobileSensorsSampleService::ReadLatestVector(
+			Owner,
+			Subscription.Handle,
+			0,
+			2.1,
+			Read,
+			Output
+		));
+	TestEqual(TEXT("The public source remains plugin-derived"),
+		Output.Header.SourceFlags,
+		static_cast<int32>(EOpenMobileSensorSourceFlags::PluginDerived));
+	TestTrue(TEXT("The hidden input-source change is broadcast"),
+		Output.Header.bSourceChanged);
+	TestTrue(TEXT("The input-source change resets the estimator"),
+		Output.Header.bStatefulProcessingReset);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsDerivedFallbackAvailabilityRecoveryTest,
+	"OpenMobile.Sensors.DerivedFallback.AvailabilityRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsDerivedFallbackAvailabilityRecoveryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsGravityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("DerivedFallbackRecovery"));
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Accelerometer)}
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileSensorCapabilitySnapshot Initial =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	int32 ChangeCount = 0;
+	const FDelegateHandle ChangedHandle =
+		FOpenMobileSensorsCapabilityService::OnChanged().AddLambda(
+			[&ChangeCount](
+				const FOpenMobileSensorCapabilitySnapshot& Snapshot
+			)
+			{
+				static_cast<void>(Snapshot);
+				++ChangeCount;
+			}
+		);
+	Backend.SetSensorCapabilities({});
+	FOpenMobileSensorsCapabilityService::HandleBackendGenerationChanged();
+	const FOpenMobileSensorCapabilitySnapshot Lost =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* LostGravity =
+		Lost.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::Gravity;
+			}
+		);
+	TestNotNull(TEXT("Gravity remains discoverable after input loss"),
+		LostGravity);
+	if (LostGravity)
+	{
+		TestTrue(TEXT("The fallback contract remains declared"),
+			LostGravity->Fallback.bImplemented);
+		TestFalse(TEXT("The lost input makes fallback unavailable"),
+			LostGravity->Fallback.bAvailable);
+		TestEqual(TEXT("Gravity is unavailable without its input"),
+			LostGravity->Availability.State,
+			EOpenMobileCapabilityState::Unavailable);
+	}
+	Backend.SetSensorCapabilities(
+		{MakeCapability(EOpenMobileSensorType::Accelerometer)}
+	);
+	FOpenMobileSensorsCapabilityService::HandleBackendGenerationChanged();
+	const FOpenMobileSensorCapabilitySnapshot Recovered =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* RecoveredGravity =
+		Recovered.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::Gravity;
+			}
+		);
+	TestNotNull(TEXT("Gravity is rediscovered after recovery"),
+		RecoveredGravity);
+	if (RecoveredGravity)
+	{
+		TestTrue(TEXT("The recovered fallback becomes available"),
+			RecoveredGravity->Fallback.bAvailable);
+		TestEqual(TEXT("Recovery selects the derived source"),
+			RecoveredGravity->Source,
+			EOpenMobileSensorAvailabilitySource::Derived);
+		TestEqual(TEXT("Recovery restores availability"),
+			RecoveredGravity->Availability.State,
+			EOpenMobileCapabilityState::Available);
+	}
+	TestEqual(TEXT("Input loss and recovery are both broadcast"),
+		ChangeCount, 2);
+	TestTrue(TEXT("Recovery restores the original capability matrix"),
+		Initial == Recovered);
+	FOpenMobileSensorsCapabilityService::OnChanged().Remove(ChangedHandle);
+	FinishBackend(Backend);
+	return true;
+}
+
 #endif

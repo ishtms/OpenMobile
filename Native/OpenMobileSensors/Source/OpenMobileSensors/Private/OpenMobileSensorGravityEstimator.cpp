@@ -80,9 +80,11 @@ bool FOpenMobileSensorGravityEstimator::Process(
 		Reset();
 		return false;
 	}
+	const bool bInputSourceChanged = bHasEstimate
+		&& Acceleration.Header.SourceFlags != LastSourceFlags;
 	bool bReset = Acceleration.Header.bStatefulProcessingReset
 		|| !bHasEstimate
-		|| Acceleration.Header.SourceFlags != LastSourceFlags;
+		|| bInputSourceChanged;
 	double DeltaSeconds = 0.0;
 	if (bHasEstimate && !bReset)
 	{
@@ -118,7 +120,7 @@ bool FOpenMobileSensorGravityEstimator::Process(
 	OutGravity.Header.SourceFlags = DerivedSourceFlags(
 		Acceleration.Header.SourceFlags
 	);
-	OutGravity.Header.bSourceChanged = false;
+	OutGravity.Header.bSourceChanged |= bInputSourceChanged;
 	OutGravity.Header.bStatefulProcessingReset |= bReset;
 	OutGravity.Header.Fusion = MakeFusion(Acceleration, bContaminated);
 	OutGravity.Value = Estimate;

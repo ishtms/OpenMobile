@@ -82,7 +82,6 @@ namespace OpenMobileSensorLinearAccelerationEstimatorPrivate
 		OutLinearAcceleration.Header.SourceFlags = DerivedSourceFlags(
 			Acceleration.Header.SourceFlags
 		);
-		OutLinearAcceleration.Header.bSourceChanged = false;
 		OutLinearAcceleration.Value = FVector::ZeroVector;
 		OutLinearAcceleration.bHasBias = false;
 		OutLinearAcceleration.Bias = FVector::ZeroVector;
@@ -142,6 +141,8 @@ bool FOpenMobileSensorLinearAccelerationEstimator::Process(
 		EstimatedLagSeconds;
 	OutLinearAcceleration.Header.bStatefulProcessingReset |=
 		Gravity.Header.bStatefulProcessingReset;
+	OutLinearAcceleration.Header.bSourceChanged |=
+		Gravity.Header.bSourceChanged;
 	OutLinearAcceleration.Value = Acceleration.Value - Gravity.Value;
 	return true;
 }

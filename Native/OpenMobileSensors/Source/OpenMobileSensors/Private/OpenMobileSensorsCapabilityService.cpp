@@ -256,14 +256,64 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 				}
 			);
 		constexpr double MinimumFallbackFrequencyHz = 15.0;
+		if (!Derived)
+		{
+			return;
+		}
+		const bool bLinearAcceleration = DerivedType ==
+			EOpenMobileSensorType::LinearAcceleration;
+		Derived->Fallback.bImplemented = true;
+		Derived->Fallback.RequiredInputs = {
+			EOpenMobileSensorType::Accelerometer
+		};
+		Derived->Fallback.MinimumInputFrequencyHz =
+			MinimumFallbackFrequencyHz;
+		Derived->Fallback.bRequiresCalibratedInput =
+			bLinearAcceleration;
+		Derived->Fallback.ExpectedQuality = bLinearAcceleration
+			? EOpenMobileSensorFusionQuality::Degraded
+			: EOpenMobileSensorFusionQuality::Nominal;
+		Derived->Fallback.PowerCost =
+			EOpenMobileSensorFallbackPowerCost::Low;
+		Derived->Fallback.CpuBudgetMicrosecondsPerSample =
+			bLinearAcceleration ? 60.0 : 40.0;
+		Derived->Fallback.UnsupportedConditionFlags =
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					InsufficientRate
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					PermissionUnavailable
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					LifecycleUnavailable
+			);
+		if (bLinearAcceleration)
+		{
+			Derived->Fallback.UnsupportedConditionFlags |=
+				static_cast<int32>(
+					EOpenMobileSensorFallbackUnsupportedCondition::
+						UncalibratedInput
+				);
+		}
+		Derived->Fallback.bAvailable = Accelerometer
+			&& Accelerometer->Availability.State ==
+				EOpenMobileCapabilityState::Available
+			&& (Accelerometer->MaximumFrequencyHz <= 0.0
+				|| Accelerometer->MaximumFrequencyHz >=
+					MinimumFallbackFrequencyHz);
 		const bool bHasUsableDirectSource = Derived
 			&& Derived->Availability.State ==
 				EOpenMobileCapabilityState::Available
 			&& (Derived->MaximumFrequencyHz <= 0.0
 				|| Derived->MaximumFrequencyHz >=
 					MinimumFallbackFrequencyHz);
-		if (!Derived
-			|| bHasUsableDirectSource
+		if (bHasUsableDirectSource
 			|| !Accelerometer
 			|| Accelerometer->Availability.State !=
 				EOpenMobileCapabilityState::Available

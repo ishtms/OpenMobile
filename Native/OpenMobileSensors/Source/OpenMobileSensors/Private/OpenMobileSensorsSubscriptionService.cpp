@@ -17,13 +17,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorIdentifier Sensor;
 		EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
 			EOpenMobileAttitudeReferenceFrame::GameRelative;
-		bool bAllowDerivedFallback = true;
 
 		bool operator==(const FPhysicalStreamKey& Other) const
 		{
 			return Sensor == Other.Sensor
-				&& AttitudeReferenceFrame == Other.AttitudeReferenceFrame
-				&& bAllowDerivedFallback == Other.bAllowDerivedFallback;
+				&& AttitudeReferenceFrame == Other.AttitudeReferenceFrame;
 		}
 
 		friend uint32 GetTypeHash(const FPhysicalStreamKey& Key)
@@ -33,7 +31,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				Hash,
 				GetTypeHash(static_cast<uint8>(Key.AttitudeReferenceFrame))
 			);
-			return HashCombine(Hash, GetTypeHash(Key.bAllowDerivedFallback));
+			return Hash;
 		}
 	};
 
@@ -373,7 +371,6 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	{
 		FPhysicalStreamKey Key;
 		Key.Sensor = Sensor;
-		Key.bAllowDerivedFallback = Options.bAllowDerivedFallback;
 		if (Sensor.Type == EOpenMobileSensorType::Attitude)
 		{
 			Key.AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
@@ -817,7 +814,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			Key.AttitudeReferenceFrame;
 		OutRequest.AttitudeReferenceState.AppliedReferenceFrame =
 			Key.AttitudeReferenceFrame;
-		OutRequest.bAllowDerivedFallback = Key.bAllowDerivedFallback;
+		OutRequest.bAllowDerivedFallback = false;
 		for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
 		{
 			const FSubscriptionEntry& Entry = Pair.Value;
