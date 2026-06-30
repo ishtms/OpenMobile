@@ -1,0 +1,23 @@
+date,platform,model_class,os_version,environment,scenario,capability_result,outcome,evidence,sanitized_details
+2026-08-22,iOS,current iPhone,26.5.2,physical,cold_start,Varies,Pass,signed cooked validation host launched and completed its native capability probe,64 capabilities reported; 63 used the iOS backend
+2026-08-22,iOS,current iPhone,26.5.2,physical,foreground,Varies,Pass,foreground game world completed the native capability probe,55 capabilities reported Available
+2026-08-22,iOS,current iPhone,26.5.2,physical,teardown,Varies,Pass,validation host requested orderly exit after the probe,process exited with status 0
+2026-08-22,iOS,current iPhone,26.5.2,physical,capability_snapshot,Varies,Pass,normalized battery and volume values were recorded,Device log contained no Device errors
+2026-08-22,iOS,current iPhone,26.5.2,physical,background,Not tested,Not run,no controlled background transition was executed,requires an interactive lifecycle run
+2026-08-22,iOS,current iPhone,26.5.2,physical,interruption,Not tested,Not run,no controlled interruption was executed,requires an interactive lifecycle run
+2026-08-22,iOS,current iPhone,26.5.2,physical,rotation,Not tested,Not run,no orientation transition was executed,requires an interactive lifecycle run
+2026-08-22,iOS,current iPhone,26.5.2,physical,multi_window,Not tested,Not run,no compatible iPad target was connected,hardware unavailable
+2026-08-22,iOS,current iPhone,26.5.2,physical,network_handoff,Not tested,Not run,no controlled transport handoff was executed,requires an interactive network run
+2026-08-22,iOS,current iPhone,26.5.2,physical,permission_changes,Not tested,Not run,no permission state transition was executed,requires an interactive settings run
+2026-08-22,iOS,current iPhone,26.5.2,physical,memory_pressure,Not tested,Not run,no safe memory pressure injection was available,device trigger unavailable
+2026-08-22,iOS,current iPhone,26.5.2,physical,low_storage,Not tested,Not run,no safe low storage condition was available,device trigger unavailable
+2026-08-22,iOS,minimum iPhone,17.0,physical,cold_start,Not tested,Not run,no minimum-version iPhone was connected,hardware unavailable
+2026-08-22,iOS,iPad,unavailable,physical,cold_start,Not tested,Not run,no iPad was connected,hardware unavailable
+2026-08-22,iOS,high-refresh or HDR hardware,unavailable,physical,refresh_or_hdr,Not tested,Not run,no qualifying hardware run was identified,hardware capability not claimed
+2026-08-22,iOS,current iPhone Simulator,26.2,simulator,cold_start,Not tested,Blocked,source compilation reached the Simulator link step,installed engine lacks its Simulator crash reporter archive
+2026-08-22,iOS,current iPad Simulator,26.2,simulator,cold_start,Not tested,Blocked,source compilation reached the Simulator link step,installed engine lacks its Simulator crash reporter archive
+2026-08-22,Android,API 34 phone AVD,14,emulator,cold_start,Not tested,Blocked,APK and OBB installed and mounted successfully,local AVD graphics stalled before game world initialization
+2026-08-22,Android,minimum Android phone,API 26,physical,cold_start,Not tested,Not run,no Android phone was connected,hardware unavailable
+2026-08-22,Android,current Android phone,unavailable,physical,cold_start,Not tested,Not run,no Android phone was connected,hardware unavailable
+2026-08-22,Android,Android tablet,unavailable,physical,cold_start,Not tested,Not run,no Android tablet was connected,hardware unavailable
+2026-08-22,Android,Android foldable,unavailable,physical,foldable_posture,Not tested,Not run,no Android foldable was connected,hardware unavailable
