@@ -1,0 +1,101 @@
+import org.gradle.api.artifacts.component.ModuleComponentSelector
+
+def openMobileAdsAdMobLiftoffMonetizeDependencies = [
+    "com.google.ads.mediation:vungle": "7.7.7.0",
+    "com.vungle:vungle-ads": "7.7.7",
+    "com.google.android.gms:play-services-ads": "25.4.0",
+]
+
+afterEvaluate {
+    def manifestTasks = tasks.matching {
+        it.name ==~ /^process.+ManifestForPackage$/
+    }.toList()
+    manifestTasks.each { manifestTask ->
+        def match = manifestTask.name =~ /^process(.+)ManifestForPackage$/
+        match.matches()
+        def variantName = match.group(1)
+        def configurationName =
+            variantName.substring(0, 1).toLowerCase() + variantName.substring(1) +
+            "RuntimeClasspath"
+        def dependencyConfiguration = configurations.findByName(configurationName)
+        def validationTask = tasks.register(
+            "validateOpenMobileAdsAdMobLiftoffMonetize${variantName}Dependencies"
+        ) {
+            doLast {
+                if (dependencyConfiguration == null) {
+                    throw new GradleException(
+                        "OpenMobile Ads AdMob Liftoff Monetize could not find Gradle configuration " +
+                        "'${configurationName}'"
+                    )
+                }
+
+                def requestedVersions = [:]
+                def selectedVersions = [:]
+                openMobileAdsAdMobLiftoffMonetizeDependencies.keySet().each { coordinate ->
+                    requestedVersions[coordinate] = [] as Set
+                    selectedVersions[coordinate] = [] as Set
+                }
+                dependencyConfiguration.incoming.resolutionResult.allDependencies.each { dependency ->
+                    def requested = dependency.requested
+                    def requestedCoordinate = requested instanceof ModuleComponentSelector
+                        ? [requested.group, requested.module].join(":")
+                        : null
+                    if (requestedCoordinate != null &&
+                        openMobileAdsAdMobLiftoffMonetizeDependencies.containsKey(requestedCoordinate)) {
+                        def strictVersion = requested.versionConstraint.strictVersion
+                        if (strictVersion) {
+                            requestedVersions[requestedCoordinate].add(strictVersion)
+                        }
+                    }
+                }
+                dependencyConfiguration.incoming.resolutionResult.allComponents.each { component ->
+                    def selected = component.moduleVersion
+                    def selectedCoordinate = selected != null
+                        ? [selected.group, selected.name].join(":")
+                        : null
+                    if (selectedCoordinate != null &&
+                        openMobileAdsAdMobLiftoffMonetizeDependencies.containsKey(selectedCoordinate)) {
+                        selectedVersions[selectedCoordinate].add(selected.version)
+                    }
+                }
+
+                def dependencyErrors = []
+                openMobileAdsAdMobLiftoffMonetizeDependencies.each { coordinate, expectedVersion ->
+                    def unexpectedRequests = requestedVersions[coordinate].findAll {
+                        it != expectedVersion
+                    }
+                    if (!unexpectedRequests.isEmpty()) {
+                        dependencyErrors.add(
+                            "${coordinate} has unsupported requested version(s) " +
+                            "${unexpectedRequests.sort().join(', ')}; expected ${expectedVersion}"
+                        )
+                    }
+                    if (selectedVersions[coordinate] != [expectedVersion] as Set) {
+                        dependencyErrors.add(
+                            "${coordinate} resolved to " +
+                            "${selectedVersions[coordinate].sort().join(', ') ?: 'nothing'}; " +
+                            "expected ${expectedVersion}"
+                        )
+                    }
+                }
+
+                if (!dependencyErrors.isEmpty()) {
+                    throw new GradleException(
+                        "OpenMobile Ads AdMob Liftoff Monetize Android dependency validation failed:\n - " +
+                        dependencyErrors.join("\n - ")
+                    )
+                }
+            }
+        }
+        tasks.matching {
+            it.name == "package${variantName}" || it.name == "bundle${variantName}"
+        }.configureEach {
+            dependsOn validationTask
+        }
+        tasks.matching {
+            it.name == "pre${variantName}Build"
+        }.configureEach {
+            dependsOn validationTask
+        }
+    }
+}

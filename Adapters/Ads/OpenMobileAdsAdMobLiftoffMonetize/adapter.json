@@ -1,0 +1,476 @@
+{
+	"schema_version": 1,
+	"plugin": "OpenMobileAdsAdMobLiftoffMonetize",
+	"provider": "OpenMobileAdsAdMob",
+	"network": "Liftoff Monetize",
+	"display_name": "Liftoff Monetize",
+	"migration_aliases": [
+		"Vungle"
+	],
+	"integration_types": [
+		"Bidding",
+		"Waterfall"
+	],
+	"platforms": {
+		"Android": {
+			"adapter_version": "7.7.7.0",
+			"network_sdk_version": "7.7.7",
+			"tested_provider_sdk_versions": [
+				"25.4.0"
+			],
+			"supported_formats": {
+				"Bidding": [
+					"AppOpen",
+					"Banner",
+					"Interstitial",
+					"Rewarded",
+					"RewardedInterstitial",
+					"AnchoredAdaptiveBanner",
+					"MediumRectangle"
+				],
+				"Waterfall": [
+					"AppOpen",
+					"Banner",
+					"Interstitial",
+					"Rewarded",
+					"RewardedInterstitial",
+					"AnchoredAdaptiveBanner",
+					"MediumRectangle"
+				]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterConsentConsumer",
+				"UsPrivacy": "AdapterConsentConsumer",
+				"ChildDirected": "ProviderForwarded",
+				"UnderAgeOfConsent": "ProviderForwarded"
+			},
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "25.4.0",
+					"maximum_exclusive": "25.4.1",
+					"tested": [
+						"25.4.0"
+					]
+				},
+				"adapter": {
+					"minimum": "7.7.7.0",
+					"maximum_exclusive": "7.7.7.1",
+					"tested": [
+						"7.7.7.0"
+					]
+				},
+				"network_sdk": {
+					"minimum": "7.7.7",
+					"maximum_exclusive": "7.7.8",
+					"tested": [
+						"7.7.7"
+					]
+				}
+			},
+			"minimum_os_version": "23",
+			"dependencies": [
+				{
+					"kind": "Gradle",
+					"name": "com.google.ads.mediation:vungle",
+					"version": "7.7.7.0",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.vungle:vungle-ads",
+					"version": "7.7.7",
+					"relationship": "Direct",
+					"ownership": "Owned"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.annotation:annotation",
+					"version": "1.7.0",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "androidx.core:core-ktx",
+					"version": "1.9.0",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.ads.mediation:common",
+					"version": "1.1.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:vungle",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.android.gms:play-services-ads",
+					"version": "25.4.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:vungle",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.google.protobuf:protobuf-javalite",
+					"version": "3.25.6",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.squareup.okhttp3:okhttp",
+					"version": "4.10.0",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "com.squareup.okio:okio-jvm",
+					"version": "3.0.0",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlin:kotlin-stdlib",
+					"version": "2.3.0",
+					"relationship": "Transitive",
+					"via": "com.google.ads.mediation:vungle",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlin:kotlin-stdlib-jdk8",
+					"version": "1.7.10",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm",
+					"version": "1.4.1",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				},
+				{
+					"kind": "Gradle",
+					"name": "org.jetbrains.kotlinx:kotlinx-serialization-json-jvm",
+					"version": "1.4.1",
+					"relationship": "Transitive",
+					"via": "com.vungle:vungle-ads",
+					"ownership": "External"
+				}
+			],
+			"attribution_identifiers": []
+		},
+		"IOS": {
+			"apple_metadata_last_reviewed": "2026-08-22",
+			"adapter_version": "7.7.6.0",
+			"network_sdk_version": "7.7.6",
+			"tested_provider_sdk_versions": [
+				"13.8.0"
+			],
+			"supported_formats": {
+				"Bidding": [
+					"AppOpen",
+					"Banner",
+					"Interstitial",
+					"Rewarded",
+					"RewardedInterstitial",
+					"AnchoredAdaptiveBanner",
+					"MediumRectangle"
+				],
+				"Waterfall": [
+					"AppOpen",
+					"Banner",
+					"Interstitial",
+					"Rewarded",
+					"RewardedInterstitial",
+					"AnchoredAdaptiveBanner",
+					"MediumRectangle"
+				]
+			},
+			"privacy_signals": {
+				"Gdpr": "AdapterConsentConsumer",
+				"UsPrivacy": "AdapterConsentConsumer",
+				"ChildDirected": "ProviderForwarded",
+				"UnderAgeOfConsent": "ProviderForwarded"
+			},
+			"compatibility": {
+				"provider_sdk": {
+					"minimum": "13.7.0",
+					"maximum_exclusive": "14.0.0",
+					"tested": [
+						"13.8.0"
+					]
+				},
+				"adapter": {
+					"minimum": "7.7.6.0",
+					"maximum_exclusive": "7.7.6.1",
+					"tested": [
+						"7.7.6.0"
+					]
+				},
+				"network_sdk": {
+					"minimum": "7.7.6",
+					"maximum_exclusive": "7.7.7",
+					"tested": [
+						"7.7.6"
+					]
+				}
+			},
+			"minimum_os_version": "15.0",
+			"dependencies": [
+				{
+					"kind": "Framework",
+					"name": "LiftoffMonetizeAdapter",
+					"version": "7.7.6.0",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "LiftoffMonetizeAdapter"
+				},
+				{
+					"kind": "Framework",
+					"name": "VungleAdsSDK",
+					"version": "7.7.6",
+					"relationship": "Direct",
+					"ownership": "Owned",
+					"binary_name": "VungleAdsSDK"
+				},
+				{
+					"kind": "Framework",
+					"name": "GoogleMobileAds",
+					"version": "13.8.0",
+					"relationship": "Transitive",
+					"via": "LiftoffMonetizeAdapter",
+					"ownership": "External",
+					"binary_name": "GoogleMobileAds"
+				}
+			],
+			"privacy_manifests": [
+				{
+					"bundle_path": "OpenMobileAdsAdMobLiftoffMonetizePrivacy.bundle/PrivacyInfo.xcprivacy",
+					"source": "ThirdParty/IOS/VungleAdsSDK.xcframework.zip",
+					"archive_manifest": "VungleAdsSDK.xcframework/ios-arm64/VungleAdsSDK.framework/PrivacyInfo.xcprivacy",
+					"sha256": "6001a2456c70bd11f2a4ae5da2e1cfe5f5af6203f0ca3ff15e5ab54692759004",
+					"tracking": false,
+					"tracking_domains": [],
+					"required_reason_apis": {
+						"NSPrivacyAccessedAPICategorySystemBootTime": [
+							"35F9.1"
+						],
+						"NSPrivacyAccessedAPICategoryFileTimestamp": [
+							"C617.1"
+						],
+						"NSPrivacyAccessedAPICategoryDiskSpace": [
+							"E174.1"
+						],
+						"NSPrivacyAccessedAPICategoryUserDefaults": [
+							"CA92.1"
+						]
+					},
+					"collected_data_types": []
+				}
+			],
+			"attribution_identifiers": [],
+			"attribution": {
+				"source_sdk_version": "7.7.6",
+				"last_reviewed": "2026-08-22",
+				"source_url": "https://vungle-static-assets.s3.amazonaws.com/dashboard/admin/prod/skadnetworkids.xml",
+				"upl_path": "Source/OpenMobileAdsAdMobLiftoffMonetizeIOS/Private/IOS/OpenMobileAdsAdMobLiftoffMonetize_IOS_UPL.xml",
+				"skadnetwork_identifiers": [
+					"22mmun2rn5.skadnetwork",
+					"238da6jt44.skadnetwork",
+					"24t9a8vw3c.skadnetwork",
+					"24zw6aqk47.skadnetwork",
+					"275upjj5gd.skadnetwork",
+					"294l99pt4k.skadnetwork",
+					"2fnua5tdw4.skadnetwork",
+					"2u9pt9hc89.skadnetwork",
+					"32z4fx6l9h.skadnetwork",
+					"3l6bd9hu43.skadnetwork",
+					"3qcr597p9d.skadnetwork",
+					"3qy4746246.skadnetwork",
+					"3rd42ekr43.skadnetwork",
+					"3sh42y64q3.skadnetwork",
+					"424m5254lk.skadnetwork",
+					"4468km3ulz.skadnetwork",
+					"44jx6755aq.skadnetwork",
+					"44n7hlldy6.skadnetwork",
+					"488r3q3dtq.skadnetwork",
+					"4dzt52r2t5.skadnetwork",
+					"4fzdc2evr5.skadnetwork",
+					"4pfyvq9l8r.skadnetwork",
+					"4w7y6s5ca2.skadnetwork",
+					"523jb4fst2.skadnetwork",
+					"52fl2v3hgk.skadnetwork",
+					"54nzkqm89y.skadnetwork",
+					"578prtvx9j.skadnetwork",
+					"5a6flpkh64.skadnetwork",
+					"5l3tpt7t6e.skadnetwork",
+					"5lm9lj6jb7.skadnetwork",
+					"5tjdwbrq8w.skadnetwork",
+					"6964rsfnh4.skadnetwork",
+					"6g9af3uyq4.skadnetwork",
+					"6p4ks3rnbw.skadnetwork",
+					"6rd35atwn8.skadnetwork",
+					"6v7lgmsu45.skadnetwork",
+					"6xzpu9s2p8.skadnetwork",
+					"6yxyv74ff7.skadnetwork",
+					"737z793b9f.skadnetwork",
+					"74b6s63p6l.skadnetwork",
+					"79pbpufp6p.skadnetwork",
+					"7fmhfwg9en.skadnetwork",
+					"7rz58n8ntl.skadnetwork",
+					"7ug5zh24hu.skadnetwork",
+					"84993kbrcf.skadnetwork",
+					"87u5trcl3r.skadnetwork",
+					"89z7zv988g.skadnetwork",
+					"8m87ys6875.skadnetwork",
+					"8s468mfl3y.skadnetwork",
+					"97r2b46745.skadnetwork",
+					"9b89h5y424.skadnetwork",
+					"9nlqeag3gk.skadnetwork",
+					"9rd848q2bz.skadnetwork",
+					"9t245vhmpl.skadnetwork",
+					"9vvzujtq5s.skadnetwork",
+					"a2p9lx4jpn.skadnetwork",
+					"a7xqa6mtl2.skadnetwork",
+					"a8cz6cu7e5.skadnetwork",
+					"apzhy3va96.skadnetwork",
+					"av6w8kgt66.skadnetwork",
+					"b9bk5wbcq9.skadnetwork",
+					"bvpn9ufa9b.skadnetwork",
+					"bxvub5ada5.skadnetwork",
+					"c3frkrj4fj.skadnetwork",
+					"c6k4g5qg8m.skadnetwork",
+					"cg4yq2srnc.skadnetwork",
+					"cj5566h2ga.skadnetwork",
+					"cp8zw746q7.skadnetwork",
+					"cs644xg564.skadnetwork",
+					"cstr6suwn9.skadnetwork",
+					"cwn433xbcr.skadnetwork",
+					"dbu4b84rxf.skadnetwork",
+					"dkc879ngq3.skadnetwork",
+					"dzg6xy7pwj.skadnetwork",
+					"e5fvkxwrpn.skadnetwork",
+					"ecpz2srf59.skadnetwork",
+					"ejvt5qm6ak.skadnetwork",
+					"f2zub97jtl.skadnetwork",
+					"f38h382jlk.skadnetwork",
+					"f73kdq92p3.skadnetwork",
+					"f7s53z58qe.skadnetwork",
+					"feyaarzu9v.skadnetwork",
+					"fq6vru337s.skadnetwork",
+					"fz2k2k5tej.skadnetwork",
+					"g28c52eehv.skadnetwork",
+					"g2y4y55b64.skadnetwork",
+					"g6gcrrvk4p.skadnetwork",
+					"ggvn48r87g.skadnetwork",
+					"glqzh8vgby.skadnetwork",
+					"gta9lk7p23.skadnetwork",
+					"hb56zgv37p.skadnetwork",
+					"hdw39hrw9y.skadnetwork",
+					"hs6bdukanm.skadnetwork",
+					"k674qkevps.skadnetwork",
+					"k6y4y55b64.skadnetwork",
+					"kbd757ywx3.skadnetwork",
+					"kbmxgpxpgc.skadnetwork",
+					"klf5c3l5u5.skadnetwork",
+					"krvm3zuq6h.skadnetwork",
+					"ln5gz23vtd.skadnetwork",
+					"lr83yxwka7.skadnetwork",
+					"ludvb6z3bs.skadnetwork",
+					"m297p6643m.skadnetwork",
+					"m5mvw97r93.skadnetwork",
+					"m8dbw4sv7c.skadnetwork",
+					"mj797d8u6f.skadnetwork",
+					"mlmmfzh3r3.skadnetwork",
+					"mls7yz5dvl.skadnetwork",
+					"mp6xlyr22a.skadnetwork",
+					"mqn7fxpca7.skadnetwork",
+					"mtkv5xtk9e.skadnetwork",
+					"n38lu8286q.skadnetwork",
+					"n6fk4nfna4.skadnetwork",
+					"n9x2a789qt.skadnetwork",
+					"ns5j362hk7.skadnetwork",
+					"p78axxw29g.skadnetwork",
+					"ppxm28t8ap.skadnetwork",
+					"prcb7njmu6.skadnetwork",
+					"pwa73g5rt2.skadnetwork",
+					"pwdxu55a5a.skadnetwork",
+					"qqp299437r.skadnetwork",
+					"qu637u8glc.skadnetwork",
+					"qwpu75vrh2.skadnetwork",
+					"r45fhb6rf7.skadnetwork",
+					"rvh3l7un93.skadnetwork",
+					"rx5hdcabgc.skadnetwork",
+					"s39g8k73mm.skadnetwork",
+					"sczv5946wb.skadnetwork",
+					"su67r6k2v3.skadnetwork",
+					"t38b2kh725.skadnetwork",
+					"t6d3zquu66.skadnetwork",
+					"tl55sbb4fm.skadnetwork",
+					"tmhh9296z4.skadnetwork",
+					"u679fj5vs4.skadnetwork",
+					"uw77j35x4d.skadnetwork",
+					"v72qych5uu.skadnetwork",
+					"v79kvwwj4g.skadnetwork",
+					"v9wttpbfk9.skadnetwork",
+					"vcra2ehyfk.skadnetwork",
+					"vhf287vqwu.skadnetwork",
+					"w9q455wk68.skadnetwork",
+					"wg4vff78zm.skadnetwork",
+					"wzmmz9fp6w.skadnetwork",
+					"x44k69ngh6.skadnetwork",
+					"x5l83yy675.skadnetwork",
+					"x8uqf25wch.skadnetwork",
+					"xga6mpmplv.skadnetwork",
+					"xy9t38ct57.skadnetwork",
+					"y45688jllp.skadnetwork",
+					"y5ghdn5j9k.skadnetwork",
+					"yclnxrl5pm.skadnetwork",
+					"ydx93a7ass.skadnetwork",
+					"z959bm4gru.skadnetwork",
+					"zmvfpc5aq8.skadnetwork",
+					"zq492l623r.skadnetwork"
+				],
+				"adattributionkit": {
+					"minimum_os_version": "17.4",
+					"identifiers": [
+						"6lz2ygh3q6.adattributionkit",
+						"77y3x8wds4.adattributionkit",
+						"m2jqnlggk3.adattributionkit",
+						"pg7ctvrt6f.adattributionkit",
+						"raa6f494kr.adattributionkit",
+						"thzdn4h5nc.adattributionkit"
+					],
+					"runtime_hooks": [
+						"InfoPlist"
+					],
+					"source_url": "https://vungle-static-assets.s3.amazonaws.com/dashboard/admin/prod/skadnetworkids.xml"
+				}
+			}
+		}
+	},
+	"sources": {
+		"integration_guide": "https://developers.google.com/admob/android/mediation/liftoff-monetize",
+		"adapter_repository": "https://maven.google.com/web/index.html#com.google.ads.mediation:vungle",
+		"adapter_license": "https://github.com/googleads/googleads-mobile-android-mediation/blob/main/LICENSE",
+		"network_terms": "https://github.com/Vungle/VungleAdsSDK-SwiftPackageManager/blob/master/LICENSE.md",
+		"privacy_guide": "https://support.vungle.com/hc/en-us/articles/360048572411-Advanced-Settings",
+		"ios_package_manifest": "https://developers.google.com/admob/ios/mediation/liftoff-monetize",
+		"ios_attribution": "https://vungle-static-assets.s3.amazonaws.com/dashboard/admin/prod/skadnetworkids.xml"
+	}
+}

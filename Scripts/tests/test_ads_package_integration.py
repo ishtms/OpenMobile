@@ -45,6 +45,12 @@ ADMOB_UNITY_ADAPTER = (
 UNITY_IOS_PACKAGE_MANIFEST = (
 	ADMOB_UNITY_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
 )
+ADMOB_LIFTOFF_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobLiftoffMonetize"
+)
+LIFTOFF_IOS_PACKAGE_MANIFEST = (
+	ADMOB_LIFTOFF_ADAPTER / "ThirdParty" / "IOS" / "packages.json"
+)
 
 
 def mach_o_header(cpu_type: int) -> bytes:
@@ -364,6 +370,59 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 				),
 			)
 
+	def test_liftoff_adapter_payload_is_opt_in(self) -> None:
+		self.assertIn("OpenMobileAdsAdMobLiftoffMonetize", ADAPTER_SIGNATURES)
+		with tempfile.TemporaryDirectory() as temporary_directory:
+			android_package = Path(temporary_directory) / "Game.apk"
+			with zipfile.ZipFile(android_package, "w") as archive:
+				archive.writestr(
+					"classes.dex",
+					b"com/google/android/gms/ads "
+					b"com/google/ads/mediation/vungle/VungleMediationAdapter",
+				)
+			android_inventory = inspect_artifact(android_package)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobLiftoffMonetize"},
+					),
+				),
+			)
+
+			ios_package = Path(temporary_directory) / "Game.ipa"
+			with zipfile.ZipFile(ios_package, "w") as archive:
+				add_ios_framework(archive, "GoogleMobileAds")
+				archive.writestr(
+					"Payload/Game.app/Game",
+					mach_o_header(0x0100000C) + b" GADMediationAdapterVungle",
+				)
+				archive.writestr(
+					"Payload/Game.app/OpenMobileAdsAdMobLiftoffMonetizePrivacy.bundle/PrivacyInfo.xcprivacy",
+					b"privacy",
+				)
+			self.assertEqual(
+				[],
+				validate_artifact(
+					inspect_artifact(ios_package),
+					ArtifactExpectation(
+						required_providers={"OpenMobileAdsAdMob"},
+						required_adapters={"OpenMobileAdsAdMobLiftoffMonetize"},
+					),
+				),
+			)
+			self.assertTrue(any(
+				"disabled native payload" in error
+				for error in validate_artifact(
+					android_inventory,
+					ArtifactExpectation(
+						forbidden_adapters={"OpenMobileAdsAdMobLiftoffMonetize"},
+					),
+				)
+			))
+
 	def test_ios_app_executable_exposes_static_adapter_markers(self) -> None:
 		with tempfile.TemporaryDirectory() as temporary_directory:
 			package = Path(temporary_directory) / "Game.ipa"
@@ -374,7 +433,8 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 					+ b" GADMediationAdapterAppLovin"
 					+ b" GADMediationAdapterChartboost"
 					+ b" GADMediationAdapterFacebook"
-					+ b" GADMediationAdapterUnity",
+					+ b" GADMediationAdapterUnity"
+					+ b" GADMediationAdapterVungle",
 				)
 
 			inventory = inspect_artifact(package)
@@ -385,6 +445,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 				"OpenMobileAdsAdMobChartboost",
 				"OpenMobileAdsAdMobMeta",
 				"OpenMobileAdsAdMobUnity",
+				"OpenMobileAdsAdMobLiftoffMonetize",
 			},
 			inventory.detected_adapters,
 		)
@@ -396,6 +457,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 				("OpenMobileAdsAdMobAppLovin", "AppLovinSDK"),
 				("OpenMobileAdsAdMobMeta", "FBAudienceNetwork"),
 				("OpenMobileAdsAdMobUnity", "UnityAds"),
+				("OpenMobileAdsAdMobLiftoffMonetize", "VungleAdsSDK"),
 			)
 			for adapter, framework in cases:
 				package = root / f"{adapter}.ipa"
@@ -465,6 +527,7 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		self.assertEqual([], validate_third_party_packages(APPLOVIN_IOS_PACKAGE_MANIFEST))
 		self.assertEqual([], validate_third_party_packages(CHARTBOOST_IOS_PACKAGE_MANIFEST))
 		self.assertEqual([], validate_third_party_packages(UNITY_IOS_PACKAGE_MANIFEST))
+		self.assertEqual([], validate_third_party_packages(LIFTOFF_IOS_PACKAGE_MANIFEST))
 
 	def test_ios_build_rules_embed_both_google_frameworks(self) -> None:
 		build_rules = (
@@ -553,6 +616,34 @@ class AdsPackageIntegrationTests(unittest.TestCase):
 		) as archive:
 			packaged_manifest = archive.read(
 				"UnityAds.xcframework/ios-arm64/UnityAds.framework/PrivacyInfo.xcprivacy"
+			)
+		self.assertEqual(packaged_manifest, privacy_bundle.read_bytes())
+
+	def test_ios_liftoff_build_rules_link_static_payload_and_bundle_privacy(self) -> None:
+		build_rules = (
+			ADMOB_LIFTOFF_ADAPTER
+			/ "Source/OpenMobileAdsAdMobLiftoffMonetizeIOS"
+			/ "OpenMobileAdsAdMobLiftoffMonetizeIOS.Build.cs"
+		).read_text(encoding="utf-8")
+
+		self.assertEqual(2, build_rules.count("Framework.FrameworkMode.Link"))
+		self.assertNotIn("Framework.FrameworkMode.LinkAndCopy", build_rules)
+		self.assertIn('"LiftoffMonetizeAdapter"', build_rules)
+		self.assertIn('"VungleAdsSDK"', build_rules)
+		self.assertIn("OpenMobileAdsAdMobLiftoffMonetizePrivacy.bundle", build_rules)
+		self.assertNotIn('new Framework(\n\t\t\t"GoogleMobileAds"', build_rules)
+
+		privacy_bundle = (
+			ADMOB_LIFTOFF_ADAPTER
+			/ "Resources/IOS/OpenMobileAdsAdMobLiftoffMonetizePrivacy.bundle"
+			/ "PrivacyInfo.xcprivacy"
+		)
+		with zipfile.ZipFile(
+			ADMOB_LIFTOFF_ADAPTER / "ThirdParty/IOS/VungleAdsSDK.xcframework.zip"
+		) as archive:
+			packaged_manifest = archive.read(
+				"VungleAdsSDK.xcframework/ios-arm64/"
+				"VungleAdsSDK.framework/PrivacyInfo.xcprivacy"
 			)
 		self.assertEqual(packaged_manifest, privacy_bundle.read_bytes())
 

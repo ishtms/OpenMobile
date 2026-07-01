@@ -31,6 +31,9 @@ ADMOB_CHARTBOOST_ADAPTER = (
 ADMOB_UNITY_ADAPTER = (
 	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobUnity"
 )
+ADMOB_LIFTOFF_ADAPTER = (
+	REPOSITORY_ROOT / "Adapters" / "Ads" / "OpenMobileAdsAdMobLiftoffMonetize"
+)
 
 
 def load_descriptor(plugin_root: Path) -> dict:
@@ -39,6 +42,127 @@ def load_descriptor(plugin_root: Path) -> dict:
 
 
 class AdsPluginBoundaryTests(unittest.TestCase):
+	def test_admob_liftoff_adapter_is_separately_enabled(self) -> None:
+		descriptor = load_descriptor(ADMOB_LIFTOFF_ADAPTER)
+		self.assertEqual("MediationAdapter", descriptor["OpenMobileAdsType"])
+		self.assertFalse(descriptor["EnabledByDefault"])
+		self.assertEqual(
+			{"OpenMobileCore", "OpenMobileAds", "OpenMobileAdsAdMob"},
+			{plugin["Name"] for plugin in descriptor["Plugins"]},
+		)
+		modules = {module["Name"]: module for module in descriptor["Modules"]}
+		self.assertEqual(
+			["Android"],
+			modules["OpenMobileAdsAdMobLiftoffMonetizeAndroid"]["PlatformAllowList"],
+		)
+		self.assertEqual(
+			["IOS"],
+			modules["OpenMobileAdsAdMobLiftoffMonetizeIOS"]["PlatformAllowList"],
+		)
+
+		metadata = json.loads(
+			(ADMOB_LIFTOFF_ADAPTER / "adapter.json").read_text(encoding="utf-8")
+		)
+		self.assertEqual("Liftoff Monetize", metadata["network"])
+		self.assertEqual("Liftoff Monetize", metadata["display_name"])
+		self.assertEqual(["Vungle"], metadata["migration_aliases"])
+		self.assertEqual(["Bidding", "Waterfall"], metadata["integration_types"])
+		expected_formats = {
+			"AppOpen",
+			"Banner",
+			"Interstitial",
+			"Rewarded",
+			"RewardedInterstitial",
+			"AnchoredAdaptiveBanner",
+			"MediumRectangle",
+		}
+		for platform_name, adapter_version, network_version, provider_version in (
+			("Android", "7.7.7.0", "7.7.7", "25.4.0"),
+			("IOS", "7.7.6.0", "7.7.6", "13.8.0"),
+		):
+			platform = metadata["platforms"][platform_name]
+			self.assertEqual(adapter_version, platform["adapter_version"])
+			self.assertEqual(network_version, platform["network_sdk_version"])
+			self.assertEqual([provider_version], platform["tested_provider_sdk_versions"])
+			for integration_type in ("Bidding", "Waterfall"):
+				self.assertEqual(
+					expected_formats,
+					set(platform["supported_formats"][integration_type]),
+				)
+			self.assertEqual(
+				"AdapterConsentConsumer",
+				platform["privacy_signals"]["Gdpr"],
+			)
+			self.assertEqual(
+				"AdapterConsentConsumer",
+				platform["privacy_signals"]["UsPrivacy"],
+			)
+			self.assertEqual(
+				"ProviderForwarded",
+				platform["privacy_signals"]["ChildDirected"],
+			)
+			self.assertEqual(
+				"ProviderForwarded",
+				platform["privacy_signals"]["UnderAgeOfConsent"],
+			)
+
+		android_upl_path = (
+			ADMOB_LIFTOFF_ADAPTER
+			/ "Source/OpenMobileAdsAdMobLiftoffMonetizeAndroid/Private/Android"
+			/ "OpenMobileAdsAdMobLiftoffMonetize_Android_UPL.xml"
+		)
+		android_upl = android_upl_path.read_text(encoding="utf-8")
+		self.assertIn("com.google.ads.mediation:vungle", android_upl)
+		self.assertIn("strictly '7.7.7.0'", android_upl)
+		self.assertIn("strictly '7.7.7'", android_upl)
+		self.assertIn("VunglePrivacySettings.setGDPRStatus", android_upl)
+		self.assertIn("VunglePrivacySettings.getGDPRStatus", android_upl)
+		self.assertIn("VunglePrivacySettings.setCCPAStatus", android_upl)
+		self.assertIn("VunglePrivacySettings.getCCPAStatus", android_upl)
+		ElementTree.parse(android_upl_path)
+
+		ios_consumer = (
+			ADMOB_LIFTOFF_ADAPTER
+			/ "Source/OpenMobileAdsAdMobLiftoffMonetizeIOS/Private/IOS"
+			/ "OpenMobileAdsAdMobLiftoffMonetizeConsentSignalConsumer.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("[VunglePrivacySettings setGDPRStatus:", ios_consumer)
+		self.assertIn("[VunglePrivacySettings setCCPAStatus:", ios_consumer)
+		self.assertNotIn('TEXT("Vungle")', ios_consumer)
+
+		ios_upl_path = (
+			ADMOB_LIFTOFF_ADAPTER
+			/ "Source/OpenMobileAdsAdMobLiftoffMonetizeIOS/Private/IOS"
+			/ "OpenMobileAdsAdMobLiftoffMonetize_IOS_UPL.xml"
+		)
+		ios_root = ElementTree.parse(ios_upl_path).getroot()
+		upl_identifiers = [
+			element.text
+			for element in ios_root.findall(".//string")
+			if element.text
+		]
+		skadnetwork_identifiers = {
+			identifier
+			for identifier in upl_identifiers
+			if identifier.endswith(".skadnetwork")
+		}
+		adattributionkit_identifiers = {
+			identifier
+			for identifier in upl_identifiers
+			if identifier.endswith(".adattributionkit")
+		}
+		self.assertEqual(155, len(skadnetwork_identifiers))
+		self.assertEqual(6, len(adattributionkit_identifiers))
+		attribution = metadata["platforms"]["IOS"]["attribution"]
+		self.assertEqual(
+			set(attribution["skadnetwork_identifiers"]),
+			skadnetwork_identifiers,
+		)
+		self.assertEqual(
+			set(attribution["adattributionkit"]["identifiers"]),
+			adattributionkit_identifiers,
+		)
+
 	def test_production_payload_signatures_only_name_real_integrations(self) -> None:
 		self.assertNotIn("OpenMobileAdsMock", PROVIDER_SIGNATURES)
 		self.assertNotIn("OpenMobileAdsMockAdapter", ADAPTER_SIGNATURES)

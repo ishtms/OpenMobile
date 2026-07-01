@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <minimumSDKAPI>
+        <insertValue value="23"/>
+        <insertNewline/>
+    </minimumSDKAPI>
+
+    <buildGradleAdditions>
+        <insert>
+repositories {
+    google()
+    mavenCentral()
+}
+dependencies {
+    implementation('com.google.ads.mediation:vungle') {
+        version {
+            strictly '7.7.7.0'
+        }
+    }
+    implementation('com.vungle:vungle-ads') {
+        version {
+            strictly '7.7.7'
+        }
+    }
+}
+        </insert>
+        <insert>apply from: rootProject.file('OpenMobileAdsAdMobLiftoffMonetize_Dependencies.gradle')</insert>
+        <insertNewline/>
+    </buildGradleAdditions>
+
+    <registerBuildSettings>
+        <insert>OpenMobileAdsAdMobLiftoffMonetizeAndroidDependencyContract=1</insert>
+        <insertNewline/>
+    </registerBuildSettings>
+
+    <gradleCopies>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobLiftoffMonetize_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/OpenMobileAdsAdMobLiftoffMonetize_Dependencies.gradle"/>
+        <copyFile
+            src="$S(PluginDir)/OpenMobileAdsAdMobLiftoffMonetize_Dependencies.gradle"
+            dst="$S(BuildDir)/gradle/AFSProject/OpenMobileAdsAdMobLiftoffMonetize_Dependencies.gradle"/>
+    </gradleCopies>
+
+    <gameActivityClassAdditions>
+        <insert>
+    public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobLiftoffMonetizeConsentSignals(
+        final boolean applyGdpr,
+        final boolean hasUserConsent,
+        final boolean applyUsPrivacy,
+        final boolean doNotSell
+    )
+    {
+        try
+        {
+            if (applyGdpr)
+            {
+                com.vungle.ads.VunglePrivacySettings.setGDPRStatus(
+                    hasUserConsent,
+                    "openmobile-consent-v1"
+                );
+                final String expectedGdpr = hasUserConsent ? "opted_in" : "opted_out";
+                if (!expectedGdpr.equals(
+                    com.vungle.ads.VunglePrivacySettings.getGDPRStatus()))
+                {
+                    return false;
+                }
+            }
+            if (applyUsPrivacy)
+            {
+                final boolean optedIn = !doNotSell;
+                com.vungle.ads.VunglePrivacySettings.setCCPAStatus(optedIn);
+                final String expectedCcpa = optedIn ? "opted_in" : "opted_out";
+                if (!expectedCcpa.equals(
+                    com.vungle.ads.VunglePrivacySettings.getCCPAStatus()))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            return false;
+        }
+    }
+        </insert>
+    </gameActivityClassAdditions>
+</root>

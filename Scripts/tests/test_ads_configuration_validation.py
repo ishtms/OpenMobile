@@ -25,6 +25,7 @@ from validate_ads_plugins import (
 	inspect_android_dependency_graph,
 	inspect_android_manifest,
 	inspect_ios_plist,
+	resolve_adapter_network_name,
 	resolve_configuration,
 	validate_artifact,
 	validate_android_dependencies,
@@ -103,6 +104,10 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.admob_unity = repository_descriptor(
 			"Adapters/Ads/OpenMobileAdsAdMobUnity/OpenMobileAdsAdMobUnity.uplugin"
 		)
+		self.admob_liftoff = repository_descriptor(
+			"Adapters/Ads/OpenMobileAdsAdMobLiftoffMonetize/"
+			"OpenMobileAdsAdMobLiftoffMonetize.uplugin"
+		)
 		mock_data = {
 			"Modules": [
 				{
@@ -146,6 +151,7 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 				self.admob_applovin,
 				self.admob_chartboost,
 				self.admob_unity,
+				self.admob_liftoff,
 				self.admob_meta,
 				self.mock,
 				self.mock_adapter,
@@ -175,6 +181,10 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertTrue(descriptors["OpenMobileAdsAdMobChartboost"].is_ads_adapter)
 		self.assertIn("OpenMobileAdsAdMobUnity", descriptors)
 		self.assertTrue(descriptors["OpenMobileAdsAdMobUnity"].is_ads_adapter)
+		self.assertIn("OpenMobileAdsAdMobLiftoffMonetize", descriptors)
+		self.assertTrue(
+			descriptors["OpenMobileAdsAdMobLiftoffMonetize"].is_ads_adapter
+		)
 
 	def test_single_provider_configuration_selects_one_platform_module(self) -> None:
 		configuration = resolve_configuration(
@@ -346,6 +356,55 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		)
 		self.assertIn("OpenMobileAdsAdMobUnityIOS", ios_adapter.modules)
 		self.assertNotIn("OpenMobileAdsAdMobUnityAndroid", ios_adapter.modules)
+
+	def test_real_admob_liftoff_adapter_is_opt_in(self) -> None:
+		provider_only = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMob"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertNotIn("OpenMobileAdsAdMobLiftoffMonetize", provider_only.ads_adapters)
+		self.assertNotIn(
+			"OpenMobileAdsAdMobLiftoffMonetizeAndroid",
+			provider_only.modules,
+		)
+
+		with_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobLiftoffMonetize"],
+			platform="Android",
+			target_type="Game",
+		)
+		self.assertEqual({"OpenMobileAdsAdMob"}, with_adapter.ads_providers)
+		self.assertEqual(
+			{"OpenMobileAdsAdMobLiftoffMonetize"},
+			with_adapter.ads_adapters,
+		)
+		self.assertIn(
+			"OpenMobileAdsAdMobLiftoffMonetizeAndroid",
+			with_adapter.modules,
+		)
+		self.assertNotIn(
+			"OpenMobileAdsAdMobLiftoffMonetizeIOS",
+			with_adapter.modules,
+		)
+		self.assertEqual([], validate_adapter_metadata(self.admob_liftoff))
+
+		ios_adapter = resolve_configuration(
+			self.descriptors,
+			["OpenMobileAdsAdMobLiftoffMonetize"],
+			platform="IOS",
+			target_type="Game",
+		)
+		self.assertIn(
+			"OpenMobileAdsAdMobLiftoffMonetizeIOS",
+			ios_adapter.modules,
+		)
+		self.assertNotIn(
+			"OpenMobileAdsAdMobLiftoffMonetizeAndroid",
+			ios_adapter.modules,
+		)
 
 	def test_adapter_metadata_requires_explicit_format_and_privacy_contracts(self) -> None:
 		metadata = json.loads(
@@ -524,6 +583,29 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual([], bidding)
 		self.assertEqual([], legacy_waterfall)
 
+	def test_liftoff_accepts_vungle_only_as_a_migration_alias(self) -> None:
+		self.assertEqual(
+			("Liftoff Monetize", True),
+			resolve_adapter_network_name(
+				{"network": "Liftoff Monetize", "migration_aliases": ["Vungle"]},
+				"Vungle",
+			),
+		)
+		self.assertEqual(
+			("Liftoff Monetize", False),
+			resolve_adapter_network_name(
+				{"network": "Liftoff Monetize", "migration_aliases": ["Vungle"]},
+				"Liftoff Monetize",
+			),
+		)
+		self.assertEqual(
+			(None, False),
+			resolve_adapter_network_name(
+				{"network": "Liftoff Monetize", "migration_aliases": ["Vungle"]},
+				"Other",
+			),
+		)
+
 	def test_unity_adapter_compatibility_accepts_pinned_sdk_versions(self) -> None:
 		android = validate_adapter_compatibility(
 			self.admob_unity,
@@ -545,6 +627,33 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 			provider_versions={"compiled": "13.8.0"},
 			adapter_versions={"compiled": "4.20.0.0"},
 			network_versions={"compiled": "4.20.0"},
+		)
+
+		self.assertEqual([], android.errors)
+		self.assertEqual([], ios.errors)
+		self.assertTrue(any("outside supported range" in error for error in unverified.errors))
+
+	def test_liftoff_adapter_compatibility_accepts_pinned_sdk_versions(self) -> None:
+		android = validate_adapter_compatibility(
+			self.admob_liftoff,
+			"Android",
+			provider_versions={"compiled": "25.4.0"},
+			adapter_versions={"compiled": "7.7.7.0"},
+			network_versions={"compiled": "7.7.7"},
+		)
+		ios = validate_adapter_compatibility(
+			self.admob_liftoff,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "7.7.6.0"},
+			network_versions={"compiled": "7.7.6"},
+		)
+		unverified = validate_adapter_compatibility(
+			self.admob_liftoff,
+			"IOS",
+			provider_versions={"compiled": "13.8.0"},
+			adapter_versions={"compiled": "7.8.0.0"},
+			network_versions={"compiled": "7.8.0"},
 		)
 
 		self.assertEqual([], android.errors)
@@ -694,6 +803,41 @@ class AdsConfigurationValidationTests(unittest.TestCase):
 		self.assertEqual(1, waterfall.returncode)
 		self.assertIn("requires Bidding", waterfall.stderr)
 		self.assertEqual(0, bidding.returncode, bidding.stderr)
+
+	def test_compatibility_command_accepts_liftoff_migration_alias(self) -> None:
+		command = [
+			sys.executable,
+			str(REPOSITORY_ROOT / "Scripts" / "validate_ads_plugins.py"),
+			"compatibility",
+			"--repository",
+			str(REPOSITORY_ROOT),
+			"--adapter",
+			"OpenMobileAdsAdMobLiftoffMonetize",
+			"--platform",
+			"IOS",
+			"--provider-version",
+			"compiled=13.8.0",
+			"--adapter-version",
+			"compiled=7.7.6.0",
+			"--network-version",
+			"compiled=7.7.6",
+		]
+		legacy = subprocess.run(
+			command + ["--network-name", "Vungle"],
+			capture_output=True,
+			text=True,
+		)
+		unknown = subprocess.run(
+			command + ["--network-name", "Other"],
+			capture_output=True,
+			text=True,
+		)
+
+		self.assertEqual(0, legacy.returncode, legacy.stderr)
+		self.assertIn("migration alias", legacy.stderr)
+		self.assertIn("Liftoff Monetize", legacy.stderr)
+		self.assertEqual(1, unknown.returncode)
+		self.assertIn("does not match", unknown.stderr)
 
 	def test_native_dependency_requirements_accept_the_supported_adapter_graph(self) -> None:
 		for platform in ("Android", "IOS"):

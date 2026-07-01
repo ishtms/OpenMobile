@@ -41,6 +41,12 @@ ADAPTER_SIGNATURES = {
 		b"unityadapter",
 		b"gadmediationadapterunity",
 	),
+	"OpenMobileAdsAdMobLiftoffMonetize": (
+		b"com.google.ads.mediation:vungle",
+		b"com/google/ads/mediation/vungle",
+		b"liftoffmonetizeadapter",
+		b"gadmediationadaptervungle",
+	),
 	"OpenMobileAdsAdMobMeta": (
 		b"com.google.ads.mediation:facebook",
 		b"com/google/ads/mediation/facebook",
@@ -153,6 +159,11 @@ IOS_ADAPTER_PACKAGE_CONTRACTS = {
 	"OpenMobileAdsAdMobUnity": {
 		"frameworks": set(),
 		"static_frameworks": {"UnityAdapter", "UnityAds"},
+		"privacy_manifest_frameworks": set(),
+	},
+	"OpenMobileAdsAdMobLiftoffMonetize": {
+		"frameworks": set(),
+		"static_frameworks": {"LiftoffMonetizeAdapter", "VungleAdsSDK"},
 		"privacy_manifest_frameworks": set(),
 	},
 	"OpenMobileAdsAdMobMeta": {
@@ -381,6 +392,21 @@ def validate_adapter_integration_selection(
 			+ f" after {deadline}"
 		)
 	return errors
+
+
+def resolve_adapter_network_name(
+	metadata: dict,
+	requested_name: str,
+) -> tuple[str | None, bool]:
+	canonical_name = metadata.get("network")
+	if not isinstance(canonical_name, str) or not canonical_name:
+		return None, False
+	if requested_name == canonical_name:
+		return canonical_name, False
+	aliases = metadata.get("migration_aliases", [])
+	if isinstance(aliases, list) and requested_name in aliases:
+		return canonical_name, True
+	return None, False
 
 
 def _read_native_dependency_data(
@@ -630,6 +656,21 @@ def validate_adapter_metadata(descriptor: PluginDescriptor) -> list[str]:
 	for field_name in ("provider", "network", "display_name"):
 		if not isinstance(metadata.get(field_name), str) or not metadata[field_name].strip():
 			errors.append(f"adapter metadata {field_name} must not be empty")
+	migration_aliases = metadata.get("migration_aliases")
+	if migration_aliases is not None:
+		if (
+			not isinstance(migration_aliases, list)
+			or not migration_aliases
+			or any(
+				not isinstance(alias, str) or not alias.strip()
+				for alias in migration_aliases
+			)
+			or len(migration_aliases) != len(set(migration_aliases))
+			or metadata.get("network") in migration_aliases
+		):
+			errors.append(
+				"adapter metadata migration_aliases must contain unique legacy names"
+			)
 
 	integration_types = metadata.get("integration_types")
 	if not isinstance(integration_types, list) or not integration_types:
@@ -2763,6 +2804,27 @@ def run_compatibility_command(arguments: argparse.Namespace) -> int:
 		for error in metadata_errors:
 			print(f"ads adapter metadata validation failed: {error}", file=sys.stderr)
 		return 1
+	if arguments.network_name:
+		metadata = json.loads(
+			(descriptor.path.parent / "adapter.json").read_text(encoding="utf-8")
+		)
+		canonical_name, used_alias = resolve_adapter_network_name(
+			metadata,
+			arguments.network_name,
+		)
+		if canonical_name is None:
+			print(
+				f"ads adapter compatibility validation failed: network name "
+				f"'{arguments.network_name}' does not match {metadata['network']}",
+				file=sys.stderr,
+			)
+			return 1
+		if used_alias:
+			print(
+				f"ads adapter compatibility warning: '{arguments.network_name}' is a "
+				f"migration alias; use '{canonical_name}'",
+				file=sys.stderr,
+			)
 	if arguments.integration_type or arguments.new_configuration:
 		integration_errors = validate_adapter_integration_selection(
 			descriptor,
@@ -3056,6 +3118,7 @@ def parse_arguments() -> argparse.Namespace:
 	compatibility_parser.add_argument("--provider-version", action="append", default=[])
 	compatibility_parser.add_argument("--adapter-version", action="append", default=[])
 	compatibility_parser.add_argument("--network-version", action="append", default=[])
+	compatibility_parser.add_argument("--network-name")
 	compatibility_parser.add_argument(
 		"--integration-type",
 		action="append",

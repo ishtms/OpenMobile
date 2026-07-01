@@ -1,0 +1,39 @@
+{
+	"schema_version": 1,
+	"packages": [
+		{
+			"name": "Google Mobile Ads Mediation Adapter for Liftoff Monetize",
+			"version": "7.7.6.0",
+			"source_url": "https://dl.google.com/googleadmobadssdk/mediation/ios/liftoffmonetize/LiftoffMonetizeAdapter-7.7.6.0.zip",
+			"terms_url": "https://developers.google.com/terms/site-terms",
+			"redistribution": "Distributed under the Apache License 2.0 included with this plugin.",
+			"license_files": [
+				"Licenses/GoogleAdapter-LICENSE"
+			],
+			"artifacts": [
+				{
+					"path": "LiftoffMonetizeAdapter.xcframework.zip",
+					"sha256": "c742c76d45db9e4c705415f4fe6645d7b63bdbe97983ef215fcbdca829b3fdc0",
+					"role": "Runtime Liftoff Monetize mediation adapter repackaged with the xcframework at the archive root"
+				}
+			]
+		},
+		{
+			"name": "Vungle Ads SDK for iOS",
+			"version": "7.7.6",
+			"source_url": "https://vungle2-cdn-prod.s3.amazonaws.com/sdks/ios/7.7.x/VungleAds-7.7.6.zip",
+			"terms_url": "https://github.com/Vungle/VungleAdsSDK-SwiftPackageManager/blob/master/LICENSE.md",
+			"redistribution": "Distribution is subject to the Vungle SDK License and Publisher Terms included with this plugin.",
+			"license_files": [
+				"Licenses/VungleAdsSDK-LICENSE.md"
+			],
+			"artifacts": [
+				{
+					"path": "VungleAdsSDK.xcframework.zip",
+					"sha256": "bd875e3abac4b4a3422c624391b89484fc65784c4851609df0936f1b5f48e48f",
+					"role": "Runtime Vungle Ads static framework repackaged with the xcframework at the archive root"
+				}
+			]
+		}
+	]
+}
