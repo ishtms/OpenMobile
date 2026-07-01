@@ -440,7 +440,9 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		const bool bSupportsAccelerometerFallback =
 			LogicalSensor.Type == EOpenMobileSensorType::Gravity
 			|| LogicalSensor.Type ==
-				EOpenMobileSensorType::LinearAcceleration;
+				EOpenMobileSensorType::LinearAcceleration
+			|| LogicalSensor.Type ==
+				EOpenMobileSensorType::PhysicalOrientation;
 		if (!bSupportsAccelerometerFallback)
 		{
 			return true;

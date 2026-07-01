@@ -57,6 +57,9 @@ bool FOpenMobileSensorsSettingsMetadataTest::RunTest(
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, DefaultStreamOptions),
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, bAllowHighSamplingRate),
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, bAllowBackgroundSensorDelivery),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, PhysicalOrientationFaceAngleDegrees),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, PhysicalOrientationHysteresisDegrees),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, PhysicalOrientationTransitionDebounceSeconds),
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, MaximumRecordingDurationSeconds),
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, MaximumRecordingBytes),
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSettings, MaximumRecordingBufferedBatches),
@@ -118,6 +121,12 @@ bool FOpenMobileSensorsSettingsDefaultsTest::RunTest(
 		Settings->bAllowHighSamplingRate);
 	TestFalse(TEXT("Background delivery is opt-in"),
 		Settings->bAllowBackgroundSensorDelivery);
+	TestEqual(TEXT("Physical orientation uses a conservative face angle"),
+		Settings->PhysicalOrientationFaceAngleDegrees, 25.0);
+	TestEqual(TEXT("Physical orientation uses boundary hysteresis"),
+		Settings->PhysicalOrientationHysteresisDegrees, 5.0);
+	TestEqual(TEXT("Physical orientation debounces transitions"),
+		Settings->PhysicalOrientationTransitionDebounceSeconds, 0.15);
 	TestFalse(TEXT("iOS motion usage text is packaged by default"),
 		Settings->IOSMotionUsageDescription.IsEmpty());
 	TestEqual(TEXT("Recording duration is bounded"),
@@ -206,6 +215,23 @@ bool FOpenMobileSensorsSettingsValidationTest::RunTest(
 		HasErrorContaining(Errors, TEXT("MaximumRecordingDurationSeconds")));
 	TestTrue(TEXT("Recording size failure is explicit"),
 		HasErrorContaining(Errors, TEXT("MaximumRecordingBytes")));
+
+	UOpenMobileSensorsSettings* Orientation =
+		NewObject<UOpenMobileSensorsSettings>();
+	Orientation->PhysicalOrientationFaceAngleDegrees = 46.0;
+	Orientation->PhysicalOrientationHysteresisDegrees = -1.0;
+	Orientation->PhysicalOrientationTransitionDebounceSeconds = 3.0;
+	TestFalse(TEXT("Unsafe physical orientation settings are rejected"),
+		Orientation->Validate(Errors, false));
+	TestTrue(TEXT("Face-angle failure is explicit"),
+		HasErrorContaining(Errors, TEXT("PhysicalOrientationFaceAngleDegrees")));
+	TestTrue(TEXT("Hysteresis failure is explicit"),
+		HasErrorContaining(Errors, TEXT("PhysicalOrientationHysteresisDegrees")));
+	TestTrue(TEXT("Debounce failure is explicit"),
+		HasErrorContaining(
+			Errors,
+			TEXT("PhysicalOrientationTransitionDebounceSeconds")
+		));
 
 	UOpenMobileSensorsSettings* Permissions =
 		NewObject<UOpenMobileSensorsSettings>();

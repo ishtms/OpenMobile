@@ -349,6 +349,15 @@ bool FOpenMobileSensorsScreenPhysicalOrientationSeparationTest::RunTest(
 	using namespace OpenMobileSensorsScreenRotationTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("PhysicalOrientation"));
+	FOpenMobileSensorCapability Capability;
+	Capability.Sensor = MakeRequest(
+		EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		EOpenMobileSensorDeliveryMode::LatestValue,
+		EOpenMobileSensorType::PhysicalOrientation
+	).Sensor;
+	Capability.Availability.State = EOpenMobileCapabilityState::Available;
+	Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+	Backend.SetSensorCapabilities({Capability});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	FOpenMobileSensorsScreenRotationService::CaptureApplicationWindowRotation(

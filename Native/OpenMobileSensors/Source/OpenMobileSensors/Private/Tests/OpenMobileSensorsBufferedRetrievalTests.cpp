@@ -396,7 +396,14 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 	using namespace OpenMobileSensorsBufferedRetrievalTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("BufferFamilies"));
-	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
+	FOpenMobileSensorCapability PhysicalOrientation = MakeAttitudeCapability();
+	PhysicalOrientation.Sensor = MakeRequest(
+		EOpenMobileSensorType::PhysicalOrientation
+	).Sensor;
+	Backend.SetSensorCapabilities({
+		MakeAttitudeCapability(),
+		PhysicalOrientation
+	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	FOpenMobileSensorBufferReadResult Result;

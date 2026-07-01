@@ -9,12 +9,14 @@
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorGravityEstimator.h"
 #include "OpenMobileSensorLinearAccelerationEstimator.h"
+#include "OpenMobileSensorOrientationClassifier.h"
 #include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorValidity.h"
 #include "OpenMobileSensorVectorFilter.h"
+#include "OpenMobileSensorsSettings.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -198,6 +200,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorGravityEstimator GravityEstimator;
 		FOpenMobileSensorLinearAccelerationEstimator
 			LinearAccelerationEstimator;
+		FOpenMobileSensorOrientationClassifier OrientationClassifier;
+		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
 		bool bHasRateTimestamp = false;
@@ -281,6 +285,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	{
 		Slot.GravityEstimator.Reset();
 		Slot.LinearAccelerationEstimator.Reset();
+		Slot.OrientationClassifier.Reset();
 	}
 
 	template <typename SampleType>
@@ -1090,6 +1095,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 				FLatestSlot& Slot = *Pair.Value;
 				FScopeLock SlotLock(&Slot.Mutex);
 				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
+					|| Slot.ExpectedFamily != Family
 					|| (RequiredBackendGeneration != 0
 						&& (Slot.BackendGeneration != RequiredBackendGeneration
 							|| !RequiredPhysicalStream
@@ -1195,6 +1201,181 @@ namespace OpenMobileSensorsSampleServicePrivate
 						PendingMember
 					);
 					EnqueueBufferedSample(Slot, Destination, BufferedMember);
+				}
+			}
+		}
+		if (bQueuedEvent)
+		{
+			EnsureEventTicker();
+		}
+		return RequiredBackendGeneration == 0 || bMatchedStream;
+	}
+
+	bool PublishDerivedOrientationSamples(
+		const FOpenMobileVectorSensorSample* Samples,
+		int32 SampleCount,
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
+	)
+	{
+		if (bShuttingDown.Load()
+			|| SampleCount < 0
+			|| SampleCount > 4096)
+		{
+			return false;
+		}
+		bool bQueuedEvent = false;
+		bool bMatchedStream = false;
+		{
+			FReadScopeLock RegistryLock(SlotsLock);
+			for (TPair<
+				FOpenMobileSensorSubscriptionHandle,
+				TUniquePtr<FLatestSlot>
+			>& Pair : Slots)
+			{
+				FLatestSlot& Slot = *Pair.Value;
+				FScopeLock SlotLock(&Slot.Mutex);
+				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
+					|| Slot.ExpectedFamily !=
+						ELatestSampleFamily::Orientation
+					|| Slot.Sensor.Type !=
+						EOpenMobileSensorType::PhysicalOrientation
+					|| (RequiredBackendGeneration != 0
+						&& (Slot.BackendGeneration !=
+								RequiredBackendGeneration
+							|| !RequiredPhysicalStream
+							|| Slot.PhysicalStreamHandle !=
+								*RequiredPhysicalStream)))
+				{
+					continue;
+				}
+				bMatchedStream = true;
+				for (int32 Index = 0; Index < SampleCount; ++Index)
+				{
+					FOpenMobileVectorSensorSample Sample = Samples[Index];
+					if (Slot.PhysicalSensor != Sample.Header.Sensor)
+					{
+						continue;
+					}
+					if (!FMath::IsFinite(Sample.Header.TimestampSeconds)
+						|| Sample.Header.TimestampSeconds < 0.0)
+					{
+						RecordTimestampIssue(
+							Slot,
+							EOpenMobileSensorTimestampIssue::Invalid
+						);
+						continue;
+					}
+					if (Slot.bHasSample
+						&& Sample.Header.TimestampSeconds <=
+							Slot.LatestTimestampSeconds)
+					{
+						RecordTimestampIssue(
+							Slot,
+							Sample.Header.TimestampSeconds ==
+								Slot.LatestTimestampSeconds
+							? EOpenMobileSensorTimestampIssue::Duplicate
+							: EOpenMobileSensorTimestampIssue::Backward
+						);
+						continue;
+					}
+					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
+					if (!ValidateSourceAndFusion(Sample)
+						|| !FOpenMobileSensorValidity::
+							IsEligibleForStatefulProcessing(Sample))
+					{
+						ResetDerivedEstimators(Slot);
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
+					FOpenMobileVectorSensorSample Gravity = Sample;
+					if (Sample.Header.Sensor.Type ==
+						EOpenMobileSensorType::Accelerometer)
+					{
+						FOpenMobileSensorIdentifier GravitySensor;
+						GravitySensor.Type = EOpenMobileSensorType::Gravity;
+						GravitySensor.InstanceId = Slot.Sensor.InstanceId;
+						if (!Slot.GravityEstimator.Process(
+							Sample,
+							GravitySensor,
+							Gravity
+						))
+						{
+							ResetDerivedEstimators(Slot);
+							Slot.bPendingStatefulProcessingReset = true;
+							continue;
+						}
+					}
+					else if (Sample.Header.Sensor.Type !=
+						EOpenMobileSensorType::Gravity)
+					{
+						continue;
+					}
+					FOpenMobileOrientationSensorSample Derived;
+					if (!Slot.OrientationClassifier.Process(
+						Gravity.Value,
+						Gravity.Header.TimestampSeconds,
+						Slot.OrientationConfig,
+						Derived
+					))
+					{
+						ResetDerivedEstimators(Slot);
+						Slot.bPendingStatefulProcessingReset = true;
+						continue;
+					}
+					const bool bClassifierReset =
+						Derived.Header.bStatefulProcessingReset;
+					Derived.Header = Gravity.Header;
+					Derived.Header.Sensor = Slot.Sensor;
+					constexpr int32 OverlayFlags =
+						static_cast<int32>(
+							EOpenMobileSensorSourceFlags::Mock
+						)
+						| static_cast<int32>(
+							EOpenMobileSensorSourceFlags::Replay
+						);
+					Derived.Header.SourceFlags = static_cast<int32>(
+						EOpenMobileSensorSourceFlags::PluginDerived
+					) | (Gravity.Header.SourceFlags & OverlayFlags);
+					Derived.Header.bStatefulProcessingReset |=
+						bClassifierReset
+						|| Slot.bPendingStatefulProcessingReset;
+					Derived.Header.TimestampIssueFlags =
+						Slot.PendingTimestampIssueFlags;
+					Derived.Header.bUnitsNormalized = true;
+					Derived.Header.bCoordinatesNormalized = true;
+					Derived.Header.CoordinateSpace =
+						EOpenMobileSensorCoordinateSpace::DeviceFixed;
+					ApplySourceTransition(Slot, Derived.Header);
+					UpdateRateStatistics(
+						Slot,
+						Derived.Header.TimestampSeconds
+					);
+					Slot.Orientation = Derived;
+					Slot.Orientation.Header.Sequence = Slot.NextSequence++;
+					Slot.Orientation.Header.GameThreadReceiptSeconds = 0.0;
+					Slot.Orientation.Header.bHasGameThreadReceiptTime = false;
+					FOpenMobileSensorsScreenRotationService::ApplyToSample(
+						Slot.OwnerIdentifier,
+						Slot.CoordinateSpace,
+						Slot.Orientation
+					);
+					Slot.PendingTimestampIssueFlags = 0;
+					Slot.bPendingStatefulProcessingReset = false;
+					Slot.LatestTimestampSeconds =
+						Derived.Header.TimestampSeconds;
+					Slot.Family = ELatestSampleFamily::Orientation;
+					Slot.bHasSample = true;
+					bQueuedEvent |= EnqueueEventSample(
+						Slot,
+						Slot.Orientation,
+						&FLatestSlot::PendingOrientation
+					);
+					EnqueueBufferedSample(
+						Slot,
+						Slot.Orientation,
+						&FLatestSlot::BufferedOrientation
+					);
 				}
 			}
 		}
@@ -1946,6 +2127,42 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
+	if (const UOpenMobileSensorsSettings* Settings =
+		GetDefault<UOpenMobileSensorsSettings>())
+	{
+		if (FMath::IsFinite(
+			Settings->PhysicalOrientationFaceAngleDegrees
+		))
+		{
+			Slot->OrientationConfig.FaceAngleDegrees = FMath::Clamp(
+				Settings->PhysicalOrientationFaceAngleDegrees,
+				5.0,
+				40.0
+			);
+		}
+		if (FMath::IsFinite(
+			Settings->PhysicalOrientationHysteresisDegrees
+		))
+		{
+			Slot->OrientationConfig.HysteresisDegrees = FMath::Clamp(
+				Settings->PhysicalOrientationHysteresisDegrees,
+				0.0,
+				15.0
+			);
+		}
+		if (FMath::IsFinite(
+			Settings->PhysicalOrientationTransitionDebounceSeconds
+		))
+		{
+			Slot->OrientationConfig.TransitionDebounceSeconds =
+				FMath::Clamp(
+					Settings->
+						PhysicalOrientationTransitionDebounceSeconds,
+					0.0,
+					2.0
+				);
+		}
+	}
 	Slot->PendingAccuracyChanges.Reserve(MaximumPendingAccuracyChanges);
 	if (Slot->DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
 	{
@@ -2364,14 +2581,6 @@ bool FOpenMobileSensorsSampleService::GetAttitudeRecenterState(
 	}
 
 OPENMOBILE_IMPLEMENT_PUBLISH(
-	PublishVector,
-	FOpenMobileVectorSensorSample,
-	Vector,
-	Vector,
-	PendingVector,
-	BufferedVector
-)
-OPENMOBILE_IMPLEMENT_PUBLISH(
 	PublishAttitude,
 	FOpenMobileAttitudeSensorSample,
 	Attitude,
@@ -2430,6 +2639,24 @@ OPENMOBILE_IMPLEMENT_PUBLISH(
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH
 
+void FOpenMobileSensorsSampleService::PublishVector(
+	const FOpenMobileVectorSensorSample& Sample
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	PublishSamples(
+		&Sample,
+		1,
+		ELatestSampleFamily::Vector,
+		&FLatestSlot::Vector,
+		&FLatestSlot::PendingVector,
+		&FLatestSlot::BufferedVector,
+		0,
+		nullptr
+	);
+	PublishDerivedOrientationSamples(&Sample, 1, 0, nullptr);
+}
+
 bool FOpenMobileSensorsSampleService::PublishAccuracy(
 	const FOpenMobileSensorAccuracySnapshot& Snapshot
 )
@@ -2461,15 +2688,6 @@ bool FOpenMobileSensorsSampleService::PublishAccuracy(
 		); \
 	}
 
-OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
-	PublishVectorBatch,
-	FOpenMobileVectorSensorBatch,
-	FOpenMobileVectorSensorSample,
-	Vector,
-	Vector,
-	PendingVector,
-	BufferedVector
-)
 OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 	PublishAttitudeBatch,
 	FOpenMobileAttitudeSensorBatch,
@@ -2536,6 +2754,30 @@ OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH_BATCH
 
+bool FOpenMobileSensorsSampleService::PublishVectorBatch(
+	const FOpenMobileVectorSensorBatch& Batch
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	const bool bPublishedVector = PublishSamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		ELatestSampleFamily::Vector,
+		&FLatestSlot::Vector,
+		&FLatestSlot::PendingVector,
+		&FLatestSlot::BufferedVector,
+		0,
+		nullptr
+	);
+	const bool bPublishedOrientation = PublishDerivedOrientationSamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		0,
+		nullptr
+	);
+	return bPublishedVector || bPublishedOrientation;
+}
+
 #define OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH( \
 	MethodName, BatchType, SampleType, FamilyName, Member, \
 	PendingMember, BufferedMember \
@@ -2565,15 +2807,6 @@ OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 		); \
 	}
 
-OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
-	PublishVectorBatchFromBackend,
-	FOpenMobileVectorSensorBatch,
-	FOpenMobileVectorSensorSample,
-	Vector,
-	Vector,
-	PendingVector,
-	BufferedVector
-)
 OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 	PublishAttitudeBatchFromBackend,
 	FOpenMobileAttitudeSensorBatch,
@@ -2639,6 +2872,37 @@ OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH
+
+bool FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+	const FOpenMobileVectorSensorBatch& Batch
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	if (!FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token)
+		|| !PhysicalStreamHandle.IsValid())
+	{
+		return false;
+	}
+	const bool bPublishedVector = PublishSamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		ELatestSampleFamily::Vector,
+		&FLatestSlot::Vector,
+		&FLatestSlot::PendingVector,
+		&FLatestSlot::BufferedVector,
+		Token.Generation,
+		&PhysicalStreamHandle
+	);
+	const bool bPublishedOrientation = PublishDerivedOrientationSamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		Token.Generation,
+		&PhysicalStreamHandle
+	);
+	return bPublishedVector || bPublishedOrientation;
+}
 
 bool FOpenMobileSensorsSampleService::PublishAccuracyFromBackend(
 	const FOpenMobileSensorsBackendToken& Token,

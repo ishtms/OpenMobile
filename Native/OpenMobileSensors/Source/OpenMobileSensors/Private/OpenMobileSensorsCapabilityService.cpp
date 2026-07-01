@@ -387,6 +387,11 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			EOpenMobileSensorType::LinearAcceleration,
 			TEXT("Linear acceleration is derived from calibrated acceleration with bounded gravity filtering.")
 		);
+		ApplyAccelerometerFallback(
+			Snapshot,
+			EOpenMobileSensorType::PhysicalOrientation,
+			TEXT("Physical orientation is derived from device-fixed acceleration with bounded gravity filtering, hysteresis, and debounce.")
+		);
 		return Snapshot;
 	}
 

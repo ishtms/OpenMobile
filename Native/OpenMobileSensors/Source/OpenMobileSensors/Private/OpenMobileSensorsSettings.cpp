@@ -114,6 +114,30 @@ bool UOpenMobileSensorsSettings::Validate(
 	{
 		OutErrors.Add(TEXT("Background continuation requires the project background-delivery opt-in."));
 	}
+	if (!IsFiniteInRange(
+		PhysicalOrientationFaceAngleDegrees,
+		5.0,
+		40.0
+	))
+	{
+		OutErrors.Add(TEXT("PhysicalOrientationFaceAngleDegrees must be between 5 and 40 degrees."));
+	}
+	if (!IsFiniteInRange(
+		PhysicalOrientationHysteresisDegrees,
+		0.0,
+		15.0
+	))
+	{
+		OutErrors.Add(TEXT("PhysicalOrientationHysteresisDegrees must be between 0 and 15 degrees."));
+	}
+	if (!IsFiniteInRange(
+		PhysicalOrientationTransitionDebounceSeconds,
+		0.0,
+		2.0
+	))
+	{
+		OutErrors.Add(TEXT("PhysicalOrientationTransitionDebounceSeconds must be between 0 and 2 seconds."));
+	}
 	if (DefaultStreamOptions.Filters.bEnableLowPass
 		&& !IsFiniteInRange(
 			DefaultStreamOptions.Filters.LowPassTimeConstantSeconds,

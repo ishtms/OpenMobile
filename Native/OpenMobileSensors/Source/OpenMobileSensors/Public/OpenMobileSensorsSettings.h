@@ -106,6 +106,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (DisplayName = "Allow Background Sensor Delivery", ToolTip = "Allows operations to request background continuation only where the platform supports it."))
 	bool bAllowBackgroundSensorDelivery = false;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Physical Orientation", meta = (ClampMin = "5.0", ClampMax = "40.0", Units = "deg", DisplayName = "Face Up Angle", ToolTip = "Maximum angle from display-normal gravity used to classify Face Up or Face Down."))
+	double PhysicalOrientationFaceAngleDegrees = 25.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Physical Orientation", meta = (ClampMin = "0.0", ClampMax = "15.0", Units = "deg", DisplayName = "Orientation Hysteresis", ToolTip = "Creates an unknown band around edge-orientation boundaries to prevent chatter."))
+	double PhysicalOrientationHysteresisDegrees = 5.0;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Physical Orientation", meta = (ClampMin = "0.0", ClampMax = "2.0", Units = "s", DisplayName = "Transition Debounce", ToolTip = "Requires a candidate physical orientation to remain stable before committing a transition."))
+	double PhysicalOrientationTransitionDebounceSeconds = 0.15;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1.0", ClampMax = "86400.0", Units = "s", DisplayName = "Maximum Recording Duration"))
 	double MaximumRecordingDurationSeconds = 300.0;
 

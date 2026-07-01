@@ -370,7 +370,13 @@ bool FOpenMobileSensorsLatestAllSampleFamiliesTest::RunTest(
 	using namespace OpenMobileSensorsLatestValueTestsPrivate;
 	ResetServices();
 	FOpenMobileSensorsMockBackend Backend(TEXT("Families"));
-	Backend.SetSensorCapabilities({MakeAttitudeCapability()});
+	FOpenMobileSensorCapability PhysicalOrientation = MakeAttitudeCapability();
+	PhysicalOrientation.Sensor =
+		MakeRequest(EOpenMobileSensorType::PhysicalOrientation).Sensor;
+	Backend.SetSensorCapabilities({
+		MakeAttitudeCapability(),
+		PhysicalOrientation
+	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
 	const FOpenMobileSensorSubscriptionResult Vector = StartActive(
