@@ -4,6 +4,7 @@
 #include "Features/IModularFeature.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
+#include "OpenMobileHapticsTimingPolicy.h"
 #include "OpenMobileHapticsTypes.h"
 
 enum class EOpenMobileHapticsBackendPreparationState : uint8
@@ -69,6 +70,7 @@ struct FOpenMobileHapticsBackendPlaybackParameters
 {
 	bool bHasInitialDynamicParameters = false;
 	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
+	FOpenMobileHapticsTimingResolution Timing;
 };
 
 class IOpenMobileHapticsBackend : public IModularFeature

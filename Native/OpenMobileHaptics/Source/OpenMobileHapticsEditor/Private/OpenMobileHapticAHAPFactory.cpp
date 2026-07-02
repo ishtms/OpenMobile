@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsAHAPPolicy.h"
+#include "OpenMobileHapticsAppleAudioResourcePolicy.h"
 
 UOpenMobileHapticAHAPFactory::UOpenMobileHapticAHAPFactory(
 	const FObjectInitializer& ObjectInitializer
@@ -69,7 +70,7 @@ UObject* UOpenMobileHapticAHAPFactory::FactoryCreateFile(
 		return nullptr;
 	}
 	const FOpenMobileHapticsAHAPNormalizationResult Normalized =
-		FOpenMobileHapticsAHAPPolicy::Normalize(Source);
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source, {}, true);
 	if (!Normalized.bSuccess)
 	{
 		if (Warn)
@@ -82,6 +83,86 @@ UObject* UOpenMobileHapticAHAPFactory::FactoryCreateFile(
 		}
 		return nullptr;
 	}
+	const FOpenMobileHapticsAppleAudioResourceLimits AudioLimits;
+	if (Normalized.Resource.ExternalAudioResourcePaths.Num()
+		> AudioLimits.MaximumResourceCount)
+	{
+		if (Warn)
+		{
+			Warn->Logf(
+				ELogVerbosity::Error,
+				TEXT("AHAP audio resources exceed the count limit")
+			);
+		}
+		return nullptr;
+	}
+	TArray<FOpenMobileHapticIOSAudioResource> AudioResources;
+	AudioResources.Reserve(
+		Normalized.Resource.ExternalAudioResourcePaths.Num()
+	);
+	int64 TotalAudioBytes = 0;
+	const FString SourceDirectory = FPaths::GetPath(Filename);
+	for (const FString& RelativePath :
+		Normalized.Resource.ExternalAudioResourcePaths)
+	{
+		const FString AudioFilename =
+			FPaths::Combine(SourceDirectory, RelativePath);
+		const int64 AudioSize = IFileManager::Get().FileSize(*AudioFilename);
+		if (AudioSize < 0)
+		{
+			if (Warn)
+			{
+				Warn->Logf(
+					ELogVerbosity::Error,
+					TEXT("AHAP audio resource is missing: %s"),
+					*RelativePath
+				);
+			}
+			return nullptr;
+		}
+		if (AudioSize > AudioLimits.MaximumResourceBytes)
+		{
+			if (Warn)
+			{
+				Warn->Logf(
+					ELogVerbosity::Error,
+					TEXT("AHAP audio resource exceeds its size limit: %s"),
+					*RelativePath
+				);
+			}
+			return nullptr;
+		}
+		TotalAudioBytes += AudioSize;
+		if (TotalAudioBytes > AudioLimits.MaximumTotalBytes)
+		{
+			if (Warn)
+			{
+				Warn->Logf(
+					ELogVerbosity::Error,
+					TEXT("AHAP audio resources exceed the total size limit")
+				);
+			}
+			return nullptr;
+		}
+		FOpenMobileHapticIOSAudioResource& AudioResource =
+			AudioResources.AddDefaulted_GetRef();
+		AudioResource.RelativePath = RelativePath;
+		if (!FFileHelper::LoadFileToArray(
+			AudioResource.Data,
+			*AudioFilename
+		))
+		{
+			if (Warn)
+			{
+				Warn->Logf(
+					ELogVerbosity::Error,
+					TEXT("Could not read AHAP audio resource: %s"),
+					*RelativePath
+				);
+			}
+			return nullptr;
+		}
+	}
 	UOpenMobileHapticIOSPatternAsset* Asset =
 		NewObject<UOpenMobileHapticIOSPatternAsset>(
 			InParent,
@@ -90,8 +171,9 @@ UObject* UOpenMobileHapticAHAPFactory::FactoryCreateFile(
 			Flags
 		);
 	TArray<FString> Errors;
-	if (!Asset || !Asset->SetAHAPSource(
+	if (!Asset || !Asset->SetAHAPSourceWithAudioResources(
 		Normalized.Resource.NormalizedJson,
+		AudioResources,
 		Errors
 	))
 	{

@@ -7,6 +7,8 @@ namespace OpenMobileHapticsAndroidBridgePrivate
 {
 	constexpr int32 ResultAccepted = 1;
 	constexpr int32 ResultSuppressed = 2;
+	constexpr int32 ResultFallback = 3;
+	constexpr int32 ResultDefaultAmplitude = 5;
 	constexpr int32 ResultPending = 6;
 
 	FCriticalSection ActiveBridgeMutex;
@@ -82,32 +84,32 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 	PlaySemanticMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playSemantic",
-		"(Landroid/app/Activity;JIFII)I"
+		"(Landroid/app/Activity;JIFIIJ)I"
 	);
 	PlayOneShotMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playOneShot",
-		"(Landroid/app/Activity;JJFII)I"
+		"(Landroid/app/Activity;JJFIIJ)I"
 	);
 	PlayWaveformMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playWaveform",
-		"(Landroid/app/Activity;J[J[III)I"
+		"(Landroid/app/Activity;J[J[IIIJ)I"
 	);
 	PlayPredefinedMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playPredefined",
-		"(Landroid/app/Activity;JII)I"
+		"(Landroid/app/Activity;JIIJ)I"
 	);
 	PlayPrimitivesMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playPrimitives",
-		"(Landroid/app/Activity;J[I[F[II)I"
+		"(Landroid/app/Activity;J[I[F[IIJ)I"
 	);
 	PlayEnvelopeMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playEnvelope",
-		"(Landroid/app/Activity;JI[F[F[JI)I"
+		"(Landroid/app/Activity;JI[F[F[JIJ)I"
 	);
 	StopAllMethod = Env->GetStaticMethodID(
 		BridgeClass,
@@ -202,6 +204,7 @@ FOpenMobileHapticsAndroidBridge::PlaySemantic(
 	float Intensity,
 	EOpenMobileHapticsSemanticPath Path,
 	int32 Purpose,
+	int64 StartDelayMilliseconds,
 	FName PatternOrEffect,
 	FName Channel,
 	FName ResolvedPath,
@@ -232,7 +235,8 @@ FOpenMobileHapticsAndroidBridge::PlaySemantic(
 		static_cast<jint>(Behavior),
 		static_cast<jfloat>(Intensity),
 		static_cast<jint>(Path),
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
@@ -248,12 +252,33 @@ FOpenMobileHapticsAndroidBridge::PlaySemantic(
 	return Submission;
 }
 
+void FOpenMobileHapticsAndroidBridge::RegisterScheduledCallback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	int32 Result,
+	FOpenMobileHapticsAndroidScheduledPlayback&& Scheduled
+)
+{
+	if (Result != OpenMobileHapticsAndroidBridgePrivate::ResultPending
+		|| Scheduled.StartDelayMilliseconds <= 0)
+	{
+		return;
+	}
+	FPendingCallback Pending;
+	Pending.Token = Token;
+	Pending.PatternOrEffect = Scheduled.PatternOrEffect;
+	Pending.Channel = Scheduled.Channel;
+	Pending.ResolvedPath = Scheduled.ResolvedPath;
+	Pending.Callback = MoveTemp(Scheduled.Callback);
+	PendingCallbacks.Add(Token.RequestId, MoveTemp(Pending));
+}
+
 int32 FOpenMobileHapticsAndroidBridge::PlayOneShot(
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	int64 DurationMillis,
 	float Intensity,
 	EOpenMobileHapticsOneShotPath Path,
-	int32 Purpose
+	int32 Purpose,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
 )
 {
 	FScopeLock Lock(&Mutex);
@@ -271,13 +296,15 @@ int32 FOpenMobileHapticsAndroidBridge::PlayOneShot(
 		static_cast<jlong>(DurationMillis),
 		static_cast<jfloat>(Intensity),
 		static_cast<jint>(Path),
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
 		ClearException(Env);
 		return 0;
 	}
+	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
 }
 
@@ -286,7 +313,8 @@ int32 FOpenMobileHapticsAndroidBridge::PlayWaveform(
 	const TArray<int64>& TimingsMilliseconds,
 	const TArray<int32>& Amplitudes,
 	int32 RepeatIndex,
-	int32 Purpose
+	int32 Purpose,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
 )
 {
 	const int32 Count = TimingsMilliseconds.Num();
@@ -346,20 +374,23 @@ int32 FOpenMobileHapticsAndroidBridge::PlayWaveform(
 		*TimingValues,
 		*AmplitudeValues,
 		static_cast<jint>(RepeatIndex),
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
 		ClearException(Env);
 		return 0;
 	}
+	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
 }
 
 int32 FOpenMobileHapticsAndroidBridge::PlayPredefined(
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	int32 Effect,
-	int32 Purpose
+	int32 Purpose,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
 )
 {
 	FScopeLock Lock(&Mutex);
@@ -375,13 +406,15 @@ int32 FOpenMobileHapticsAndroidBridge::PlayPredefined(
 		Activity,
 		static_cast<jlong>(Token.RequestId),
 		static_cast<jint>(Effect),
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
 		ClearException(Env);
 		return 0;
 	}
+	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
 }
 
@@ -390,7 +423,8 @@ int32 FOpenMobileHapticsAndroidBridge::PlayPrimitives(
 	const TArray<EOpenMobileHapticAndroidPrimitive>& Primitives,
 	const TArray<float>& Scales,
 	const TArray<int32>& DelaysMilliseconds,
-	int32 Purpose
+	int32 Purpose,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
 )
 {
 	const int32 Count = Primitives.Num();
@@ -462,13 +496,15 @@ int32 FOpenMobileHapticsAndroidBridge::PlayPrimitives(
 		*PrimitiveValues,
 		*ScaleValues,
 		*DelayValues,
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
 		ClearException(Env);
 		return 0;
 	}
+	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
 }
 
@@ -478,7 +514,8 @@ int32 FOpenMobileHapticsAndroidBridge::PlayEnvelope(
 	const TArray<float>& Amplitudes,
 	const TArray<float>& ControlValues,
 	const TArray<int64>& DurationsMilliseconds,
-	int32 Purpose
+	int32 Purpose,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
 )
 {
 	const int32 Count = Amplitudes.Num();
@@ -551,13 +588,15 @@ int32 FOpenMobileHapticsAndroidBridge::PlayEnvelope(
 		*AmplitudeValues,
 		*ControlValueArray,
 		*DurationValues,
-		static_cast<jint>(Purpose)
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
 	));
 	if (Env->ExceptionCheck())
 	{
 		ClearException(Env);
 		return 0;
 	}
+	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
 }
 
@@ -580,7 +619,12 @@ bool FOpenMobileHapticsAndroidBridge::StopAll()
 		ClearException(Env);
 		return false;
 	}
-	return Result == JNI_TRUE;
+	if (Result == JNI_TRUE)
+	{
+		PendingCallbacks.Reset();
+		return true;
+	}
+	return false;
 }
 
 void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
@@ -614,6 +658,9 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 	Callback.Event.State = Result
 		== OpenMobileHapticsAndroidBridgePrivate::ResultAccepted
 		|| Result == OpenMobileHapticsAndroidBridgePrivate::ResultSuppressed
+		|| Result == OpenMobileHapticsAndroidBridgePrivate::ResultFallback
+		|| Result
+			== OpenMobileHapticsAndroidBridgePrivate::ResultDefaultAmplitude
 		? EOpenMobileHapticPlaybackState::Completed
 		: EOpenMobileHapticPlaybackState::Failed;
 	Pending.Callback(Callback);

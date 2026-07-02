@@ -355,7 +355,7 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 		? Supported
 		: Unsupported;
 	Capabilities.AHAP = bAHAPEnabled ? Supported : Unsupported;
-	Capabilities.Scheduling = Unsupported;
+	Capabilities.Scheduling = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Pause = Unsupported;
 	Capabilities.Resume = Unsupported;
 	Capabilities.Seek = Unsupported;
@@ -639,6 +639,11 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			}
 			else
 			{
+				AHAP.Pattern.bScheduled = Request.Options.Schedule.Mode
+						!= EOpenMobileHapticScheduleMode::Immediate
+					|| Parameters.Timing.StartDelaySeconds > 0.0;
+				AHAP.Pattern.ScheduledPlatformTimeSeconds =
+					Parameters.Timing.Diagnostics.ResolvedPlatformTimeSeconds;
 				AHAP.Pattern.bHasInitialDynamicParameters = true;
 				if (Parameters.bHasInitialDynamicParameters)
 				{
@@ -758,12 +763,33 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 				Submission.Result.State =
 					EOpenMobileHapticPlaybackState::Accepted;
 				Submission.Result.ResolvedPath = ResolvedPath;
+				if (Request.Options.Schedule.Mode
+						== EOpenMobileHapticScheduleMode::AbsoluteAudioTime
+					&& IOSAsset->ContainsAudioEvents()
+					&& IOSAsset->ContainsHapticEvents())
+				{
+					Submission.Result.Synchronization =
+						Parameters.Timing.Diagnostics;
+					Submission.Result.Synchronization.Mode =
+						EOpenMobileHapticSynchronizationMode::
+							NativeAudioAndHaptics;
+				}
 				AppendAttempts(Submission, Attempts);
 				Submission.bCreatesControllablePlayback = true;
 				Submission.bExpectsCallbacks = true;
 				return Submission;
 			}
 		}
+	}
+	if (Request.Options.Schedule.Mode
+		!= EOpenMobileHapticScheduleMode::Immediate)
+	{
+		FOpenMobileHapticsBackendSubmission Submission;
+		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Scheduled Apple playback requires an AHAP platform override.")
+		);
+		return Submission;
 	}
 	const FOpenMobileHapticsFallbackResolution Ladder =
 		FOpenMobileHapticsFallbackPolicy::Resolve(

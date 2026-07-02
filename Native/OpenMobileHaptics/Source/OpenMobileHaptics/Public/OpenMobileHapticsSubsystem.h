@@ -123,6 +123,13 @@ public:
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Calibrate Haptic Timing Clock", ToolTip = "Captures a game or audio clock sample against platform monotonic time for absolute Haptics scheduling."))
+	FOpenMobileHapticTimingCalibrationResult CalibrateTimingClock(
+		EOpenMobileHapticTimingClock Clock,
+		double ClockTimeSeconds,
+		double EstimatedPrecisionSeconds = 0.005
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Preload Named Haptic Libraries", ToolTip = "Asynchronously loads configured Haptics libraries and their portable patterns."))
 	FOpenMobileHapticLibraryPreloadHandle PreloadNamedLibraries();
 

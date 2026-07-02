@@ -76,6 +76,17 @@ FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve(
 	Resolution.Outcome = EOpenMobileHapticsAppleAHAPOutcome::Ready;
 	Resolution.Reason = TEXT("Ready");
 	Resolution.Pattern.NormalizedJson = Asset.GetNormalizedAHAPJson();
+	Resolution.Pattern.AudioResources.Reserve(
+		Asset.GetAudioResources().Num()
+	);
+	for (const FOpenMobileHapticIOSAudioResource& Resource :
+		Asset.GetAudioResources())
+	{
+		FOpenMobileHapticsAppleAudioResource& NativeResource =
+			Resolution.Pattern.AudioResources.AddDefaulted_GetRef();
+		NativeResource.RelativePath = Resource.RelativePath;
+		NativeResource.Data = Resource.Data;
+	}
 	Resolution.Pattern.DurationSeconds = Asset.GetAHAPDurationSeconds();
 	Resolution.Pattern.SafetyDurationSeconds = FMath::Max(
 		Asset.GetAHAPDurationSeconds(),

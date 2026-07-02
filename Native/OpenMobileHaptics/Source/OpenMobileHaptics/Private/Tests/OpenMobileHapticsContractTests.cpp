@@ -19,6 +19,7 @@
 #include "OpenMobileHapticsDynamicParameterPolicy.h"
 #include "OpenMobileHapticsAHAPPolicy.h"
 #include "OpenMobileHapticsAppleAHAPPlaybackPolicy.h"
+#include "OpenMobileHapticsAppleAudioResourcePolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
@@ -40,6 +41,7 @@
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
+#include "OpenMobileHapticsTimingPolicy.h"
 #include "OpenMobileHapticsTypes.h"
 #include "UObject/UnrealType.h"
 
@@ -382,6 +384,76 @@ bool FOpenMobileHapticsIntensityPolicyTest::RunTest(const FString& Parameters)
 			EOpenMobileHapticFallbackPolicy::Automatic
 		).Outcome,
 		EOpenMobileHapticsIntensityOutcome::Suppressed);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAppleAudioResourcePolicyTest,
+	"OpenMobile.Haptics.Apple.AHAP.AudioResources",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAppleAudioResourcePolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	auto MakeCAF = [](const TCHAR* Path)
+	{
+		FOpenMobileHapticIOSAudioResource Resource;
+		Resource.RelativePath = Path;
+		Resource.Data = {'c', 'a', 'f', 'f', 0, 1, 0, 0};
+		return Resource;
+	};
+
+	const FOpenMobileHapticsAppleAudioResourceValidation Valid =
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("Audio/click.caf")},
+			{MakeCAF(TEXT("Audio/click.caf"))}
+		);
+	TestTrue(TEXT("A referenced CAF resource is accepted"), Valid.bSuccess);
+
+	TestEqual(TEXT("Missing resources have a typed error"),
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("Audio/click.caf")},
+			{}
+		).Error,
+		EOpenMobileHapticsAppleAudioResourceError::MissingResource);
+	TestEqual(TEXT("Traversal is rejected as an unsafe path"),
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("../click.caf")},
+			{}
+		).Error,
+		EOpenMobileHapticsAppleAudioResourceError::UnsafePath);
+	TestEqual(TEXT("Unsupported containers have a distinct error"),
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("Audio/click.mp3")},
+			{}
+		).Error,
+		EOpenMobileHapticsAppleAudioResourceError::UnsupportedFormat);
+	TestEqual(TEXT("Duplicate resources are rejected"),
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("Audio/click.caf")},
+			{
+				MakeCAF(TEXT("Audio/click.caf")),
+				MakeCAF(TEXT("Audio/click.caf"))
+			}
+		).Error,
+		EOpenMobileHapticsAppleAudioResourceError::DuplicateResource);
+
+	FOpenMobileHapticsAppleAudioResourceLimits Limits;
+	Limits.MaximumResourceBytes = 8;
+	Limits.MaximumTotalBytes = 12;
+	TestEqual(TEXT("Aggregate resource bytes are bounded"),
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			{TEXT("Audio/a.caf"), TEXT("Audio/b.caf")},
+			{
+				MakeCAF(TEXT("Audio/a.caf")),
+				MakeCAF(TEXT("Audio/b.caf"))
+			},
+			Limits
+		).Error,
+		EOpenMobileHapticsAppleAudioResourceError::TotalSizeExceeded);
 	return true;
 }
 
@@ -1344,6 +1416,8 @@ bool FOpenMobileHapticsAHAPNormalizationTest::RunTest(
 		Result.Resource.bRequiresAdvancedPlayer);
 	TestTrue(TEXT("Audio presence is retained"),
 		Result.Resource.bContainsAudioEvents);
+	TestTrue(TEXT("Haptic presence is retained"),
+		Result.Resource.bContainsHapticEvents);
 	TestEqual(TEXT("Pattern duration includes event endings"),
 		Result.Resource.DurationSeconds, 0.7);
 	TestEqual(TEXT("Normalization is deterministic"),
@@ -5532,5 +5606,97 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
+
+#if WITH_EDITORONLY_DATA
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAudioScheduleSubsystemTest,
+	"OpenMobile.Haptics.Timing.SubsystemSchedule",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAudioScheduleSubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	FMockBackend Backend(TEXT("TimingMock"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("The timing test pattern builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	const FOpenMobileHapticTimingCalibrationResult Calibration =
+		Subsystem->CalibrateTimingClock(
+			EOpenMobileHapticTimingClock::Audio,
+			100.0,
+			0.003
+		);
+	TestTrue(TEXT("The audio schedule clock calibrates"),
+		Calibration.bAccepted);
+
+	FOpenMobileHapticNamedPatternRequest Request;
+	Request.PatternName = TEXT("AudioAlignedImpact");
+	Request.PatternAsset = FSoftObjectPath(Pattern);
+	Request.Options.Channel = TEXT("AudioSync");
+	Request.Options.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::AbsoluteAudioTime;
+	Request.Options.Schedule.TimeSeconds = 100.5;
+	const FOpenMobileHapticPlaybackResult Result =
+		Subsystem->SubmitNamedPattern(Request);
+
+	TestTrue(TEXT("The calibrated request is accepted"), Result.IsAccepted());
+	TestEqual(TEXT("A future request returns scheduled state"),
+		Result.State, EOpenMobileHapticPlaybackState::Scheduled);
+	TestEqual(TEXT("The backend receives a resolved timing target"),
+		Backend.LastNamedPlaybackParameters.Timing.Outcome,
+		EOpenMobileHapticsTimingOutcome::Ready);
+	TestTrue(TEXT("The backend receives a bounded future delay"),
+		Backend.LastNamedPlaybackParameters.Timing.StartDelaySeconds > 0.0
+			&& Backend.LastNamedPlaybackParameters.Timing.StartDelaySeconds
+				<= 0.5);
+	TestEqual(TEXT("External audio scheduling is explicitly best effort"),
+		Result.Synchronization.Mode,
+		EOpenMobileHapticSynchronizationMode::BestEffort);
+	TestEqual(TEXT("The result reports the selected audio clock"),
+		Result.Synchronization.Clock,
+		EOpenMobileHapticTimingClock::Audio);
+
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Unsupported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	Request.Options.Channel = TEXT("LatencyOffset");
+	Request.Options.Schedule.Mode = EOpenMobileHapticScheduleMode::Immediate;
+	Request.Options.Schedule.TimeSeconds = 0.0;
+	Request.Options.Schedule.LatencyOffsetSeconds = 0.02;
+	TestFalse(TEXT("A positive immediate offset still requires scheduling"),
+		Subsystem->SubmitNamedPattern(Request).IsAccepted());
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+#endif
 
 #endif

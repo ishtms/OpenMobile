@@ -130,6 +130,30 @@ enum class EOpenMobileHapticScheduleMode : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticTimingClock : uint8
+{
+	None,
+	Game,
+	Audio
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileHapticTimingCalibrationStatus : uint8
+{
+	Rejected,
+	Accepted,
+	ClockDiscontinuity
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileHapticSynchronizationMode : uint8
+{
+	None,
+	NativeAudioAndHaptics,
+	BestEffort
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticPlaybackState : uint8
 {
 	Invalid,
@@ -676,6 +700,84 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticSchedule
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticTimingAnchor
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticTimingClock Clock = EOpenMobileHapticTimingClock::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double ClockTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double PlatformMonotonicTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double EstimatedPrecisionSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 CalibrationRevision = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 LifecycleGeneration = 0;
+
+	bool IsValid() const
+	{
+		return Clock != EOpenMobileHapticTimingClock::None
+			&& CalibrationRevision > 0
+			&& LifecycleGeneration > 0;
+	}
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticTimingCalibrationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bAccepted = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticTimingCalibrationStatus Status =
+		EOpenMobileHapticTimingCalibrationStatus::Rejected;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticTimingAnchor Anchor;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FString Error;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticSynchronizationDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSynchronizationMode Mode =
+		EOpenMobileHapticSynchronizationMode::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticTimingClock Clock = EOpenMobileHapticTimingClock::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double RequestedTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double ResolvedPlatformTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double EstimatedPrecisionSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double LatenessSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 CalibrationRevision = 0;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticLoopOptions
 {
 	GENERATED_BODY()
@@ -899,6 +1001,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticIntensityDiagnostics Intensity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticSynchronizationDiagnostics Synchronization;
 
 	bool IsAccepted() const
 	{

@@ -416,6 +416,13 @@ bool FOpenMobileHapticsAppleAHAPBridgeTest::RunTest(
 	Pattern.bRequiresAdvancedPlayer = true;
 	Pattern.bLoop = true;
 	Pattern.SafetyDurationSeconds = 1.0;
+	FOpenMobileHapticsAppleAudioResource AudioResource;
+	AudioResource.RelativePath = TEXT("Audio/Explosion.caf");
+	AudioResource.Data = {'c', 'a', 'f', 'f', 0, 1, 0, 0};
+	Pattern.AudioResources.Add(AudioResource);
+	Pattern.bScheduled = true;
+	Pattern.ScheduledPlatformTimeSeconds = 123.5;
+	Pattern.MaximumLatenessSeconds = 0.05;
 	TestEqual(TEXT("Advanced AHAP controls reach the bridge"),
 		Service.PlayAHAPPattern(92, Pattern, {}),
 		EOpenMobileHapticsAppleSubmissionResult::Accepted);
@@ -425,6 +432,12 @@ bool FOpenMobileHapticsAppleAHAPBridgeTest::RunTest(
 		Mock->LastAHAPPattern.bLoop);
 	TestEqual(TEXT("AHAP safety duration is retained"),
 		Mock->LastAHAPPattern.SafetyDurationSeconds, 1.0);
+	TestEqual(TEXT("Cooked audio resources stay request owned"),
+		Mock->LastAHAPPattern.AudioResources.Num(), 1);
+	TestEqual(TEXT("The native target time stays monotonic"),
+		Mock->LastAHAPPattern.ScheduledPlatformTimeSeconds, 123.5);
+	TestEqual(TEXT("The late-start bound reaches native playback"),
+		Mock->LastAHAPPattern.MaximumLatenessSeconds, 0.05);
 	return true;
 }
 

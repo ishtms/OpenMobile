@@ -25,6 +25,7 @@ public:
 	);
 	static void SetApplicationActive(bool bActive);
 	static bool IsApplicationActive();
+	static uint64 GetLifecycleGeneration();
 	static void NotifyLifecycleChange();
 	static bool IsShuttingDown();
 	static void BeginShutdown();

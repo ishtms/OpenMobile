@@ -38,7 +38,10 @@ struct FOpenMobileHapticsAHAPResource
 	int32 AudioEventCount = 0;
 	int32 ParameterCount = 0;
 	int32 ParameterCurveCount = 0;
+	TArray<FString> ExternalAudioResourcePaths;
+	bool bContainsHapticEvents = false;
 	bool bContainsAudioEvents = false;
+	bool bContainsCustomAudioEvents = false;
 	bool bRequiresAdvancedPlayer = false;
 };
 
@@ -56,7 +59,8 @@ class OPENMOBILEHAPTICS_API FOpenMobileHapticsAHAPPolicy final
 public:
 	static FOpenMobileHapticsAHAPNormalizationResult Normalize(
 		const FString& Source,
-		const FOpenMobileHapticsAHAPLimits& Limits = {}
+		const FOpenMobileHapticsAHAPLimits& Limits = {},
+		bool bAllowExternalAudioResources = false
 	);
 
 	static FString DescribeError(

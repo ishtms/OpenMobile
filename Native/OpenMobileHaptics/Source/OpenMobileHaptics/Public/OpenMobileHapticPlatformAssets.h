@@ -83,6 +83,18 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidEnvelopePoint
 	float Sharpness = 0.5f;
 };
 
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticIOSAudioResource
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "iOS")
+	FString RelativePath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "iOS")
+	TArray<uint8> Data;
+};
+
 UCLASS(Abstract, BlueprintType)
 class OPENMOBILEHAPTICS_API UOpenMobileHapticPlatformPatternAsset
 	: public UPrimaryDataAsset
@@ -177,6 +189,11 @@ public:
 	int32 MinimumIOSMajorVersion = 13;
 
 	bool SetAHAPSource(const FString& Source, TArray<FString>& Errors);
+	bool SetAHAPSourceWithAudioResources(
+		const FString& Source,
+		const TArray<FOpenMobileHapticIOSAudioResource>& InAudioResources,
+		TArray<FString>& Errors
+	);
 
 	const FString& GetNormalizedAHAPJson() const
 	{
@@ -196,6 +213,18 @@ public:
 	bool ContainsAudioEvents() const
 	{
 		return bContainsAudioEvents;
+	}
+
+	bool ContainsHapticEvents() const;
+
+	bool ContainsCustomAudioEvents() const
+	{
+		return bContainsCustomAudioEvents;
+	}
+
+	const TArray<FOpenMobileHapticIOSAudioResource>& GetAudioResources() const
+	{
+		return AudioResources;
 	}
 
 #if WITH_EDITOR
@@ -236,6 +265,12 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "iOS")
 	bool bContainsAudioEvents = false;
+
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	bool bContainsCustomAudioEvents = false;
+
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	TArray<FOpenMobileHapticIOSAudioResource> AudioResources;
 
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(VisibleAnywhere, Instanced, Category = "Import")

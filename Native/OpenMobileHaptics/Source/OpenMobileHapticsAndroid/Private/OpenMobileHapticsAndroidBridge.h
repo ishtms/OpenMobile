@@ -24,6 +24,15 @@ struct FOpenMobileHapticsAndroidBridgeSubmission
 	bool bExpectsCallback = false;
 };
 
+struct FOpenMobileHapticsAndroidScheduledPlayback
+{
+	int64 StartDelayMilliseconds = 0;
+	FName PatternOrEffect;
+	FName Channel;
+	FName ResolvedPath;
+	FOpenMobileHapticsBackendEventCallback Callback;
+};
+
 class FOpenMobileHapticsAndroidBridge final
 {
 public:
@@ -37,6 +46,7 @@ public:
 		float Intensity,
 		EOpenMobileHapticsSemanticPath Path,
 		int32 Purpose,
+		int64 StartDelayMilliseconds,
 		FName PatternOrEffect,
 		FName Channel,
 		FName ResolvedPath,
@@ -47,26 +57,30 @@ public:
 		int64 DurationMillis,
 		float Intensity,
 		EOpenMobileHapticsOneShotPath Path,
-		int32 Purpose
+		int32 Purpose,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
 	int32 PlayWaveform(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const TArray<int64>& TimingsMilliseconds,
 		const TArray<int32>& Amplitudes,
 		int32 RepeatIndex,
-		int32 Purpose
+		int32 Purpose,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
 	int32 PlayPredefined(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		int32 Effect,
-		int32 Purpose
+		int32 Purpose,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
 	int32 PlayPrimitives(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const TArray<EOpenMobileHapticAndroidPrimitive>& Primitives,
 		const TArray<float>& Scales,
 		const TArray<int32>& DelaysMilliseconds,
-		int32 Purpose
+		int32 Purpose,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
 	int32 PlayEnvelope(
 		const FOpenMobileHapticsBackendRequestToken& Token,
@@ -74,7 +88,8 @@ public:
 		const TArray<float>& Amplitudes,
 		const TArray<float>& ControlValues,
 		const TArray<int64>& DurationsMilliseconds,
-		int32 Purpose
+		int32 Purpose,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
 	bool StopAll();
 	void Shutdown();
@@ -92,6 +107,11 @@ private:
 
 	bool EnsureInitialized(JNIEnv* Env);
 	void ClearException(JNIEnv* Env);
+	void RegisterScheduledCallback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		int32 Result,
+		FOpenMobileHapticsAndroidScheduledPlayback&& Scheduled
+	);
 
 	FCriticalSection Mutex;
 	jclass BridgeClass = nullptr;

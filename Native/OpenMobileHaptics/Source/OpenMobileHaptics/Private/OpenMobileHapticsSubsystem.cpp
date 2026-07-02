@@ -19,6 +19,7 @@
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "OpenMobileHapticsTimingPolicy.h"
 
 struct FOpenMobileHapticsSubsystemRequestState
 {
@@ -55,6 +56,7 @@ struct FOpenMobileHapticsSubsystemState
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
 	FOpenMobileHapticsRateLimiter RateLimiter;
 	FOpenMobileHapticsDynamicParameterPolicy DynamicParameterPolicy;
+	FOpenMobileHapticsTimingPolicy TimingPolicy;
 	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
 };
 
@@ -105,6 +107,54 @@ namespace OpenMobileHapticsSubsystemPrivate
 		Result.State = EOpenMobileHapticPlaybackState::Completed;
 		Result.Channel = Channel;
 		Result.ResolvedPath = Reason;
+		return Result;
+	}
+
+	FOpenMobileHapticPlaybackResult MakeTimingRejectedPlaybackResult(
+		EOpenMobileHapticsTimingOutcome Outcome,
+		FName Effect,
+		FName Channel
+	)
+	{
+		EOpenMobileHapticsFailureReason Reason =
+			EOpenMobileHapticsFailureReason::InvalidRequest;
+		EOpenMobileHapticFailureStage Stage =
+			EOpenMobileHapticFailureStage::Validation;
+		if (Outcome == EOpenMobileHapticsTimingOutcome::MissingCalibration
+			|| Outcome
+				== EOpenMobileHapticsTimingOutcome::StaleCalibration
+			|| Outcome
+				== EOpenMobileHapticsTimingOutcome::ClockDiscontinuity)
+		{
+			Reason = EOpenMobileHapticsFailureReason::NotConfigured;
+			Stage = EOpenMobileHapticFailureStage::Preparation;
+		}
+		FOpenMobileHapticPlaybackResult Result = MakeRejectedPlaybackResult(
+			Reason,
+			Stage,
+			Effect,
+			Channel
+		);
+		if (Outcome == EOpenMobileHapticsTimingOutcome::MissingCalibration
+			|| Outcome
+				== EOpenMobileHapticsTimingOutcome::StaleCalibration)
+		{
+			Result.Error.Message = TEXT(
+				"Calibrate the selected timing clock before absolute scheduling."
+			);
+		}
+		else if (Outcome == EOpenMobileHapticsTimingOutcome::TooLate)
+		{
+			Result.Error.Message = TEXT(
+				"The requested Haptics start time is too far in the past."
+			);
+		}
+		else if (Outcome == EOpenMobileHapticsTimingOutcome::TooFar)
+		{
+			Result.Error.Message = TEXT(
+				"The requested Haptics start time exceeds the scheduling horizon."
+			);
+		}
 		return Result;
 	}
 
@@ -601,6 +651,25 @@ UOpenMobileHapticsSubsystem::PlayNamedPatternAdvanced(
 	Request.Intensity = Intensity;
 	Request.Options = Options;
 	return SubmitNamedPattern(Request);
+}
+
+FOpenMobileHapticTimingCalibrationResult
+UOpenMobileHapticsSubsystem::CalibrateTimingClock(
+	EOpenMobileHapticTimingClock Clock,
+	double ClockTimeSeconds,
+	double EstimatedPrecisionSeconds
+)
+{
+	check(IsInGameThread());
+	return GetOrCreateState().TimingPolicy.Calibrate(
+		Clock,
+		ClockTimeSeconds,
+		FPlatformTime::Seconds(),
+		EstimatedPrecisionSeconds,
+		static_cast<int64>(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		)
+	);
 }
 
 FOpenMobileHapticLibraryPreloadHandle
@@ -1741,6 +1810,47 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 
 	const FOpenMobileHapticCapabilities Capabilities =
 		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	if ((Request.Options.Schedule.Mode
+				!= EOpenMobileHapticScheduleMode::Immediate
+			|| Request.Options.Schedule.LatencyOffsetSeconds > 0.0)
+		&& Capabilities.Scheduling
+			!= EOpenMobileHapticSupportState::Supported)
+	{
+		FOpenMobileHapticPlaybackResult Result =
+			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::UnsupportedFeature,
+				EOpenMobileHapticFailureStage::Capability,
+				Request.PatternName,
+				Request.Options.Channel
+			);
+		LocalState.LastError = Result.Error;
+		return Result;
+	}
+	const EOpenMobileHapticSynchronizationMode SynchronizationMode =
+		Request.Options.Schedule.Mode
+			== EOpenMobileHapticScheduleMode::AbsoluteAudioTime
+				? EOpenMobileHapticSynchronizationMode::BestEffort
+				: EOpenMobileHapticSynchronizationMode::None;
+	const FOpenMobileHapticsTimingResolution Timing =
+		LocalState.TimingPolicy.Resolve(
+			Request.Options.Schedule,
+			FPlatformTime::Seconds(),
+			static_cast<int64>(
+				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+			),
+			SynchronizationMode
+		);
+	if (Timing.Outcome != EOpenMobileHapticsTimingOutcome::Ready)
+	{
+		FOpenMobileHapticPlaybackResult Result =
+			OpenMobileHapticsSubsystemPrivate::MakeTimingRejectedPlaybackResult(
+				Timing.Outcome,
+				Request.PatternName,
+				Request.Options.Channel
+			);
+		LocalState.LastError = Result.Error;
+		return Result;
+	}
 	const bool bSupportsDynamicParameters =
 		Capabilities.DynamicParameters
 			== EOpenMobileHapticSupportState::Supported
@@ -1753,6 +1863,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		bSupportsDynamicParameters;
 	PlaybackParameters.InitialDynamicParameters.Intensity =
 		MutablePolicyScale;
+	PlaybackParameters.Timing = Timing;
 
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
@@ -1763,18 +1874,35 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	RequestState.Effect = ResolvedRequest.PatternName;
 	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
 	LocalState.Requests.Add(Token.RequestId, RequestState);
-	FOpenMobileHapticPlaybackResult Result =
-		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
-		LocalState,
-		Token,
-		ResolvedRequest.Options.Channel,
+	FOpenMobileHapticsBackendSubmission Submission =
 		Backend->SubmitNamedPattern(
 			ResolvedRequest,
 			PlaybackParameters,
 			Token,
 			MakeBackendCallback()
-		)
-	);
+		);
+	if (Submission.Result.IsAccepted())
+	{
+		if (Submission.Result.Synchronization.Mode
+			== EOpenMobileHapticSynchronizationMode::None)
+		{
+			Submission.Result.Synchronization = Timing.Diagnostics;
+		}
+		if (Timing.StartDelaySeconds > 0.0
+			&& Submission.Result.State
+				== EOpenMobileHapticPlaybackState::Accepted)
+		{
+			Submission.Result.State =
+				EOpenMobileHapticPlaybackState::Scheduled;
+		}
+	}
+	FOpenMobileHapticPlaybackResult Result =
+		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
+			LocalState,
+			Token,
+			ResolvedRequest.Options.Channel,
+			MoveTemp(Submission)
+		);
 	if (Result.IsAccepted())
 	{
 		Result.Intensity.Requested = Request.Intensity;

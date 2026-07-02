@@ -8,6 +8,7 @@
 namespace OpenMobileHapticsBackendRegistryPrivate
 {
 	TAtomic<uint64> Generation(1);
+	TAtomic<uint64> LifecycleGeneration(1);
 	TAtomic<bool> bShuttingDown(false);
 	TAtomic<bool> bApplicationActive(true);
 	uint64 NextRequestId = 1;
@@ -21,6 +22,15 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		if (Generation.Load() == 0)
 		{
 			Generation++;
+		}
+	}
+
+	void AdvanceLifecycleGeneration()
+	{
+		LifecycleGeneration++;
+		if (LifecycleGeneration.Load() == 0)
+		{
+			LifecycleGeneration++;
 		}
 	}
 
@@ -242,6 +252,7 @@ void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
 	{
 		return;
 	}
+	AdvanceLifecycleGeneration();
 	for (IOpenMobileHapticsBackend* Backend : GetBackends())
 	{
 		if (Backend)
@@ -261,6 +272,11 @@ void FOpenMobileHapticsBackendRegistry::SetApplicationActive(bool bActive)
 bool FOpenMobileHapticsBackendRegistry::IsApplicationActive()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bApplicationActive.Load();
+}
+
+uint64 FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+{
+	return OpenMobileHapticsBackendRegistryPrivate::LifecycleGeneration.Load();
 }
 
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
@@ -297,6 +313,7 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	bApplicationActive.Store(true);
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
+	AdvanceLifecycleGeneration();
 	PublishCapabilities();
 }
 #endif

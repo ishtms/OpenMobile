@@ -635,7 +635,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"const FOpenMobileHapticsBackendPlaybackParameters& Parameters",
 			android_backend,
 		)
-		self.assertIn("static_cast<void>(Parameters)", android_backend)
+		self.assertIn("MakeScheduledPlayback", android_backend)
+		self.assertNotIn("static_cast<void>(Parameters)", android_backend)
 
 	def test_apple_ahap_import_and_native_playback_are_bounded(self) -> None:
 		editor_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsEditor"
@@ -679,7 +680,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		)
 		self.assertLess(
 			ahap_native.index("bRequiresAdvancedPlayer"),
-			ahap_native.index("startAtTime:CHHapticTimeImmediate"),
+			ahap_native.index("startAtTime:StartTime"),
 		)
 		self.assertIn("BridgeService->PlayAHAPPattern", backend)
 		self.assertIn("FOpenMobileHapticsAppleAHAPPlaybackPolicy::Resolve", backend)
@@ -693,6 +694,94 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("ComposeDynamicUpdate", backend)
 		self.assertGreaterEqual(backend.count("ForgetAHAPIntensityScale"), 3)
 		self.assertNotIn("AHAPPlaybackPending", backend)
+
+	def test_apple_custom_audio_preparation_is_async_and_bounded(self) -> None:
+		bridge = load_ios_bridge()
+		backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"MaximumActiveAudioResourceBytes",
+			"MaximumActiveAudioPatternCount",
+			"Pattern.AudioResources",
+			"AudioPreparationQueue",
+			"dispatch_queue_create",
+			"DISPATCH_QUEUE_SERIAL",
+			"initWithContentsOfURL",
+			"PendingAHAPRequests",
+			"ResourceDirectories",
+			"removeItemAtPath",
+			"Engine.currentTime",
+			"FPlatformTime::Seconds()",
+		):
+			self.assertIn(token, bridge)
+		self.assertLess(
+			bridge.index("dispatch_async(AudioPreparationQueue"),
+			bridge.index("initWithContentsOfURL"),
+		)
+		self.assertIn("Pattern.MaximumLatenessSeconds", bridge)
+		self.assertIn("Pattern.ScheduledPlatformTimeSeconds", bridge)
+		self.assertIn("NativeAudioAndHaptics", backend)
+		self.assertIn("IOSAsset->ContainsHapticEvents()", backend)
+
+		factory = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsEditor"
+			/ "Private"
+			/ "OpenMobileHapticAHAPFactory.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("MaximumResourceBytes", factory)
+		self.assertIn("MaximumResourceCount", factory)
+		self.assertIn("MaximumTotalBytes", factory)
+		self.assertIn("SetAHAPSourceWithAudioResources", factory)
+
+	def test_android_scheduled_patterns_use_best_effort_main_looper(self) -> None:
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		bridge = load_android_bridge()
+		for token in (
+			"MAXIMUM_SCHEDULED_DELAY_MILLIS",
+			"Handler",
+			"SystemClock.uptimeMillis()",
+			"postAtTime",
+			"SCHEDULED_REQUESTS",
+			"removeCallbacks",
+			"cancelScheduledRequests",
+			"RESULT_PENDING",
+		):
+			self.assertIn(token, bridge)
+
+		native_bridge = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("StartDelayMilliseconds", native_bridge)
+		self.assertIn("PendingCallbacks.Add", native_bridge)
+		self.assertIn("ResultPending", native_bridge)
+
+		backend = (
+			android_root
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("Parameters.Timing.StartDelaySeconds", backend)
+		self.assertIn("EOpenMobileHapticSynchronizationMode::BestEffort", backend)
+		self.assertIn(
+			"Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported",
+			backend,
+		)
+		self.assertNotIn("NativeAudioAndHaptics", backend)
+		self.assertIn("EstimatedPrecisionSeconds = FMath::Max", backend)
+		self.assertIn("0.010", backend)
+		self.assertIn(
+			"Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported",
+			backend,
+		)
 
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
@@ -904,8 +993,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		native_bridge = (
 			android_root / "Private" / "OpenMobileHapticsAndroidBridge.cpp"
 		).read_text(encoding="utf-8")
-		self.assertIn('"(Landroid/app/Activity;J[J[III)I"', native_bridge)
-		self.assertIn('"(Landroid/app/Activity;JII)I"', native_bridge)
+		self.assertIn('"(Landroid/app/Activity;J[J[IIIJ)I"', native_bridge)
+		self.assertIn('"(Landroid/app/Activity;JIIJ)I"', native_bridge)
 		self.assertIn("FScopedJavaObject<jlongArray>", native_bridge)
 		self.assertIn("FScopedJavaObject<jintArray>", native_bridge)
 

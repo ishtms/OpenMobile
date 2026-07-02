@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsAHAPPolicy.h"
 
 #include "Dom/JsonObject.h"
+#include "OpenMobileHapticsAppleAudioResourcePolicy.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -26,6 +27,11 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		double Time = 0.0;
 		double Duration = 0.0;
 		bool bHasDuration = false;
+		FString WaveformPath;
+		bool bHasWaveformLoopEnabled = false;
+		bool bWaveformLoopEnabled = false;
+		bool bHasWaveformUseVolumeEnvelope = false;
+		bool bWaveformUseVolumeEnvelope = false;
 		TArray<FParameter> Parameters;
 	};
 
@@ -74,7 +80,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		FString& OutUnsupported
 	)
 	{
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object.Values)
+		for (const auto& Pair : Object.Values)
 		{
 			bool bKnown = false;
 			for (const TCHAR* Key : Keys)
@@ -222,24 +228,21 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		const FOpenMobileHapticsAHAPLimits& Limits,
 		FEntry& OutEntry,
 		FOpenMobileHapticsAHAPResource& Resource,
-		int32& TotalParameters
+		int32& TotalParameters,
+		bool bAllowExternalAudioResources
 	)
 	{
 		const FString Path = FString::Printf(
 			TEXT("Pattern[%d].Event"), EntryIndex);
-		if (Object.HasField(TEXT("EventWaveformPath")))
-		{
-			return Fail(
-				EOpenMobileHapticsAHAPError::ExternalResourcePath,
-				Path + TEXT(".EventWaveformPath")
-			);
-		}
 		FString Unsupported;
 		if (!HasOnlyKeys(Object, {
 			TEXT("EventType"),
 			TEXT("Time"),
 			TEXT("Duration"),
-			TEXT("EventParameters")
+			TEXT("EventParameters"),
+			TEXT("EventWaveformPath"),
+			TEXT("EventWaveformLoopEnabled"),
+			TEXT("EventWaveformUseVolumeEnvelope")
 		}, Unsupported))
 		{
 			return Fail(EOpenMobileHapticsAHAPError::UnsupportedKey,
@@ -254,8 +257,11 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		}
 		const bool bHaptic = OutEntry.Event.Type == TEXT("HapticTransient")
 			|| OutEntry.Event.Type == TEXT("HapticContinuous");
-		const bool bAudio = OutEntry.Event.Type == TEXT("AudioContinuous");
-		if (OutEntry.Event.Type == TEXT("AudioCustom"))
+		const bool bCustomAudio =
+			OutEntry.Event.Type == TEXT("AudioCustom");
+		const bool bAudio = OutEntry.Event.Type == TEXT("AudioContinuous")
+			|| bCustomAudio;
+		if (bCustomAudio && !bAllowExternalAudioResources)
 		{
 			return Fail(EOpenMobileHapticsAHAPError::ExternalResourcePath,
 				Path + TEXT(".EventWaveformPath"));
@@ -264,6 +270,65 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		{
 			return Fail(EOpenMobileHapticsAHAPError::InvalidValue,
 				Path + TEXT(".EventType"));
+		}
+		const bool bHasWaveformPath =
+			Object.HasField(TEXT("EventWaveformPath"));
+		const bool bHasWaveformLoop =
+			Object.HasField(TEXT("EventWaveformLoopEnabled"));
+		const bool bHasWaveformEnvelope =
+			Object.HasField(TEXT("EventWaveformUseVolumeEnvelope"));
+		if (!bCustomAudio
+			&& (bHasWaveformPath
+				|| bHasWaveformLoop
+				|| bHasWaveformEnvelope))
+		{
+			return Fail(EOpenMobileHapticsAHAPError::InvalidValue,
+				Path + TEXT(".EventWaveformPath"));
+		}
+		if (bCustomAudio && !bHasWaveformPath)
+		{
+			return Fail(EOpenMobileHapticsAHAPError::MissingKey,
+				Path + TEXT(".EventWaveformPath"));
+		}
+		if (bCustomAudio)
+		{
+			FString SourcePath;
+			if (!ReadString(Object, TEXT("EventWaveformPath"),
+				SourcePath, ReadError)
+				|| !FOpenMobileHapticsAppleAudioResourcePolicy::NormalizeRelativePath(
+					SourcePath,
+					OutEntry.Event.WaveformPath
+				))
+			{
+				return Fail(
+					EOpenMobileHapticsAHAPError::ExternalResourcePath,
+					Path + TEXT(".EventWaveformPath")
+				);
+			}
+			if (bHasWaveformLoop
+				&& !Object.TryGetBoolField(
+					TEXT("EventWaveformLoopEnabled"),
+					OutEntry.Event.bWaveformLoopEnabled
+				))
+			{
+				return Fail(EOpenMobileHapticsAHAPError::InvalidStructure,
+					Path + TEXT(".EventWaveformLoopEnabled"));
+			}
+			if (bHasWaveformEnvelope
+				&& !Object.TryGetBoolField(
+					TEXT("EventWaveformUseVolumeEnvelope"),
+					OutEntry.Event.bWaveformUseVolumeEnvelope
+				))
+			{
+				return Fail(EOpenMobileHapticsAHAPError::InvalidStructure,
+					Path + TEXT(".EventWaveformUseVolumeEnvelope"));
+			}
+			OutEntry.Event.bHasWaveformLoopEnabled = bHasWaveformLoop;
+			OutEntry.Event.bHasWaveformUseVolumeEnvelope =
+				bHasWaveformEnvelope;
+			Resource.ExternalAudioResourcePaths.AddUnique(
+				OutEntry.Event.WaveformPath
+			);
 		}
 		if (!ReadNumber(Object, TEXT("Time"), OutEntry.Event.Time, ReadError))
 		{
@@ -287,12 +352,13 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 			}
 			OutEntry.Event.bHasDuration = true;
 		}
-		else if (bContinuous)
+		else if (bContinuous || bCustomAudio)
 		{
 			return Fail(EOpenMobileHapticsAHAPError::MissingKey,
 				Path + TEXT(".Duration"));
 		}
-		if ((bContinuous && OutEntry.Event.Duration <= 0.0)
+		if (((bContinuous || bCustomAudio)
+				&& OutEntry.Event.Duration <= 0.0)
 			|| OutEntry.Event.Duration < 0.0
 			|| OutEntry.Event.Time + OutEntry.Event.Duration
 				> Limits.MaximumDurationSeconds)
@@ -374,10 +440,12 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 			++Resource.AudioEventCount;
 			Resource.bContainsAudioEvents = true;
 			Resource.bRequiresAdvancedPlayer = true;
+			Resource.bContainsCustomAudioEvents |= bCustomAudio;
 		}
 		else
 		{
 			++Resource.HapticEventCount;
+			Resource.bContainsHapticEvents = true;
 		}
 		return {};
 	}
@@ -575,6 +643,27 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 				{
 					Writer->WriteValue(TEXT("Duration"), Entry.Event.Duration);
 				}
+				if (!Entry.Event.WaveformPath.IsEmpty())
+				{
+					Writer->WriteValue(
+						TEXT("EventWaveformPath"),
+						Entry.Event.WaveformPath
+					);
+				}
+				if (Entry.Event.bHasWaveformLoopEnabled)
+				{
+					Writer->WriteValue(
+						TEXT("EventWaveformLoopEnabled"),
+						Entry.Event.bWaveformLoopEnabled
+					);
+				}
+				if (Entry.Event.bHasWaveformUseVolumeEnvelope)
+				{
+					Writer->WriteValue(
+						TEXT("EventWaveformUseVolumeEnvelope"),
+						Entry.Event.bWaveformUseVolumeEnvelope
+					);
+				}
 				if (!Entry.Event.Parameters.IsEmpty())
 				{
 					Writer->WriteArrayStart(TEXT("EventParameters"));
@@ -628,7 +717,8 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 FOpenMobileHapticsAHAPNormalizationResult
 FOpenMobileHapticsAHAPPolicy::Normalize(
 	const FString& Source,
-	const FOpenMobileHapticsAHAPLimits& Limits
+	const FOpenMobileHapticsAHAPLimits& Limits,
+	bool bAllowExternalAudioResources
 )
 {
 	using namespace OpenMobileHapticsAHAPPolicyPrivate;
@@ -751,7 +841,8 @@ FOpenMobileHapticsAHAPPolicy::Normalize(
 		if (bHasEvent)
 		{
 			ParseResult = ParseEvent(**Payload, EntryIndex, Limits,
-				Entry, Resource, TotalParameters);
+				Entry, Resource, TotalParameters,
+				bAllowExternalAudioResources);
 		}
 		else if (bHasParameter)
 		{

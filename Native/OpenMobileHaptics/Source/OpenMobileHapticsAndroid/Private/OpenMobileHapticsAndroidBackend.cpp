@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsAndroidBackend.h"
 
 #include "Android/AndroidPlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
@@ -143,11 +144,13 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		case 1:
 		case 3:
 		case 5:
+		case 6:
 			Submission.Result.Outcome = bFallback
 				|| NativeResult == 3 || NativeResult == 5
 				? EOpenMobileHapticPlaybackOutcome::Fallback
 				: EOpenMobileHapticPlaybackOutcome::Accepted;
 			Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
+			Submission.bExpectsCallbacks = NativeResult == 6;
 			break;
 		case 2:
 			Submission.Result.Outcome =
@@ -197,12 +200,71 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		);
 	}
 
+	FOpenMobileHapticsAndroidScheduledPlayback MakeScheduledPlayback(
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		FName ResolvedPath,
+		const FOpenMobileHapticsBackendEventCallback& Callback
+	)
+	{
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled;
+		if (Request.Options.Schedule.Mode
+				== EOpenMobileHapticScheduleMode::Immediate
+			&& Parameters.Timing.StartDelaySeconds <= 0.0)
+		{
+			return Scheduled;
+		}
+		const double TargetPlatformTimeSeconds =
+			Parameters.Timing.Diagnostics.ResolvedPlatformTimeSeconds;
+		const double StartDelaySeconds = TargetPlatformTimeSeconds > 0.0
+			? FMath::Max(
+				0.0,
+				TargetPlatformTimeSeconds - FPlatformTime::Seconds()
+			)
+			: Parameters.Timing.StartDelaySeconds;
+		Scheduled.StartDelayMilliseconds = FMath::Clamp<int64>(
+			static_cast<int64>(FMath::CeilToDouble(
+				StartDelaySeconds * 1000.0
+			)),
+			1,
+			60000
+		);
+		Scheduled.PatternOrEffect = Request.PatternName;
+		Scheduled.Channel = Request.Options.Channel;
+		Scheduled.ResolvedPath = ResolvedPath;
+		Scheduled.Callback = Callback;
+		return Scheduled;
+	}
+
+	void ApplyBestEffortTiming(
+		FOpenMobileHapticsBackendSubmission& Submission,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
+		const FOpenMobileHapticNamedPatternRequest& Request
+	)
+	{
+		if (!Submission.Result.IsAccepted()
+			|| (Request.Options.Schedule.Mode
+					== EOpenMobileHapticScheduleMode::Immediate
+				&& Parameters.Timing.StartDelaySeconds <= 0.0))
+		{
+			return;
+		}
+		Submission.Result.Synchronization = Parameters.Timing.Diagnostics;
+		Submission.Result.Synchronization.Mode =
+			EOpenMobileHapticSynchronizationMode::BestEffort;
+		Submission.Result.Synchronization.EstimatedPrecisionSeconds = FMath::Max(
+			0.010,
+			Submission.Result.Synchronization.EstimatedPrecisionSeconds
+		);
+	}
+
 	FOpenMobileHapticsBackendSubmission SubmitPortableAndFallback(
 		FOpenMobileHapticsAndroidBridge& Bridge,
 		const FOpenMobileHapticNamedPatternRequest& Request,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticCapabilities& Capabilities,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		int32 Purpose,
 		FOpenMobileHapticsBackendEventCallback Callback,
 		TArray<FName> Attempts
@@ -218,21 +280,28 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		if (Portable.Outcome
 			== EOpenMobileHapticsAndroidWaveformOutcome::Ready)
 		{
+			const FName ResolvedPath = Portable.bUsesDefaultAmplitude
+				? FName(TEXT("AndroidPortableWaveformDefaultAmplitude"))
+				: FName(TEXT("AndroidPortableWaveform"));
 			const int32 NativeResult = Bridge.PlayWaveform(
 				Token,
 				Portable.TimingsMilliseconds,
 				Portable.Amplitudes,
 				Portable.RepeatIndex,
-				Purpose
+				Purpose,
+				MakeScheduledPlayback(
+					Parameters,
+					Request,
+					ResolvedPath,
+					Callback
+				)
 			);
 			if (NativeResult != 4)
 			{
 				FOpenMobileHapticsBackendSubmission Submission =
 					MakeNativeSubmission(
 						NativeResult,
-						Portable.bUsesDefaultAmplitude
-							? FName(TEXT("AndroidPortableWaveformDefaultAmplitude"))
-							: FName(TEXT("AndroidPortableWaveform")),
+						ResolvedPath,
 						true,
 						TEXT("Android rejected the portable waveform."),
 						TEXT("Android could not submit the portable waveform.")
@@ -243,6 +312,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 					Attempts.Add(TEXT("AmplitudeControl:Default"));
 				}
 				AppendAttempts(Submission, Attempts);
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			Attempts.Add(TEXT("PortableRich:NativeSupportChanged"));
@@ -279,12 +349,19 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			if (Fallback.Outcome
 				== EOpenMobileHapticsAndroidFallbackOutcome::Primitive)
 			{
+				const FName ResolvedPath(TEXT("AndroidPrimitiveFallback"));
 				const int32 NativeResult = Bridge.PlayPrimitives(
 					Token,
 					{Fallback.Primitive},
 					{Request.Intensity},
 					{0},
-					Purpose
+					Purpose,
+					MakeScheduledPlayback(
+						Parameters,
+						Request,
+						ResolvedPath,
+						Callback
+					)
 				);
 				if (NativeResult == 4)
 				{
@@ -295,21 +372,29 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 				FOpenMobileHapticsBackendSubmission Submission =
 					MakeNativeSubmission(
 						NativeResult,
-						TEXT("AndroidPrimitiveFallback"),
+						ResolvedPath,
 						true,
 						TEXT("Android rejected the declared primitive fallback."),
 						TEXT("Android could not submit the primitive fallback.")
 					);
 				AppendAttempts(Submission, Attempts);
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			if (Fallback.Outcome
 				== EOpenMobileHapticsAndroidFallbackOutcome::Predefined)
 			{
+				const FName ResolvedPath(TEXT("AndroidPredefinedFallback"));
 				const int32 NativeResult = Bridge.PlayPredefined(
 					Token,
 					static_cast<int32>(Fallback.PredefinedEffect),
-					Purpose
+					Purpose,
+					MakeScheduledPlayback(
+						Parameters,
+						Request,
+						ResolvedPath,
+						Callback
+					)
 				);
 				if (NativeResult == 4)
 				{
@@ -320,12 +405,13 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 				FOpenMobileHapticsBackendSubmission Submission =
 					MakeNativeSubmission(
 						NativeResult,
-						TEXT("AndroidPredefinedFallback"),
+						ResolvedPath,
 						true,
 						TEXT("Android rejected the declared predefined fallback."),
 						TEXT("Android could not submit the predefined fallback.")
 					);
 				AppendAttempts(Submission, Attempts);
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			if (Fallback.Outcome
@@ -335,6 +421,13 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 					FOpenMobileHapticsSemanticPolicy::Describe(
 						Fallback.SemanticEffect
 					);
+				const FOpenMobileHapticsAndroidScheduledPlayback Scheduled =
+					MakeScheduledPlayback(
+						Parameters,
+						Request,
+						TEXT("AndroidSemanticFallback"),
+						Callback
+					);
 				const FOpenMobileHapticsAndroidBridgeSubmission Native =
 					Bridge.PlaySemantic(
 						Token,
@@ -342,6 +435,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 						Request.Intensity,
 						EOpenMobileHapticsSemanticPath::SystemSemantic,
 						Purpose,
+						Scheduled.StartDelayMilliseconds,
 						Descriptor.Name,
 						Request.Options.Channel,
 						TEXT("AndroidSemanticFallback"),
@@ -375,6 +469,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 						);
 				}
 				AppendAttempts(Submission, Attempts);
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			if (Fallback.Outcome
@@ -392,7 +487,13 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 					DurationMilliseconds,
 					Request.Intensity,
 					EOpenMobileHapticsOneShotPath::BasicVibration,
-					Purpose
+					Purpose,
+					MakeScheduledPlayback(
+						Parameters,
+						Request,
+						TEXT("AndroidBasicVibrationFallback"),
+						Callback
+					)
 				);
 				if (NativeResult == 4
 					&& (Request.Options.FallbackPolicy
@@ -421,6 +522,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 						TEXT("Android could not submit the basic vibration fallback.")
 					);
 				AppendAttempts(Submission, Attempts);
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			if (Fallback.Outcome
@@ -564,7 +666,7 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 		EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Scheduling = EOpenMobileHapticSupportState::Unsupported;
+	Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported;
 	Capabilities.Pause = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.Resume = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.Seek = EOpenMobileHapticSupportState::Unsupported;
@@ -709,6 +811,7 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		Request.Intensity,
 		SubmittedPath,
 		Purpose,
+		0,
 		Descriptor.Name,
 		Request.Options.Channel,
 		ResolvedPath,
@@ -728,6 +831,7 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 			Request.Intensity,
 			SubmittedPath,
 			Purpose,
+			0,
 			Descriptor.Name,
 			Request.Options.Channel,
 			ResolvedPath,
@@ -955,7 +1059,6 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 )
 {
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
-	static_cast<void>(Parameters);
 	const bool bCustomPlaybackConfigured = IsCustomPlaybackConfigured();
 	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
 	const int32 Purpose = PurposeFor(Request.Options.Category);
@@ -1000,6 +1103,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				Token,
 				*PortablePattern,
 				Capabilities,
+				Parameters,
 				Purpose,
 				MoveTemp(Callback),
 				MoveTemp(RichAttempts)
@@ -1020,6 +1124,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				Token,
 				*PortablePattern,
 				Capabilities,
+				Parameters,
 				Purpose,
 				MoveTemp(Callback),
 				MoveTemp(RichAttempts)
@@ -1058,6 +1163,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 					Token,
 					*PortablePattern,
 					Capabilities,
+					Parameters,
 					Purpose,
 					MoveTemp(Callback),
 					MoveTemp(RichAttempts)
@@ -1084,12 +1190,19 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			Submission.Result.FallbackAttempts.Add(Resolution.Reason);
 			return Submission;
 		}
+		const FName ResolvedPath(TEXT("AndroidPrimitiveComposition"));
 		const int32 NativeResult = Bridge.PlayPrimitives(
 				Token,
 				Resolution.Primitives,
 				Resolution.Scales,
 				Resolution.DelaysMilliseconds,
-				Purpose
+				Purpose,
+				MakeScheduledPlayback(
+					Parameters,
+					Request,
+					ResolvedPath,
+					Callback
+				)
 			);
 		if (NativeResult == 4 && PortablePattern)
 		{
@@ -1100,18 +1213,21 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				Token,
 				*PortablePattern,
 				Capabilities,
+				Parameters,
 				Purpose,
 				MoveTemp(Callback),
 				MoveTemp(RichAttempts)
 			);
 		}
-		return MakeNativeSubmission(
+		FOpenMobileHapticsBackendSubmission Submission = MakeNativeSubmission(
 			NativeResult,
-			TEXT("AndroidPrimitiveComposition"),
+			ResolvedPath,
 			false,
 			TEXT("Android rejected an unsupported primitive composition."),
 			TEXT("Android could not submit the primitive composition.")
 		);
+		ApplyBestEffortTiming(Submission, Parameters, Request);
+		return Submission;
 	}
 	if (Asset->Format == EOpenMobileHapticAndroidPatternFormat::Waveform)
 	{
@@ -1126,21 +1242,28 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		if (Waveform.Outcome
 			== EOpenMobileHapticsAndroidWaveformOutcome::Ready)
 		{
+			const FName ResolvedPath = Waveform.bUsesDefaultAmplitude
+				? FName(TEXT("AndroidWaveformDefaultAmplitude"))
+				: FName(TEXT("AndroidWaveform"));
 			const int32 NativeResult = Bridge.PlayWaveform(
 				Token,
 				Waveform.TimingsMilliseconds,
 				Waveform.Amplitudes,
 				Waveform.RepeatIndex,
-				Purpose
+				Purpose,
+				MakeScheduledPlayback(
+					Parameters,
+					Request,
+					ResolvedPath,
+					Callback
+				)
 			);
 			if (NativeResult != 4 || !PortablePattern)
 			{
 				FOpenMobileHapticsBackendSubmission Submission =
 					MakeNativeSubmission(
 						NativeResult,
-						Waveform.bUsesDefaultAmplitude
-							? FName(TEXT("AndroidWaveformDefaultAmplitude"))
-							: FName(TEXT("AndroidWaveform")),
+						ResolvedPath,
 						Waveform.bUsesDefaultAmplitude || NativeResult == 5,
 						TEXT("Android rejected the waveform override."),
 						TEXT("Android could not submit the waveform override.")
@@ -1152,6 +1275,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 						TEXT("AmplitudeControl:Default")
 					);
 				}
+				ApplyBestEffortTiming(Submission, Parameters, Request);
 				return Submission;
 			}
 			RichAttempts.Add(TEXT("ExactOverride:NativeSupportChanged"));
@@ -1183,6 +1307,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			Token,
 			*PortablePattern,
 			Capabilities,
+			Parameters,
 			Purpose,
 			MoveTemp(Callback),
 			MoveTemp(RichAttempts)
@@ -1212,26 +1337,35 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 	FName EnvelopeFailureReason = Envelope.Reason;
 	if (Envelope.Outcome == EOpenMobileHapticsEnvelopeOutcome::Ready)
 	{
+		const FName ResolvedPath = Envelope.Format
+			== EOpenMobileHapticAndroidPatternFormat::BasicEnvelope
+				? FName(TEXT("AndroidBasicEnvelope"))
+				: FName(TEXT("AndroidWaveformEnvelope"));
 		const int32 NativeResult = Bridge.PlayEnvelope(
 			Token,
 			Envelope.Format,
 			Envelope.Amplitudes,
 			Envelope.ControlValues,
 			Envelope.DurationsMilliseconds,
-			Purpose
+			Purpose,
+			MakeScheduledPlayback(
+				Parameters,
+				Request,
+				ResolvedPath,
+				Callback
+			)
 		);
 		if (NativeResult != 4)
 		{
-			return MakeNativeSubmission(
+			FOpenMobileHapticsBackendSubmission Submission = MakeNativeSubmission(
 				NativeResult,
-				Envelope.Format
-					== EOpenMobileHapticAndroidPatternFormat::BasicEnvelope
-						? FName(TEXT("AndroidBasicEnvelope"))
-						: FName(TEXT("AndroidWaveformEnvelope")),
+				ResolvedPath,
 				false,
 				TEXT("Android rejected an unsupported envelope."),
 				TEXT("Android could not submit the envelope.")
 			);
+			ApplyBestEffortTiming(Submission, Parameters, Request);
+			return Submission;
 		}
 		EnvelopeFailureReason = TEXT("NativeSupportChanged");
 	}
@@ -1250,6 +1384,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				Token,
 				*PortablePattern,
 				Capabilities,
+				Parameters,
 				Purpose,
 				MoveTemp(Callback),
 				MoveTemp(RichAttempts)
@@ -1281,6 +1416,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			Token,
 			*PortablePattern,
 			Capabilities,
+			Parameters,
 			Purpose,
 			MoveTemp(Callback),
 			MoveTemp(RichAttempts)

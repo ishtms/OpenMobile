@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.media.AudioAttributes;
 import android.os.Build;
+import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -15,6 +17,8 @@ import android.view.View;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class OpenMobileHapticsBridgeV1 {
@@ -26,11 +30,20 @@ public final class OpenMobileHapticsBridgeV1 {
     static final int RESULT_UNSUPPORTED = 4;
     static final int RESULT_DEFAULT_AMPLITUDE = 5;
     static final int RESULT_PENDING = 6;
+    private static final long MAXIMUM_SCHEDULED_DELAY_MILLIS = 60000L;
 
     private static final AtomicLong submissionCount = new AtomicLong();
     private static final AtomicLong callbackCount = new AtomicLong();
     private static final AtomicLong lastRequestId = new AtomicLong();
+    private static final Handler SCHEDULED_HANDLER =
+        new Handler(Looper.getMainLooper());
+    private static final ConcurrentHashMap<Long, Runnable> SCHEDULED_REQUESTS =
+        new ConcurrentHashMap<Long, Runnable>();
     private static volatile EnvelopeApi36 envelopeApi36;
+
+    private interface ScheduledPlayback {
+        int play(Activity activity);
+    }
 
     private static final class EnvelopeApi36 {
         final Method areEnvelopeEffectsSupported;
@@ -117,6 +130,53 @@ public final class OpenMobileHapticsBridgeV1 {
     }
 
     private OpenMobileHapticsBridgeV1() {
+    }
+
+    private static int schedulePlayback(
+        Activity activity,
+        final long requestId,
+        long startDelayMillis,
+        final ScheduledPlayback playback
+    ) {
+        if (activity == null
+            || requestId == 0L
+            || startDelayMillis <= 0L
+            || startDelayMillis > MAXIMUM_SCHEDULED_DELAY_MILLIS) {
+            return RESULT_UNSUPPORTED;
+        }
+        final WeakReference<Activity> weakActivity =
+            new WeakReference<Activity>(activity);
+        final Runnable request = new Runnable() {
+            @Override
+            public void run() {
+                if (SCHEDULED_REQUESTS.remove(requestId) != this) {
+                    return;
+                }
+                Activity current = weakActivity.get();
+                int result = current != null
+                    ? playback.play(current)
+                    : RESULT_SUPPRESSED;
+                incrementBounded(callbackCount);
+                try {
+                    nativeOnBridgeResult(requestId, result);
+                } catch (UnsatisfiedLinkError ignored) {
+                }
+            }
+        };
+        SCHEDULED_REQUESTS.put(requestId, request);
+        long startUptimeMillis = SystemClock.uptimeMillis() + startDelayMillis;
+        if (!SCHEDULED_HANDLER.postAtTime(request, startUptimeMillis)) {
+            SCHEDULED_REQUESTS.remove(requestId);
+            return RESULT_FAILED;
+        }
+        return RESULT_PENDING;
+    }
+
+    private static void cancelScheduledRequests() {
+        for (Map.Entry<Long, Runnable> entry : SCHEDULED_REQUESTS.entrySet()) {
+            SCHEDULED_HANDLER.removeCallbacks(entry.getValue());
+        }
+        SCHEDULED_REQUESTS.clear();
     }
 
     private static EnvelopeApi36 envelopeApi36()
@@ -263,9 +323,35 @@ public final class OpenMobileHapticsBridgeV1 {
         int behavior,
         float intensity,
         int path,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final int scheduledBehavior = behavior;
+            final float scheduledIntensity = intensity;
+            final int scheduledPath = path;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playSemantic(
+                            current,
+                            0L,
+                            scheduledBehavior,
+                            scheduledIntensity,
+                            scheduledPath,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         if (path != 1) {
             return playVibration(activity, behavior, intensity, path, purpose);
         }
@@ -301,9 +387,35 @@ public final class OpenMobileHapticsBridgeV1 {
         long durationMillis,
         float intensity,
         int path,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final long scheduledDurationMillis = durationMillis;
+            final float scheduledIntensity = intensity;
+            final int scheduledPath = path;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playOneShot(
+                            current,
+                            0L,
+                            scheduledDurationMillis,
+                            scheduledIntensity,
+                            scheduledPath,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         try {
             if (path == 1) {
                 if (!isUsable(activity)) {
@@ -365,9 +477,35 @@ public final class OpenMobileHapticsBridgeV1 {
         long[] timingsMilliseconds,
         int[] amplitudes,
         int repeatIndex,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final long[] scheduledTimings = timingsMilliseconds;
+            final int[] scheduledAmplitudes = amplitudes;
+            final int scheduledRepeatIndex = repeatIndex;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playWaveform(
+                            current,
+                            0L,
+                            scheduledTimings,
+                            scheduledAmplitudes,
+                            scheduledRepeatIndex,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         if (Build.VERSION.SDK_INT < 26
             || timingsMilliseconds == null
             || amplitudes == null
@@ -434,9 +572,31 @@ public final class OpenMobileHapticsBridgeV1 {
         Activity activity,
         long requestId,
         int effect,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final int scheduledEffect = effect;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playPredefined(
+                            current,
+                            0L,
+                            scheduledEffect,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         if (Build.VERSION.SDK_INT < 29) {
             return RESULT_UNSUPPORTED;
         }
@@ -476,9 +636,35 @@ public final class OpenMobileHapticsBridgeV1 {
         int[] primitives,
         float[] scales,
         int[] delaysMilliseconds,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final int[] scheduledPrimitives = primitives;
+            final float[] scheduledScales = scales;
+            final int[] scheduledDelays = delaysMilliseconds;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playPrimitives(
+                            current,
+                            0L,
+                            scheduledPrimitives,
+                            scheduledScales,
+                            scheduledDelays,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         if (Build.VERSION.SDK_INT < 30
             || primitives == null
             || scales == null
@@ -555,9 +741,37 @@ public final class OpenMobileHapticsBridgeV1 {
         float[] amplitudes,
         float[] controlValues,
         long[] durationsMilliseconds,
-        int purpose
+        int purpose,
+        long startDelayMillis
     ) {
         recordSubmission(requestId);
+        if (startDelayMillis > 0L) {
+            final int scheduledFormat = format;
+            final float[] scheduledAmplitudes = amplitudes;
+            final float[] scheduledControlValues = controlValues;
+            final long[] scheduledDurations = durationsMilliseconds;
+            final int scheduledPurpose = purpose;
+            return schedulePlayback(
+                activity,
+                requestId,
+                startDelayMillis,
+                new ScheduledPlayback() {
+                    @Override
+                    public int play(Activity current) {
+                        return playEnvelope(
+                            current,
+                            0L,
+                            scheduledFormat,
+                            scheduledAmplitudes,
+                            scheduledControlValues,
+                            scheduledDurations,
+                            scheduledPurpose,
+                            0L
+                        );
+                    }
+                }
+            );
+        }
         if (Build.VERSION.SDK_INT < 36
             || (format != 2 && format != 3)
             || amplitudes == null
@@ -708,6 +922,7 @@ public final class OpenMobileHapticsBridgeV1 {
     }
 
     static boolean stopAll(Activity activity) {
+        cancelScheduledRequests();
         try {
             Vibrator vibrator = vibrator(activity);
             if (vibrator == null) {
@@ -981,6 +1196,9 @@ public final class OpenMobileHapticsBridgeV1 {
     }
 
     private static void recordSubmission(long requestId) {
+        if (requestId == 0L) {
+            return;
+        }
         lastRequestId.set(requestId);
         incrementBounded(submissionCount);
     }

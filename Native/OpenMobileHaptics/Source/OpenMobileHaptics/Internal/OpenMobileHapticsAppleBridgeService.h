@@ -56,13 +56,23 @@ enum class EOpenMobileHapticsApplePlaybackEvent : uint8
 using FOpenMobileHapticsApplePlaybackEventCallback =
 	TFunction<void(EOpenMobileHapticsApplePlaybackEvent)>;
 
+struct FOpenMobileHapticsAppleAudioResource
+{
+	FString RelativePath;
+	TArray<uint8> Data;
+};
+
 struct FOpenMobileHapticsAppleAHAPPattern
 {
 	FString NormalizedJson;
+	TArray<FOpenMobileHapticsAppleAudioResource> AudioResources;
 	double DurationSeconds = 0.0;
 	double SafetyDurationSeconds = 0.0;
+	double ScheduledPlatformTimeSeconds = 0.0;
+	double MaximumLatenessSeconds = 0.05;
 	bool bRequiresAdvancedPlayer = false;
 	bool bLoop = false;
+	bool bScheduled = false;
 	bool bHasInitialDynamicParameters = false;
 	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 };

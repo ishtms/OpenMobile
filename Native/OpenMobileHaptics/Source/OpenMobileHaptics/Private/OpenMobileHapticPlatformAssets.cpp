@@ -1,6 +1,7 @@
 #include "OpenMobileHapticPlatformAssets.h"
 
 #include "OpenMobileHapticsAHAPPolicy.h"
+#include "OpenMobileHapticsAppleAudioResourcePolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
@@ -365,6 +366,46 @@ bool UOpenMobileHapticIOSPatternAsset::SetAHAPSource(
 	AHAPDurationSeconds = Result.Resource.DurationSeconds;
 	bRequiresAdvancedPlayer = Result.Resource.bRequiresAdvancedPlayer;
 	bContainsAudioEvents = Result.Resource.bContainsAudioEvents;
+	bContainsCustomAudioEvents = false;
+	AudioResources.Reset();
+	return true;
+}
+
+bool UOpenMobileHapticIOSPatternAsset::SetAHAPSourceWithAudioResources(
+	const FString& Source,
+	const TArray<FOpenMobileHapticIOSAudioResource>& InAudioResources,
+	TArray<FString>& Errors
+)
+{
+	Errors.Reset();
+	const FOpenMobileHapticsAHAPNormalizationResult Result =
+		FOpenMobileHapticsAHAPPolicy::Normalize(Source, {}, true);
+	if (!Result.bSuccess)
+	{
+		Errors.Add(FOpenMobileHapticsAHAPPolicy::DescribeError(Result));
+		return false;
+	}
+	const FOpenMobileHapticsAppleAudioResourceValidation AudioValidation =
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			Result.Resource.ExternalAudioResourcePaths,
+			InAudioResources
+		);
+	if (!AudioValidation.bSuccess)
+	{
+		Errors.Add(
+			FOpenMobileHapticsAppleAudioResourcePolicy::DescribeError(
+				AudioValidation
+			)
+		);
+		return false;
+	}
+	AHAPJson = Result.Resource.NormalizedJson;
+	AHAPDurationSeconds = Result.Resource.DurationSeconds;
+	bRequiresAdvancedPlayer = Result.Resource.bRequiresAdvancedPlayer;
+	bContainsAudioEvents = Result.Resource.bContainsAudioEvents;
+	bContainsCustomAudioEvents =
+		Result.Resource.bContainsCustomAudioEvents;
+	AudioResources = InAudioResources;
 	return true;
 }
 
@@ -378,7 +419,7 @@ bool UOpenMobileHapticIOSPatternAsset::Validate(
 		Errors.Add(TEXT("MinimumIOSMajorVersion must be at least 13."));
 	}
 	const FOpenMobileHapticsAHAPNormalizationResult Result =
-		FOpenMobileHapticsAHAPPolicy::Normalize(AHAPJson);
+		FOpenMobileHapticsAHAPPolicy::Normalize(AHAPJson, {}, true);
 	if (!Result.bSuccess)
 	{
 		Errors.Add(FOpenMobileHapticsAHAPPolicy::DescribeError(Result));
@@ -392,5 +433,28 @@ bool UOpenMobileHapticIOSPatternAsset::Validate(
 	{
 		Errors.Add(TEXT("AHAP derived data is stale."));
 	}
+	if (Result.Resource.bContainsCustomAudioEvents
+		!= bContainsCustomAudioEvents)
+	{
+		Errors.Add(TEXT("AHAP custom audio metadata is stale."));
+	}
+	const FOpenMobileHapticsAppleAudioResourceValidation AudioValidation =
+		FOpenMobileHapticsAppleAudioResourcePolicy::Validate(
+			Result.Resource.ExternalAudioResourcePaths,
+			AudioResources
+		);
+	if (!AudioValidation.bSuccess)
+	{
+		Errors.Add(
+			FOpenMobileHapticsAppleAudioResourcePolicy::DescribeError(
+				AudioValidation
+			)
+		);
+	}
 	return Errors.IsEmpty();
+}
+
+bool UOpenMobileHapticIOSPatternAsset::ContainsHapticEvents() const
+{
+	return AHAPJson.Contains(TEXT("\"EventType\":\"Haptic"));
 }
