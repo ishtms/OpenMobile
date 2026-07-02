@@ -51,7 +51,7 @@ namespace OpenMobileSensorsAndroidBridgePrivate
 		case 20:
 			return EOpenMobileSensorType::Attitude;
 		case 42:
-			return EOpenMobileSensorType::MagneticHeading;
+			return EOpenMobileSensorType::TrueHeading;
 		case 6:
 			return EOpenMobileSensorType::BarometricPressure;
 		case 5:

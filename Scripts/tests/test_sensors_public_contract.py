@@ -50,6 +50,29 @@ class SensorsPublicContractTests(unittest.TestCase):
 		self.assertNotIn("TArray<uint8>", samples)
 		self.assertNotIn("void*", samples)
 
+	def test_heading_contract_documents_range_and_reference(self) -> None:
+		samples = (PUBLIC_HEADERS / "OpenMobileSensorSamples.h").read_text(
+			encoding="utf-8"
+		)
+		documentation = (
+			SENSORS_PLUGIN / "Docs" / "PublicContract.md"
+		).read_text(encoding="utf-8")
+
+		for token in (
+			"EOpenMobileHeadingReference",
+			"MagneticNorth",
+			"TrueNorth",
+			"bTiltCompensated",
+		):
+			self.assertIn(token, samples)
+		for token in (
+			"[0, 360)",
+			"magnetic north",
+			"tilt compensated",
+			"CurrentScreen",
+		):
+			self.assertIn(token, documentation)
+
 	def test_subsystem_has_direct_native_operations(self) -> None:
 		subsystem = (PUBLIC_HEADERS / "OpenMobileSensorsSubsystem.h").read_text(
 			encoding="utf-8"

@@ -204,6 +204,28 @@ class SensorsAndroidBackendTests(unittest.TestCase):
 		):
 			self.assertIn(token, source)
 
+	def test_magnetic_heading_uses_magnetic_rotation_vectors(self):
+		backend = (
+			PRIVATE / "OpenMobileSensorsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		bridge = (
+			PRIVATE / "OpenMobileSensorsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+
+		type_42 = bridge[
+			bridge.index("case 42:"):
+			bridge.index("case 6:", bridge.index("case 42:"))
+		]
+		self.assertIn("EOpenMobileSensorType::TrueHeading", type_42)
+		for token in (
+			"AddMagneticHeadingDescriptors",
+			"FOpenMobileSensorHeading::FromAndroidRotationVector",
+			"EOpenMobileHeadingReference::MagneticNorth",
+			"bTiltCompensated = true",
+			"FMath::RadiansToDegrees",
+		):
+			self.assertIn(token, backend)
+
 	def test_packaging_is_permission_scoped_and_has_no_unrelated_sdk(self):
 		upl = (
 			PRIVATE / "Android" / "OpenMobileSensors_Android_UPL.xml"

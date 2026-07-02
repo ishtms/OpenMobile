@@ -1204,7 +1204,18 @@ private:
 				else
 				{
 					Sample.HeadingDegrees = -1.0;
+					Sample.Header.bValid = false;
 				}
+				Sample.Reference =
+					EOpenMobileHeadingReference::MagneticNorth;
+				Sample.bTiltCompensated = true;
+				Backend.PublishMagneticFieldAccuracyFromMotionQueue(
+					Active.Token,
+					Active.Handle,
+					Active.Request.Sensor,
+					static_cast<int32>(Motion.magneticField.accuracy),
+					Motion.timestamp
+				);
 				FOpenMobileHeadingSensorBatch Batch;
 				Batch.Samples.Reserve(MaximumCallbackBatchSamples);
 				Batch.Samples.Add(MoveTemp(Sample));

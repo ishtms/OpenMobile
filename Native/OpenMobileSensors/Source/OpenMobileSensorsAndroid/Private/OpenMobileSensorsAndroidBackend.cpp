@@ -3,6 +3,7 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
+#include "OpenMobileSensorHeading.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
@@ -221,7 +222,43 @@ namespace OpenMobileSensorsAndroidBackendPrivate
 				ReferenceFrame
 			) * 100;
 		}
+		else if (Descriptor.Sensor.Type ==
+			EOpenMobileSensorType::MagneticHeading)
+		{
+			Score += Descriptor.NativeType == 11
+				? 0
+				: Descriptor.NativeType == 20 ? 100 : 10000;
+		}
 		return Score;
+	}
+
+	void AddMagneticHeadingDescriptors(
+		TArray<FOpenMobileSensorsAndroidSensorDescriptor>& Descriptors
+	)
+	{
+		TArray<FOpenMobileSensorsAndroidSensorDescriptor> HeadingDescriptors;
+		for (const FOpenMobileSensorsAndroidSensorDescriptor& Descriptor
+			: Descriptors)
+		{
+			if (Descriptor.Sensor.Type != EOpenMobileSensorType::Attitude
+				|| (Descriptor.NativeType != 11
+					&& Descriptor.NativeType != 20))
+			{
+				continue;
+			}
+			FOpenMobileSensorsAndroidSensorDescriptor Heading = Descriptor;
+			Heading.Sensor.Type = EOpenMobileSensorType::MagneticHeading;
+			Heading.Sensor.InstanceId = FName(*FString::Printf(
+				TEXT("%s-MagneticHeading"),
+				*Descriptor.NativeIdentifier
+			));
+			Heading.NativeName = FString::Printf(
+				TEXT("%s Magnetic Heading"),
+				*Descriptor.NativeName
+			);
+			HeadingDescriptors.Add(MoveTemp(Heading));
+		}
+		Descriptors.Append(MoveTemp(HeadingDescriptors));
 	}
 
 	FOpenMobileSensorSampleHeader MakeHeader(
@@ -901,6 +938,64 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 	}
 	if (Type == EOpenMobileSensorType::MagneticHeading)
 	{
+		if ((Descriptor.NativeType != 11 && Descriptor.NativeType != 20)
+			|| ValuesPerSample < 3)
+		{
+			return false;
+		}
+		FOpenMobileHeadingSensorBatch Batch;
+		Batch.Samples.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			FOpenMobileHeadingSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Descriptor,
+				TimestampsNanoseconds[Index],
+				bResetFirstSample && Index == 0
+			);
+			const double X = ValueAt(Index, 0);
+			const double Y = ValueAt(Index, 1);
+			const double Z = ValueAt(Index, 2);
+			const double W = ValuesPerSample >= 4
+				? ValueAt(Index, 3)
+				: FMath::Sqrt(FMath::Max(
+					0.0,
+					1.0 - X * X - Y * Y - Z * Z
+				));
+			Sample.Header.bValid &=
+				FOpenMobileSensorHeading::FromAndroidRotationVector(
+					FQuat(X, Y, Z, W),
+					Sample.HeadingDegrees
+				);
+			Sample.Reference = EOpenMobileHeadingReference::MagneticNorth;
+			Sample.bTiltCompensated = true;
+			Sample.bHasAccuracyDegrees = ValuesPerSample >= 5
+				&& FMath::IsFinite(ValueAt(Index, 4))
+				&& ValueAt(Index, 4) >= 0.0;
+			if (Sample.bHasAccuracyDegrees)
+			{
+				Sample.AccuracyDegrees = FMath::RadiansToDegrees(
+					ValueAt(Index, 4)
+				);
+			}
+			FOpenMobileSensorUnitConverter::NormalizeHeadingSample(
+				EOpenMobileSensorNativePlatform::Android,
+				Sample
+			);
+			Batch.Samples.Add(MoveTemp(Sample));
+		}
+		return FOpenMobileSensorsSampleService::PublishHeadingBatchFromBackend(
+			Token,
+			Handle,
+			Batch
+		);
+	}
+	if (Type == EOpenMobileSensorType::TrueHeading)
+	{
+		if (Descriptor.NativeType != 42 || ValuesPerSample < 1)
+		{
+			return false;
+		}
 		FOpenMobileHeadingSensorBatch Batch;
 		Batch.Samples.Reserve(SampleCount);
 		for (int32 Index = 0; Index < SampleCount; ++Index)
@@ -912,6 +1007,7 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 				bResetFirstSample && Index == 0
 			);
 			Sample.HeadingDegrees = ValueAt(Index, 0);
+			Sample.Reference = EOpenMobileHeadingReference::TrueNorth;
 			Sample.bHasAccuracyDegrees = ValuesPerSample >= 2;
 			if (Sample.bHasAccuracyDegrees)
 			{
@@ -1138,6 +1234,9 @@ bool FOpenMobileSensorsAndroidBackend::QuerySensorDescriptors(
 		}
 		return false;
 	}
+	OpenMobileSensorsAndroidBackendPrivate::AddMagneticHeadingDescriptors(
+		OutDescriptors
+	);
 	return true;
 }
 

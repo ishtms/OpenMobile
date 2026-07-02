@@ -172,6 +172,28 @@ class SensorsIOSBackendTests(unittest.TestCase):
 			device_motion.index("PublishVectorBatchFromMotionQueue"),
 		)
 
+	def test_magnetic_heading_declares_reference_tilt_and_quality(self):
+		bridge = BRIDGE.read_text(encoding="utf-8")
+		device_motion = bridge[
+			bridge.index("void HandleDeviceMotion("):
+			bridge.index("void HandleRelativeAltitude(")
+		]
+		heading = device_motion[
+			device_motion.index(
+				"Type == EOpenMobileSensorType::MagneticHeading"
+			):
+		]
+
+		self.assertIn(
+			"EOpenMobileHeadingReference::MagneticNorth",
+			heading,
+		)
+		self.assertIn("bTiltCompensated = true", heading)
+		self.assertLess(
+			heading.index("PublishMagneticFieldAccuracyFromMotionQueue"),
+			heading.index("PublishHeadingBatchFromMotionQueue"),
+		)
+
 	def test_lifecycle_errors_permissions_and_late_blocks_are_guarded(self):
 		bridge = BRIDGE.read_text(encoding="utf-8")
 

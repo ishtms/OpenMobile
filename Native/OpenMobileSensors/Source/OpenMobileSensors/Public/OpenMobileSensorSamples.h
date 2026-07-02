@@ -172,6 +172,14 @@ struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 	double Value = 0.0;
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileHeadingReference : uint8
+{
+	Unknown,
+	MagneticNorth,
+	TrueNorth
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 {
@@ -182,6 +190,13 @@ struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double HeadingDegrees = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileHeadingReference Reference =
+		EOpenMobileHeadingReference::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bTiltCompensated = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasAccuracyDegrees = false;

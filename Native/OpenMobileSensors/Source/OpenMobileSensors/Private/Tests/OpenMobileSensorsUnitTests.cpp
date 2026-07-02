@@ -160,10 +160,17 @@ bool FOpenMobileSensorsAttitudeHeadingUnitTest::RunTest(
 		FOpenMobileHeadingSensorSample Heading;
 		Heading.Header = MakeHeader(EOpenMobileSensorType::MagneticHeading);
 		Heading.HeadingDegrees = -10.0;
+		Heading.Reference = EOpenMobileHeadingReference::MagneticNorth;
+		Heading.bTiltCompensated = true;
 		FOpenMobileSensorUnitConverter::NormalizeHeadingSample(
 			Platform, Heading);
 		TestEqual(TEXT("Heading wraps to zero through 360 degrees"),
 			Heading.HeadingDegrees, 350.0);
+		TestEqual(TEXT("Heading keeps its north reference"),
+			Heading.Reference,
+			EOpenMobileHeadingReference::MagneticNorth);
+		TestTrue(TEXT("Heading keeps its attitude compensation state"),
+			Heading.bTiltCompensated);
 	}
 	return true;
 }
