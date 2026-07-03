@@ -40,4 +40,11 @@ public:
 		float RequestIntensity,
 		EOpenMobileHapticFallbackPolicy FallbackPolicy
 	);
+	static FOpenMobileHapticsAndroidWaveformResolution ResolvePortable(
+		const UOpenMobileHapticPatternAsset& Pattern,
+		const FOpenMobileHapticLoopOptions& Loop,
+		const FOpenMobileHapticCapabilities& Capabilities,
+		float RequestIntensity,
+		EOpenMobileHapticFallbackPolicy FallbackPolicy
+	);
 };

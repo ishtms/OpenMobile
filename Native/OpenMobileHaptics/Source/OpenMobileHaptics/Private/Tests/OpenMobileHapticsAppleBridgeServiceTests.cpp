@@ -41,12 +41,18 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
-			FOpenMobileHapticsApplePlaybackEventCallback Callback
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 		) override
 		{
 			++TransientSubmissionCount;
 			LastRequestId = RequestId;
 			LastTransientPattern = Pattern;
+			if (InitialParameters)
+			{
+				LastInitialParameters = *InitialParameters;
+				bHadInitialParameters = true;
+			}
 			PlaybackCallback = MoveTemp(Callback);
 			return TransientSubmissionResult;
 		}
@@ -54,12 +60,18 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
-			FOpenMobileHapticsApplePlaybackEventCallback Callback
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 		) override
 		{
 			++ContinuousSubmissionCount;
 			LastRequestId = RequestId;
 			LastContinuousPattern = Pattern;
+			if (InitialParameters)
+			{
+				LastInitialParameters = *InitialParameters;
+				bHadInitialParameters = true;
+			}
 			PlaybackCallback = MoveTemp(Callback);
 			return ContinuousSubmissionResult;
 		}
@@ -152,6 +164,8 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
 		FOpenMobileHapticsAppleAHAPPattern LastAHAPPattern;
 		FOpenMobileHapticDynamicParameterUpdate LastUpdate;
+		FOpenMobileHapticDynamicParameterUpdate LastInitialParameters;
+		bool bHadInitialParameters = false;
 		FOpenMobileHapticsAppleBridgeEventCallback EventCallback;
 		FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
 	};
@@ -315,6 +329,9 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 	Pattern.StartTimesSeconds = {0.0, 0.05};
 	Pattern.Intensities = {1.0f, 0.5f};
 	Pattern.Sharpnesses = {0.25f, 0.75f};
+	FOpenMobileHapticDynamicParameterUpdate InitialParameters;
+	InitialParameters.bUpdateIntensity = true;
+	InitialParameters.Intensity = 0.6f;
 	int32 CallbackCount = 0;
 	bool bCallbackWasOnGameThread = false;
 	TestEqual(
@@ -329,7 +346,8 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 				static_cast<void>(Event);
 				++CallbackCount;
 				bCallbackWasOnGameThread = IsInGameThread();
-			}
+			},
+			&InitialParameters
 		),
 		EOpenMobileHapticsAppleSubmissionResult::Accepted
 	);
@@ -339,6 +357,11 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 		Mock->LastRequestId, static_cast<uint64>(42));
 	TestEqual(TEXT("All events stay in one bridge call"),
 		Mock->LastTransientPattern.StartTimesSeconds.Num(), 2);
+	TestTrue(TEXT("Request parameters stay outside the cached pattern"),
+		!Mock->LastTransientPattern.bHasInitialDynamicParameters
+		&& Mock->bHadInitialParameters);
+	TestEqual(TEXT("Initial intensity reaches the native request"),
+		Mock->LastInitialParameters.Intensity, 0.6f);
 
 	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Completed);
 	TestEqual(TEXT("Playback completion never runs inline"), CallbackCount, 0);

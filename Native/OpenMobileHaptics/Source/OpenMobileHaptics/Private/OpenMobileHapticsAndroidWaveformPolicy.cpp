@@ -199,6 +199,24 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	EOpenMobileHapticFallbackPolicy FallbackPolicy
 )
 {
+	return ResolvePortable(
+		Pattern,
+		Pattern.Loop,
+		Capabilities,
+		RequestIntensity,
+		FallbackPolicy
+	);
+}
+
+FOpenMobileHapticsAndroidWaveformResolution
+FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+	const UOpenMobileHapticPatternAsset& Pattern,
+	const FOpenMobileHapticLoopOptions& Loop,
+	const FOpenMobileHapticCapabilities& Capabilities,
+	float RequestIntensity,
+	EOpenMobileHapticFallbackPolicy FallbackPolicy
+)
+{
 	using namespace OpenMobileHapticsAndroidWaveformPolicyPrivate;
 	if (!FMath::IsFinite(RequestIntensity)
 		|| RequestIntensity < 0.0f || RequestIntensity > 1.0f)
@@ -294,10 +312,10 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	}
 
 	int64 RepeatStartMilliseconds = INDEX_NONE;
-	if (Pattern.Loop.bLoop)
+	if (Loop.bLoop)
 	{
 		RepeatStartMilliseconds = static_cast<int64>(FMath::RoundToDouble(
-			Pattern.Loop.RepeatStartTimeSeconds * 1000.0
+			Loop.RepeatStartTimeSeconds * 1000.0
 		));
 		if (RepeatStartMilliseconds < 0
 			|| RepeatStartMilliseconds >= MaximumEndMilliseconds)
@@ -362,7 +380,7 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	{
 		return Rejected(TEXT("NativeSegmentCount"));
 	}
-	if (!Pattern.Loop.bLoop)
+	if (!Loop.bLoop)
 	{
 		Resolution.RepeatIndex = INDEX_NONE;
 		return Resolution;
@@ -371,7 +389,7 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	{
 		return Rejected(TEXT("RepeatStart"));
 	}
-	if (Pattern.Loop.RepeatCount == 0)
+	if (Loop.RepeatCount == 0)
 	{
 		return Resolution;
 	}
@@ -380,7 +398,7 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	const TArray<int32> BaseAmplitudes = Resolution.Amplitudes;
 	const int32 BaseRepeatIndex = Resolution.RepeatIndex;
 	Resolution.RepeatIndex = INDEX_NONE;
-	for (int32 Repeat = 0; Repeat < Pattern.Loop.RepeatCount; ++Repeat)
+	for (int32 Repeat = 0; Repeat < Loop.RepeatCount; ++Repeat)
 	{
 		for (int32 Index = BaseRepeatIndex; Index < BaseTimings.Num(); ++Index)
 		{

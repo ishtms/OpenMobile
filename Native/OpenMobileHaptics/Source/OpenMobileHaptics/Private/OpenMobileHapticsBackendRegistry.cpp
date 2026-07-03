@@ -4,6 +4,7 @@
 #include "HAL/CriticalSection.h"
 #include "IOpenMobileHapticsBackend.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileHapticsTimelineManager.h"
 
 namespace OpenMobileHapticsBackendRegistryPrivate
 {
@@ -15,6 +16,12 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 	TSet<IOpenMobileHapticsBackend*> ShutdownBackends;
 	FCriticalSection CapabilityMutex;
 	FOpenMobileHapticCapabilities CapabilitySnapshot;
+
+	FOpenMobileHapticsTimelineManager& TimelineManager()
+	{
+		static FOpenMobileHapticsTimelineManager Manager;
+		return Manager;
+	}
 
 	void AdvanceGeneration()
 	{
@@ -121,6 +128,7 @@ void FOpenMobileHapticsBackendRegistry::Start()
 	{
 		ShutdownBackends.Reset();
 		AdvanceGeneration();
+		TimelineManager().Clear();
 	}
 	PublishCapabilities();
 }
@@ -151,6 +159,7 @@ bool FOpenMobileHapticsBackendRegistry::RegisterBackend(
 		IOpenMobileHapticsBackend::GetModularFeatureName(),
 		&Backend
 	);
+	TimelineManager().Clear();
 	AdvanceGeneration();
 	PublishCapabilities();
 	return true;
@@ -173,6 +182,7 @@ bool FOpenMobileHapticsBackendRegistry::UnregisterBackend(
 		&Backend
 	);
 	ShutdownBackends.Remove(&Backend);
+	TimelineManager().Clear();
 	AdvanceGeneration();
 	PublishCapabilities();
 	return true;
@@ -253,6 +263,7 @@ void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
 		return;
 	}
 	AdvanceLifecycleGeneration();
+	TimelineManager().Clear();
 	for (IOpenMobileHapticsBackend* Backend : GetBackends())
 	{
 		if (Backend)
@@ -279,6 +290,12 @@ uint64 FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
 	return OpenMobileHapticsBackendRegistryPrivate::LifecycleGeneration.Load();
 }
 
+FOpenMobileHapticsTimelineManager&
+FOpenMobileHapticsBackendRegistry::GetTimelineManager()
+{
+	return OpenMobileHapticsBackendRegistryPrivate::TimelineManager();
+}
+
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bShuttingDown.Load();
@@ -294,6 +311,7 @@ void FOpenMobileHapticsBackendRegistry::BeginShutdown()
 	}
 
 	AdvanceGeneration();
+	TimelineManager().Clear();
 	for (IOpenMobileHapticsBackend* Backend : GetBackends())
 	{
 		if (Backend)
@@ -314,6 +332,7 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
 	AdvanceLifecycleGeneration();
+	TimelineManager().Clear();
 	PublishCapabilities();
 }
 #endif

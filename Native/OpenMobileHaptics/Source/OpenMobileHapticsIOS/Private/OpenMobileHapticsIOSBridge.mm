@@ -445,10 +445,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
 	(uint64)RequestId
@@ -757,6 +761,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
 {
 	if (bShuttingDown)
@@ -765,6 +771,10 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 	if (!Engine
 		|| !Pattern.IsValid()
+		|| (InitialParameters
+			&& !OpenMobileHapticsIOSBridgePrivate::ValidateDynamicParameters(
+				*InitialParameters
+			))
 		|| (Pattern.bHasInitialDynamicParameters
 			&& !OpenMobileHapticsIOSBridgePrivate::ValidateDynamicParameters(
 				Pattern.InitialDynamicParameters
@@ -848,10 +858,16 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
-	if (Pattern.bHasInitialDynamicParameters
+	const FOpenMobileHapticDynamicParameterUpdate* EffectiveInitialParameters =
+		InitialParameters
+			? InitialParameters
+			: Pattern.bHasInitialDynamicParameters
+				? &Pattern.InitialDynamicParameters
+				: nullptr;
+	if (EffectiveInitialParameters
 		&& !OpenMobileHapticsIOSBridgePrivate::SendDynamicParameters(
 			Player,
-			Pattern.InitialDynamicParameters
+			*EffectiveInitialParameters
 		))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
@@ -893,6 +909,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
 {
 	using namespace OpenMobileHapticsIOSBridgePrivate;
@@ -900,7 +918,9 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
 	}
-	if (!Engine || !ValidateContinuousPattern(Pattern))
+	if (!Engine
+		|| !ValidateContinuousPattern(Pattern)
+		|| (InitialParameters && !ValidateDynamicParameters(*InitialParameters)))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
 	}
@@ -1009,10 +1029,16 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
-	if (Pattern.bHasInitialDynamicParameters
+	const FOpenMobileHapticDynamicParameterUpdate* EffectiveInitialParameters =
+		InitialParameters
+			? InitialParameters
+			: Pattern.bHasInitialDynamicParameters
+				? &Pattern.InitialDynamicParameters
+				: nullptr;
+	if (EffectiveInitialParameters
 		&& !OpenMobileHapticsIOSBridgePrivate::SendDynamicParameters(
 			Player,
-			Pattern.InitialDynamicParameters
+			*EffectiveInitialParameters
 		))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
@@ -1726,7 +1752,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
-			FOpenMobileHapticsApplePlaybackEventCallback Callback
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 		) override
 		{
 			if (!NativeService)
@@ -1737,11 +1764,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 			OpenMobileHapticsAppleNativeService* Service = NativeService;
 			RunOnMainQueue(
-				[Service, RequestId, &Pattern, &Callback, &Result]()
+				[Service, RequestId, &Pattern, &Callback, &Result,
+				 InitialParameters]()
 				{
 					Result = [Service
 						playTransientPattern:RequestId
 						pattern:Pattern
+						initialParameters:InitialParameters
 						callback:MoveTemp(Callback)];
 				}
 			);
@@ -1751,7 +1780,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
-			FOpenMobileHapticsApplePlaybackEventCallback Callback
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 		) override
 		{
 			if (!NativeService)
@@ -1762,11 +1792,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 			OpenMobileHapticsAppleNativeService* Service = NativeService;
 			RunOnMainQueue(
-				[Service, RequestId, &Pattern, &Callback, &Result]()
+				[Service, RequestId, &Pattern, &Callback, &Result,
+				 InitialParameters]()
 				{
 					Result = [Service
 						playContinuousPattern:RequestId
 						pattern:Pattern
+						initialParameters:InitialParameters
 						callback:MoveTemp(Callback)];
 				}
 			);

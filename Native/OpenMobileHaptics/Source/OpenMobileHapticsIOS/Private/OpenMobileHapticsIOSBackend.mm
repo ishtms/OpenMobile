@@ -10,6 +10,7 @@
 #include "OpenMobileHapticsIOSBridge.h"
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "OpenMobileHapticsTimelineManager.h"
 #include "Misc/ScopeLock.h"
 
 namespace OpenMobileHapticsIOSBackendPrivate
@@ -811,19 +812,19 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		);
 	}
 
-	const FOpenMobileHapticCookedPatternData& CookedPattern =
-		Pattern->GetCookedPattern();
-	bool bUseContinuousTranslation = !CookedPattern.ParameterCurves.IsEmpty();
-	bUseContinuousTranslation |= EffectiveLoop.bLoop;
-	for (const FOpenMobileHapticCookedPatternEvent& Event
-		: CookedPattern.Events)
-	{
-		bUseContinuousTranslation |= Event.Type
-			== EOpenMobileHapticPatternEventType::Continuous;
-	}
-
-	FOpenMobileHapticsAppleTransientResolution Transient;
-	FOpenMobileHapticsAppleContinuousResolution Continuous;
+	FOpenMobileHapticsPortableTimeline MissingTimeline;
+	MissingTimeline.Path = EOpenMobileHapticsTimelinePath::AppleTransient;
+	MissingTimeline.AppleTransient.Reason = TEXT("MissingManagedTimeline");
+	const FOpenMobileHapticsPortableTimeline& Timeline =
+		Parameters.PortableTimeline
+			? *Parameters.PortableTimeline
+			: MissingTimeline;
+	const bool bUseContinuousTranslation = Timeline.Path
+		== EOpenMobileHapticsTimelinePath::AppleContinuous;
+	const FOpenMobileHapticsAppleTransientResolution& Transient =
+		Timeline.AppleTransient;
+	const FOpenMobileHapticsAppleContinuousResolution& Continuous =
+		Timeline.AppleContinuous;
 	EApplePatternTranslationOutcome TranslationOutcome =
 		EApplePatternTranslationOutcome::Invalid;
 	const FName TranslationName = bUseContinuousTranslation
@@ -832,16 +833,6 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	FName TranslationReason;
 	if (bUseContinuousTranslation)
 	{
-		Continuous = FOpenMobileHapticsAppleContinuousPolicy::Resolve(
-			CookedPattern,
-			EffectiveLoop,
-			Capabilities,
-			Request.Intensity,
-			FOpenMobileHapticsAppleContinuousPolicy::MakeLimits(
-				*GetDefault<UOpenMobileHapticsSettings>(),
-				Capabilities
-			)
-		);
 		TranslationReason = Continuous.Reason;
 		switch (Continuous.Outcome)
 		{
@@ -862,11 +853,6 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	}
 	else
 	{
-		Transient = FOpenMobileHapticsAppleTransientPolicy::Resolve(
-			CookedPattern,
-			Capabilities,
-			Request.Intensity
-		);
 		TranslationReason = Transient.Reason;
 		switch (Transient.Outcome)
 		{
@@ -939,22 +925,6 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			MoveTemp(Attempts)
 		);
 	}
-	if (Parameters.bHasInitialDynamicParameters)
-	{
-		if (bUseContinuousTranslation)
-		{
-			Continuous.Pattern.bHasInitialDynamicParameters = true;
-			Continuous.Pattern.InitialDynamicParameters =
-				Parameters.InitialDynamicParameters;
-		}
-		else
-		{
-			Transient.Pattern.bHasInitialDynamicParameters = true;
-			Transient.Pattern.InitialDynamicParameters =
-				Parameters.InitialDynamicParameters;
-		}
-	}
-
 	const EOpenMobileHapticsAppleEngineResult EngineResult =
 		BridgeService->EnsureEngine();
 	if (EngineResult != EOpenMobileHapticsAppleEngineResult::Ready)
@@ -1015,7 +985,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		BridgeResult = BridgeService->PlayContinuousPattern(
 			Token.RequestId,
 			Continuous.Pattern,
-			MoveTemp(NativeCallback)
+			MoveTemp(NativeCallback),
+			Parameters.bHasInitialDynamicParameters
+				? &Parameters.InitialDynamicParameters
+				: nullptr
 		);
 	}
 	else
@@ -1023,7 +996,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		BridgeResult = BridgeService->PlayTransientPattern(
 			Token.RequestId,
 			Transient.Pattern,
-			MoveTemp(NativeCallback)
+			MoveTemp(NativeCallback),
+			Parameters.bHasInitialDynamicParameters
+				? &Parameters.InitialDynamicParameters
+				: nullptr
 		);
 	}
 	if (BridgeResult != EOpenMobileHapticsAppleSubmissionResult::Accepted)

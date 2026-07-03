@@ -4,6 +4,7 @@
 #include "OpenMobileHapticsTypes.h"
 
 class IOpenMobileHapticsBackend;
+class FOpenMobileHapticsTimelineManager;
 struct FOpenMobileHapticsBackendRequestToken;
 
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsBackendRegistry final
@@ -26,6 +27,7 @@ public:
 	static void SetApplicationActive(bool bActive);
 	static bool IsApplicationActive();
 	static uint64 GetLifecycleGeneration();
+	static FOpenMobileHapticsTimelineManager& GetTimelineManager();
 	static void NotifyLifecycleChange();
 	static bool IsShuttingDown();
 	static void BeginShutdown();

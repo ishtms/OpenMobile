@@ -14,6 +14,7 @@
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "OpenMobileHapticsTimelineManager.h"
 
 namespace OpenMobileHapticsAndroidBackendPrivate
 {
@@ -270,13 +271,16 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		TArray<FName> Attempts
 	)
 	{
-		const FOpenMobileHapticsAndroidWaveformResolution Portable =
-			FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
-				Pattern,
-				Capabilities,
-				Request.Intensity,
-				Request.Options.FallbackPolicy
-			);
+		FOpenMobileHapticsAndroidWaveformResolution MissingTimeline;
+		MissingTimeline.Outcome =
+			EOpenMobileHapticsAndroidWaveformOutcome::FallbackRequired;
+		MissingTimeline.Reason = TEXT("MissingManagedTimeline");
+		const FOpenMobileHapticsAndroidWaveformResolution& Portable =
+			Parameters.PortableTimeline
+			&& Parameters.PortableTimeline->Path
+				== EOpenMobileHapticsTimelinePath::AndroidWaveform
+				? Parameters.PortableTimeline->Android
+				: MissingTimeline;
 		if (Portable.Outcome
 			== EOpenMobileHapticsAndroidWaveformOutcome::Ready)
 		{

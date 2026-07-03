@@ -20,6 +20,7 @@
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsTimingPolicy.h"
+#include "OpenMobileHapticsTimelineManager.h"
 
 struct FOpenMobileHapticsSubsystemRequestState
 {
@@ -1008,6 +1009,7 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 	State->LoadingLibraryPaths.Reset();
 	State->LoadingLibraries.Reset();
 	State->LibraryResolver.Release();
+	FOpenMobileHapticsBackendRegistry::GetTimelineManager().Clear();
 	State->LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
 	if (bNotifyCancellation && ActiveHandle.IsValid())
@@ -1864,6 +1866,28 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	PlaybackParameters.InitialDynamicParameters.Intensity =
 		MutablePolicyScale;
 	PlaybackParameters.Timing = Timing;
+	const UOpenMobileHapticPatternAsset* PortablePattern =
+		Cast<UOpenMobileHapticPatternAsset>(
+			ResolvedRequest.PatternAsset.ResolveObject()
+		);
+	if (PortablePattern)
+	{
+		FOpenMobileHapticLoopOptions EffectiveLoop = PortablePattern->Loop;
+		if (ResolvedRequest.Options.Loop.bLoop)
+		{
+			EffectiveLoop = ResolvedRequest.Options.Loop;
+		}
+		PlaybackParameters.PortableTimeline =
+			FOpenMobileHapticsBackendRegistry::GetTimelineManager().Resolve(
+				Backend->GetBackendName(),
+				*PortablePattern,
+				EffectiveLoop,
+				Capabilities,
+				ResolvedRequest.Intensity,
+				ResolvedRequest.Options.FallbackPolicy,
+				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+			).Timeline;
+	}
 
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);

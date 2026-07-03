@@ -93,12 +93,16 @@ public:
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
-		FOpenMobileHapticsApplePlaybackEventCallback Callback
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
-		FOpenMobileHapticsApplePlaybackEventCallback Callback
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,
@@ -137,12 +141,16 @@ public:
 	EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
-		FOpenMobileHapticsApplePlaybackEventCallback Callback
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
-		FOpenMobileHapticsApplePlaybackEventCallback Callback
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,

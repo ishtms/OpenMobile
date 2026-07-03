@@ -480,6 +480,13 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		backend = (
 			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
 		).read_text(encoding="utf-8")
+		manager = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Private"
+			/ "OpenMobileHapticsTimelineManager.cpp"
+		).read_text(encoding="utf-8")
 		policy = (
 			HAPTICS_PLUGIN
 			/ "Source"
@@ -509,7 +516,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			stop_pattern.index("ClearCompletionHandler(Player)"),
 		)
 
-		self.assertIn("FOpenMobileHapticsAppleTransientPolicy::Resolve", backend)
+		self.assertIn("FOpenMobileHapticsAppleTransientPolicy::Resolve", manager)
 		self.assertIn("BridgeService->EnsureEngine", backend)
 		self.assertIn("BridgeService->PlayTransientPattern", backend)
 		self.assertIn("AppleSemanticFallback", backend)
@@ -524,6 +531,13 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		bridge = load_ios_bridge()
 		backend = (
 			ios_root / "Private" / "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		manager = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHaptics"
+			/ "Private"
+			/ "OpenMobileHapticsTimelineManager.cpp"
 		).read_text(encoding="utf-8")
 
 		self.assertIn("CHHapticEventTypeHapticContinuous", bridge)
@@ -548,6 +562,9 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"- (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:\n"
 			"\t(uint64)RequestId\n"
 			"\tpattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern\n"
+			"\tinitialParameters:\n"
+			"\t\t(const FOpenMobileHapticDynamicParameterUpdate*)"
+			"InitialParameters\n"
 			"\tcallback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback\n{",
 			1,
 		)[1].split("\n}\n\n- (void)cancelSafetyTimerForKey", 1)[0]
@@ -574,17 +591,14 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		)
 
 		self.assertIn("PlayContinuousPattern", backend)
-		self.assertIn("FOpenMobileHapticsAppleContinuousPolicy::Resolve", backend)
-		self.assertIn("Capabilities.ContinuousEvents", backend)
+		self.assertIn("FOpenMobileHapticsAppleContinuousPolicy::Resolve", manager)
+		self.assertIn("Capabilities.ContinuousEvents", manager)
 		self.assertIn(
 			"FOpenMobileHapticLoopOptions EffectiveLoop = Pattern->Loop",
 			backend,
 		)
 		self.assertIn("EffectiveLoop = Request.Options.Loop", backend)
-		self.assertIn(
-			"bUseContinuousTranslation |= EffectiveLoop.bLoop",
-			backend,
-		)
+		self.assertIn("Loop.bLoop || !Pattern.ParameterCurves.IsEmpty()", manager)
 
 	def test_apple_dynamic_parameters_are_request_scoped_and_immediate(self) -> None:
 		ios_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsIOS"
@@ -1002,7 +1016,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
 		).read_text(encoding="utf-8")
 		self.assertIn("AndroidWaveformPolicy::ResolveOverride", backend)
-		self.assertIn("AndroidWaveformPolicy::ResolvePortable", backend)
+		self.assertIn("Parameters.PortableTimeline", backend)
 		self.assertIn("Bridge.PlayWaveform", backend)
 		self.assertIn("Bridge.PlayPredefined", backend)
 		self.assertIn(
@@ -1010,6 +1024,48 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			backend,
 		)
 		self.assertIn("SupportsPredefined", backend)
+
+	def test_portable_timelines_use_the_shared_manager(self) -> None:
+		common = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		manager_header = (
+			common / "Internal" / "OpenMobileHapticsTimelineManager.h"
+		)
+		manager_source = (
+			common / "Private" / "OpenMobileHapticsTimelineManager.cpp"
+		)
+		self.assertTrue(manager_header.is_file())
+		self.assertTrue(manager_source.is_file())
+
+		backend_parameters = (
+			common / "Internal" / "IOpenMobileHapticsBackend.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("PortableTimeline", backend_parameters)
+		registry = (
+			common / "Private" / "OpenMobileHapticsBackendRegistry.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("TimelineManager().Clear()", registry)
+
+		android_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsAndroid"
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("Parameters.PortableTimeline", android_backend)
+		self.assertNotIn(
+			"AndroidWaveformPolicy::ResolvePortable",
+			android_backend,
+		)
+
+		apple_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		self.assertIn("Parameters.PortableTimeline", apple_backend)
 
 if __name__ == "__main__":
 	unittest.main()

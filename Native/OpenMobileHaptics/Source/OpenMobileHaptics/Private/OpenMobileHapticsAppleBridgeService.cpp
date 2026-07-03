@@ -149,7 +149,8 @@ EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleTransientPattern& Pattern,
-	FOpenMobileHapticsApplePlaybackEventCallback Callback
+	FOpenMobileHapticsApplePlaybackEventCallback Callback,
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 )
 {
 	const TSharedRef<
@@ -197,7 +198,8 @@ FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 					}
 				}
 			);
-		}
+		},
+		InitialParameters
 	);
 }
 
@@ -205,7 +207,8 @@ EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleContinuousPattern& Pattern,
-	FOpenMobileHapticsApplePlaybackEventCallback Callback
+	FOpenMobileHapticsApplePlaybackEventCallback Callback,
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
 )
 {
 	const TSharedRef<
@@ -253,7 +256,8 @@ FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
 					}
 				}
 			);
-		}
+		},
+		InitialParameters
 	);
 }
 

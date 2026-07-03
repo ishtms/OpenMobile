@@ -7,6 +7,8 @@
 #include "OpenMobileHapticsTimingPolicy.h"
 #include "OpenMobileHapticsTypes.h"
 
+struct FOpenMobileHapticsPortableTimeline;
+
 enum class EOpenMobileHapticsBackendPreparationState : uint8
 {
 	Unprepared,
@@ -71,6 +73,10 @@ struct FOpenMobileHapticsBackendPlaybackParameters
 	bool bHasInitialDynamicParameters = false;
 	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 	FOpenMobileHapticsTimingResolution Timing;
+	TSharedPtr<
+		const FOpenMobileHapticsPortableTimeline,
+		ESPMode::ThreadSafe
+	> PortableTimeline;
 };
 
 class IOpenMobileHapticsBackend : public IModularFeature
