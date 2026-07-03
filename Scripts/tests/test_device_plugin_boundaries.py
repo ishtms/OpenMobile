@@ -3386,6 +3386,63 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		):
 			self.assertIn(forbidden_dependency, validator)
 
+	def test_device_sample_covers_public_workflows_outside_runtime(self) -> None:
+		host_module = (
+			REPOSITORY_ROOT
+			/ "Tests"
+			/ "OpenMobileDeviceSampleHost"
+			/ "Source"
+			/ "OpenMobileDeviceSampleHost"
+		)
+		widget_header = (host_module / "OpenMobileDeviceDemoWidget.h").read_text(
+			encoding="utf-8"
+		)
+		widget_source = (host_module / "OpenMobileDeviceDemoWidget.cpp").read_text(
+			encoding="utf-8"
+		)
+		examples_header = (
+			host_module / "OpenMobileDeviceBlueprintExamples.h"
+		).read_text(encoding="utf-8")
+		player_controller_source = (
+			host_module / "OpenMobileDeviceSamplePlayerController.cpp"
+		).read_text(
+			encoding="utf-8"
+		)
+
+		self.assertIn("UOpenMobileDeviceDemoWidget", player_controller_source)
+		for required_token in (
+			"GetDeviceCapabilityReport",
+			"GetPowerSnapshot",
+			"GetMemorySnapshot",
+			"GetStorageSnapshot",
+			"GetNetworkPathSnapshot",
+			"GetWindowDisplaySnapshot",
+			"GetAppearanceSnapshot",
+			"GetAccessibilitySnapshot",
+			"StartMonitoring",
+			"TestEndpointReachability",
+			"RequestUserInitiatedPaste",
+			"RequestBrightnessOverride",
+			"RequestKeepScreenAwake",
+			"OpenApplicationSettings",
+			"Unsupported",
+			"Restricted",
+			"Permission denied",
+			"Simulator",
+			"Mock",
+		):
+			self.assertIn(required_token, widget_source)
+		for required_token in (
+			"MonitoringSubscription",
+			"ShouldReduceQualityForPower",
+			"ShouldAllowDownload",
+			"IsNetworkHandoff",
+			"ShouldRebuildSafeArea",
+			"ShouldRecoverThroughSettings",
+		):
+			self.assertIn(required_token, examples_header)
+		self.assertIn("NativeDestruct", widget_header)
+
 
 if __name__ == "__main__":
 	unittest.main()

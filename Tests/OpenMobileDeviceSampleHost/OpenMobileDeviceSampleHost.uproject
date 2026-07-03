@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Device sample and validation host.",
+	"Modules": [
+		{
+			"Name": "OpenMobileDeviceSampleHost",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../Foundation",
+		"../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileDevice",
+			"Enabled": true
+		}
+	]
+}
