@@ -3443,6 +3443,42 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 			self.assertIn(required_token, examples_header)
 		self.assertIn("NativeDestruct", widget_header)
 
+	def test_device_release_documentation_covers_public_boundaries(self) -> None:
+		readme = (
+			REPOSITORY_ROOT / "Native" / "OpenMobileDevice" / "README.md"
+		).read_text(encoding="utf-8")
+		changelog = (REPOSITORY_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+		for required_heading in (
+			"## Installation",
+			"## Project settings",
+			"## Quick start",
+			"## Platform support",
+			"## Monitoring and event cost",
+			"## Privacy and permissions",
+			"## Limitations",
+			"## Migration from the legacy Device API",
+		):
+			self.assertIn(required_heading, readme)
+		for required_token in (
+			"Android 8.0",
+			"iOS 17",
+			"StartMonitoring",
+			"UOpenMobileDeviceMonitoringSubscription",
+			"RequestBrightnessOverride",
+			"OpenApplicationSettings",
+			"emulator detection is not a security signal",
+			"network path is not endpoint reachability",
+			"memory availability is approximate",
+			"accessibility preferences are not a full accessibility implementation",
+			"GetBatteryPercent",
+			"GetVolumePercent",
+			"Core Redirects",
+		):
+			self.assertIn(required_token, readme)
+		self.assertIn("OpenMobile Device", changelog)
+		self.assertIn("Device sample host", changelog)
+
 
 if __name__ == "__main__":
 	unittest.main()
