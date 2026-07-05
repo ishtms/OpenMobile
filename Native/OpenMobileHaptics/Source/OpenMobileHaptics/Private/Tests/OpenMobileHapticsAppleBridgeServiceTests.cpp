@@ -22,6 +22,46 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return CreateEngineResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareSemanticGenerators(double IdleLifetimeSeconds) override
+		{
+			++PrepareSemanticCount;
+			LastIdleLifetimeSeconds = IdleLifetimeSeconds;
+			return PrepareSemanticResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareTransientPattern(
+			uint64 ResourceId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			int64 EstimatedBytes,
+			const FOpenMobileHapticsPreparedResourceLimits& Limits
+		) override
+		{
+			++PrepareTransientCount;
+			LastPreparedResourceId = ResourceId;
+			LastTransientPattern = Pattern;
+			LastEstimatedBytes = EstimatedBytes;
+			LastLimits = Limits;
+			return PreparePatternResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareContinuousPattern(
+			uint64 ResourceId,
+			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+			int64 EstimatedBytes,
+			const FOpenMobileHapticsPreparedResourceLimits& Limits
+		) override
+		{
+			++PrepareContinuousCount;
+			LastPreparedResourceId = ResourceId;
+			LastContinuousPattern = Pattern;
+			LastEstimatedBytes = EstimatedBytes;
+			LastLimits = Limits;
+			return PreparePatternResult;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 			EOpenMobileHapticsSemanticBehavior Behavior,
 			float Intensity
@@ -42,11 +82,13 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
 			FOpenMobileHapticsApplePlaybackEventCallback Callback,
-			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
 		) override
 		{
 			++TransientSubmissionCount;
 			LastRequestId = RequestId;
+			LastPlaybackResourceId = PreparedResourceId;
 			LastTransientPattern = Pattern;
 			if (InitialParameters)
 			{
@@ -61,11 +103,13 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 			FOpenMobileHapticsApplePlaybackEventCallback Callback,
-			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
 		) override
 		{
 			++ContinuousSubmissionCount;
 			LastRequestId = RequestId;
+			LastPlaybackResourceId = PreparedResourceId;
 			LastContinuousPattern = Pattern;
 			if (InitialParameters)
 			{
@@ -122,6 +166,11 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EventCallback = {};
 		}
 
+		virtual void ReleasePreparedResources() override
+		{
+			++ReleasePreparedCount;
+		}
+
 		void Emit(EOpenMobileHapticsAppleBridgeEvent Event)
 		{
 			if (EventCallback)
@@ -151,6 +200,10 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult UpdateResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult PrepareSemanticResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult PreparePatternResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		int32 QueryCount = 0;
 		int32 CreateEngineCount = 0;
 		int32 ShutdownCount = 0;
@@ -159,7 +212,16 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		int32 AHAPSubmissionCount = 0;
 		int32 StopCount = 0;
 		int32 UpdateCount = 0;
+		int32 PrepareSemanticCount = 0;
+		int32 PrepareTransientCount = 0;
+		int32 PrepareContinuousCount = 0;
+		int32 ReleasePreparedCount = 0;
 		uint64 LastRequestId = 0;
+		uint64 LastPreparedResourceId = 0;
+		uint64 LastPlaybackResourceId = 0;
+		int64 LastEstimatedBytes = 0;
+		double LastIdleLifetimeSeconds = 0.0;
+		FOpenMobileHapticsPreparedResourceLimits LastLimits;
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
 		FOpenMobileHapticsAppleAHAPPattern LastAHAPPattern;
@@ -257,6 +319,38 @@ bool FOpenMobileHapticsAppleEngineOwnershipTest::RunTest(
 		Supported->CreateEngineCount,
 		1
 	);
+	SupportedService.InvalidateEngine();
+	TestEqual(TEXT("A stale prepared engine is restarted"),
+		SupportedService.EnsureEngine(),
+		EOpenMobileHapticsAppleEngineResult::Ready);
+	TestEqual(TEXT("Engine invalidation reaches native startup again"),
+		Supported->CreateEngineCount, 2);
+	TestEqual(TEXT("Semantic generators prewarm without playback"),
+		SupportedService.PrepareSemanticGenerators(4.0),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Semantic preparation reaches native once"),
+		Supported->PrepareSemanticCount, 1);
+	TestEqual(TEXT("Semantic preparation uses the idle lifetime"),
+		Supported->LastIdleLifetimeSeconds, 4.0);
+	FOpenMobileHapticsAppleTransientPattern PreparedPattern;
+	PreparedPattern.StartTimesSeconds = {0.0};
+	PreparedPattern.Intensities = {1.0f};
+	PreparedPattern.Sharpnesses = {0.5f};
+	FOpenMobileHapticsPreparedResourceLimits Limits;
+	Limits.MaximumCount = 3;
+	Limits.MaximumBytes = 2048;
+	Limits.IdleLifetimeSeconds = 4.0;
+	TestEqual(TEXT("Native pattern compilation does not play"),
+		SupportedService.PrepareTransientPattern(
+			17, PreparedPattern, 256, Limits),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Prepared resource identity reaches native"),
+		Supported->LastPreparedResourceId, static_cast<uint64>(17));
+	TestEqual(TEXT("Pattern preparation does not submit playback"),
+		Supported->TransientSubmissionCount, 0);
+	SupportedService.ReleasePreparedResources();
+	TestEqual(TEXT("Explicit release clears native prepared resources"),
+		Supported->ReleasePreparedCount, 1);
 	SupportedService.Shutdown();
 	SupportedService.Shutdown();
 	TestEqual(TEXT("Shutdown releases once"), Supported->ShutdownCount, 1);
@@ -347,7 +441,8 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 				++CallbackCount;
 				bCallbackWasOnGameThread = IsInGameThread();
 			},
-			&InitialParameters
+			&InitialParameters,
+			42
 		),
 		EOpenMobileHapticsAppleSubmissionResult::Accepted
 	);
@@ -355,6 +450,8 @@ bool FOpenMobileHapticsApplePlaybackCallbackTest::RunTest(
 		Mock->TransientSubmissionCount, 1);
 	TestEqual(TEXT("Request identity crosses the bridge"),
 		Mock->LastRequestId, static_cast<uint64>(42));
+	TestEqual(TEXT("Prepared identity is reused for playback"),
+		Mock->LastPlaybackResourceId, static_cast<uint64>(42));
 	TestEqual(TEXT("All events stay in one bridge call"),
 		Mock->LastTransientPattern.StartTimesSeconds.Num(), 2);
 	TestTrue(TEXT("Request parameters stay outside the cached pattern"),

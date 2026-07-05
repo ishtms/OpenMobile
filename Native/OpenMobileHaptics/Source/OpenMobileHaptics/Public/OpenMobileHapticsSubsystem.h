@@ -146,6 +146,9 @@ public:
 		FName PatternName
 	) const;
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptic Preparation State", ToolTip = "Reports aggregate named-asset and native prewarm readiness."))
+	EOpenMobileHapticPreparationState GetPreparationState() const;
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Playback", ToolTip = "Stops plugin-owned work for one playback handle."))
 	FOpenMobileHapticControlResult StopPlayback(
 		FOpenMobileHapticPlaybackHandle Handle
@@ -271,6 +274,7 @@ private:
 		const TArray<UOpenMobileHapticLibrary*>& Libraries,
 		TArray<FString>& Errors
 	);
+	bool PrepareResolvedResources(TArray<FString>& Errors);
 	void HandleNamedLibrariesLoaded(
 		uint64 Generation,
 		FOpenMobileHapticLibraryPreloadHandle Handle

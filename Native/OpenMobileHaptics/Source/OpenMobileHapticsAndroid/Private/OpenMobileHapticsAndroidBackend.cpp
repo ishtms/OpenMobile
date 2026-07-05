@@ -289,6 +289,9 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 				: FName(TEXT("AndroidPortableWaveform"));
 			const int32 NativeResult = Bridge.PlayWaveform(
 				Token,
+				Parameters.PortableTimeline
+					? Parameters.PortableTimeline->ResourceId
+					: 0,
 				Portable.TimingsMilliseconds,
 				Portable.Amplitudes,
 				Portable.RepeatIndex,
@@ -738,6 +741,92 @@ FOpenMobileHapticsAndroidBackend::GetCapabilities() const
 		StableCapabilities = Capabilities;
 	}
 	return Capabilities;
+}
+
+EOpenMobileHapticPreparationState
+FOpenMobileHapticsAndroidBackend::GetPreparationState() const
+{
+	FScopeLock Lock(&PreparationMutex);
+	return PreparationState;
+}
+
+FOpenMobileHapticsBackendPreparationResult
+FOpenMobileHapticsAndroidBackend::PrepareResources(
+	const FOpenMobileHapticsBackendPreparationRequest& Request
+)
+{
+	{
+		FScopeLock Lock(&PreparationMutex);
+		PreparationState = EOpenMobileHapticPreparationState::Preparing;
+	}
+	FOpenMobileHapticsBackendPreparationResult Result;
+	const FOpenMobileHapticCapabilities Capabilities = GetCapabilities();
+	if (Capabilities.Availability
+		== EOpenMobileHapticAvailability::TemporarilyUnavailable)
+	{
+		Result.Errors.Add(TEXT("Android's vibrator service is unavailable during preparation."));
+		FScopeLock Lock(&PreparationMutex);
+		PreparationState = EOpenMobileHapticPreparationState::Failed;
+		return Result;
+	}
+
+	for (const TSharedPtr<
+		const FOpenMobileHapticsPortableTimeline,
+		ESPMode::ThreadSafe
+	>& Timeline : Request.Patterns)
+	{
+		if (!Timeline
+			|| Timeline->Path
+				!= EOpenMobileHapticsTimelinePath::AndroidWaveform
+			|| Timeline->Android.Outcome
+				!= EOpenMobileHapticsAndroidWaveformOutcome::Ready)
+		{
+			continue;
+		}
+		const int32 NativeResult = Bridge.PrepareWaveform(
+			Timeline->ResourceId,
+			Timeline->Android.TimingsMilliseconds,
+			Timeline->Android.Amplitudes,
+			Timeline->Android.RepeatIndex,
+			Timeline->EstimatedBytes,
+			Request.Limits
+		);
+		if (NativeResult != 1)
+		{
+			Result.Errors.Add(TEXT("Android could not compile a prepared waveform."));
+			Bridge.ReleasePreparedResources();
+			FScopeLock Lock(&PreparationMutex);
+			PreparationState = EOpenMobileHapticPreparationState::Failed;
+			return Result;
+		}
+	}
+
+	Result.State = EOpenMobileHapticPreparationState::Prepared;
+	FScopeLock Lock(&PreparationMutex);
+	PreparationState = Result.State;
+	return Result;
+}
+
+void FOpenMobileHapticsAndroidBackend::ReleasePreparedResources()
+{
+	Bridge.ReleasePreparedResources();
+	FScopeLock Lock(&PreparationMutex);
+	PreparationState = EOpenMobileHapticPreparationState::Unprepared;
+}
+
+void FOpenMobileHapticsAndroidBackend::HandleLifecycleChange()
+{
+	{
+		FScopeLock Lock(&CacheMutex);
+		StableCapabilities.Reset();
+	}
+	ReleasePreparedResources();
+}
+
+void FOpenMobileHapticsAndroidBackend::BeginShutdown()
+{
+	ReleasePreparedResources();
+	Bridge.Shutdown();
 }
 
 FOpenMobileHapticsBackendSubmission
@@ -1251,6 +1340,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				: FName(TEXT("AndroidWaveform"));
 			const int32 NativeResult = Bridge.PlayWaveform(
 				Token,
+				0,
 				Waveform.TimingsMilliseconds,
 				Waveform.Amplitudes,
 				Waveform.RepeatIndex,

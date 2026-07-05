@@ -7,11 +7,23 @@ class FOpenMobileHapticsPlatformBackend : public IOpenMobileHapticsBackend
 public:
 	virtual int32 GetPriority() const override { return 100; }
 	virtual bool IsAvailable() const override { return true; }
-	virtual EOpenMobileHapticsBackendPreparationState
+	virtual EOpenMobileHapticPreparationState
 	GetPreparationState() const override
 	{
-		return EOpenMobileHapticsBackendPreparationState::Unprepared;
+		return EOpenMobileHapticPreparationState::Unprepared;
 	}
+	virtual FOpenMobileHapticsBackendPreparationResult PrepareResources(
+		const FOpenMobileHapticsBackendPreparationRequest& Request
+	) override
+	{
+		static_cast<void>(Request);
+		FOpenMobileHapticsBackendPreparationResult Result;
+		Result.Errors.Add(
+			TEXT("The active Haptics backend cannot prepare resources.")
+		);
+		return Result;
+	}
+	virtual void ReleasePreparedResources() override {}
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const override
 	{

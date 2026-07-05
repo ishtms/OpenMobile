@@ -151,6 +151,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Queue Limits", meta = (ClampMin = "1", ClampMax = "128"))
 	int32 MaximumPreparedPatterns = 32;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Preparation Limits", meta = (ClampMin = "64", ClampMax = "65536", Units = "KB"))
+	int32 MaximumPreparedPatternMemoryKilobytes = 4096;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Preparation Limits", meta = (ClampMin = "1.0", ClampMax = "300.0", Units = "s"))
+	float PreparedPatternIdleLifetimeSeconds = 30.0f;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Queue Limits", meta = (ClampMin = "1", ClampMax = "512"))
 	int32 MaximumDiagnosticEvents = 64;
 

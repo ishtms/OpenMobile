@@ -192,6 +192,15 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum prepared patterns must be between 1 and 128."));
 	}
+	if (MaximumPreparedPatternMemoryKilobytes < 64
+		|| MaximumPreparedPatternMemoryKilobytes > 65536)
+	{
+		AddError(TEXT("Prepared pattern memory must be between 64 and 65536 KB."));
+	}
+	if (!IsFiniteRange(PreparedPatternIdleLifetimeSeconds, 1.0f, 300.0f))
+	{
+		AddError(TEXT("Prepared pattern idle lifetime must be finite and between 1 and 300 seconds."));
+	}
 	if (MaximumDiagnosticEvents < 1 || MaximumDiagnosticEvents > 512)
 	{
 		AddError(TEXT("Maximum diagnostic events must be between 1 and 512."));

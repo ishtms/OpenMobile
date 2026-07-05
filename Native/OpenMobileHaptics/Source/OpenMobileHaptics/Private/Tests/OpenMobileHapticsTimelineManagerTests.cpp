@@ -93,6 +93,10 @@ bool FOpenMobileHapticsTimelineRoutingAndCacheTest::RunTest(
 	TestTrue(TEXT("Android route returns a timeline"), First.Timeline.IsValid());
 	if (First.Timeline)
 	{
+		TestTrue(TEXT("Prepared timeline has a native resource identity"),
+			First.Timeline->ResourceId != 0);
+		TestTrue(TEXT("Prepared timeline reports bounded memory ownership"),
+			First.Timeline->EstimatedBytes > 0);
 		TestEqual(TEXT("Android route is selected"), First.Timeline->Path,
 			EOpenMobileHapticsTimelinePath::AndroidWaveform);
 		TestEqual(TEXT("Mixed events preserve their amplitudes"),
@@ -140,6 +144,72 @@ bool FOpenMobileHapticsTimelineRoutingAndCacheTest::RunTest(
 			Fallback.Timeline->AppleContinuous.Outcome,
 			EOpenMobileHapticsAppleContinuousOutcome::FallbackRequired);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsTimelineResourceBoundsTest,
+	"OpenMobile.Haptics.Timeline.Manager.ResourceBounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsTimelineResourceBoundsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTimelineManagerTests;
+	UOpenMobileHapticPatternAsset* FirstPattern = MakePattern(0.2f);
+	UOpenMobileHapticPatternAsset* SecondPattern = MakePattern(0.8f);
+	TestNotNull(TEXT("First bounded timeline compiles"), FirstPattern);
+	TestNotNull(TEXT("Second bounded timeline compiles"), SecondPattern);
+	if (!FirstPattern || !SecondPattern)
+	{
+		return false;
+	}
+
+	const FOpenMobileHapticCapabilities Capabilities = AndroidCapabilities();
+	const FOpenMobileHapticLoopOptions Loop;
+	FOpenMobileHapticsTimelineManager ProbeManager(2);
+	const FOpenMobileHapticsTimelineLookup Probe = ProbeManager.ResolveAtTime(
+		TEXT("Android"), *FirstPattern, Loop, Capabilities, 1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic, 4, 10.0);
+	TestTrue(TEXT("Probe timeline reports its owned bytes"),
+		Probe.Timeline && Probe.Timeline->EstimatedBytes > 0);
+	if (!Probe.Timeline)
+	{
+		return false;
+	}
+
+	const int64 MemoryLimit = Probe.Timeline->EstimatedBytes
+		+ Probe.Timeline->EstimatedBytes / 2;
+	FOpenMobileHapticsTimelineManager Manager(4, MemoryLimit, 2.0);
+	auto ResolveAt = [&](UOpenMobileHapticPatternAsset& Pattern, double Time)
+	{
+		return Manager.ResolveAtTime(
+			TEXT("Android"), Pattern, Loop, Capabilities, 1.0f,
+			EOpenMobileHapticFallbackPolicy::Automatic, 4, Time);
+	};
+	const FOpenMobileHapticsTimelineLookup First = ResolveAt(*FirstPattern, 10.0);
+	const uint64 FirstResourceId = First.Timeline
+		? First.Timeline->ResourceId
+		: 0;
+	ResolveAt(*SecondPattern, 10.5);
+	TestTrue(TEXT("Prepared timelines stay within their byte budget"),
+		Manager.GetCacheMemoryBytes() <= MemoryLimit);
+	TestEqual(TEXT("Byte pressure evicts one prepared timeline"),
+		Manager.GetCacheEntryCount(), 1);
+	TestFalse(TEXT("Byte eviction removes the least recent timeline"),
+		ResolveAt(*FirstPattern, 11.0).bCacheHit);
+	TestEqual(TEXT("Equivalent recompilation keeps its native identity"),
+		ResolveAt(*FirstPattern, 11.5).Timeline->ResourceId,
+		FirstResourceId);
+
+	Manager.PruneIdle(14.0);
+	TestEqual(TEXT("Idle prepared timelines expire without a ticker"),
+		Manager.GetCacheEntryCount(), 0);
+	TestEqual(TEXT("Idle eviction releases its memory accounting"),
+		Manager.GetCacheMemoryBytes(), static_cast<int64>(0));
 	return true;
 }
 

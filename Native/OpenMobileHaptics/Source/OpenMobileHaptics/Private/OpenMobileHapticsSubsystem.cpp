@@ -55,6 +55,8 @@ struct FOpenMobileHapticsSubsystemState
 	FName LastNamedPattern;
 	EOpenMobileHapticNamedPatternStatus LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
+	EOpenMobileHapticPreparationState PreparationState =
+		EOpenMobileHapticPreparationState::Unprepared;
 	FOpenMobileHapticsRateLimiter RateLimiter;
 	FOpenMobileHapticsDynamicParameterPolicy DynamicParameterPolicy;
 	FOpenMobileHapticsTimingPolicy TimingPolicy;
@@ -193,6 +195,20 @@ namespace OpenMobileHapticsSubsystemPrivate
 			1,
 			240
 		));
+	}
+
+	FOpenMobileHapticsPreparedResourceLimits PreparedResourceLimits(
+		const UOpenMobileHapticsSettings& Settings
+	)
+	{
+		FOpenMobileHapticsPreparedResourceLimits Limits;
+		Limits.MaximumCount = Settings.MaximumPreparedPatterns;
+		Limits.MaximumBytes = static_cast<int64>(
+			Settings.MaximumPreparedPatternMemoryKilobytes
+		) * 1024;
+		Limits.IdleLifetimeSeconds =
+			Settings.PreparedPatternIdleLifetimeSeconds;
+		return Limits;
 	}
 
 	EOpenMobileHapticSemanticEffect GamePresetEffect(
@@ -682,6 +698,60 @@ UOpenMobileHapticsSubsystem::PreloadNamedLibraries()
 	{
 		return Handle;
 	}
+	if (State && State->ActiveLibraryPreload.IsValid())
+	{
+		return State->ActiveLibraryPreload;
+	}
+	if (State
+		&& State->PreparationState
+			== EOpenMobileHapticPreparationState::Prepared)
+	{
+		Handle.Id = FGuid::NewGuid();
+		State->ActiveLibraryPreload = Handle;
+		TArray<FString> Errors;
+		const bool bRequiresNativePreparation =
+			FOpenMobileHapticsBackendRegistry::FindBackend()
+			&& GetPreparationState()
+				!= EOpenMobileHapticPreparationState::Prepared;
+		if (bRequiresNativePreparation)
+		{
+			State->PreparationState =
+				EOpenMobileHapticPreparationState::Preparing;
+			const bool bPrepared = PrepareResolvedResources(Errors);
+			TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakThis(this);
+			AsyncTask(
+				ENamedThreads::GameThread,
+				[WeakThis, Handle, bPrepared, Errors = MoveTemp(Errors)]()
+				mutable
+				{
+					if (WeakThis.IsValid())
+					{
+						WeakThis->FinishNamedLibraryPreload(
+							Handle,
+							bPrepared
+								? EOpenMobileHapticLibraryPreloadOutcome::Prepared
+								: EOpenMobileHapticLibraryPreloadOutcome::Failed,
+							MoveTemp(Errors)
+						);
+					}
+				}
+			);
+			return Handle;
+		}
+		TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakThis(this);
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, Handle]()
+		{
+			if (WeakThis.IsValid())
+			{
+				WeakThis->FinishNamedLibraryPreload(
+					Handle,
+					EOpenMobileHapticLibraryPreloadOutcome::Prepared,
+					{}
+				);
+			}
+		});
+		return Handle;
+	}
 
 	ReleaseNamedLibrariesInternal(true);
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
@@ -690,6 +760,8 @@ UOpenMobileHapticsSubsystem::PreloadNamedLibraries()
 	const uint64 Generation = LocalState.LibraryResolver.BeginPreparation();
 	LocalState.LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Loading;
+	LocalState.PreparationState =
+		EOpenMobileHapticPreparationState::Preparing;
 
 	TArray<FSoftObjectPath> LibraryPaths;
 	for (const FOpenMobileHapticNamedLibrarySettings& Library :
@@ -770,24 +842,153 @@ UOpenMobileHapticsSubsystem::GetNamedPatternStatus(FName PatternName) const
 		: EOpenMobileHapticNamedPatternStatus::Unprepared;
 }
 
+EOpenMobileHapticPreparationState
+UOpenMobileHapticsSubsystem::GetPreparationState() const
+{
+	check(IsInGameThread());
+	if (!State)
+	{
+		return EOpenMobileHapticPreparationState::Unprepared;
+	}
+	if (State->PreparationState
+		== EOpenMobileHapticPreparationState::Prepared)
+	{
+		if (IOpenMobileHapticsBackend* Backend =
+			FOpenMobileHapticsBackendRegistry::FindBackend())
+		{
+			return Backend->GetPreparationState();
+		}
+	}
+	return State->PreparationState;
+}
+
 bool UOpenMobileHapticsSubsystem::PrepareLoadedNamedLibraries(
 	const TArray<UOpenMobileHapticLibrary*>& Libraries,
 	TArray<FString>& Errors
 )
 {
 	check(IsInGameThread());
+	if (State
+		&& GetPreparationState()
+			== EOpenMobileHapticPreparationState::Prepared)
+	{
+		Errors.Reset();
+		return true;
+	}
 	ReleaseNamedLibrariesInternal(false);
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	LocalState.PreparationState =
+		EOpenMobileHapticPreparationState::Preparing;
 	const uint64 Generation = LocalState.LibraryResolver.BeginPreparation();
-	const bool bPrepared = LocalState.LibraryResolver.CompletePreparation(
+	bool bPrepared = LocalState.LibraryResolver.CompletePreparation(
 		Generation,
 		Libraries,
 		Errors
 	);
+	if (bPrepared)
+	{
+		bPrepared = PrepareResolvedResources(Errors);
+	}
+	else
+	{
+		LocalState.PreparationState =
+			EOpenMobileHapticPreparationState::Failed;
+	}
 	LocalState.LastNamedPatternStatus = bPrepared
 		? EOpenMobileHapticNamedPatternStatus::Loaded
 		: EOpenMobileHapticNamedPatternStatus::Invalid;
 	return bPrepared;
+}
+
+bool UOpenMobileHapticsSubsystem::PrepareResolvedResources(
+	TArray<FString>& Errors
+)
+{
+	check(IsInGameThread());
+	if (!State)
+	{
+		Errors = {TEXT("Haptics preparation state is unavailable.")};
+		return false;
+	}
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	const FOpenMobileHapticsPreparedResourceLimits Limits =
+		OpenMobileHapticsSubsystemPrivate::PreparedResourceLimits(*Settings);
+	FOpenMobileHapticsTimelineManager& TimelineManager =
+		FOpenMobileHapticsBackendRegistry::GetTimelineManager();
+	TimelineManager.SetLimits(Limits);
+	TimelineManager.PruneIdle(FPlatformTime::Seconds());
+
+	IOpenMobileHapticsBackend* Backend =
+		FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Backend)
+	{
+		State->PreparationState =
+			EOpenMobileHapticPreparationState::Prepared;
+		return true;
+	}
+
+	FOpenMobileHapticsBackendPreparationRequest Request;
+	Request.Limits = Limits;
+	TArray<TPair<FName, FSoftObjectPath>> PreparedPatterns;
+	State->LibraryResolver.GetPreparedPatterns(PreparedPatterns);
+	const FOpenMobileHapticCapabilities Capabilities =
+		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	TSet<uint64> PreparedResourceIds;
+	for (const TPair<FName, FSoftObjectPath>& Prepared : PreparedPatterns)
+	{
+		const UOpenMobileHapticPatternAsset* Pattern =
+			Cast<UOpenMobileHapticPatternAsset>(Prepared.Value.ResolveObject());
+		if (!Pattern)
+		{
+			Errors.Add(FString::Printf(
+				TEXT("Prepared pattern %s became unavailable."),
+				*Prepared.Key.ToString()
+			));
+			continue;
+		}
+		const FOpenMobileHapticsTimelineLookup Lookup =
+			TimelineManager.Resolve(
+				Backend->GetBackendName(),
+				*Pattern,
+				Pattern->Loop,
+				Capabilities,
+				1.0f,
+				EOpenMobileHapticFallbackPolicy::Automatic,
+				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+			);
+		if (Lookup.Timeline
+			&& Lookup.Timeline->ResourceId != 0
+			&& !PreparedResourceIds.Contains(Lookup.Timeline->ResourceId))
+		{
+			PreparedResourceIds.Add(Lookup.Timeline->ResourceId);
+			Request.Patterns.Add(Lookup.Timeline);
+		}
+	}
+	if (!Errors.IsEmpty())
+	{
+		State->LibraryResolver.FailPreparation();
+		State->PreparationState = EOpenMobileHapticPreparationState::Failed;
+		TimelineManager.Clear();
+		return false;
+	}
+
+	const FOpenMobileHapticsBackendPreparationResult Result =
+		Backend->PrepareResources(Request);
+	Errors = Result.Errors;
+	State->PreparationState = Result.State;
+	if (Result.State != EOpenMobileHapticPreparationState::Prepared)
+	{
+		if (Errors.IsEmpty())
+		{
+			Errors.Add(TEXT("The active Haptics backend could not prepare resources."));
+		}
+		State->LibraryResolver.FailPreparation();
+		State->PreparationState = EOpenMobileHapticPreparationState::Failed;
+		TimelineManager.Clear();
+		return false;
+	}
+	return true;
 }
 
 void UOpenMobileHapticsSubsystem::HandleNamedLibrariesLoaded(
@@ -920,11 +1121,20 @@ void UOpenMobileHapticsSubsystem::HandleNamedOverridesLoaded(
 		LoadedLibraries.Add(Library.Get());
 	}
 	TArray<FString> Errors;
-	const bool bPrepared = State->LibraryResolver.CompletePreparation(
+	bool bPrepared = State->LibraryResolver.CompletePreparation(
 		Generation,
 		LoadedLibraries,
 		Errors
 	);
+	if (bPrepared)
+	{
+		bPrepared = PrepareResolvedResources(Errors);
+	}
+	else
+	{
+		State->PreparationState =
+			EOpenMobileHapticPreparationState::Failed;
+	}
 	State->LastNamedPatternStatus = bPrepared
 		? EOpenMobileHapticNamedPatternStatus::Loaded
 		: EOpenMobileHapticNamedPatternStatus::Invalid;
@@ -953,6 +1163,12 @@ void UOpenMobileHapticsSubsystem::FinishNamedLibraryPreload(
 	Result.PreparedPatternCount =
 		State->LibraryResolver.GetPreparedPatternCount();
 	Result.Errors = MoveTemp(Errors);
+	State->PreparationState = Outcome
+		== EOpenMobileHapticLibraryPreloadOutcome::Prepared
+			? EOpenMobileHapticPreparationState::Prepared
+			: Outcome == EOpenMobileHapticLibraryPreloadOutcome::Cancelled
+				? EOpenMobileHapticPreparationState::Unprepared
+				: EOpenMobileHapticPreparationState::Failed;
 	State->ActiveLibraryPreload = {};
 	State->LoadingLibraryPaths.Reset();
 	State->LoadingLibraries.Reset();
@@ -987,6 +1203,8 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 	}
 	const FOpenMobileHapticLibraryPreloadHandle ActiveHandle =
 		State->ActiveLibraryPreload;
+	const EOpenMobileHapticPreparationState PreviousPreparationState =
+		State->PreparationState;
 	if (State->LibraryLoadHandle)
 	{
 		State->LibraryLoadHandle->CancelHandle();
@@ -1010,8 +1228,19 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 	State->LoadingLibraries.Reset();
 	State->LibraryResolver.Release();
 	FOpenMobileHapticsBackendRegistry::GetTimelineManager().Clear();
+	if (PreviousPreparationState
+		!= EOpenMobileHapticPreparationState::Unprepared)
+	{
+		if (IOpenMobileHapticsBackend* Backend =
+			FOpenMobileHapticsBackendRegistry::FindBackend())
+		{
+			Backend->ReleasePreparedResources();
+		}
+	}
 	State->LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
+	State->PreparationState =
+		EOpenMobileHapticPreparationState::Unprepared;
 	if (bNotifyCancellation && ActiveHandle.IsValid())
 	{
 		FOpenMobileHapticLibraryPreloadResult Result;
@@ -1877,8 +2106,13 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		{
 			EffectiveLoop = ResolvedRequest.Options.Loop;
 		}
+		FOpenMobileHapticsTimelineManager& TimelineManager =
+			FOpenMobileHapticsBackendRegistry::GetTimelineManager();
+		TimelineManager.SetLimits(
+			OpenMobileHapticsSubsystemPrivate::PreparedResourceLimits(*Settings)
+		);
 		PlaybackParameters.PortableTimeline =
-			FOpenMobileHapticsBackendRegistry::GetTimelineManager().Resolve(
+			TimelineManager.Resolve(
 				Backend->GetBackendName(),
 				*PortablePattern,
 				EffectiveLoop,
@@ -2527,6 +2761,7 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 		Diagnostics.LastNamedPatternStatus = State->LastNamedPatternStatus;
 		Diagnostics.PreparedNamedPatternCount =
 			State->LibraryResolver.GetPreparedPatternCount();
+		Diagnostics.PreparationState = GetPreparationState();
 		Diagnostics.LastResolvedPath = State->LastResolvedPath;
 		Diagnostics.LastFallbackAttempts = State->LastFallbackAttempts;
 	}

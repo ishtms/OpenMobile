@@ -42,6 +42,7 @@
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "OpenMobileHapticsTimingPolicy.h"
+#include "OpenMobileHapticsTimelineManager.h"
 #include "OpenMobileHapticsTypes.h"
 #include "UObject/UnrealType.h"
 
@@ -76,10 +77,24 @@ namespace OpenMobileHapticsTests
 				Capabilities = CapabilitiesAfterLifecycle;
 			}
 		}
-		virtual EOpenMobileHapticsBackendPreparationState
+		virtual EOpenMobileHapticPreparationState
 		GetPreparationState() const override
 		{
 			return PreparationState;
+		}
+		virtual FOpenMobileHapticsBackendPreparationResult PrepareResources(
+			const FOpenMobileHapticsBackendPreparationRequest& Request
+		) override
+		{
+			++PrepareResourcesCount;
+			LastPreparationRequest = Request;
+			PreparationState = PreparationResult.State;
+			return PreparationResult;
+		}
+		virtual void ReleasePreparedResources() override
+		{
+			++ReleasePreparedResourcesCount;
+			PreparationState = EOpenMobileHapticPreparationState::Unprepared;
 		}
 		virtual FOpenMobileHapticsBackendControlSupport
 		GetControlSupport() const override
@@ -245,8 +260,13 @@ namespace OpenMobileHapticsTests
 
 		FOpenMobileHapticCapabilities Capabilities;
 		FOpenMobileHapticCapabilities CapabilitiesAfterLifecycle;
-		EOpenMobileHapticsBackendPreparationState PreparationState =
-			EOpenMobileHapticsBackendPreparationState::Unprepared;
+		EOpenMobileHapticPreparationState PreparationState =
+			EOpenMobileHapticPreparationState::Unprepared;
+		FOpenMobileHapticsBackendPreparationResult PreparationResult = {
+			EOpenMobileHapticPreparationState::Prepared,
+			{}
+		};
+		FOpenMobileHapticsBackendPreparationRequest LastPreparationRequest;
 		FOpenMobileHapticsBackendControlSupport ControlSupport;
 		bool bAvailable = true;
 		bool bCustomPlaybackConfigured = true;
@@ -267,6 +287,8 @@ namespace OpenMobileHapticsTests
 		int32 StopChannelCount = 0;
 		int32 StopAllCount = 0;
 		int32 DynamicUpdateCount = 0;
+		int32 PrepareResourcesCount = 0;
+		int32 ReleasePreparedResourcesCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
 		FOpenMobileHapticsBackendRequestToken LastDynamicToken;
@@ -1169,7 +1191,13 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
-	FMockBackend Backend(TEXT("NamedLibrary"));
+	FMockBackend Backend(TEXT("Android"));
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.WaveformTiming =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 
 	UOpenMobileHapticsSettings* Settings =
@@ -1183,7 +1211,10 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	TestTrue(TEXT("Subsystem pattern asset builds"),
 		Pattern->RebuildDerivedData(PatternErrors));
 	UOpenMobileHapticLibrary* Library = NewObject<UOpenMobileHapticLibrary>();
-	Library->Patterns = {{TEXT("Weapon_Recoil"), Pattern}};
+	Library->Patterns = {
+		{TEXT("Weapon_Recoil"), Pattern},
+		{TEXT("Weapon_Recoil_Alias"), Pattern}
+	};
 	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
 	LibrarySettings.Name = TEXT("Gameplay");
 	LibrarySettings.Asset = FSoftObjectPath(Library);
@@ -1192,6 +1223,9 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileHapticsSubsystem* Subsystem =
 		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TestEqual(TEXT("Preparation starts unprepared"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
 	TestEqual(TEXT("Configured library starts unprepared"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Unprepared);
@@ -1205,6 +1239,21 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	TArray<FString> Errors;
 	TestTrue(TEXT("Loaded libraries can complete preparation"),
 		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Loaded preparation prewarms the selected backend"),
+		Backend.PrepareResourcesCount, 1);
+	TestEqual(TEXT("Duplicate resource identities compile only once"),
+		Backend.LastPreparationRequest.Patterns.Num(), 1);
+	TestTrue(TEXT("Prepared patterns have stable native identities"),
+		Backend.LastPreparationRequest.Patterns[0]
+		&& Backend.LastPreparationRequest.Patterns[0]->ResourceId != 0);
+	TestEqual(TEXT("Successful preparation exposes prepared state"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Prepared);
+	Errors.Reset();
+	TestTrue(TEXT("Already prepared libraries complete immediately"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Already prepared resources are not compiled twice"),
+		Backend.PrepareResourcesCount, 1);
 	TestEqual(TEXT("Prepared pattern reports loaded"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Loaded);
@@ -1230,25 +1279,63 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 		Subsystem->GetDiagnostics().LastFallbackAttempts.Num(), 2);
 
 	Subsystem->ReleaseNamedLibraries();
+	TestEqual(TEXT("Explicit release reaches native prepared resources"),
+		Backend.ReleasePreparedResourcesCount, 1);
+	TestEqual(TEXT("Explicit release clears preparation state"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
 	TestEqual(TEXT("Release unloads the prepared registry"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Unprepared);
 	const FOpenMobileHapticLibraryPreloadHandle LoadHandle =
 		Subsystem->PreloadNamedLibraries();
+	const FOpenMobileHapticLibraryPreloadHandle CoalescedHandle =
+		Subsystem->PreloadNamedLibraries();
 	TestTrue(TEXT("Async preload returns a stable handle"),
 		LoadHandle.IsValid());
+	TestEqual(TEXT("Concurrent preparation shares one handle"),
+		CoalescedHandle, LoadHandle);
+	TestEqual(TEXT("Concurrent preparation does not reach native twice"),
+		Backend.PrepareResourcesCount, 1);
+	TestEqual(TEXT("Async preload exposes preparing state"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Preparing);
 	TestEqual(TEXT("Async preload enters loading state"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Loading);
+	const int32 SubmissionsBeforePreparingPlay = Backend.NamedSubmissionCount;
+	const FOpenMobileHapticPlaybackResult PreparingPlay =
+		Subsystem->PlayNamedPattern(TEXT("Weapon_Recoil"));
+	TestEqual(TEXT("Play during preparation is rejected deterministically"),
+		PreparingPlay.Error.Code, EOpenMobileHapticErrorCode::NotConfigured);
+	TestEqual(TEXT("Play during preparation never submits partial resources"),
+		Backend.NamedSubmissionCount, SubmissionsBeforePreparingPlay);
 	TestEqual(TEXT("Active async preload can be cancelled"),
 		Subsystem->CancelNamedLibraryPreload(LoadHandle).Outcome,
 		EOpenMobileHapticControlOutcome::Accepted);
 	TestEqual(TEXT("Cancelled preload cannot publish loaded state"),
 		Subsystem->GetNamedPatternStatus(TEXT("Weapon_Recoil")),
 		EOpenMobileHapticNamedPatternStatus::Unprepared);
+	TestEqual(TEXT("Cancellation clears aggregate preparation state"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
+
+	Backend.PreparationResult.State =
+		EOpenMobileHapticPreparationState::Failed;
+	Backend.PreparationResult.Errors = {TEXT("Injected native prepare failure.")};
+	Errors.Reset();
+	TestFalse(TEXT("Native preparation failure rejects loaded libraries"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Native failure exposes failed preparation state"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Failed);
+	TestEqual(TEXT("Native preparation failure is reported"),
+		Errors, Backend.PreparationResult.Errors);
 
 	Settings->NamedLibraries = SavedLibraries;
 	Subsystem->Deinitialize();
+	TestTrue(TEXT("Teardown releases prepared backend ownership"),
+		Backend.ReleasePreparedResourcesCount >= 3);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
@@ -4382,6 +4469,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->MaximumPatternCurvePointCount, 256);
 	TestEqual(TEXT("Runtime parameter calls have a bounded rate"),
 		Settings->MaximumDynamicParameterUpdatesPerSecond, 60);
+	TestEqual(TEXT("Prepared patterns have a default memory budget"),
+		Settings->MaximumPreparedPatternMemoryKilobytes, 4096);
+	TestEqual(TEXT("Prepared patterns have a finite idle lifetime"),
+		Settings->PreparedPatternIdleLifetimeSeconds, 30.0f);
 	const FIntProperty* CurveCountProperty = FindFProperty<FIntProperty>(
 		UOpenMobileHapticsSettings::StaticClass(),
 		GET_MEMBER_NAME_CHECKED(
@@ -4448,6 +4539,14 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Zero runtime parameter rate is invalid"),
 		Settings->Validate(Errors));
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 60;
+	Settings->MaximumPreparedPatternMemoryKilobytes = 0;
+	TestFalse(TEXT("Zero prepared pattern memory is invalid"),
+		Settings->Validate(Errors));
+	Settings->MaximumPreparedPatternMemoryKilobytes = 4096;
+	Settings->PreparedPatternIdleLifetimeSeconds = 0.0f;
+	TestFalse(TEXT("Zero prepared pattern idle lifetime is invalid"),
+		Settings->Validate(Errors));
+	Settings->PreparedPatternIdleLifetimeSeconds = 30.0f;
 
 	Settings->BackgroundPolicy =
 		EOpenMobileHapticBackgroundPolicy::AllowAll;
@@ -4474,6 +4573,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->MaximumPatternCurveCount = 12;
 	Settings->MaximumPatternCurvePointCount = 192;
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 90;
+	Settings->MaximumPreparedPatternMemoryKilobytes = 1024;
+	Settings->PreparedPatternIdleLifetimeSeconds = 12.5f;
 	Settings->SelectionDebounceSeconds = 0.06f;
 	Settings->Channels[0].IntensityScale = 0.6f;
 	Effect.IntensityScale = 0.8f;
@@ -4517,6 +4618,16 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Runtime parameter rate survives editor restart serialization"),
 		Loaded->MaximumDynamicParameterUpdatesPerSecond,
 		90
+	);
+	TestEqual(
+		TEXT("Prepared memory survives editor restart serialization"),
+		Loaded->MaximumPreparedPatternMemoryKilobytes,
+		1024
+	);
+	TestEqual(
+		TEXT("Prepared idle lifetime survives editor restart serialization"),
+		Loaded->PreparedPatternIdleLifetimeSeconds,
+		12.5f
 	);
 	TestEqual(
 		TEXT("Rate limit survives editor restart serialization"),
@@ -5102,14 +5213,14 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	Low.Capabilities.BasicVibration =
 		EOpenMobileHapticSupportState::Supported;
 	Low.PreparationState =
-		EOpenMobileHapticsBackendPreparationState::Preparing;
+		EOpenMobileHapticPreparationState::Preparing;
 	FMockBackend High(TEXT("High"), 10);
 	High.Capabilities.Availability =
 		EOpenMobileHapticAvailability::RichHaptics;
 	High.Capabilities.SemanticEffects =
 		EOpenMobileHapticSupportState::Supported;
 	High.PreparationState =
-		EOpenMobileHapticsBackendPreparationState::Prepared;
+		EOpenMobileHapticPreparationState::Prepared;
 	High.ControlSupport.bStop = true;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Low);
 
@@ -5150,7 +5261,7 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	TestEqual(
 		TEXT("Backend preparation state is reported"),
 		FOpenMobileHapticsBackendRegistry::FindBackend()->GetPreparationState(),
-		EOpenMobileHapticsBackendPreparationState::Prepared
+		EOpenMobileHapticPreparationState::Prepared
 	);
 
 	int32 EventCount = 0;

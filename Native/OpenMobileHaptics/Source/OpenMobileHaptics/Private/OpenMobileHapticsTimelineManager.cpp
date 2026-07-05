@@ -1,5 +1,6 @@
 #include "OpenMobileHapticsTimelineManager.h"
 
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsSettings.h"
@@ -114,6 +115,55 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return Hash;
 	}
 
+	uint64 NativeResourceId(
+		FName BackendName,
+		uint64 AssetHash,
+		uint64 RequestHash,
+		uint64 CapabilityHash,
+		uint64 LifecycleGeneration
+	)
+	{
+		uint64 Hash = FNVOffset;
+		HashValue(Hash, BackendName);
+		HashValue(Hash, AssetHash);
+		HashValue(Hash, RequestHash);
+		HashValue(Hash, CapabilityHash);
+		HashValue(Hash, LifecycleGeneration);
+		return Hash == 0 ? 1 : Hash;
+	}
+
+	int64 EstimateBytes(const FOpenMobileHapticsPortableTimeline& Timeline)
+	{
+		int64 Bytes = sizeof(FOpenMobileHapticsPortableTimeline);
+		switch (Timeline.Path)
+		{
+		case EOpenMobileHapticsTimelinePath::AndroidWaveform:
+			Bytes += Timeline.Android.TimingsMilliseconds.GetAllocatedSize();
+			Bytes += Timeline.Android.Amplitudes.GetAllocatedSize();
+			break;
+		case EOpenMobileHapticsTimelinePath::AppleTransient:
+			Bytes += Timeline.AppleTransient.Pattern.StartTimesSeconds
+				.GetAllocatedSize();
+			Bytes += Timeline.AppleTransient.Pattern.Intensities
+				.GetAllocatedSize();
+			Bytes += Timeline.AppleTransient.Pattern.Sharpnesses
+				.GetAllocatedSize();
+			break;
+		case EOpenMobileHapticsTimelinePath::AppleContinuous:
+			Bytes += Timeline.AppleContinuous.Pattern.Events.GetAllocatedSize();
+			Bytes += Timeline.AppleContinuous.Pattern.ParameterCurves
+				.GetAllocatedSize();
+			for (const FOpenMobileHapticsAppleParameterCurve& Curve :
+				Timeline.AppleContinuous.Pattern.ParameterCurves)
+			{
+				Bytes += Curve.RelativeTimesSeconds.GetAllocatedSize();
+				Bytes += Curve.Values.GetAllocatedSize();
+			}
+			break;
+		}
+		return FMath::Max<int64>(1, Bytes);
+	}
+
 	bool UsesContinuousAppleTranslation(
 		const FOpenMobileHapticCookedPatternData& Pattern,
 		const FOpenMobileHapticLoopOptions& Loop
@@ -145,27 +195,43 @@ struct FOpenMobileHapticsTimelineManager::FState
 		uint64 CapabilitySignature = 0;
 		uint64 LifecycleGeneration = 0;
 		uint64 LastAccessSequence = 0;
+		double LastAccessTimeSeconds = 0.0;
 		TSharedPtr<
 			const FOpenMobileHapticsPortableTimeline,
 			ESPMode::ThreadSafe
 		> Timeline;
 	};
 
-	explicit FState(int32 InMaximumCacheEntries)
+	explicit FState(
+		int32 InMaximumCacheEntries,
+		int64 InMaximumCacheBytes,
+		double InIdleLifetimeSeconds
+	)
 		: MaximumCacheEntries(FMath::Max(1, InMaximumCacheEntries))
+		, MaximumCacheBytes(FMath::Max<int64>(1, InMaximumCacheBytes))
+		, IdleLifetimeSeconds(FMath::Max(0.001, InIdleLifetimeSeconds))
 	{
 	}
 
 	mutable FCriticalSection Mutex;
 	TArray<FEntry> Entries;
 	int32 MaximumCacheEntries = 32;
+	int64 MaximumCacheBytes = 4 * 1024 * 1024;
+	double IdleLifetimeSeconds = 30.0;
+	int64 TotalCacheBytes = 0;
 	uint64 AccessSequence = 0;
 };
 
 FOpenMobileHapticsTimelineManager::FOpenMobileHapticsTimelineManager(
-	int32 InMaximumCacheEntries
+	int32 InMaximumCacheEntries,
+	int64 InMaximumCacheBytes,
+	double InIdleLifetimeSeconds
 )
-	: State(MakeUnique<FState>(InMaximumCacheEntries))
+	: State(MakeUnique<FState>(
+		InMaximumCacheEntries,
+		InMaximumCacheBytes,
+		InIdleLifetimeSeconds
+	))
 {
 }
 
@@ -182,6 +248,30 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 	uint64 LifecycleGeneration
 )
 {
+	return ResolveAtTime(
+		BackendName,
+		Pattern,
+		Loop,
+		Capabilities,
+		RequestIntensity,
+		FallbackPolicy,
+		LifecycleGeneration,
+		FPlatformTime::Seconds()
+	);
+}
+
+FOpenMobileHapticsTimelineLookup
+FOpenMobileHapticsTimelineManager::ResolveAtTime(
+	FName BackendName,
+	const UOpenMobileHapticPatternAsset& Pattern,
+	const FOpenMobileHapticLoopOptions& Loop,
+	const FOpenMobileHapticCapabilities& Capabilities,
+	float RequestIntensity,
+	EOpenMobileHapticFallbackPolicy FallbackPolicy,
+	uint64 LifecycleGeneration,
+	double AccessTimeSeconds
+)
+{
 	using namespace OpenMobileHapticsTimelineManagerPrivate;
 	FOpenMobileHapticsTimelineLookup Lookup;
 	if (BackendName != TEXT("Android") && BackendName != TEXT("IOS"))
@@ -192,16 +282,27 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 	FScopeLock Lock(&State->Mutex);
 	const uint64 CurrentAssetSignature = AssetSignature(Pattern);
 	const bool bDerivedDataCurrent = Pattern.IsDerivedDataCurrent();
+	auto RemoveEntry = [this](int32 Index)
+	{
+		State->TotalCacheBytes = FMath::Max<int64>(
+			0,
+			State->TotalCacheBytes
+				- State->Entries[Index].Timeline->EstimatedBytes
+		);
+		State->Entries.RemoveAt(Index);
+	};
 	for (int32 Index = State->Entries.Num() - 1; Index >= 0; --Index)
 	{
 		const FState::FEntry& Entry = State->Entries[Index];
 		if (!Entry.Owner.IsValid()
 			|| Entry.LifecycleGeneration != LifecycleGeneration
+			|| AccessTimeSeconds - Entry.LastAccessTimeSeconds
+				>= State->IdleLifetimeSeconds
 			|| (Entry.Owner.Get() == &Pattern
 				&& (!bDerivedDataCurrent
 					|| Entry.AssetSignature != CurrentAssetSignature)))
 		{
-			State->Entries.RemoveAt(Index);
+			RemoveEntry(Index);
 		}
 	}
 	if (!bDerivedDataCurrent)
@@ -255,6 +356,7 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 			&& Entry.LifecycleGeneration == LifecycleGeneration)
 		{
 			Entry.LastAccessSequence = ++State->AccessSequence;
+			Entry.LastAccessTimeSeconds = AccessTimeSeconds;
 			Lookup.Timeline = Entry.Timeline;
 			Lookup.bCacheHit = true;
 			return Lookup;
@@ -306,8 +408,19 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 				RequestIntensity
 			);
 	}
+	Timeline->ResourceId = NativeResourceId(
+		BackendName,
+		CurrentAssetSignature,
+		CurrentRequestSignature,
+		CurrentCapabilitySignature,
+		LifecycleGeneration
+	);
+	Timeline->EstimatedBytes = EstimateBytes(*Timeline);
 
-	while (State->Entries.Num() >= State->MaximumCacheEntries)
+	while (!State->Entries.IsEmpty()
+		&& (State->Entries.Num() >= State->MaximumCacheEntries
+			|| State->TotalCacheBytes + Timeline->EstimatedBytes
+				> State->MaximumCacheBytes))
 	{
 		int32 EvictionIndex = 0;
 		for (int32 Index = 1; Index < State->Entries.Num(); ++Index)
@@ -318,7 +431,12 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 				EvictionIndex = Index;
 			}
 		}
-		State->Entries.RemoveAt(EvictionIndex);
+		RemoveEntry(EvictionIndex);
+	}
+	if (Timeline->EstimatedBytes > State->MaximumCacheBytes)
+	{
+		Lookup.Timeline = Timeline;
+		return Lookup;
 	}
 
 	FState::FEntry& Entry = State->Entries.AddDefaulted_GetRef();
@@ -329,15 +447,69 @@ FOpenMobileHapticsTimelineLookup FOpenMobileHapticsTimelineManager::Resolve(
 	Entry.CapabilitySignature = CurrentCapabilitySignature;
 	Entry.LifecycleGeneration = LifecycleGeneration;
 	Entry.LastAccessSequence = ++State->AccessSequence;
+	Entry.LastAccessTimeSeconds = AccessTimeSeconds;
 	Entry.Timeline = Timeline;
+	State->TotalCacheBytes += Timeline->EstimatedBytes;
 	Lookup.Timeline = Entry.Timeline;
 	return Lookup;
+}
+
+void FOpenMobileHapticsTimelineManager::SetLimits(
+	const FOpenMobileHapticsPreparedResourceLimits& Limits
+)
+{
+	FScopeLock Lock(&State->Mutex);
+	State->MaximumCacheEntries = FMath::Max(1, Limits.MaximumCount);
+	State->MaximumCacheBytes = FMath::Max<int64>(1, Limits.MaximumBytes);
+	State->IdleLifetimeSeconds = FMath::Max(0.001, Limits.IdleLifetimeSeconds);
+	while (!State->Entries.IsEmpty()
+		&& (State->Entries.Num() > State->MaximumCacheEntries
+			|| State->TotalCacheBytes > State->MaximumCacheBytes))
+	{
+		int32 EvictionIndex = 0;
+		for (int32 Index = 1; Index < State->Entries.Num(); ++Index)
+		{
+			if (State->Entries[Index].LastAccessSequence
+				< State->Entries[EvictionIndex].LastAccessSequence)
+			{
+				EvictionIndex = Index;
+			}
+		}
+		State->TotalCacheBytes -=
+			State->Entries[EvictionIndex].Timeline->EstimatedBytes;
+		State->Entries.RemoveAt(EvictionIndex);
+	}
+}
+
+void FOpenMobileHapticsTimelineManager::PruneIdle(double CurrentTimeSeconds)
+{
+	FScopeLock Lock(&State->Mutex);
+	for (int32 Index = State->Entries.Num() - 1; Index >= 0; --Index)
+	{
+		if (!State->Entries[Index].Owner.IsValid()
+			|| CurrentTimeSeconds
+				- State->Entries[Index].LastAccessTimeSeconds
+				>= State->IdleLifetimeSeconds)
+		{
+			State->TotalCacheBytes -=
+				State->Entries[Index].Timeline->EstimatedBytes;
+			State->Entries.RemoveAt(Index);
+		}
+	}
+	State->TotalCacheBytes = FMath::Max<int64>(0, State->TotalCacheBytes);
 }
 
 void FOpenMobileHapticsTimelineManager::Clear()
 {
 	FScopeLock Lock(&State->Mutex);
 	State->Entries.Reset();
+	State->TotalCacheBytes = 0;
+}
+
+int64 FOpenMobileHapticsTimelineManager::GetCacheMemoryBytes() const
+{
+	FScopeLock Lock(&State->Mutex);
+	return State->TotalCacheBytes;
 }
 
 int32 FOpenMobileHapticsTimelineManager::GetCacheEntryCount() const

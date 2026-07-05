@@ -219,6 +219,8 @@ FOpenMobileHapticsIOSBackend::FOpenMobileHapticsIOSBackend()
 		{
 			static_cast<void>(Event);
 			ForgetAllAHAPIntensityScales();
+			ReleasePreparedResources();
+			BridgeService->InvalidateEngine();
 			BridgeService->InvalidateHardwareProbe();
 			FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 		}
@@ -373,6 +375,115 @@ FOpenMobileHapticCapabilities FOpenMobileHapticsIOSBackend::GetCapabilities() co
 	return ProbeHardwareCapabilities();
 }
 
+EOpenMobileHapticPreparationState
+FOpenMobileHapticsIOSBackend::GetPreparationState() const
+{
+	FScopeLock Lock(&PreparationMutex);
+	return PreparationState;
+}
+
+FOpenMobileHapticsBackendPreparationResult
+FOpenMobileHapticsIOSBackend::PrepareResources(
+	const FOpenMobileHapticsBackendPreparationRequest& Request
+)
+{
+	{
+		FScopeLock Lock(&PreparationMutex);
+		PreparationState = EOpenMobileHapticPreparationState::Preparing;
+	}
+	FOpenMobileHapticsBackendPreparationResult Result;
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	if (Settings->IOS.bEnableSemanticFeedback
+		&& BridgeService->PrepareSemanticGenerators(
+			Request.Limits.IdleLifetimeSeconds
+		) != EOpenMobileHapticsAppleSubmissionResult::Accepted)
+	{
+		Result.Errors.Add(TEXT("Apple could not prewarm semantic feedback generators."));
+	}
+
+	if (Settings->bEnableCustomPlayback && Settings->IOS.bEnableCoreHaptics)
+	{
+		const EOpenMobileHapticsAppleEngineResult EngineResult =
+			BridgeService->EnsureEngine();
+		if (EngineResult != EOpenMobileHapticsAppleEngineResult::Ready
+			&& EngineResult
+				!= EOpenMobileHapticsAppleEngineResult::UnsupportedHardware)
+		{
+			Result.Errors.Add(TEXT("Apple could not start the Core Haptics engine during preparation."));
+		}
+	}
+
+	if (Result.Errors.IsEmpty())
+	{
+		for (const TSharedPtr<
+			const FOpenMobileHapticsPortableTimeline,
+			ESPMode::ThreadSafe
+		>& Timeline : Request.Patterns)
+		{
+			if (!Timeline)
+			{
+				continue;
+			}
+			EOpenMobileHapticsAppleSubmissionResult PrepareResult =
+				EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+			if (Timeline->Path
+				== EOpenMobileHapticsTimelinePath::AppleTransient
+				&& Timeline->AppleTransient.Outcome
+					== EOpenMobileHapticsAppleTransientOutcome::Ready)
+			{
+				PrepareResult = BridgeService->PrepareTransientPattern(
+					Timeline->ResourceId,
+					Timeline->AppleTransient.Pattern,
+					Timeline->EstimatedBytes,
+					Request.Limits
+				);
+			}
+			else if (Timeline->Path
+				== EOpenMobileHapticsTimelinePath::AppleContinuous
+				&& Timeline->AppleContinuous.Outcome
+					== EOpenMobileHapticsAppleContinuousOutcome::Ready)
+			{
+				PrepareResult = BridgeService->PrepareContinuousPattern(
+					Timeline->ResourceId,
+					Timeline->AppleContinuous.Pattern,
+					Timeline->EstimatedBytes,
+					Request.Limits
+				);
+			}
+			else
+			{
+				continue;
+			}
+			if (PrepareResult
+				!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+			{
+				Result.Errors.Add(TEXT("Apple could not compile a prepared Core Haptics pattern."));
+				break;
+			}
+		}
+	}
+
+	if (!Result.Errors.IsEmpty())
+	{
+		BridgeService->ReleasePreparedResources();
+		FScopeLock Lock(&PreparationMutex);
+		PreparationState = EOpenMobileHapticPreparationState::Failed;
+		return Result;
+	}
+	Result.State = EOpenMobileHapticPreparationState::Prepared;
+	FScopeLock Lock(&PreparationMutex);
+	PreparationState = Result.State;
+	return Result;
+}
+
+void FOpenMobileHapticsIOSBackend::ReleasePreparedResources()
+{
+	BridgeService->ReleasePreparedResources();
+	FScopeLock Lock(&PreparationMutex);
+	PreparationState = EOpenMobileHapticPreparationState::Unprepared;
+}
+
 FOpenMobileHapticsBackendControlSupport
 FOpenMobileHapticsIOSBackend::GetControlSupport() const
 {
@@ -387,6 +498,7 @@ FOpenMobileHapticsIOSBackend::GetControlSupport() const
 
 void FOpenMobileHapticsIOSBackend::HandleLifecycleChange()
 {
+	ReleasePreparedResources();
 	BridgeService->InvalidateHardwareProbe();
 }
 
@@ -988,7 +1100,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			MoveTemp(NativeCallback),
 			Parameters.bHasInitialDynamicParameters
 				? &Parameters.InitialDynamicParameters
-				: nullptr
+				: nullptr,
+			Parameters.PortableTimeline
+				? Parameters.PortableTimeline->ResourceId
+				: 0
 		);
 	}
 	else
@@ -999,7 +1114,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			MoveTemp(NativeCallback),
 			Parameters.bHasInitialDynamicParameters
 				? &Parameters.InitialDynamicParameters
-				: nullptr
+				: nullptr,
+			Parameters.PortableTimeline
+				? Parameters.PortableTimeline->ResourceId
+				: 0
 		);
 	}
 	if (BridgeResult != EOpenMobileHapticsAppleSubmissionResult::Accepted)
@@ -1088,5 +1206,6 @@ FOpenMobileHapticsIOSBackend::UpdatePlaybackParameters(
 void FOpenMobileHapticsIOSBackend::BeginShutdown()
 {
 	ForgetAllAHAPIntensityScales();
+	ReleasePreparedResources();
 	BridgeService->Shutdown();
 }

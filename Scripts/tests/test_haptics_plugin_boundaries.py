@@ -541,6 +541,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 
 		self.assertIn("CHHapticEventTypeHapticContinuous", bridge)
+		self.assertIn("Engine.autoShutdownEnabled = YES", bridge)
 		self.assertIn("duration:NativeEvent.DurationSeconds", bridge)
 		self.assertIn("CHHapticParameterCurveControlPoint", bridge)
 		self.assertIn(
@@ -558,6 +559,18 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("NSRunLoopCommonModes", bridge)
 		self.assertIn("[Timer invalidate]", bridge)
 		self.assertIn("cancelAndReturnError", bridge)
+		semantic_prepare = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)"
+			"prepareSemanticGenerators:",
+			1,
+		)[1].split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)"
+			"prepareTransientPattern:",
+			1,
+		)[0]
+		self.assertNotIn("selectionChanged", semantic_prepare)
+		self.assertNotIn("impactOccurred", semantic_prepare)
+		self.assertNotIn("notificationOccurred", semantic_prepare)
 		continuous_native = bridge.split(
 			"- (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:\n"
 			"\t(uint64)RequestId\n"
@@ -565,6 +578,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"\tinitialParameters:\n"
 			"\t\t(const FOpenMobileHapticDynamicParameterUpdate*)"
 			"InitialParameters\n"
+			"\tpreparedResourceId:(uint64)PreparedResourceId\n"
 			"\tcallback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback\n{",
 			1,
 		)[1].split("\n}\n\n- (void)cancelSafetyTimerForKey", 1)[0]
@@ -581,10 +595,14 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			stop_pattern.index("if (!bStopped || Error)"),
 			stop_pattern.index("cancelSafetyTimerForKey"),
 		)
-		reset_handler = bridge.split("Engine.resetHandler = ^", 1)[1].split(
+		reset_handler = bridge.split("Engine.resetHandler = ^\n\t\t{", 1)[1].split(
 			"\n\t\t};",
 			1,
 		)[0]
+		self.assertLess(
+			reset_handler.index("dispatch_async(dispatch_get_main_queue()"),
+			reset_handler.index("failAllPatterns"),
+		)
 		self.assertLess(
 			reset_handler.index("failAllPatterns"),
 			reset_handler.index("EngineReset"),
@@ -955,6 +973,14 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			bridge.index("static int playPredefined")
 		]
 		self.assertIn("Build.VERSION.SDK_INT < 26", waveform)
+		self.assertIn("PREPARED_WAVEFORMS.get(preparedResourceId)", waveform)
+		self.assertIn("static int prepareWaveform", bridge)
+		self.assertIn("static void releasePreparedResources", bridge)
+		prepare_waveform = bridge[
+			bridge.index("static int prepareWaveform"):
+			bridge.index("static void releasePreparedResources")
+		]
+		self.assertNotIn("vibrate(", prepare_waveform)
 		self.assertIn("catch (SecurityException exception)", waveform)
 		self.assertIn("catch (Exception exception)", waveform)
 		self.assertIn("static int playPredefined", bridge)
@@ -1007,7 +1033,9 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		native_bridge = (
 			android_root / "Private" / "OpenMobileHapticsAndroidBridge.cpp"
 		).read_text(encoding="utf-8")
-		self.assertIn('"(Landroid/app/Activity;J[J[IIIJ)I"', native_bridge)
+		self.assertIn('"(Landroid/app/Activity;JJ[J[IIIJ)I"', native_bridge)
+		self.assertIn('"(Landroid/app/Activity;J[J[IIJIJJ)I"', native_bridge)
+		self.assertIn('"releasePreparedResources"', native_bridge)
 		self.assertIn('"(Landroid/app/Activity;JIIJ)I"', native_bridge)
 		self.assertIn("FScopedJavaObject<jlongArray>", native_bridge)
 		self.assertIn("FScopedJavaObject<jintArray>", native_bridge)

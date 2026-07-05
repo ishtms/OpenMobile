@@ -9,12 +9,20 @@
 
 struct FOpenMobileHapticsPortableTimeline;
 
-enum class EOpenMobileHapticsBackendPreparationState : uint8
+struct FOpenMobileHapticsBackendPreparationRequest
 {
-	Unprepared,
-	Preparing,
-	Prepared,
-	Failed
+	TArray<TSharedPtr<
+		const FOpenMobileHapticsPortableTimeline,
+		ESPMode::ThreadSafe
+	>> Patterns;
+	FOpenMobileHapticsPreparedResourceLimits Limits;
+};
+
+struct FOpenMobileHapticsBackendPreparationResult
+{
+	EOpenMobileHapticPreparationState State =
+		EOpenMobileHapticPreparationState::Failed;
+	TArray<FString> Errors;
 };
 
 struct FOpenMobileHapticsBackendControlSupport
@@ -95,8 +103,12 @@ public:
 	virtual bool IsAvailable() const { return true; }
 	virtual FOpenMobileHapticCapabilities GetCapabilities() const = 0;
 	virtual bool IsCustomPlaybackConfigured() const { return true; }
-	virtual EOpenMobileHapticsBackendPreparationState
+	virtual EOpenMobileHapticPreparationState
 	GetPreparationState() const = 0;
+	virtual FOpenMobileHapticsBackendPreparationResult PrepareResources(
+		const FOpenMobileHapticsBackendPreparationRequest& Request
+	) = 0;
+	virtual void ReleasePreparedResources() = 0;
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const = 0;
 	virtual void HandleLifecycleChange() {}

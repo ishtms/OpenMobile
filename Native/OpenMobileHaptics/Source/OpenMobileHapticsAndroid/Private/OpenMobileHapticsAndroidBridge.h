@@ -62,12 +62,22 @@ public:
 	);
 	int32 PlayWaveform(
 		const FOpenMobileHapticsBackendRequestToken& Token,
+		uint64 PreparedResourceId,
 		const TArray<int64>& TimingsMilliseconds,
 		const TArray<int32>& Amplitudes,
 		int32 RepeatIndex,
 		int32 Purpose,
 		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
+	int32 PrepareWaveform(
+		uint64 ResourceId,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int64 EstimatedBytes,
+		const FOpenMobileHapticsPreparedResourceLimits& Limits
+	);
+	void ReleasePreparedResources();
 	int32 PlayPredefined(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		int32 Effect,
@@ -118,10 +128,12 @@ private:
 	jmethodID QueryCapabilitiesMethod = nullptr;
 	jmethodID PlaySemanticMethod = nullptr;
 	jmethodID PlayOneShotMethod = nullptr;
+	jmethodID PrepareWaveformMethod = nullptr;
 	jmethodID PlayWaveformMethod = nullptr;
 	jmethodID PlayPredefinedMethod = nullptr;
 	jmethodID PlayPrimitivesMethod = nullptr;
 	jmethodID PlayEnvelopeMethod = nullptr;
 	jmethodID StopAllMethod = nullptr;
+	jmethodID ReleasePreparedResourcesMethod = nullptr;
 	TMap<uint64, FPendingCallback> PendingCallbacks;
 };

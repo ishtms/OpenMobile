@@ -84,6 +84,21 @@ public:
 
 	virtual FOpenMobileHapticsAppleHardwareProbe QueryHardware() = 0;
 	virtual EOpenMobileHapticsAppleEngineResult CreateEngine() = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PrepareSemanticGenerators(
+		double IdleLifetimeSeconds
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PrepareTransientPattern(
+		uint64 ResourceId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		int64 EstimatedBytes,
+		const FOpenMobileHapticsPreparedResourceLimits& Limits
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PrepareContinuousPattern(
+		uint64 ResourceId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		int64 EstimatedBytes,
+		const FOpenMobileHapticsPreparedResourceLimits& Limits
+	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 		EOpenMobileHapticsSemanticBehavior Behavior,
 		float Intensity
@@ -95,14 +110,16 @@ public:
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback,
 		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
-			nullptr
+			nullptr,
+		uint64 PreparedResourceId = 0
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback,
 		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
-			nullptr
+			nullptr,
+		uint64 PreparedResourceId = 0
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,
@@ -119,6 +136,7 @@ public:
 	virtual void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	) = 0;
+	virtual void ReleasePreparedResources() = 0;
 	virtual void Shutdown() = 0;
 };
 
@@ -132,7 +150,23 @@ public:
 
 	FOpenMobileHapticsAppleHardwareProbe GetHardwareProbe();
 	void InvalidateHardwareProbe();
+	void InvalidateEngine();
 	EOpenMobileHapticsAppleEngineResult EnsureEngine();
+	EOpenMobileHapticsAppleSubmissionResult PrepareSemanticGenerators(
+		double IdleLifetimeSeconds
+	);
+	EOpenMobileHapticsAppleSubmissionResult PrepareTransientPattern(
+		uint64 ResourceId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		int64 EstimatedBytes,
+		const FOpenMobileHapticsPreparedResourceLimits& Limits
+	);
+	EOpenMobileHapticsAppleSubmissionResult PrepareContinuousPattern(
+		uint64 ResourceId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		int64 EstimatedBytes,
+		const FOpenMobileHapticsPreparedResourceLimits& Limits
+	);
 	EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 		EOpenMobileHapticsSemanticBehavior Behavior,
 		float Intensity
@@ -143,14 +177,16 @@ public:
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback,
 		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
-			nullptr
+			nullptr,
+		uint64 PreparedResourceId = 0
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback,
 		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
-			nullptr
+			nullptr,
+		uint64 PreparedResourceId = 0
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,
@@ -165,6 +201,7 @@ public:
 	void SetEventCallback(
 		FOpenMobileHapticsAppleBridgeEventCallback Callback
 	);
+	void ReleasePreparedResources();
 	void Shutdown();
 
 private:

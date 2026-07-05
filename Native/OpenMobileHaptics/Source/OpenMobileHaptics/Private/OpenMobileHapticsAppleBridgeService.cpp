@@ -93,6 +93,12 @@ void FOpenMobileHapticsAppleBridgeService::InvalidateHardwareProbe()
 	StableProbe.Reset();
 }
 
+void FOpenMobileHapticsAppleBridgeService::InvalidateEngine()
+{
+	FScopeLock Lock(&Mutex);
+	bEngineReady = false;
+}
+
 EOpenMobileHapticsAppleEngineResult
 FOpenMobileHapticsAppleBridgeService::EnsureEngine()
 {
@@ -125,6 +131,55 @@ FOpenMobileHapticsAppleBridgeService::EnsureEngine()
 }
 
 EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PrepareSemanticGenerators(
+	double IdleLifetimeSeconds
+)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PrepareSemanticGenerators(IdleLifetimeSeconds);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PrepareTransientPattern(
+	uint64 ResourceId,
+	const FOpenMobileHapticsAppleTransientPattern& Pattern,
+	int64 EstimatedBytes,
+	const FOpenMobileHapticsPreparedResourceLimits& Limits
+)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PrepareTransientPattern(
+			ResourceId,
+			Pattern,
+			EstimatedBytes,
+			Limits
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PrepareContinuousPattern(
+	uint64 ResourceId,
+	const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+	int64 EstimatedBytes,
+	const FOpenMobileHapticsPreparedResourceLimits& Limits
+)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PrepareContinuousPattern(
+			ResourceId,
+			Pattern,
+			EstimatedBytes,
+			Limits
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::PlaySemantic(
 	EOpenMobileHapticsSemanticBehavior Behavior,
 	float Intensity
@@ -150,7 +205,8 @@ FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleTransientPattern& Pattern,
 	FOpenMobileHapticsApplePlaybackEventCallback Callback,
-	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+	uint64 PreparedResourceId
 )
 {
 	const TSharedRef<
@@ -199,7 +255,8 @@ FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 				}
 			);
 		},
-		InitialParameters
+		InitialParameters,
+		PreparedResourceId
 	);
 }
 
@@ -208,7 +265,8 @@ FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 	FOpenMobileHapticsApplePlaybackEventCallback Callback,
-	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+	uint64 PreparedResourceId
 )
 {
 	const TSharedRef<
@@ -257,7 +315,8 @@ FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
 				}
 			);
 		},
-		InitialParameters
+		InitialParameters,
+		PreparedResourceId
 	);
 }
 
@@ -357,6 +416,15 @@ void FOpenMobileHapticsAppleBridgeService::SetEventCallback(
 	else
 	{
 		CallbackState->Callback.Reset();
+	}
+}
+
+void FOpenMobileHapticsAppleBridgeService::ReleasePreparedResources()
+{
+	FScopeLock Lock(&Mutex);
+	if (!bShuttingDown)
+	{
+		Bridge->ReleasePreparedResources();
 	}
 }
 

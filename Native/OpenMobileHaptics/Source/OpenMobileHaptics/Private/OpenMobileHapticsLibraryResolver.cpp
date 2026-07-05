@@ -88,6 +88,12 @@ bool FOpenMobileHapticsLibraryResolver::CompletePreparation(
 	return true;
 }
 
+void FOpenMobileHapticsLibraryResolver::FailPreparation()
+{
+	PreparedPatterns.Reset();
+	State = EOpenMobileHapticNamedPatternStatus::Invalid;
+}
+
 void FOpenMobileHapticsLibraryResolver::Release()
 {
 	++Generation;
@@ -115,6 +121,29 @@ bool FOpenMobileHapticsLibraryResolver::Find(
 	}
 	OutPattern = *Pattern;
 	return true;
+}
+
+void FOpenMobileHapticsLibraryResolver::GetPreparedPatterns(
+	TArray<TPair<FName, FSoftObjectPath>>& OutPatterns
+) const
+{
+	OutPatterns.Reset();
+	if (State != EOpenMobileHapticNamedPatternStatus::Loaded)
+	{
+		return;
+	}
+	OutPatterns.Reserve(PreparedPatterns.Num());
+	for (const TPair<FName, FSoftObjectPath>& Pattern : PreparedPatterns)
+	{
+		OutPatterns.Add(Pattern);
+	}
+	OutPatterns.Sort([](
+		const TPair<FName, FSoftObjectPath>& Left,
+		const TPair<FName, FSoftObjectPath>& Right
+	)
+	{
+		return Left.Key.LexicalLess(Right.Key);
+	});
 }
 
 EOpenMobileHapticNamedPatternStatus

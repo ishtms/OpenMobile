@@ -189,6 +189,22 @@ enum class EOpenMobileHapticNamedPatternStatus : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticPreparationState : uint8
+{
+	Unprepared,
+	Preparing,
+	Prepared,
+	Failed
+};
+
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticsPreparedResourceLimits
+{
+	int32 MaximumCount = 32;
+	int64 MaximumBytes = 4 * 1024 * 1024;
+	double IdleLifetimeSeconds = 30.0;
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticFallbackFloor : uint8
 {
 	PortableRich,
@@ -1153,6 +1169,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	int32 PreparedNamedPatternCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticPreparationState PreparationState =
+		EOpenMobileHapticPreparationState::Unprepared;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FName LastResolvedPath;

@@ -405,6 +405,174 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		}
 		return bHasContinuousEvent;
 	}
+
+	CHHapticPattern* CreateTransientPattern(
+		const FOpenMobileHapticsAppleTransientPattern& Pattern
+	)
+	{
+		if (!Pattern.IsValid())
+		{
+			return nil;
+		}
+		double PreviousStart = 0.0;
+		for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
+		{
+			const double Start = Pattern.StartTimesSeconds[Index];
+			const float Intensity = Pattern.Intensities[Index];
+			const float Sharpness = Pattern.Sharpnesses[Index];
+			if (!FMath::IsFinite(Start)
+				|| !FMath::IsFinite(Intensity)
+				|| !FMath::IsFinite(Sharpness)
+				|| Start < PreviousStart
+				|| Intensity < 0.0f
+				|| Intensity > 1.0f
+				|| Sharpness < 0.0f
+				|| Sharpness > 1.0f)
+			{
+				return nil;
+			}
+			PreviousStart = Start;
+		}
+
+		NSMutableArray<CHHapticEvent*>* Events =
+			[[NSMutableArray alloc]
+				initWithCapacity:Pattern.StartTimesSeconds.Num()];
+		for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
+		{
+			CHHapticEventParameter* Intensity =
+				[[CHHapticEventParameter alloc]
+					initWithParameterID:
+						CHHapticEventParameterIDHapticIntensity
+					value:Pattern.Intensities[Index]];
+			CHHapticEventParameter* Sharpness =
+				[[CHHapticEventParameter alloc]
+					initWithParameterID:
+						CHHapticEventParameterIDHapticSharpness
+					value:Pattern.Sharpnesses[Index]];
+			NSArray<CHHapticEventParameter*>* Parameters =
+				[[NSArray alloc] initWithObjects:Intensity, Sharpness, nil];
+			CHHapticEvent* Event = [[CHHapticEvent alloc]
+				initWithEventType:CHHapticEventTypeHapticTransient
+				parameters:Parameters
+				relativeTime:Pattern.StartTimesSeconds[Index]];
+			[Events addObject:Event];
+			[Event release];
+			[Parameters release];
+			[Sharpness release];
+			[Intensity release];
+		}
+		NSError* Error = nil;
+		CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
+			initWithEvents:Events
+			parameters:@[]
+			error:&Error];
+		[Events release];
+		if (!NativePattern || Error)
+		{
+			[NativePattern release];
+			return nil;
+		}
+		return NativePattern;
+	}
+
+	CHHapticPattern* CreateContinuousPattern(
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern
+	)
+	{
+		if (!ValidateContinuousPattern(Pattern))
+		{
+			return nil;
+		}
+		NSMutableArray<CHHapticEvent*>* Events =
+			[[NSMutableArray alloc] initWithCapacity:Pattern.Events.Num()];
+		for (const FOpenMobileHapticsAppleRichEvent& NativeEvent :
+			Pattern.Events)
+		{
+			CHHapticEventParameter* Intensity =
+				[[CHHapticEventParameter alloc]
+					initWithParameterID:
+						CHHapticEventParameterIDHapticIntensity
+					value:NativeEvent.Intensity];
+			CHHapticEventParameter* Sharpness =
+				[[CHHapticEventParameter alloc]
+					initWithParameterID:
+						CHHapticEventParameterIDHapticSharpness
+					value:NativeEvent.Sharpness];
+			NSArray<CHHapticEventParameter*>* Parameters =
+				[[NSArray alloc] initWithObjects:Intensity, Sharpness, nil];
+			CHHapticEvent* Event = nil;
+			if (NativeEvent.Type
+				== EOpenMobileHapticPatternEventType::Continuous)
+			{
+				Event = [[CHHapticEvent alloc]
+					initWithEventType:CHHapticEventTypeHapticContinuous
+					parameters:Parameters
+					relativeTime:NativeEvent.StartTimeSeconds
+					duration:NativeEvent.DurationSeconds];
+			}
+			else
+			{
+				Event = [[CHHapticEvent alloc]
+					initWithEventType:CHHapticEventTypeHapticTransient
+					parameters:Parameters
+					relativeTime:NativeEvent.StartTimeSeconds];
+			}
+			[Events addObject:Event];
+			[Event release];
+			[Parameters release];
+			[Sharpness release];
+			[Intensity release];
+		}
+
+		NSMutableArray<CHHapticParameterCurve*>* Curves =
+			[[NSMutableArray alloc]
+				initWithCapacity:Pattern.ParameterCurves.Num()];
+		for (const FOpenMobileHapticsAppleParameterCurve& NativeCurve :
+			Pattern.ParameterCurves)
+		{
+			NSMutableArray<CHHapticParameterCurveControlPoint*>*
+				ControlPoints = [[NSMutableArray alloc]
+					initWithCapacity:NativeCurve.Values.Num()];
+			for (int32 PointIndex = 0;
+				PointIndex < NativeCurve.Values.Num();
+				++PointIndex)
+			{
+				CHHapticParameterCurveControlPoint* ControlPoint =
+					[[CHHapticParameterCurveControlPoint alloc]
+						initWithRelativeTime:
+							NativeCurve.RelativeTimesSeconds[PointIndex]
+						value:NativeCurve.Values[PointIndex]];
+				[ControlPoints addObject:ControlPoint];
+				[ControlPoint release];
+			}
+			const CHHapticDynamicParameterID ParameterId =
+				NativeCurve.Parameter
+					== EOpenMobileHapticCurveParameter::IntensityControl
+						? CHHapticDynamicParameterIDHapticIntensityControl
+						: CHHapticDynamicParameterIDHapticSharpnessControl;
+			CHHapticParameterCurve* Curve = [[CHHapticParameterCurve alloc]
+				initWithParameterID:ParameterId
+				controlPoints:ControlPoints
+				relativeTime:NativeCurve.StartTimeSeconds];
+			[Curves addObject:Curve];
+			[Curve release];
+			[ControlPoints release];
+		}
+
+		NSError* Error = nil;
+		CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
+			initWithEvents:Events
+			parameterCurves:Curves
+			error:&Error];
+		[Curves release];
+		[Events release];
+		if (!NativePattern || Error)
+		{
+			[NativePattern release];
+			return nil;
+		}
+		return NativePattern;
+	}
 }
 
 @interface OpenMobileHapticsAppleNativeService : NSObject
@@ -413,6 +581,15 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	UIImpactFeedbackGenerator* ImpactGenerators[5];
 	UINotificationFeedbackGenerator* NotificationGenerator;
 	CHHapticEngine* Engine;
+	NSMutableDictionary<NSNumber*, CHHapticPattern*>* PreparedPatterns;
+	TMap<uint64, int64> PreparedPatternBytes;
+	TMap<uint64, double> PreparedPatternLastAccess;
+	TMap<uint64, uint64> PreparedPatternAccessSequence;
+	int64 ActivePreparedPatternBytes;
+	int32 MaximumPreparedPatternCount;
+	int64 MaximumPreparedPatternBytes;
+	double PreparedPatternIdleLifetimeSeconds;
+	uint64 NextPreparedPatternAccessSequence;
 	NSMutableDictionary<NSNumber*, id<CHHapticPatternPlayer>>* Players;
 	NSMutableDictionary<NSNumber*, NSTimer*>* SafetyTimers;
 	NSMutableSet<NSNumber*>* PendingAHAPRequests;
@@ -440,6 +617,25 @@ namespace OpenMobileHapticsIOSBridgePrivate
 
 - (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
 	intensity:(CGFloat)Intensity;
+- (EOpenMobileHapticsAppleSubmissionResult)prepareSemanticGenerators:
+	(double)IdleLifetimeSeconds;
+- (EOpenMobileHapticsAppleSubmissionResult)prepareTransientPattern:
+	(uint64)ResourceId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+- (EOpenMobileHapticsAppleSubmissionResult)prepareContinuousPattern:
+	(uint64)ResourceId
+	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+- (void)releasePreparedResources;
+- (void)prunePreparedPatterns:(double)CurrentTimeSeconds;
+- (void)storePreparedPattern:(CHHapticPattern*)Pattern
+	resourceId:(uint64)ResourceId
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+- (CHHapticPattern*)preparedPattern:(uint64)ResourceId;
 - (void)playSystemVibration;
 - (EOpenMobileHapticsAppleEngineResult)createEngine;
 - (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
@@ -447,12 +643,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
 	initialParameters:
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
 	initialParameters:
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
 	(uint64)RequestId
@@ -490,6 +688,9 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	self = [super init];
 	if (self)
 	{
+		MaximumPreparedPatternCount = 32;
+		MaximumPreparedPatternBytes = 4 * 1024 * 1024;
+		PreparedPatternIdleLifetimeSeconds = 30.0;
 		AudioPreparationQueue = dispatch_queue_create(
 			"com.openmobile.haptics.audio-preparation",
 			DISPATCH_QUEUE_SERIAL
@@ -529,6 +730,246 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		EventCallback.Reset();
 	}
+}
+
+- (void)prunePreparedPatterns:(double)CurrentTimeSeconds
+{
+	TArray<uint64> Expired;
+	for (const TPair<uint64, double>& Access : PreparedPatternLastAccess)
+	{
+		if (CurrentTimeSeconds - Access.Value
+			>= PreparedPatternIdleLifetimeSeconds)
+		{
+			Expired.Add(Access.Key);
+		}
+	}
+	for (uint64 ResourceId : Expired)
+	{
+		if (const int64* Bytes = PreparedPatternBytes.Find(ResourceId))
+		{
+			ActivePreparedPatternBytes = FMath::Max<int64>(
+				0,
+				ActivePreparedPatternBytes - *Bytes
+			);
+		}
+		NSNumber* Key = [NSNumber numberWithUnsignedLongLong:ResourceId];
+		[PreparedPatterns removeObjectForKey:Key];
+		PreparedPatternBytes.Remove(ResourceId);
+		PreparedPatternLastAccess.Remove(ResourceId);
+		PreparedPatternAccessSequence.Remove(ResourceId);
+	}
+}
+
+- (void)storePreparedPattern:(CHHapticPattern*)Pattern
+	resourceId:(uint64)ResourceId
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits
+{
+	MaximumPreparedPatternCount = FMath::Max(1, Limits.MaximumCount);
+	MaximumPreparedPatternBytes = FMath::Max<int64>(1, Limits.MaximumBytes);
+	PreparedPatternIdleLifetimeSeconds = FMath::Max(
+		0.001,
+		Limits.IdleLifetimeSeconds
+	);
+	const double CurrentTimeSeconds = FPlatformTime::Seconds();
+	[self prunePreparedPatterns:CurrentTimeSeconds];
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:ResourceId];
+	if (const int64* PreviousBytes = PreparedPatternBytes.Find(ResourceId))
+	{
+		ActivePreparedPatternBytes = FMath::Max<int64>(
+			0,
+			ActivePreparedPatternBytes - *PreviousBytes
+		);
+		[PreparedPatterns removeObjectForKey:Key];
+		PreparedPatternBytes.Remove(ResourceId);
+		PreparedPatternLastAccess.Remove(ResourceId);
+		PreparedPatternAccessSequence.Remove(ResourceId);
+	}
+	if (EstimatedBytes <= 0 || EstimatedBytes > MaximumPreparedPatternBytes)
+	{
+		return;
+	}
+	if (!PreparedPatterns)
+	{
+		PreparedPatterns = [[NSMutableDictionary alloc] init];
+	}
+	[PreparedPatterns setObject:Pattern forKey:Key];
+	PreparedPatternBytes.Add(ResourceId, EstimatedBytes);
+	PreparedPatternLastAccess.Add(ResourceId, CurrentTimeSeconds);
+	PreparedPatternAccessSequence.Add(
+		ResourceId,
+		++NextPreparedPatternAccessSequence
+	);
+	ActivePreparedPatternBytes += EstimatedBytes;
+
+	while (PreparedPatternBytes.Num() > MaximumPreparedPatternCount
+		|| ActivePreparedPatternBytes > MaximumPreparedPatternBytes)
+	{
+		uint64 EvictionId = 0;
+		uint64 OldestSequence = MAX_uint64;
+		for (const TPair<uint64, uint64>& Access :
+			PreparedPatternAccessSequence)
+		{
+			if (Access.Value < OldestSequence
+				|| (Access.Value == OldestSequence
+					&& Access.Key < EvictionId))
+			{
+				EvictionId = Access.Key;
+				OldestSequence = Access.Value;
+			}
+		}
+		if (EvictionId == 0)
+		{
+			break;
+		}
+		ActivePreparedPatternBytes -= PreparedPatternBytes.FindRef(EvictionId);
+		NSNumber* EvictionKey =
+			[NSNumber numberWithUnsignedLongLong:EvictionId];
+		[PreparedPatterns removeObjectForKey:EvictionKey];
+		PreparedPatternBytes.Remove(EvictionId);
+		PreparedPatternLastAccess.Remove(EvictionId);
+		PreparedPatternAccessSequence.Remove(EvictionId);
+	}
+}
+
+- (CHHapticPattern*)preparedPattern:(uint64)ResourceId
+{
+	if (ResourceId == 0)
+	{
+		return nil;
+	}
+	const double CurrentTimeSeconds = FPlatformTime::Seconds();
+	[self prunePreparedPatterns:CurrentTimeSeconds];
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:ResourceId];
+	CHHapticPattern* Pattern = [PreparedPatterns objectForKey:Key];
+	if (Pattern)
+	{
+		PreparedPatternLastAccess.Add(ResourceId, CurrentTimeSeconds);
+		PreparedPatternAccessSequence.Add(
+			ResourceId,
+			++NextPreparedPatternAccessSequence
+		);
+	}
+	return Pattern;
+}
+
+- (void)releasePreparedResources
+{
+	++ActivityGeneration;
+	[self releaseGenerators];
+	[PreparedPatterns removeAllObjects];
+	[PreparedPatterns release];
+	PreparedPatterns = nil;
+	PreparedPatternBytes.Reset();
+	PreparedPatternLastAccess.Reset();
+	PreparedPatternAccessSequence.Reset();
+	ActivePreparedPatternBytes = 0;
+	NextPreparedPatternAccessSequence = 0;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)prepareSemanticGenerators:
+	(double)IdleLifetimeSeconds
+{
+	if (bShuttingDown || !FMath::IsFinite(IdleLifetimeSeconds)
+		|| IdleLifetimeSeconds <= 0.0)
+	{
+		return bShuttingDown
+			? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+			: EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	if (!SelectionGenerator)
+	{
+		SelectionGenerator = [[UISelectionFeedbackGenerator alloc] init];
+	}
+	[SelectionGenerator prepare];
+	const UIImpactFeedbackStyle Styles[] = {
+		UIImpactFeedbackStyleLight,
+		UIImpactFeedbackStyleMedium,
+		UIImpactFeedbackStyleHeavy,
+		UIImpactFeedbackStyleSoft,
+		UIImpactFeedbackStyleRigid
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ImpactGenerators); ++Index)
+	{
+		if (!ImpactGenerators[Index])
+		{
+			ImpactGenerators[Index] = [[UIImpactFeedbackGenerator alloc]
+				initWithStyle:Styles[Index]];
+		}
+		[ImpactGenerators[Index] prepare];
+	}
+	if (!NotificationGenerator)
+	{
+		NotificationGenerator =
+			[[UINotificationFeedbackGenerator alloc] init];
+	}
+	[NotificationGenerator prepare];
+	const NSUInteger ExpectedGeneration = ++ActivityGeneration;
+	const int64 DelayNanoseconds = FMath::Max<int64>(
+		1,
+		FMath::RoundToInt64(IdleLifetimeSeconds * NSEC_PER_SEC)
+	);
+	dispatch_after(
+		dispatch_time(DISPATCH_TIME_NOW, DelayNanoseconds),
+		dispatch_get_main_queue(),
+		^{
+			if (ActivityGeneration == ExpectedGeneration)
+			{
+				[self releaseGenerators];
+			}
+		}
+	);
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)prepareTransientPattern:
+	(uint64)ResourceId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	CHHapticPattern* NativePattern =
+		OpenMobileHapticsIOSBridgePrivate::CreateTransientPattern(Pattern);
+	if (!NativePattern || ResourceId == 0)
+	{
+		[NativePattern release];
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	[self storePreparedPattern:NativePattern
+		resourceId:ResourceId
+		estimatedBytes:EstimatedBytes
+		limits:Limits];
+	[NativePattern release];
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)prepareContinuousPattern:
+	(uint64)ResourceId
+	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	estimatedBytes:(int64)EstimatedBytes
+	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	CHHapticPattern* NativePattern =
+		OpenMobileHapticsIOSBridgePrivate::CreateContinuousPattern(Pattern);
+	if (!NativePattern || ResourceId == 0)
+	{
+		[NativePattern release];
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	[self storePreparedPattern:NativePattern
+		resourceId:ResourceId
+		estimatedBytes:EstimatedBytes
+		limits:Limits];
+	[NativePattern release];
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 }
 
 - (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
@@ -634,7 +1075,18 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 	if (Engine)
 	{
-		return EOpenMobileHapticsAppleEngineResult::Ready;
+		NSError* Error = nil;
+		if ([Engine startAndReturnError:&Error] && !Error)
+		{
+			return EOpenMobileHapticsAppleEngineResult::Ready;
+		}
+		Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
+		{
+			static_cast<void>(Reason);
+		};
+		Engine.resetHandler = ^{};
+		[Engine release];
+		Engine = nil;
 	}
 	if (@available(iOS 13.0, *))
 	{
@@ -658,20 +1110,38 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			Engine = nil;
 			return EOpenMobileHapticsAppleEngineResult::NativeFailure;
 		}
+		Engine.autoShutdownEnabled = YES;
 
 		OpenMobileHapticsAppleNativeService* Service = self;
 		Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
 		{
 			static_cast<void>(Reason);
-			[Service failAllPatterns];
-			[Service emitEvent:
-				EOpenMobileHapticsAppleBridgeEvent::EngineStopped];
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[Service failAllPatterns];
+				[Service emitEvent:
+					EOpenMobileHapticsAppleBridgeEvent::EngineStopped];
+			});
 		};
 		Engine.resetHandler = ^
 		{
-			[Service failAllPatterns];
-			[Service emitEvent:EOpenMobileHapticsAppleBridgeEvent::EngineReset];
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[Service failAllPatterns];
+				[Service emitEvent:
+					EOpenMobileHapticsAppleBridgeEvent::EngineReset];
+			});
 		};
+		Error = nil;
+		if (![Engine startAndReturnError:&Error] || Error)
+		{
+			Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
+			{
+				static_cast<void>(Reason);
+			};
+			Engine.resetHandler = ^{};
+			[Engine release];
+			Engine = nil;
+			return EOpenMobileHapticsAppleEngineResult::NativeFailure;
+		}
 		return EOpenMobileHapticsAppleEngineResult::Ready;
 	}
 	return EOpenMobileHapticsAppleEngineResult::UnsupportedHardware;
@@ -763,6 +1233,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
 	initialParameters:
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
 {
 	if (bShuttingDown)
@@ -788,65 +1259,20 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 
-	double PreviousStart = 0.0;
-	for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
-	{
-		const double Start = Pattern.StartTimesSeconds[Index];
-		const float Intensity = Pattern.Intensities[Index];
-		const float Sharpness = Pattern.Sharpnesses[Index];
-		if (!FMath::IsFinite(Start)
-			|| !FMath::IsFinite(Intensity)
-			|| !FMath::IsFinite(Sharpness)
-			|| Start < PreviousStart
-			|| Intensity < 0.0f
-			|| Intensity > 1.0f
-			|| Sharpness < 0.0f
-			|| Sharpness > 1.0f)
-		{
-			return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
-		}
-		PreviousStart = Start;
-	}
-
 	NSError* Error = nil;
 	if (![Engine startAndReturnError:&Error] || Error)
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
-	NSMutableArray<CHHapticEvent*>* Events =
-		[[NSMutableArray alloc] initWithCapacity:Pattern.StartTimesSeconds.Num()];
-	for (int32 Index = 0; Index < Pattern.StartTimesSeconds.Num(); ++Index)
+	CHHapticPattern* NativePattern =
+		[[self preparedPattern:PreparedResourceId] retain];
+	if (!NativePattern)
 	{
-		CHHapticEventParameter* Intensity =
-			[[CHHapticEventParameter alloc]
-				initWithParameterID:CHHapticEventParameterIDHapticIntensity
-				value:Pattern.Intensities[Index]];
-		CHHapticEventParameter* Sharpness =
-			[[CHHapticEventParameter alloc]
-				initWithParameterID:CHHapticEventParameterIDHapticSharpness
-				value:Pattern.Sharpnesses[Index]];
-		NSArray<CHHapticEventParameter*>* Parameters =
-			[[NSArray alloc] initWithObjects:Intensity, Sharpness, nil];
-		CHHapticEvent* Event = [[CHHapticEvent alloc]
-			initWithEventType:CHHapticEventTypeHapticTransient
-			parameters:Parameters
-			relativeTime:Pattern.StartTimesSeconds[Index]];
-		[Events addObject:Event];
-		[Event release];
-		[Parameters release];
-		[Sharpness release];
-		[Intensity release];
+		NativePattern =
+			OpenMobileHapticsIOSBridgePrivate::CreateTransientPattern(Pattern);
 	}
-
-	Error = nil;
-	CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
-		initWithEvents:Events
-		parameters:@[]
-		error:&Error];
-	[Events release];
-	if (!NativePattern || Error)
+	if (!NativePattern)
 	{
-		[NativePattern release];
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 
@@ -911,6 +1337,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
 	initialParameters:
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
 {
 	using namespace OpenMobileHapticsIOSBridgePrivate;
@@ -936,88 +1363,15 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 
-	NSMutableArray<CHHapticEvent*>* Events =
-		[[NSMutableArray alloc] initWithCapacity:Pattern.Events.Num()];
-	for (const FOpenMobileHapticsAppleRichEvent& NativeEvent : Pattern.Events)
+	CHHapticPattern* NativePattern =
+		[[self preparedPattern:PreparedResourceId] retain];
+	if (!NativePattern)
 	{
-		CHHapticEventParameter* Intensity =
-			[[CHHapticEventParameter alloc]
-				initWithParameterID:CHHapticEventParameterIDHapticIntensity
-				value:NativeEvent.Intensity];
-		CHHapticEventParameter* Sharpness =
-			[[CHHapticEventParameter alloc]
-				initWithParameterID:CHHapticEventParameterIDHapticSharpness
-				value:NativeEvent.Sharpness];
-		NSArray<CHHapticEventParameter*>* Parameters =
-			[[NSArray alloc] initWithObjects:Intensity, Sharpness, nil];
-		CHHapticEvent* Event = nil;
-		if (NativeEvent.Type
-			== EOpenMobileHapticPatternEventType::Continuous)
-		{
-			Event = [[CHHapticEvent alloc]
-				initWithEventType:CHHapticEventTypeHapticContinuous
-				parameters:Parameters
-				relativeTime:NativeEvent.StartTimeSeconds
-				duration:NativeEvent.DurationSeconds];
-		}
-		else
-		{
-			Event = [[CHHapticEvent alloc]
-				initWithEventType:CHHapticEventTypeHapticTransient
-				parameters:Parameters
-				relativeTime:NativeEvent.StartTimeSeconds];
-		}
-		[Events addObject:Event];
-		[Event release];
-		[Parameters release];
-		[Sharpness release];
-		[Intensity release];
+		NativePattern =
+			OpenMobileHapticsIOSBridgePrivate::CreateContinuousPattern(Pattern);
 	}
-
-	NSMutableArray<CHHapticParameterCurve*>* Curves =
-		[[NSMutableArray alloc]
-			initWithCapacity:Pattern.ParameterCurves.Num()];
-	for (const FOpenMobileHapticsAppleParameterCurve& NativeCurve
-		: Pattern.ParameterCurves)
+	if (!NativePattern)
 	{
-		NSMutableArray<CHHapticParameterCurveControlPoint*>* ControlPoints =
-			[[NSMutableArray alloc]
-				initWithCapacity:NativeCurve.Values.Num()];
-		for (int32 PointIndex = 0;
-			PointIndex < NativeCurve.Values.Num();
-			++PointIndex)
-		{
-			CHHapticParameterCurveControlPoint* ControlPoint =
-				[[CHHapticParameterCurveControlPoint alloc]
-					initWithRelativeTime:
-						NativeCurve.RelativeTimesSeconds[PointIndex]
-					value:NativeCurve.Values[PointIndex]];
-			[ControlPoints addObject:ControlPoint];
-			[ControlPoint release];
-		}
-		const CHHapticDynamicParameterID ParameterId = NativeCurve.Parameter
-			== EOpenMobileHapticCurveParameter::IntensityControl
-				? CHHapticDynamicParameterIDHapticIntensityControl
-				: CHHapticDynamicParameterIDHapticSharpnessControl;
-		CHHapticParameterCurve* Curve = [[CHHapticParameterCurve alloc]
-			initWithParameterID:ParameterId
-			controlPoints:ControlPoints
-			relativeTime:NativeCurve.StartTimeSeconds];
-		[Curves addObject:Curve];
-		[Curve release];
-		[ControlPoints release];
-	}
-
-	Error = nil;
-	CHHapticPattern* NativePattern = [[CHHapticPattern alloc]
-		initWithEvents:Events
-		parameterCurves:Curves
-		error:&Error];
-	[Curves release];
-	[Events release];
-	if (!NativePattern || Error)
-	{
-		[NativePattern release];
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
 
@@ -1568,7 +1922,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	++ActivityGeneration;
 	++PreparationGeneration;
 	[self setEventCallback:{}];
-	[self releaseGenerators];
+	[self releasePreparedResources];
 	for (NSTimer* Timer in [SafetyTimers allValues])
 	{
 		[Timer invalidate];
@@ -1715,6 +2069,82 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareSemanticGenerators(double IdleLifetimeSeconds) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, IdleLifetimeSeconds, &Result]()
+			{
+				Result = [Service
+					prepareSemanticGenerators:IdleLifetimeSeconds];
+			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareTransientPattern(
+			uint64 ResourceId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			int64 EstimatedBytes,
+			const FOpenMobileHapticsPreparedResourceLimits& Limits
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, ResourceId, &Pattern, EstimatedBytes, &Limits,
+				 &Result]()
+				{
+					Result = [Service
+						prepareTransientPattern:ResourceId
+						pattern:Pattern
+						estimatedBytes:EstimatedBytes
+						limits:Limits];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PrepareContinuousPattern(
+			uint64 ResourceId,
+			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+			int64 EstimatedBytes,
+			const FOpenMobileHapticsPreparedResourceLimits& Limits
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, ResourceId, &Pattern, EstimatedBytes, &Limits,
+				 &Result]()
+				{
+					Result = [Service
+						prepareContinuousPattern:ResourceId
+						pattern:Pattern
+						estimatedBytes:EstimatedBytes
+						limits:Limits];
+				}
+			);
+			return Result;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 			EOpenMobileHapticsSemanticBehavior Behavior,
 			float Intensity
@@ -1753,7 +2183,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
 			FOpenMobileHapticsApplePlaybackEventCallback Callback,
-			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
 		) override
 		{
 			if (!NativeService)
@@ -1765,12 +2196,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			OpenMobileHapticsAppleNativeService* Service = NativeService;
 			RunOnMainQueue(
 				[Service, RequestId, &Pattern, &Callback, &Result,
-				 InitialParameters]()
+				 InitialParameters, PreparedResourceId]()
 				{
 					Result = [Service
 						playTransientPattern:RequestId
 						pattern:Pattern
 						initialParameters:InitialParameters
+						preparedResourceId:PreparedResourceId
 						callback:MoveTemp(Callback)];
 				}
 			);
@@ -1781,7 +2213,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
 			FOpenMobileHapticsApplePlaybackEventCallback Callback,
-			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
 		) override
 		{
 			if (!NativeService)
@@ -1793,12 +2226,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			OpenMobileHapticsAppleNativeService* Service = NativeService;
 			RunOnMainQueue(
 				[Service, RequestId, &Pattern, &Callback, &Result,
-				 InitialParameters]()
+				 InitialParameters, PreparedResourceId]()
 				{
 					Result = [Service
 						playContinuousPattern:RequestId
 						pattern:Pattern
 						initialParameters:InitialParameters
+						preparedResourceId:PreparedResourceId
 						callback:MoveTemp(Callback)];
 				}
 			);
@@ -1877,6 +2311,19 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			{
 				[NativeService setEventCallback:MoveTemp(Callback)];
 			}
+		}
+
+		virtual void ReleasePreparedResources() override
+		{
+			if (!NativeService)
+			{
+				return;
+			}
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service]()
+			{
+				[Service releasePreparedResources];
+			});
 		}
 
 		virtual void Shutdown() override

@@ -17,6 +17,8 @@ import android.view.View;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -40,9 +42,38 @@ public final class OpenMobileHapticsBridgeV1 {
     private static final ConcurrentHashMap<Long, Runnable> SCHEDULED_REQUESTS =
         new ConcurrentHashMap<Long, Runnable>();
     private static volatile EnvelopeApi36 envelopeApi36;
+    private static final LinkedHashMap<Long, PreparedWaveform>
+        PREPARED_WAVEFORMS = new LinkedHashMap<Long, PreparedWaveform>(
+            16,
+            0.75f,
+            true
+        );
+    private static long preparedWaveformBytes;
+    private static int maximumPreparedWaveforms = 32;
+    private static long maximumPreparedWaveformBytes = 4L * 1024L * 1024L;
+    private static long preparedWaveformIdleMillis = 30000L;
 
     private interface ScheduledPlayback {
         int play(Activity activity);
+    }
+
+    private static final class PreparedWaveform {
+        final VibrationEffect effect;
+        final boolean usedDefaultAmplitude;
+        final long estimatedBytes;
+        long lastAccessMillis;
+
+        PreparedWaveform(
+            VibrationEffect effect,
+            boolean usedDefaultAmplitude,
+            long estimatedBytes,
+            long lastAccessMillis
+        ) {
+            this.effect = effect;
+            this.usedDefaultAmplitude = usedDefaultAmplitude;
+            this.estimatedBytes = Math.max(1L, estimatedBytes);
+            this.lastAccessMillis = lastAccessMillis;
+        }
     }
 
     private static final class EnvelopeApi36 {
@@ -193,6 +224,158 @@ public final class OpenMobileHapticsBridgeV1 {
             }
         }
         return api;
+    }
+
+    private static void prunePreparedWaveformsLocked(long nowMillis) {
+        Iterator<Map.Entry<Long, PreparedWaveform>> iterator =
+            PREPARED_WAVEFORMS.entrySet().iterator();
+        while (iterator.hasNext()) {
+            PreparedWaveform prepared = iterator.next().getValue();
+            if (nowMillis - prepared.lastAccessMillis
+                >= preparedWaveformIdleMillis) {
+                preparedWaveformBytes = Math.max(
+                    0L,
+                    preparedWaveformBytes - prepared.estimatedBytes
+                );
+                iterator.remove();
+            }
+        }
+        iterator = PREPARED_WAVEFORMS.entrySet().iterator();
+        while (iterator.hasNext()
+            && (PREPARED_WAVEFORMS.size() > maximumPreparedWaveforms
+                || preparedWaveformBytes
+                    > maximumPreparedWaveformBytes)) {
+            PreparedWaveform prepared = iterator.next().getValue();
+            preparedWaveformBytes = Math.max(
+                0L,
+                preparedWaveformBytes - prepared.estimatedBytes
+            );
+            iterator.remove();
+        }
+    }
+
+    private static PreparedWaveform createPreparedWaveform(
+        Vibrator vibrator,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        long estimatedBytes,
+        long nowMillis
+    ) {
+        if (Build.VERSION.SDK_INT < 26
+            || vibrator == null
+            || !vibrator.hasVibrator()
+            || timingsMilliseconds == null
+            || amplitudes == null
+            || timingsMilliseconds.length == 0
+            || timingsMilliseconds.length != amplitudes.length
+            || repeatIndex < -1
+            || repeatIndex >= timingsMilliseconds.length) {
+            return null;
+        }
+        boolean hasPositiveTiming = false;
+        for (int index = 0; index < timingsMilliseconds.length; ++index) {
+            long timing = timingsMilliseconds[index];
+            int amplitude = amplitudes[index];
+            if (timing < 0L
+                || (amplitude != VibrationEffect.DEFAULT_AMPLITUDE
+                    && (amplitude < 0 || amplitude > 255))) {
+                return null;
+            }
+            hasPositiveTiming |= timing > 0L;
+        }
+        if (!hasPositiveTiming) {
+            return null;
+        }
+
+        boolean amplitudeControl = vibrator.hasAmplitudeControl();
+        boolean usedDefaultAmplitude = false;
+        int[] nativeAmplitudes = new int[amplitudes.length];
+        for (int index = 0; index < amplitudes.length; ++index) {
+            int amplitude = amplitudes[index];
+            nativeAmplitudes[index] = amplitude == 0
+                ? 0
+                : amplitudeControl
+                    ? amplitude
+                    : VibrationEffect.DEFAULT_AMPLITUDE;
+            usedDefaultAmplitude |= !amplitudeControl && amplitude > 0;
+        }
+        return new PreparedWaveform(
+            VibrationEffect.createWaveform(
+                timingsMilliseconds,
+                nativeAmplitudes,
+                repeatIndex
+            ),
+            usedDefaultAmplitude,
+            estimatedBytes,
+            nowMillis
+        );
+    }
+
+    static int prepareWaveform(
+        Activity activity,
+        long resourceId,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        long estimatedBytes,
+        int maximumCount,
+        long maximumBytes,
+        long idleLifetimeMillis
+    ) {
+        if (resourceId == 0L
+            || estimatedBytes <= 0L
+            || maximumCount <= 0
+            || maximumBytes <= 0L
+            || idleLifetimeMillis <= 0L) {
+            return RESULT_UNSUPPORTED;
+        }
+        try {
+            long nowMillis = SystemClock.elapsedRealtime();
+            Vibrator vibrator = vibrator(activity);
+            PreparedWaveform prepared = createPreparedWaveform(
+                vibrator,
+                timingsMilliseconds,
+                amplitudes,
+                repeatIndex,
+                estimatedBytes,
+                nowMillis
+            );
+            if (prepared == null) {
+                return RESULT_UNSUPPORTED;
+            }
+            synchronized (PREPARED_WAVEFORMS) {
+                maximumPreparedWaveforms = maximumCount;
+                maximumPreparedWaveformBytes = maximumBytes;
+                preparedWaveformIdleMillis = idleLifetimeMillis;
+                PreparedWaveform previous = PREPARED_WAVEFORMS.remove(
+                    resourceId
+                );
+                if (previous != null) {
+                    preparedWaveformBytes = Math.max(
+                        0L,
+                        preparedWaveformBytes - previous.estimatedBytes
+                    );
+                }
+                if (prepared.estimatedBytes <= maximumBytes) {
+                    PREPARED_WAVEFORMS.put(resourceId, prepared);
+                    preparedWaveformBytes += prepared.estimatedBytes;
+                }
+                prunePreparedWaveformsLocked(nowMillis);
+            }
+            return RESULT_ACCEPTED;
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
+    static void releasePreparedResources() {
+        synchronized (PREPARED_WAVEFORMS) {
+            PREPARED_WAVEFORMS.clear();
+            preparedWaveformBytes = 0L;
+        }
     }
 
     static long[] queryCapabilities(Activity activity) {
@@ -474,6 +657,7 @@ public final class OpenMobileHapticsBridgeV1 {
     static int playWaveform(
         Activity activity,
         long requestId,
+        long preparedResourceId,
         long[] timingsMilliseconds,
         int[] amplitudes,
         int repeatIndex,
@@ -496,6 +680,7 @@ public final class OpenMobileHapticsBridgeV1 {
                         return playWaveform(
                             current,
                             0L,
+                            preparedResourceId,
                             scheduledTimings,
                             scheduledAmplitudes,
                             scheduledRepeatIndex,
@@ -506,59 +691,42 @@ public final class OpenMobileHapticsBridgeV1 {
                 }
             );
         }
-        if (Build.VERSION.SDK_INT < 26
-            || timingsMilliseconds == null
-            || amplitudes == null
-            || timingsMilliseconds.length == 0
-            || timingsMilliseconds.length != amplitudes.length
-            || repeatIndex < -1
-            || repeatIndex >= timingsMilliseconds.length) {
+        if (Build.VERSION.SDK_INT < 26) {
             return RESULT_UNSUPPORTED;
         }
         try {
-            boolean hasPositiveTiming = false;
-            for (int index = 0; index < timingsMilliseconds.length; ++index) {
-                long timing = timingsMilliseconds[index];
-                int amplitude = amplitudes[index];
-                if (timing < 0L
-                    || (amplitude != VibrationEffect.DEFAULT_AMPLITUDE
-                        && (amplitude < 0 || amplitude > 255))) {
-                    return RESULT_UNSUPPORTED;
-                }
-                hasPositiveTiming |= timing > 0L;
-            }
-            if (!hasPositiveTiming) {
-                return RESULT_UNSUPPORTED;
-            }
-
             Vibrator vibrator = vibrator(activity);
-            if (vibrator == null || !vibrator.hasVibrator()) {
-                return RESULT_UNSUPPORTED;
-            }
             Context context = applicationContext(activity);
             if (!systemHapticsEnabled(context)) {
                 return RESULT_SUPPRESSED;
             }
 
-            boolean amplitudeControl = vibrator.hasAmplitudeControl();
-            boolean usedDefaultAmplitude = false;
-            int[] nativeAmplitudes = new int[amplitudes.length];
-            for (int index = 0; index < amplitudes.length; ++index) {
-                int amplitude = amplitudes[index];
-                nativeAmplitudes[index] = amplitude == 0
-                    ? 0
-                    : amplitudeControl
-                        ? amplitude
-                        : VibrationEffect.DEFAULT_AMPLITUDE;
-                usedDefaultAmplitude |= !amplitudeControl && amplitude > 0;
+            long nowMillis = SystemClock.elapsedRealtime();
+            PreparedWaveform prepared = null;
+            if (preparedResourceId != 0L) {
+                synchronized (PREPARED_WAVEFORMS) {
+                    prunePreparedWaveformsLocked(nowMillis);
+                    prepared = PREPARED_WAVEFORMS.get(preparedResourceId);
+                    if (prepared != null) {
+                        prepared.lastAccessMillis = nowMillis;
+                    }
+                }
             }
-            VibrationEffect effect = VibrationEffect.createWaveform(
-                timingsMilliseconds,
-                nativeAmplitudes,
-                repeatIndex
-            );
-            vibrate(vibrator, effect, 0L, purpose);
-            return usedDefaultAmplitude
+            if (prepared == null) {
+                prepared = createPreparedWaveform(
+                    vibrator,
+                    timingsMilliseconds,
+                    amplitudes,
+                    repeatIndex,
+                    1L,
+                    nowMillis
+                );
+            }
+            if (prepared == null) {
+                return RESULT_UNSUPPORTED;
+            }
+            vibrate(vibrator, prepared.effect, 0L, purpose);
+            return prepared.usedDefaultAmplitude
                 ? RESULT_DEFAULT_AMPLITUDE
                 : RESULT_ACCEPTED;
         } catch (SecurityException exception) {

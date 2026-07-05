@@ -14,8 +14,12 @@ public:
 		const TArray<UOpenMobileHapticLibrary*>& Libraries,
 		TArray<FString>& Errors
 	);
+	void FailPreparation();
 	void Release();
 	bool Find(FName PatternName, FSoftObjectPath& OutPattern) const;
+	void GetPreparedPatterns(
+		TArray<TPair<FName, FSoftObjectPath>>& OutPatterns
+	) const;
 	EOpenMobileHapticNamedPatternStatus GetStatus(FName PatternName) const;
 	uint64 GetGeneration() const { return Generation; }
 	int32 GetPreparedPatternCount() const { return PreparedPatterns.Num(); }

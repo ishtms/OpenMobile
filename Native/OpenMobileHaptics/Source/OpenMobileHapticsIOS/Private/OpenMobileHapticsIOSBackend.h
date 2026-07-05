@@ -13,6 +13,12 @@ public:
 
 	virtual FName GetBackendName() const override { return TEXT("IOS"); }
 	virtual FOpenMobileHapticCapabilities GetCapabilities() const override;
+	virtual EOpenMobileHapticPreparationState
+	GetPreparationState() const override;
+	virtual FOpenMobileHapticsBackendPreparationResult PrepareResources(
+		const FOpenMobileHapticsBackendPreparationRequest& Request
+	) override;
+	virtual void ReleasePreparedResources() override;
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const override;
 	virtual void HandleLifecycleChange() override;
@@ -54,6 +60,9 @@ private:
 	) const;
 
 	TUniquePtr<FOpenMobileHapticsAppleBridgeService> BridgeService;
+	mutable FCriticalSection PreparationMutex;
+	EOpenMobileHapticPreparationState PreparationState =
+		EOpenMobileHapticPreparationState::Unprepared;
 	mutable FCriticalSection AHAPIntensityMutex;
 	TMap<uint64, float> AHAPStaticIntensityScales;
 };
