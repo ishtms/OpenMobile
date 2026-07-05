@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "OpenMobilePermissionTypes.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorCalibration.h"
 #include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorMetadata.h"
 #include "OpenMobileSensorPermissions.h"
@@ -26,6 +27,11 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileSensorAccuracyChanged,
 	FOpenMobileSensorSubscriptionHandle,
 	const FOpenMobileSensorAccuracySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOnOpenMobileSensorCalibrationChanged,
+	FOpenMobileSensorSubscriptionHandle,
+	const FOpenMobileSensorCalibrationEvent&
 );
 DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileVectorSensorBatch,
@@ -100,6 +106,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	Handle,
 	FOpenMobileSensorAccuracySnapshot,
 	Snapshot
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileSensorCalibrationChangedDynamic,
+	FOpenMobileSensorSubscriptionHandle,
+	Handle,
+	FOpenMobileSensorCalibrationEvent,
+	Event
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOpenMobileVectorSensorBatchDynamic,
@@ -351,6 +364,11 @@ public:
 		EOpenMobileSensorRecenterMode Mode
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Request Native Sensor Calibration Prompt", ToolTip = "Explicitly asks the active backend to show a native calibration prompt when supported."))
+	FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Permission Status", ToolTip = "Returns normalized permission state without displaying a system prompt."))
 	FOpenMobilePermissionResult GetPermissionStatusNative(
 		EOpenMobileSensorPermission Permission
@@ -393,6 +411,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Accuracy Changed", ToolTip = "Broadcast the initial accuracy state and later quality or calibration changes on the game thread."))
 	FOpenMobileSensorAccuracyChangedDynamic OnAccuracyChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Calibration Changed", ToolTip = "Broadcast deduplicated calibration-required and resolution guidance on the game thread."))
+	FOpenMobileSensorCalibrationChangedDynamic OnCalibrationChanged;
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Vector Sensor Samples", ToolTip = "Broadcast a rate-capped batch of vector samples on the game thread."))
 	FOpenMobileVectorSensorBatchDynamic OnVectorSamples;
 
@@ -420,6 +441,7 @@ public:
 	FOnOpenMobileSensorCapabilitiesChanged& OnCapabilitiesChangedNative();
 	FOnOpenMobileSensorSubscriptionStateChanged& OnSubscriptionStateChangedNative();
 	FOnOpenMobileSensorAccuracyChanged& OnAccuracyChangedNative();
+	FOnOpenMobileSensorCalibrationChanged& OnCalibrationChangedNative();
 	FOnOpenMobileVectorSensorBatch& OnVectorSamplesNative();
 	FOnOpenMobileAttitudeSensorBatch& OnAttitudeSamplesNative();
 	FOnOpenMobileScalarSensorBatch& OnScalarSamplesNative();
@@ -447,6 +469,11 @@ private:
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		const FOpenMobileSensorAccuracySnapshot& Snapshot
+	);
+	void HandleCalibrationChanged(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		const FOpenMobileSensorCalibrationEvent& Event
 	);
 	void HandleVectorBatch(
 		const FGuid& OwnerIdentifier,
@@ -494,6 +521,7 @@ private:
 	FOnOpenMobileSensorCapabilitiesChanged CapabilitiesChangedEvent;
 	FOnOpenMobileSensorSubscriptionStateChanged SubscriptionStateChangedEvent;
 	FOnOpenMobileSensorAccuracyChanged AccuracyChangedEvent;
+	FOnOpenMobileSensorCalibrationChanged CalibrationChangedEvent;
 	FOnOpenMobileVectorSensorBatch VectorSamplesEvent;
 	FOnOpenMobileAttitudeSensorBatch AttitudeSamplesEvent;
 	FOnOpenMobileScalarSensorBatch ScalarSamplesEvent;
@@ -506,6 +534,7 @@ private:
 	mutable FDelegateHandle CapabilityServiceChangedHandle;
 	mutable FDelegateHandle SubscriptionServiceChangedHandle;
 	mutable FDelegateHandle AccuracyChangedReadyHandle;
+	mutable FDelegateHandle CalibrationChangedReadyHandle;
 	mutable FDelegateHandle VectorBatchReadyHandle;
 	mutable FDelegateHandle AttitudeBatchReadyHandle;
 	mutable FDelegateHandle ScalarBatchReadyHandle;

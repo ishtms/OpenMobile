@@ -38,6 +38,10 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode
 	);
+	static FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
 	static int32 StopAllSubscriptions(const FGuid& OwnerIdentifier);
 	static bool GetSubscriptionState(
 		const FGuid& OwnerIdentifier,

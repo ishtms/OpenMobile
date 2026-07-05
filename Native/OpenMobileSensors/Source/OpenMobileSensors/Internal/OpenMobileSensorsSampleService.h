@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileSensorCalibration.h"
 #include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
@@ -61,6 +62,12 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(
 	const FGuid&,
 	const FOpenMobileSensorSubscriptionHandle&,
 	const FOpenMobileSensorAccuracySnapshot&
+);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileSensorCalibrationChangedReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileSensorCalibrationEvent&
 );
 
 class OPENMOBILESENSORS_API FOpenMobileSensorsSampleService final
@@ -323,6 +330,7 @@ public:
 	static FOnOpenMobileOrientationSensorBatchReady& OnOrientationBatch();
 	static FOnOpenMobileProximitySensorBatchReady& OnProximityBatch();
 	static FOnOpenMobileSensorAccuracyChangedReady& OnAccuracyChanged();
+	static FOnOpenMobileSensorCalibrationChangedReady& OnCalibrationChanged();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void DrainPendingEventsForTests(double NowSeconds);

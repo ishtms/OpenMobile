@@ -117,5 +117,25 @@ public:
 		return Result;
 	}
 
+	virtual FOpenMobileSensorOperationResult RequestCalibrationPrompt(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileSensorIdentifier& Sensor
+	)
+	{
+		static_cast<void>(Handle);
+		static_cast<void>(Sensor);
+		FOpenMobileSensorOperationResult Result;
+		Result.Code = EOpenMobileSensorResultCode::NotSupported;
+		Result.Failure.Reason =
+			EOpenMobileSensorFailureReason::UnsupportedOperation;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The backend does not provide a native calibration prompt."),
+			{},
+			TEXT("OpenMobileSensors")
+		);
+		return Result;
+	}
+
 	virtual void BeginShutdown() {}
 };

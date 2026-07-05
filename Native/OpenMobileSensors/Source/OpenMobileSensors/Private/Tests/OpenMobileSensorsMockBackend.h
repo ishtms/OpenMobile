@@ -47,6 +47,9 @@ public:
 			EOpenMobileSensorResultCode::Success;
 		FlushSensorStreamResult.Code =
 			EOpenMobileSensorResultCode::NotSupported;
+		CalibrationPromptResult = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
 	}
 
 	virtual FName GetBackendName() const override
@@ -204,6 +207,22 @@ public:
 		return FlushSensorStreamResult;
 	}
 
+	virtual FOpenMobileSensorOperationResult RequestCalibrationPrompt(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileSensorIdentifier& Sensor
+	) override
+	{
+		++CalibrationPromptCount;
+		LastCalibrationPromptSensor = Sensor;
+		if (!ActiveSensorStreams.Contains(Handle))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidHandle
+			);
+		}
+		return CalibrationPromptResult;
+	}
+
 	virtual void BeginShutdown() override
 	{
 		bShutdown = true;
@@ -260,6 +279,13 @@ public:
 	)
 	{
 		FlushSensorStreamResult = MoveTemp(InResult);
+	}
+
+	void SetCalibrationPromptResult(
+		FOpenMobileSensorOperationResult InResult
+	)
+	{
+		CalibrationPromptResult = MoveTemp(InResult);
 	}
 
 	void CompleteFlushForTests(
@@ -456,6 +482,11 @@ public:
 		return FlushSensorStreamCount;
 	}
 
+	int32 GetCalibrationPromptCount() const
+	{
+		return CalibrationPromptCount;
+	}
+
 	const FGuid& GetLastFlushRequestId() const
 	{
 		return LastFlushRequestId;
@@ -497,6 +528,7 @@ private:
 	FOpenMobileSensorOperationResult StartSensorStreamResult;
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
 	FOpenMobileSensorOperationResult FlushSensorStreamResult;
+	FOpenMobileSensorOperationResult CalibrationPromptResult;
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
 	TOptional<bool> NativeBatchingAppliedForTests;
@@ -515,6 +547,8 @@ private:
 	int32 ReconfigureSensorStreamCount = 0;
 	int32 StopSensorStreamCount = 0;
 	int32 FlushSensorStreamCount = 0;
+	int32 CalibrationPromptCount = 0;
+	FOpenMobileSensorIdentifier LastCalibrationPromptSensor;
 	FGuid LastFlushRequestId;
 	TArray<FOpenMobileSensorsMockEvent> Script;
 	int32 NextEventIndex = 0;

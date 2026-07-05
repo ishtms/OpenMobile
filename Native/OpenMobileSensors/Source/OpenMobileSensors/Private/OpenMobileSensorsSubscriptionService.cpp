@@ -1807,6 +1807,42 @@ FOpenMobileSensorsSubscriptionService::RecenterAttitude(
 	return MakeSuccess();
 }
 
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsSubscriptionService::RequestNativeCalibrationPrompt(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	const FSubscriptionEntry* Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+	if (!Entry)
+	{
+		return MakeHandleFailure(Handle);
+	}
+	if (Entry->State != EOpenMobileSensorSubscriptionState::Active)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		);
+	}
+	FPhysicalStreamEntry* Physical = PhysicalStreams.Find(Entry->PhysicalKey);
+	if (!Physical
+		|| !Physical->Backend
+		|| !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
+			Physical->BackendToken
+		))
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		);
+	}
+	return Physical->Backend->RequestCalibrationPrompt(
+		Physical->Handle,
+		Entry->Request.Sensor
+	);
+}
+
 int32 FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
 	const FGuid& OwnerIdentifier
 )
