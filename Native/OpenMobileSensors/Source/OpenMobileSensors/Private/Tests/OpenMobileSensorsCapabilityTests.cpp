@@ -7,6 +7,7 @@
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsSubsystem.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 
 namespace OpenMobileSensorsCapabilityTestsPrivate
 {
@@ -50,6 +51,7 @@ namespace OpenMobileSensorsCapabilityTestsPrivate
 	{
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 		FOpenMobileSensorsCapabilityService::ResetForTests();
+		FOpenMobileSensorsTrueHeadingService::ResetForTests();
 	}
 
 	void FinishBackend(FOpenMobileSensorsMockBackend& Backend)
@@ -57,6 +59,7 @@ namespace OpenMobileSensorsCapabilityTestsPrivate
 		FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
 		FOpenMobileSensorsCapabilityService::ResetForTests();
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
+		FOpenMobileSensorsTrueHeadingService::ResetForTests();
 	}
 }
 
@@ -250,8 +253,14 @@ bool FOpenMobileSensorsDerivedOnlyMatrixTest::RunTest(
 	UOpenMobileSensorsSubsystem* Subsystem =
 		NewObject<UOpenMobileSensorsSubsystem>(GameInstance);
 	FOpenMobileSensorLocationInput LocationInput;
-	LocationInput.TimestampSeconds = 1.0;
-	Subsystem->SetTrueHeadingLocationInputNative(LocationInput);
+	LocationInput.HorizontalAccuracyMeters = 10.0;
+	LocationInput.TimestampSeconds = static_cast<double>(
+		FDateTime::UtcNow().ToUnixTimestamp()
+	);
+	TestTrue(TEXT("Current location input is accepted"),
+		Subsystem->SetTrueHeadingLocationInputNative(
+			LocationInput
+		).IsSuccess());
 	Snapshot = FOpenMobileSensorsCapabilityService::GetSnapshot();
 	TestEqual(TEXT("Location input restores derived true heading"),
 		FindCapability(
@@ -260,6 +269,73 @@ bool FOpenMobileSensorsDerivedOnlyMatrixTest::RunTest(
 		)->Availability.State,
 		EOpenMobileCapabilityState::Available);
 	Subsystem->Deinitialize();
+	Snapshot = FOpenMobileSensorsCapabilityService::GetSnapshot();
+	TestEqual(TEXT("Owner teardown removes true-heading location input"),
+		FindCapability(
+			Snapshot,
+			EOpenMobileSensorType::TrueHeading
+		)->ActiveRestriction,
+		EOpenMobileSensorRestriction::MissingInput);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsTrueHeadingCapabilityOwnerIsolationTest,
+	"OpenMobile.Sensors.Capabilities.TrueHeadingOwnerIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsTrueHeadingCapabilityOwnerIsolationTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCapabilityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("TrueHeadingOwners"));
+	Backend.SetSensorCapabilities({
+		MakeCapability(EOpenMobileSensorType::MagneticHeading)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	UOpenMobileSensorsSubsystem* First =
+		NewObject<UOpenMobileSensorsSubsystem>(FirstGameInstance);
+	UOpenMobileSensorsSubsystem* Second =
+		NewObject<UOpenMobileSensorsSubsystem>(SecondGameInstance);
+	FOpenMobileSensorLocationInput Location;
+	Location.HorizontalAccuracyMeters = 10.0;
+	Location.TimestampSeconds = static_cast<double>(
+		FDateTime::UtcNow().ToUnixTimestamp()
+	);
+	TestTrue(TEXT("First owner accepts current location"),
+		First->SetTrueHeadingLocationInputNative(Location).IsSuccess());
+	const FOpenMobileSensorCapabilitySnapshot FirstSnapshot =
+		First->GetCapabilitySnapshotNative();
+	const FOpenMobileSensorCapabilitySnapshot SecondSnapshot =
+		Second->GetCapabilitySnapshotNative();
+	const FOpenMobileSensorCapability* FirstHeading = FindCapability(
+		FirstSnapshot,
+		EOpenMobileSensorType::TrueHeading
+	);
+	const FOpenMobileSensorCapability* SecondHeading = FindCapability(
+		SecondSnapshot,
+		EOpenMobileSensorType::TrueHeading
+	);
+	TestNotNull(TEXT("First owner has true-heading capability"), FirstHeading);
+	TestNotNull(TEXT("Second owner has true-heading capability"), SecondHeading);
+	if (FirstHeading && SecondHeading)
+	{
+		TestEqual(TEXT("Supplying owner sees true heading available"),
+			FirstHeading->Availability.State,
+			EOpenMobileCapabilityState::Available);
+		TestEqual(TEXT("Other owner still sees missing input"),
+			SecondHeading->ActiveRestriction,
+			EOpenMobileSensorRestriction::MissingInput);
+	}
+	First->Deinitialize();
+	Second->Deinitialize();
 	FinishBackend(Backend);
 	return true;
 }

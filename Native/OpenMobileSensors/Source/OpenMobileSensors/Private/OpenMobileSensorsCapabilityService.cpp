@@ -337,6 +337,80 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		Derived->BackgroundSupport = Accelerometer->BackgroundSupport;
 	}
 
+	void ApplyTrueHeadingFallback(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot
+	)
+	{
+		FOpenMobileSensorCapability* TrueHeading =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::TrueHeading;
+				}
+			);
+		const FOpenMobileSensorCapability* MagneticHeading =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::MagneticHeading;
+				}
+			);
+		if (!TrueHeading)
+		{
+			return;
+		}
+		TrueHeading->Fallback.bImplemented = true;
+		TrueHeading->Fallback.RequiredInputs = {
+			EOpenMobileSensorType::MagneticHeading
+		};
+		TrueHeading->Fallback.MinimumInputFrequencyHz = 1.0;
+		TrueHeading->Fallback.bRequiresCalibratedInput = true;
+		TrueHeading->Fallback.ExpectedQuality =
+			EOpenMobileSensorFusionQuality::Nominal;
+		TrueHeading->Fallback.PowerCost =
+			EOpenMobileSensorFallbackPowerCost::Low;
+		TrueHeading->Fallback.CpuBudgetMicrosecondsPerSample = 80.0;
+		TrueHeading->Fallback.UnsupportedConditionFlags =
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					PermissionUnavailable
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					UncalibratedInput
+			);
+		const bool bMagneticAvailable = MagneticHeading
+			&& MagneticHeading->Availability.State ==
+				EOpenMobileCapabilityState::Available;
+		TrueHeading->Fallback.bAvailable = bMagneticAvailable
+			&& bLocationInputAvailable;
+		const bool bDirectAvailable = TrueHeading->Availability.State ==
+			EOpenMobileCapabilityState::Available
+			&& TrueHeading->Source !=
+				EOpenMobileSensorAvailabilitySource::Derived;
+		if (bDirectAvailable || !bMagneticAvailable)
+		{
+			return;
+		}
+		TrueHeading->Availability.State =
+			EOpenMobileCapabilityState::Available;
+		TrueHeading->Availability.Detail =
+			TEXT("True heading is derived from magnetic heading and caller-owned location input.");
+		TrueHeading->Source = EOpenMobileSensorAvailabilitySource::Derived;
+		TrueHeading->ActiveRestriction = EOpenMobileSensorRestriction::None;
+		TrueHeading->MinimumFrequencyHz = MagneticHeading->MinimumFrequencyHz;
+		TrueHeading->MaximumFrequencyHz = MagneticHeading->MaximumFrequencyHz;
+		TrueHeading->bSupportsNativeBatching =
+			MagneticHeading->bSupportsNativeBatching;
+		TrueHeading->BackgroundSupport =
+			MagneticHeading->BackgroundSupport;
+	}
+
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
 	{
 		RefreshBackendBase();
@@ -392,6 +466,20 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			EOpenMobileSensorType::PhysicalOrientation,
 			TEXT("Physical orientation is derived from device-fixed acceleration with bounded gravity filtering, hysteresis, and debounce.")
 		);
+		ApplyTrueHeadingFallback(Snapshot);
+		if (FOpenMobileSensorCapability* TrueHeading =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::TrueHeading;
+				}
+			))
+		{
+			ApplyLocationState(*TrueHeading);
+			ApplyPermissionState(*TrueHeading);
+			ApplyLifecycleState(*TrueHeading);
+		}
 		return Snapshot;
 	}
 

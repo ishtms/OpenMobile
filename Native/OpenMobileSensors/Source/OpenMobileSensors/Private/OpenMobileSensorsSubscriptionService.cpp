@@ -8,6 +8,7 @@
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsSampleService.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 #include "OpenMobileSensorsSettings.h"
 
 namespace OpenMobileSensorsSubscriptionServicePrivate
@@ -379,6 +380,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	}
 
 	bool ResolvePhysicalSensor(
+		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorIdentifier& LogicalSensor,
 		const FOpenMobileSensorStreamOptions& Options,
 		FOpenMobileSensorIdentifier& OutPhysicalSensor,
@@ -388,6 +390,88 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		OutPhysicalSensor = LogicalSensor;
 		OutFailureReason =
 			EOpenMobileSensorFailureReason::DerivedInputUnavailable;
+		if (LogicalSensor.Type == EOpenMobileSensorType::TrueHeading)
+		{
+			FOpenMobileSensorLocationInput LocationInput;
+			double LocationAgeSeconds = 0.0;
+			OutFailureReason = FOpenMobileSensorsTrueHeadingService::
+				GetUsableLocationInput(
+					OwnerIdentifier,
+					FPlatformTime::Seconds(),
+					LocationInput,
+					LocationAgeSeconds
+				);
+			if (OutFailureReason != EOpenMobileSensorFailureReason::None)
+			{
+				return false;
+			}
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* TrueHeading =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							EOpenMobileSensorType::TrueHeading
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			if (TrueHeading
+				&& TrueHeading->ActiveRestriction ==
+					EOpenMobileSensorRestriction::Permission)
+			{
+				switch (TrueHeading->Availability.State)
+				{
+				case EOpenMobileCapabilityState::Denied:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionDenied;
+					return false;
+				case EOpenMobileCapabilityState::Restricted:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionRestricted;
+					return false;
+				case EOpenMobileCapabilityState::PermissionRequired:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionRequired;
+					return false;
+				default:
+					break;
+				}
+			}
+			const bool bDirectAvailable = TrueHeading
+				&& TrueHeading->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& TrueHeading->Source !=
+					EOpenMobileSensorAvailabilitySource::Derived;
+			if (bDirectAvailable)
+			{
+				return true;
+			}
+			if (!Options.bAllowDerivedFallback)
+			{
+				return false;
+			}
+			const FOpenMobileSensorCapability* MagneticHeading =
+				Snapshot.Sensors.FindByPredicate(
+					[](const FOpenMobileSensorCapability& Capability)
+					{
+						return Capability.Sensor.Type ==
+							EOpenMobileSensorType::MagneticHeading
+							&& Capability.Availability.State ==
+								EOpenMobileCapabilityState::Available;
+					}
+				);
+			if (!MagneticHeading)
+			{
+				return false;
+			}
+			OutPhysicalSensor = MagneticHeading->Sensor;
+			return true;
+		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::Attitude)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
@@ -1242,6 +1326,7 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	FOpenMobileSensorIdentifier PhysicalSensor;
 	EOpenMobileSensorFailureReason ResolutionFailure;
 	if (!ResolvePhysicalSensor(
+		OwnerIdentifier,
 		Request.Sensor,
 		Request.Options,
 		PhysicalSensor,
@@ -1352,6 +1437,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	FOpenMobileSensorIdentifier PhysicalSensor;
 	EOpenMobileSensorFailureReason ResolutionFailure;
 	if (!ResolvePhysicalSensor(
+		OwnerIdentifier,
 		Entry->Request.Sensor,
 		Options,
 		PhysicalSensor,

@@ -180,6 +180,14 @@ enum class EOpenMobileHeadingReference : uint8
 	TrueNorth
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileHeadingDeclinationSource : uint8
+{
+	None,
+	WorldMagneticModel2025,
+	NativePlatform
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 {
@@ -194,6 +202,22 @@ struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileHeadingReference Reference =
 		EOpenMobileHeadingReference::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileHeadingDeclinationSource DeclinationSource =
+		EOpenMobileHeadingDeclinationSource::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasDeclinationDegrees = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double DeclinationDegrees = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasLocationAgeSeconds = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double LocationAgeSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bTiltCompensated = false;

@@ -11,12 +11,21 @@
 #include "OpenMobileSensorsRecordingService.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 
 void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
+		FOpenMobileSensorsTrueHeadingService::RemoveOwner(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(
+			FOpenMobileSensorsTrueHeadingService::HasAnyLocationInput(
+				FPlatformTime::Seconds()
+			)
+		);
 		FOpenMobileSensorsRecordingService::CancelOwner(
 			SubscriptionOwnerIdentifier
 		);
@@ -42,6 +51,14 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	}
 	if (SubscriptionOwnerIdentifier.IsValid())
 	{
+		FOpenMobileSensorsTrueHeadingService::RemoveOwner(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(
+			FOpenMobileSensorsTrueHeadingService::HasAnyLocationInput(
+				FPlatformTime::Seconds()
+			)
+		);
 		FOpenMobileSensorsRecordingService::CancelOwner(
 			SubscriptionOwnerIdentifier
 		);
@@ -176,7 +193,52 @@ FOpenMobileSensorCapabilitySnapshot
 UOpenMobileSensorsSubsystem::GetCapabilitySnapshotNative() const
 {
 	EnsureCapabilityListener();
-	return FOpenMobileSensorsCapabilityService::GetSnapshot();
+	FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(
+		FOpenMobileSensorsTrueHeadingService::HasAnyLocationInput(
+			FPlatformTime::Seconds()
+		)
+	);
+	FOpenMobileSensorCapabilitySnapshot Snapshot =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	FOpenMobileSensorLocationInput LocationInput;
+	double LocationAgeSeconds = 0.0;
+	const EOpenMobileSensorFailureReason LocationState =
+		FOpenMobileSensorsTrueHeadingService::GetUsableLocationInput(
+			SubscriptionOwnerIdentifier,
+			FPlatformTime::Seconds(),
+			LocationInput,
+			LocationAgeSeconds
+		);
+	if (LocationState != EOpenMobileSensorFailureReason::None)
+	{
+		FOpenMobileSensorCapability* TrueHeading =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::TrueHeading;
+				}
+			);
+		if (TrueHeading
+			&& TrueHeading->ActiveRestriction !=
+				EOpenMobileSensorRestriction::Permission
+			&& TrueHeading->ActiveRestriction !=
+				EOpenMobileSensorRestriction::MissingHardware
+			&& TrueHeading->Availability.State !=
+				EOpenMobileCapabilityState::NotSupported)
+		{
+			TrueHeading->Availability.State =
+				EOpenMobileCapabilityState::TemporarilyUnavailable;
+			TrueHeading->Availability.Detail = LocationState ==
+					EOpenMobileSensorFailureReason::StaleLocationInput
+				? TEXT("True heading requires newer caller-owned location input.")
+				: TEXT("True heading requires caller-owned location input.");
+			TrueHeading->ActiveRestriction =
+				EOpenMobileSensorRestriction::MissingInput;
+			TrueHeading->Fallback.bAvailable = false;
+		}
+	}
+	return Snapshot;
 }
 
 TArray<FOpenMobileSensorMetadata>
@@ -499,6 +561,22 @@ UOpenMobileSensorsSubsystem::RequestPermissionNative(
 	}
 	const FName PermissionName =
 		FOpenMobileSensorPermissions::GetPermissionName(Permission);
+	if (Permission == EOpenMobileSensorPermission::TrueHeadingLocation)
+	{
+		FOpenMobilePermissionResult Result;
+		Result.Permission = PermissionName;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("Request location permission through its owning provider.")
+		);
+		OpenMobile::DispatchToGameThread(
+			[Completion = MoveTemp(Completion), Result]() mutable
+			{
+				Completion.ExecuteIfBound(Result);
+			}
+		);
+		return {};
+	}
 	return FOpenMobilePermissions::RequestPermission(
 		PermissionName,
 		FOnOpenMobilePermissionRequestComplete::CreateLambda(
@@ -532,26 +610,31 @@ UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 	const FOpenMobileSensorLocationInput& LocationInput
 )
 {
-	if (!FMath::IsFinite(LocationInput.LatitudeDegrees)
-		|| !FMath::IsFinite(LocationInput.LongitudeDegrees)
-		|| !FMath::IsFinite(LocationInput.AltitudeMeters)
-		|| !FMath::IsFinite(LocationInput.HorizontalAccuracyMeters)
-		|| !FMath::IsFinite(LocationInput.TimestampSeconds)
-		|| LocationInput.LatitudeDegrees < -90.0
-		|| LocationInput.LatitudeDegrees > 90.0
-		|| LocationInput.LongitudeDegrees < -180.0
-		|| LocationInput.LongitudeDegrees > 180.0
-		|| LocationInput.HorizontalAccuracyMeters < 0.0
-		|| LocationInput.TimestampSeconds < 0.0)
+	if (bDeinitialized)
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::InvalidRequest
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
 		);
 	}
-	FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(true);
-	return FOpenMobileSensorsErrorMapper::Map(
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable
+	const EOpenMobileSensorFailureReason Result =
+		FOpenMobileSensorsTrueHeadingService::SetLocationInput(
+			GetOrCreateSubscriptionOwnerIdentifier(),
+			LocationInput,
+			static_cast<double>(FDateTime::UtcNow().ToUnixTimestamp()),
+			FPlatformTime::Seconds()
+		);
+	FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(
+		FOpenMobileSensorsTrueHeadingService::HasAnyLocationInput(
+			FPlatformTime::Seconds()
+		)
 	);
+	if (Result != EOpenMobileSensorFailureReason::None)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(Result);
+	}
+	FOpenMobileSensorOperationResult Success;
+	Success.Code = EOpenMobileSensorResultCode::Success;
+	return Success;
 }
 
 FGuid UOpenMobileSensorsSubsystem::StartRecordingNative(

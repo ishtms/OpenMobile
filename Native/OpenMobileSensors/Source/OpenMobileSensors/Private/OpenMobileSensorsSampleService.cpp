@@ -17,6 +17,7 @@
 #include "OpenMobileSensorValidity.h"
 #include "OpenMobileSensorVectorFilter.h"
 #include "OpenMobileSensorsSettings.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -981,6 +982,43 @@ namespace OpenMobileSensorsSampleServicePrivate
 			)) != 0;
 		Sample.EulerDegrees = FRotator::ZeroRotator;
 		Sample.RotationMatrix = {};
+		return true;
+	}
+
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileHeadingSensorSample& Sample
+	)
+	{
+		if (Slot.Sensor == Sample.Header.Sensor)
+		{
+			if (Slot.Sensor.Type != EOpenMobileSensorType::TrueHeading)
+			{
+				return true;
+			}
+			return FOpenMobileSensorsTrueHeadingService::AnnotateNativeHeading(
+				Slot.OwnerIdentifier,
+				FPlatformTime::Seconds(),
+				Sample
+			) == EOpenMobileSensorFailureReason::None;
+		}
+		if (Slot.Sensor.Type != EOpenMobileSensorType::TrueHeading
+			|| Sample.Header.Sensor.Type !=
+				EOpenMobileSensorType::MagneticHeading)
+		{
+			return false;
+		}
+		FOpenMobileHeadingSensorSample Derived;
+		if (FOpenMobileSensorsTrueHeadingService::ConvertMagneticHeading(
+			Slot.OwnerIdentifier,
+			FPlatformTime::Seconds(),
+			Sample,
+			Derived
+		) != EOpenMobileSensorFailureReason::None)
+		{
+			return false;
+		}
+		Sample = MoveTemp(Derived);
 		return true;
 	}
 
