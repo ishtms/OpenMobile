@@ -3479,6 +3479,18 @@ class DevicePluginBoundaryTests(unittest.TestCase):
 		self.assertIn("OpenMobile Device", changelog)
 		self.assertIn("Device sample host", changelog)
 
+		validation = (
+			REPOSITORY_ROOT / "Native" / "OpenMobileDevice" / "DEVICE_VALIDATION.md"
+		).read_text(encoding="utf-8")
+		for required_evidence in (
+			"## Release acceptance evidence",
+			"91 Device automation tests",
+			"60 Python contract tests",
+			"Android, iOS, and Mac isolation checks",
+			"physical-device release gate remains open",
+		):
+			self.assertIn(required_evidence, validation)
+
 
 if __name__ == "__main__":
 	unittest.main()
