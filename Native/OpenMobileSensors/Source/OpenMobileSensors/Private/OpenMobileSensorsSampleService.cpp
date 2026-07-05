@@ -8,6 +8,7 @@
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorGravityEstimator.h"
+#include "OpenMobileSensorHeadingQuality.h"
 #include "OpenMobileSensorLinearAccelerationEstimator.h"
 #include "OpenMobileSensorOrientationClassifier.h"
 #include "OpenMobileSensorFusionQuality.h"
@@ -185,6 +186,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 MaximumPendingSamples = 128;
 		EOpenMobileSensorDeliveryMode DeliveryMode =
 			EOpenMobileSensorDeliveryMode::LatestValue;
+		EOpenMobileSensorAccuracy MinimumCallbackAccuracy =
+			EOpenMobileSensorAccuracy::Unknown;
 		EOpenMobileSensorOverflowPolicy OverflowPolicy =
 			EOpenMobileSensorOverflowPolicy::DropOldest;
 		EOpenMobileSensorCoordinateSpace CoordinateSpace =
@@ -681,6 +684,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			return false;
 		}
+		if (!FOpenMobileSensorHeadingQuality::MeetsMinimum(
+			Sample.Header.Accuracy,
+			Slot.MinimumCallbackAccuracy
+		))
+		{
+			return false;
+		}
 		TArray<SampleType>& Pending = Slot.*PendingMember;
 		if (Pending.Num() >= Slot.MaximumPendingSamples)
 		{
@@ -821,6 +831,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 			Sample.Header.Fusion.ContributingInputMask |= SensorMask;
 		}
 		Sample.FusionQuality = Sample.Header.Fusion.Quality;
+	}
+
+	void NormalizeFusionMetadata(FOpenMobileHeadingSensorSample& Sample)
+	{
+		FOpenMobileSensorHeadingQuality::Normalize(Sample);
 	}
 
 	template <typename SampleType>
@@ -2160,6 +2175,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 		4096
 	);
 	Slot->DeliveryMode = Options.DeliveryMode;
+	Slot->MinimumCallbackAccuracy = Options.MinimumCallbackAccuracy;
 	Slot->OverflowPolicy = Options.OverflowPolicy;
 	Slot->CoordinateSpace = Options.CoordinateSpace;
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
@@ -2300,6 +2316,8 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 		4096
 	);
 	(*SlotPointer)->DeliveryMode = Options.DeliveryMode;
+	(*SlotPointer)->MinimumCallbackAccuracy =
+		Options.MinimumCallbackAccuracy;
 	(*SlotPointer)->OverflowPolicy = Options.OverflowPolicy;
 	(*SlotPointer)->CoordinateSpace = Options.CoordinateSpace;
 	(*SlotPointer)->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;

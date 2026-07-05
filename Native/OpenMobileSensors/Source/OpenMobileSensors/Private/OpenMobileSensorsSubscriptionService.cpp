@@ -314,6 +314,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			|| !IsValidEnum(Requested.OverflowPolicy)
 			|| !IsValidEnum(Requested.LifecyclePolicy)
 			|| !IsValidEnum(Requested.AttitudeReferenceFrame)
+			|| !IsValidEnum(Requested.MinimumCallbackAccuracy)
 			|| !IsFiniteInRange(Requested.CustomFrequencyHz, 1.0, 1000.0)
 			|| !IsFiniteInRange(
 				Requested.MaximumDeliveryLatencySeconds,

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorStreamOptions.generated.h"
 
@@ -136,6 +137,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	double MaximumCallbackFrequencyHz = 15.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorAccuracy MinimumCallbackAccuracy =
+		EOpenMobileSensorAccuracy::Unknown;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorDeliveryMode DeliveryMode =
