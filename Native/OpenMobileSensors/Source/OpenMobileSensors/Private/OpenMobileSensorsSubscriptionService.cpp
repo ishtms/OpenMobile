@@ -190,6 +190,47 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		return true;
 	}
 
+	void ApplyLowPowerDefaults(
+		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorStreamOptions& Requested,
+		FOpenMobileSensorStreamOptions& OutApplied
+	)
+	{
+		if (Sensor.Type == EOpenMobileSensorType::BarometricPressure
+			&& Requested.RatePreset == EOpenMobileSensorRatePreset::UI)
+		{
+			OutApplied.CustomFrequencyHz = 1.0;
+			OutApplied.MaximumCallbackFrequencyHz = 1.0;
+		}
+	}
+
+	bool IsPressureRateSupported(
+		const FOpenMobileSensorIdentifier& Sensor,
+		double RequestedFrequencyHz
+	)
+	{
+		if (Sensor.Type != EOpenMobileSensorType::BarometricPressure)
+		{
+			return true;
+		}
+		const FOpenMobileSensorCapabilitySnapshot Snapshot =
+			FOpenMobileSensorsCapabilityService::GetSnapshot();
+		const FOpenMobileSensorCapability* Capability =
+			Snapshot.Sensors.FindByPredicate(
+				[&Sensor](const FOpenMobileSensorCapability& Candidate)
+				{
+					return Candidate.Sensor.Type == Sensor.Type
+						&& (Sensor.InstanceId.IsNone()
+							|| Candidate.Sensor.InstanceId ==
+								Sensor.InstanceId);
+				}
+			);
+		return !Capability
+			|| Capability->MaximumFrequencyHz <= 0.0
+			|| RequestedFrequencyHz <=
+				Capability->MaximumFrequencyHz + 1.e-9;
+	}
+
 	void ApplyRateLimits(
 		const FOpenMobileSensorIdentifier& Sensor,
 		const FOpenMobileSensorStreamOptions& Requested,
@@ -339,6 +380,14 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		const UOpenMobileSensorsSettings* Settings =
 			GetDefault<UOpenMobileSensorsSettings>();
 		if (!ResolvePreset(Requested, *Settings, OutApplied))
+		{
+			return false;
+		}
+		ApplyLowPowerDefaults(Sensor, Requested, OutApplied);
+		if (!IsPressureRateSupported(
+			Sensor,
+			OutApplied.CustomFrequencyHz
+		))
 		{
 			return false;
 		}
@@ -521,6 +570,36 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 					EOpenMobileSensorFailureReason::InvalidReferenceFrame;
 			}
 			return bAvailable;
+		}
+		if (LogicalSensor.Type ==
+			EOpenMobileSensorType::BarometricPressure)
+		{
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* Pressure =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							LogicalSensor.Type
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			if (Pressure
+				&& Pressure->Availability.State !=
+					EOpenMobileCapabilityState::Available)
+			{
+				OutFailureReason = Pressure->Availability.State ==
+					EOpenMobileCapabilityState::TemporarilyUnavailable
+					? EOpenMobileSensorFailureReason::TemporarilyUnavailable
+					: EOpenMobileSensorFailureReason::MissingHardware;
+				return false;
+			}
+			return true;
 		}
 		const bool bSupportsAccelerometerFallback =
 			LogicalSensor.Type == EOpenMobileSensorType::Gravity

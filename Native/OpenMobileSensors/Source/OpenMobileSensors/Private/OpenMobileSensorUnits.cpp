@@ -170,13 +170,20 @@ bool FOpenMobileSensorUnitConverter::NormalizeScalarSample(
 		return true;
 	}
 	CaptureDiagnostics(Diagnostics, {Sample.Value});
-	const bool bValid = FMath::IsFinite(Sample.Value);
+	bool bValid = FMath::IsFinite(Sample.Value);
 	if (bValid
 		&& Platform == EOpenMobileSensorNativePlatform::IOS
 		&& Sample.Header.Sensor.Type ==
 			EOpenMobileSensorType::BarometricPressure)
 	{
 		Sample.Value *= KilopascalsToHectopascals;
+	}
+	if (Sample.Header.Sensor.Type ==
+		EOpenMobileSensorType::BarometricPressure)
+	{
+		bValid = bValid
+			&& Sample.Value > 0.0
+			&& Sample.Value <= 2000.0;
 	}
 	MarkNormalized(Sample.Header, bValid);
 	return bValid;

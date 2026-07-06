@@ -373,9 +373,13 @@ bool FOpenMobileSensorsLatestAllSampleFamiliesTest::RunTest(
 	FOpenMobileSensorCapability PhysicalOrientation = MakeAttitudeCapability();
 	PhysicalOrientation.Sensor =
 		MakeRequest(EOpenMobileSensorType::PhysicalOrientation).Sensor;
+	FOpenMobileSensorCapability Pressure = MakeAttitudeCapability();
+	Pressure.Sensor =
+		MakeRequest(EOpenMobileSensorType::BarometricPressure).Sensor;
 	Backend.SetSensorCapabilities({
 		MakeAttitudeCapability(),
-		PhysicalOrientation
+		PhysicalOrientation,
+		Pressure
 	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
@@ -408,6 +412,7 @@ bool FOpenMobileSensorsLatestAllSampleFamiliesTest::RunTest(
 		MakeRequest(EOpenMobileSensorType::BarometricPressure).Sensor;
 	ScalarSample.Header.TimestampSeconds = 1.0;
 	ScalarSample.Header.bValid = true;
+	ScalarSample.Value = 1013.25;
 	FOpenMobileHeadingSensorSample HeadingSample;
 	HeadingSample.Header.Sensor =
 		MakeRequest(EOpenMobileSensorType::MagneticHeading).Sensor;

@@ -695,7 +695,7 @@ private:
 				{
 					Self->HandleRelativeAltitude(Generation, Data, Error);
 				}];
-			return SuccessWithAppliedInterval(Interval);
+			return SuccessWithAppliedInterval(1.0);
 		}
 		case EService::AbsoluteAltitude:
 		{

@@ -293,6 +293,12 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		Capability.bSupportsNativeBatching = false;
 		Capability.BackgroundSupport =
 			EOpenMobileSensorBackgroundSupport::Suspended;
+		if (Supported.Type ==
+			EOpenMobileSensorType::BarometricPressure)
+		{
+			Capability.MinimumFrequencyHz = 1.0;
+			Capability.MaximumFrequencyHz = 1.0;
+		}
 		if (Supported.Type == EOpenMobileSensorType::Attitude)
 		{
 			PopulateAttitudeReferenceCapabilities(Capability, Availability);

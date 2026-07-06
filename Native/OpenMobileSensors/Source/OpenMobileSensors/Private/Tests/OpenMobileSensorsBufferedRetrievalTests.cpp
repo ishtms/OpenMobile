@@ -54,6 +54,17 @@ namespace OpenMobileSensorsBufferedRetrievalTestsPrivate
 		return Result;
 	}
 
+	template <typename SampleType>
+	void SetValidFamilyValue(SampleType& Sample)
+	{
+		static_cast<void>(Sample);
+	}
+
+	void SetValidFamilyValue(FOpenMobileScalarSensorSample& Sample)
+	{
+		Sample.Value = 1013.25;
+	}
+
 	FOpenMobileVectorSensorSample MakeVectorSample(
 		const FOpenMobileSensorIdentifier& Sensor,
 		double TimestampSeconds,
@@ -400,9 +411,14 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 	PhysicalOrientation.Sensor = MakeRequest(
 		EOpenMobileSensorType::PhysicalOrientation
 	).Sensor;
+	FOpenMobileSensorCapability Pressure = MakeAttitudeCapability();
+	Pressure.Sensor = MakeRequest(
+		EOpenMobileSensorType::BarometricPressure
+	).Sensor;
 	Backend.SetSensorCapabilities({
 		MakeAttitudeCapability(),
-		PhysicalOrientation
+		PhysicalOrientation,
+		Pressure
 	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
@@ -420,6 +436,7 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 		Sample.Header.Sensor = Request.Sensor; \
 		Sample.Header.TimestampSeconds = 1.0; \
 		Sample.Header.bValid = true; \
+		SetValidFamilyValue(Sample); \
 		FOpenMobileSensorsSampleService::PublishMethod(Sample); \
 		BatchType Batch; \
 		TestTrue(TEXT(#SensorType " buffer drains"), \
