@@ -38,6 +38,10 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode
 	);
+	static FOpenMobileSensorOperationResult RecenterRelativeAltitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
 	static FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle

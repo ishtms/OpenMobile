@@ -411,6 +411,80 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			MagneticHeading->BackgroundSupport;
 	}
 
+	void ApplyRelativeAltitudeFallback(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot
+	)
+	{
+		FOpenMobileSensorCapability* RelativeAltitude =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::RelativeAltitude;
+				}
+			);
+		const FOpenMobileSensorCapability* Pressure =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::BarometricPressure;
+				}
+			);
+		if (!RelativeAltitude)
+		{
+			return;
+		}
+		RelativeAltitude->Fallback.bImplemented = true;
+		RelativeAltitude->Fallback.RequiredInputs = {
+			EOpenMobileSensorType::BarometricPressure
+		};
+		RelativeAltitude->Fallback.MinimumInputFrequencyHz = 1.0;
+		RelativeAltitude->Fallback.ExpectedQuality =
+			EOpenMobileSensorFusionQuality::Degraded;
+		RelativeAltitude->Fallback.PowerCost =
+			EOpenMobileSensorFallbackPowerCost::Low;
+		RelativeAltitude->Fallback.CpuBudgetMicrosecondsPerSample = 40.0;
+		RelativeAltitude->Fallback.UnsupportedConditionFlags =
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					LifecycleUnavailable
+			);
+		const bool bPressureAvailable = Pressure
+			&& Pressure->Availability.State ==
+				EOpenMobileCapabilityState::Available;
+		RelativeAltitude->Fallback.bAvailable = bPressureAvailable;
+		const bool bDirectAvailable =
+			RelativeAltitude->Availability.State ==
+				EOpenMobileCapabilityState::Available
+			&& RelativeAltitude->Source !=
+				EOpenMobileSensorAvailabilitySource::Derived;
+		if (bDirectAvailable || !bPressureAvailable)
+		{
+			return;
+		}
+		RelativeAltitude->Availability.State =
+			EOpenMobileCapabilityState::Available;
+		RelativeAltitude->Availability.Detail =
+			TEXT("Relative altitude is derived from a session pressure baseline using the standard atmosphere model.");
+		RelativeAltitude->Source =
+			EOpenMobileSensorAvailabilitySource::Derived;
+		RelativeAltitude->ActiveRestriction =
+			EOpenMobileSensorRestriction::None;
+		RelativeAltitude->MinimumFrequencyHz = FMath::Max(
+			1.0,
+			Pressure->MinimumFrequencyHz
+		);
+		RelativeAltitude->MaximumFrequencyHz =
+			Pressure->MaximumFrequencyHz;
+		RelativeAltitude->bSupportsNativeBatching =
+			Pressure->bSupportsNativeBatching;
+		RelativeAltitude->BackgroundSupport = Pressure->BackgroundSupport;
+	}
+
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
 	{
 		RefreshBackendBase();
@@ -467,6 +541,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			TEXT("Physical orientation is derived from device-fixed acceleration with bounded gravity filtering, hysteresis, and debounce.")
 		);
 		ApplyTrueHeadingFallback(Snapshot);
+		ApplyRelativeAltitudeFallback(Snapshot);
 		if (FOpenMobileSensorCapability* TrueHeading =
 			Snapshot.Sensors.FindByPredicate(
 				[](const FOpenMobileSensorCapability& Capability)

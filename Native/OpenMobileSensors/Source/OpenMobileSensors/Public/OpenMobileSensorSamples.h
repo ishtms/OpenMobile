@@ -160,6 +160,49 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeSensorSample
 	TArray<EOpenMobileSensorType> ContributingSensors;
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileRelativeAltitudeSource : uint8
+{
+	None,
+	NativePlatform,
+	PressureBaseline
+};
+
+UENUM(BlueprintType, meta = (Bitflags))
+enum class EOpenMobileRelativeAltitudeQualityLimitation : uint8
+{
+	None = 0,
+	WeatherSensitive = 1 << 0,
+	StandardAtmosphereAssumption = 1 << 1,
+	NativeModelUnspecified = 1 << 2
+};
+ENUM_CLASS_FLAGS(EOpenMobileRelativeAltitudeQualityLimitation);
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileRelativeAltitudeMetadata
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileRelativeAltitudeSource Source =
+		EOpenMobileRelativeAltitudeSource::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double BaselineTimestampSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasBaselinePressure = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double BaselinePressureHectopascals = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bUsesStandardAtmosphereModel = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileRelativeAltitudeQualityLimitation"))
+	int32 QualityLimitationFlags = 0;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 {
@@ -170,6 +213,9 @@ struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double Value = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileRelativeAltitudeMetadata RelativeAltitude;
 };
 
 UENUM(BlueprintType)

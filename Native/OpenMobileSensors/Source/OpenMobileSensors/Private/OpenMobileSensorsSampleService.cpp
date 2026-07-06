@@ -11,6 +11,7 @@
 #include "OpenMobileSensorHeadingQuality.h"
 #include "OpenMobileSensorLinearAccelerationEstimator.h"
 #include "OpenMobileSensorOrientationClassifier.h"
+#include "OpenMobileSensorRelativeAltitudeEstimator.h"
 #include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
@@ -206,6 +207,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorGravityEstimator GravityEstimator;
 		FOpenMobileSensorLinearAccelerationEstimator
 			LinearAccelerationEstimator;
+		FOpenMobileSensorRelativeAltitudeEstimator RelativeAltitudeEstimator;
 		FOpenMobileSensorOrientationClassifier OrientationClassifier;
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
@@ -298,6 +300,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	{
 		Slot.GravityEstimator.Reset();
 		Slot.LinearAccelerationEstimator.Reset();
+		Slot.RelativeAltitudeEstimator.Reset();
 		Slot.OrientationClassifier.Reset();
 	}
 
@@ -1172,6 +1175,36 @@ namespace OpenMobileSensorsSampleServicePrivate
 			return false;
 		}
 		Sample = MoveTemp(Derived);
+		return true;
+	}
+
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileScalarSensorSample& Sample
+	)
+	{
+		if (Slot.Sensor.Type != EOpenMobileSensorType::RelativeAltitude)
+		{
+			return Slot.Sensor == Sample.Header.Sensor;
+		}
+		if (Sample.Header.Sensor.Type !=
+				EOpenMobileSensorType::RelativeAltitude
+			&& Sample.Header.Sensor.Type !=
+				EOpenMobileSensorType::BarometricPressure)
+		{
+			return false;
+		}
+		FOpenMobileScalarSensorSample RelativeAltitude;
+		if (!Slot.RelativeAltitudeEstimator.Process(
+			Sample,
+			Slot.Sensor,
+			RelativeAltitude
+		))
+		{
+			Slot.RelativeAltitudeEstimator.Reset();
+			return false;
+		}
+		Sample = MoveTemp(RelativeAltitude);
 		return true;
 	}
 
@@ -2785,6 +2818,37 @@ bool FOpenMobileSensorsSampleService::GetAttitudeRecenterState(
 		return false;
 	}
 	OutState = Slot.Recenter;
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::RecenterRelativeAltitude(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!OwnerIdentifier.IsValid() || !Handle.IsValid() || !SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier
+		|| Slot.Handle != Handle
+		|| Slot.Sensor.Type != EOpenMobileSensorType::RelativeAltitude
+		|| Slot.State != EOpenMobileSensorSubscriptionState::Active)
+	{
+		return false;
+	}
+	Slot.RelativeAltitudeEstimator.Reset();
+	Slot.bHasSample = false;
+	Slot.Family = ELatestSampleFamily::None;
+	Slot.LatestTimestampSeconds = 0.0;
+	Slot.bPendingStatefulProcessingReset = true;
+	ClearPendingEvents(Slot);
+	ClearBufferedStorage(Slot);
 	return true;
 }
 

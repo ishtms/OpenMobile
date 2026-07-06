@@ -364,6 +364,29 @@ public:
 		EOpenMobileSensorRecenterMode Mode
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Begin Relative Altitude Session", ToolTip = "Begins an owner-scoped relative-altitude session with an independent zero baseline."))
+	FOpenMobileSensorSubscriptionResult BeginRelativeAltitudeSessionNative(
+		const FOpenMobileSensorStreamOptions& Options
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Recenter Relative Altitude Baseline", ToolTip = "Clears one session baseline so its next accepted sample becomes zero metres."))
+	FOpenMobileSensorOperationResult RecenterRelativeAltitudeBaselineNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Relative Altitude Session", ToolTip = "Reads the latest relative-altitude sample for one owned session."))
+	bool ReadRelativeAltitudeSessionNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int64 LastSeenSequence,
+		FOpenMobileSensorReadResult& OutResult,
+		FOpenMobileScalarSensorSample& OutSample
+	) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop Relative Altitude Session", ToolTip = "Stops one owned relative-altitude session without affecting another session sharing its pressure stream."))
+	FOpenMobileSensorOperationResult StopRelativeAltitudeSessionNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Request Native Sensor Calibration Prompt", ToolTip = "Explicitly asks the active backend to show a native calibration prompt when supported."))
 	FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
 		const FOpenMobileSensorSubscriptionHandle& Handle

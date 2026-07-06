@@ -120,6 +120,10 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode
 	);
+	static bool RecenterRelativeAltitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
 	static bool GetAttitudeRecenterState(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,

@@ -539,6 +539,86 @@ UOpenMobileSensorsSubsystem::RecenterSubscription(
 	return Result;
 }
 
+FOpenMobileSensorSubscriptionResult
+UOpenMobileSensorsSubsystem::BeginRelativeAltitudeSessionNative(
+	const FOpenMobileSensorStreamOptions& Options
+)
+{
+	FOpenMobileSensorSubscriptionRequest Request;
+	Request.Sensor.Type = EOpenMobileSensorType::RelativeAltitude;
+	Request.Sensor.InstanceId = TEXT("Default");
+	Request.Options = Options;
+	return StartSubscriptionNative(Request);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::RecenterRelativeAltitudeBaselineNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	return FOpenMobileSensorsSubscriptionService::RecenterRelativeAltitude(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
+}
+
+bool UOpenMobileSensorsSubsystem::ReadRelativeAltitudeSessionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	int64 LastSeenSequence,
+	FOpenMobileSensorReadResult& OutResult,
+	FOpenMobileScalarSensorSample& OutSample
+) const
+{
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	if (!FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SubscriptionOwnerIdentifier,
+			Handle,
+			State
+		)
+		|| State.Sensor.Type != EOpenMobileSensorType::RelativeAltitude)
+	{
+		OutResult = {};
+		OutResult.Status = EOpenMobileSensorReadStatus::InvalidHandle;
+		OutResult.Error = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle
+		).Error;
+		OutSample = {};
+		return false;
+	}
+	return GetLatestScalarSampleNative(
+		Handle,
+		LastSeenSequence,
+		OutResult,
+		OutSample
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::StopRelativeAltitudeSessionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	if (!FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SubscriptionOwnerIdentifier,
+			Handle,
+			State
+		))
+	{
+		return FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+			SubscriptionOwnerIdentifier,
+			Handle
+		);
+	}
+	if (State.Sensor.Type != EOpenMobileSensorType::RelativeAltitude)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
+	return StopSubscriptionNative(Handle);
+}
+
 FOpenMobileSensorOperationResult
 UOpenMobileSensorsSubsystem::RequestNativeCalibrationPrompt(
 	const FOpenMobileSensorSubscriptionHandle& Handle

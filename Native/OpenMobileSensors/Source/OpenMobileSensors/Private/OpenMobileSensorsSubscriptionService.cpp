@@ -571,6 +571,53 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			}
 			return bAvailable;
 		}
+		if (LogicalSensor.Type == EOpenMobileSensorType::RelativeAltitude)
+		{
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* RelativeAltitude =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							LogicalSensor.Type
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			const bool bDirectAvailable = RelativeAltitude
+				&& RelativeAltitude->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& RelativeAltitude->Source !=
+					EOpenMobileSensorAvailabilitySource::Derived;
+			if (bDirectAvailable)
+			{
+				return true;
+			}
+			if (!Options.bAllowDerivedFallback)
+			{
+				return false;
+			}
+			const FOpenMobileSensorCapability* Pressure =
+				Snapshot.Sensors.FindByPredicate(
+					[](const FOpenMobileSensorCapability& Capability)
+					{
+						return Capability.Sensor.Type ==
+							EOpenMobileSensorType::BarometricPressure
+							&& Capability.Availability.State ==
+								EOpenMobileCapabilityState::Available;
+					}
+				);
+			if (!Pressure)
+			{
+				return false;
+			}
+			OutPhysicalSensor = Pressure->Sensor;
+			return true;
+		}
 		if (LogicalSensor.Type ==
 			EOpenMobileSensorType::BarometricPressure)
 		{
@@ -1877,6 +1924,38 @@ FOpenMobileSensorsSubscriptionService::RecenterAttitude(
 		OwnerIdentifier,
 		Handle,
 		Mode
+	))
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		);
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsSubscriptionService::RecenterRelativeAltitude(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	const FSubscriptionEntry* Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+	if (!Entry)
+	{
+		return MakeHandleFailure(Handle);
+	}
+	if (Entry->Request.Sensor.Type !=
+		EOpenMobileSensorType::RelativeAltitude)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
+	if (!FOpenMobileSensorsSampleService::RecenterRelativeAltitude(
+		OwnerIdentifier,
+		Handle
 	))
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
