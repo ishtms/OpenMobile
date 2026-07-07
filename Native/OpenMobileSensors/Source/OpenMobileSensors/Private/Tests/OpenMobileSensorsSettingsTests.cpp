@@ -205,6 +205,15 @@ bool FOpenMobileSensorsSettingsValidationTest::RunTest(
 	TestFalse(TEXT("Invalid filter settings are rejected"),
 		Filter->Validate(Errors, false));
 
+	UOpenMobileSensorsSettings* EventThreshold =
+		NewObject<UOpenMobileSensorsSettings>();
+	EventThreshold->DefaultStreamOptions.MinimumScalarEventChange =
+		std::numeric_limits<double>::quiet_NaN();
+	TestFalse(TEXT("Nonfinite scalar event thresholds are rejected"),
+		EventThreshold->Validate(Errors, false));
+	TestTrue(TEXT("Scalar event threshold failure names its field"),
+		HasErrorContaining(Errors, TEXT("MinimumScalarEventChange")));
+
 	UOpenMobileSensorsSettings* Recording =
 		NewObject<UOpenMobileSensorsSettings>();
 	Recording->MaximumRecordingDurationSeconds = 0.0;

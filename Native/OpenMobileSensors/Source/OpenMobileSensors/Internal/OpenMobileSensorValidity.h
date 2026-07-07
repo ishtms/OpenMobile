@@ -10,6 +10,10 @@ public:
 		const FVector& Value,
 		double MaximumRange
 	);
+	static bool IsWithinMaximumRange(
+		double Value,
+		double MaximumRange
+	);
 	static bool IsEligibleForStatefulProcessing(
 		const FOpenMobileVectorSensorSample& Sample
 	);

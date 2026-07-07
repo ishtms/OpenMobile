@@ -26,6 +26,18 @@ bool FOpenMobileSensorValidity::IsWithinMaximumRange(
 		&& FMath::Abs(Value.Z) <= MaximumRange;
 }
 
+bool FOpenMobileSensorValidity::IsWithinMaximumRange(
+	double Value,
+	double MaximumRange
+)
+{
+	return FMath::IsFinite(Value)
+		&& Value >= 0.0
+		&& FMath::IsFinite(MaximumRange)
+		&& MaximumRange >= 0.0
+		&& Value <= MaximumRange;
+}
+
 bool FOpenMobileSensorValidity::IsEligibleForStatefulProcessing(
 	const FOpenMobileVectorSensorSample& Sample
 )

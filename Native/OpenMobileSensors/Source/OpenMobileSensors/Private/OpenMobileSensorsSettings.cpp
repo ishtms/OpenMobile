@@ -101,6 +101,11 @@ bool UOpenMobileSensorsSettings::Validate(
 	{
 		OutErrors.Add(TEXT("Default BufferCapacitySamples must be between 1 and 4096."));
 	}
+	if (!FMath::IsFinite(DefaultStreamOptions.MinimumScalarEventChange)
+		|| DefaultStreamOptions.MinimumScalarEventChange < 0.0)
+	{
+		OutErrors.Add(TEXT("Default MinimumScalarEventChange must be finite and nonnegative."));
+	}
 	if ((DefaultStreamOptions.RatePreset == EOpenMobileSensorRatePreset::Fast
 		|| DefaultStreamOptions.CustomFrequencyHz > 200.0
 		|| DefaultStreamOptions.bAllowHighSamplingRate)

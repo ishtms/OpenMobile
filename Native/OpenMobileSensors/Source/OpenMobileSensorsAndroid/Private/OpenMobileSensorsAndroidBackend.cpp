@@ -924,6 +924,16 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 				bResetFirstSample && Index == 0
 			);
 			Sample.Value = ValueAt(Index, 0);
+			if (Type == EOpenMobileSensorType::AmbientLight
+				&& FMath::IsFinite(Descriptor.MaximumRange)
+				&& Descriptor.MaximumRange > 0.0)
+			{
+				Sample.Header.bValid &=
+					FOpenMobileSensorValidity::IsWithinMaximumRange(
+						Sample.Value,
+						Descriptor.MaximumRange
+					);
+			}
 			FOpenMobileSensorUnitConverter::NormalizeScalarSample(
 				EOpenMobileSensorNativePlatform::Android,
 				Sample

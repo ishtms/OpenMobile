@@ -197,7 +197,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorStreamOptions& OutApplied
 	)
 	{
-		if (Sensor.Type == EOpenMobileSensorType::BarometricPressure
+		if ((Sensor.Type == EOpenMobileSensorType::BarometricPressure
+			|| Sensor.Type == EOpenMobileSensorType::AmbientLight)
 			&& Requested.RatePreset == EOpenMobileSensorRatePreset::UI)
 		{
 			OutApplied.CustomFrequencyHz = 1.0;
@@ -294,6 +295,32 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 					EOpenMobileSensorRateAdjustmentReason::HardwareLimit;
 			}
 		}
+		if (Sensor.Type == EOpenMobileSensorType::AmbientLight)
+		{
+			constexpr double AmbientLightMaximumFrequencyHz = 5.0;
+			double PhysicalCeilingHz = AmbientLightMaximumFrequencyHz;
+			if (Capability
+				&& FMath::IsFinite(Capability->MinimumFrequencyHz)
+				&& Capability->MinimumFrequencyHz > PhysicalCeilingHz)
+			{
+				PhysicalCeilingHz = Capability->MinimumFrequencyHz;
+			}
+			const double BeforeAmbientLightLimit =
+				OutApplied.CustomFrequencyHz;
+			OutApplied.CustomFrequencyHz = FMath::Min(
+				OutApplied.CustomFrequencyHz,
+				PhysicalCeilingHz
+			);
+			OutApplied.MaximumCallbackFrequencyHz = FMath::Min(
+				OutApplied.MaximumCallbackFrequencyHz,
+				AmbientLightMaximumFrequencyHz
+			);
+			if (OutApplied.CustomFrequencyHz < BeforeAmbientLightLimit)
+			{
+				OutResolution.AdjustmentReason =
+					EOpenMobileSensorRateAdjustmentReason::ProjectPolicy;
+			}
+		}
 		if (!Requested.bAllowHighSamplingRate
 			|| !Settings.bAllowHighSamplingRate)
 		{
@@ -370,6 +397,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			)
 			|| Requested.BufferCapacitySamples < 1
 			|| Requested.BufferCapacitySamples > 4096
+			|| !FMath::IsFinite(Requested.MinimumScalarEventChange)
+			|| Requested.MinimumScalarEventChange < 0.0
 			|| !ValidateFilterOptions(Requested.Filters)
 			|| Requested.AttitudeRepresentations == 0
 			|| (Requested.AttitudeRepresentations
@@ -619,11 +648,12 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			OutPhysicalSensor = Pressure->Sensor;
 			return true;
 		}
-		if (LogicalSensor.Type == EOpenMobileSensorType::AbsoluteAltitude)
+		if (LogicalSensor.Type == EOpenMobileSensorType::AbsoluteAltitude
+			|| LogicalSensor.Type == EOpenMobileSensorType::AmbientLight)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
 				FOpenMobileSensorsCapabilityService::GetSnapshot();
-			const FOpenMobileSensorCapability* AbsoluteAltitude =
+			const FOpenMobileSensorCapability* DirectCapability =
 				Snapshot.Sensors.FindByPredicate(
 					[&LogicalSensor](
 						const FOpenMobileSensorCapability& Capability
@@ -636,22 +666,22 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 									LogicalSensor.InstanceId);
 					}
 				);
-			if (AbsoluteAltitude
-				&& AbsoluteAltitude->Availability.State ==
+			if (DirectCapability
+				&& DirectCapability->Availability.State ==
 					EOpenMobileCapabilityState::Available
-				&& AbsoluteAltitude->Source !=
+				&& DirectCapability->Source !=
 					EOpenMobileSensorAvailabilitySource::Derived)
 			{
 				return true;
 			}
-			if (!AbsoluteAltitude
-				|| AbsoluteAltitude->Availability.State ==
+			if (!DirectCapability
+				|| DirectCapability->Availability.State ==
 					EOpenMobileCapabilityState::Unavailable)
 			{
 				OutFailureReason =
 					EOpenMobileSensorFailureReason::MissingHardware;
 			}
-			else if (AbsoluteAltitude->Availability.State ==
+			else if (DirectCapability->Availability.State ==
 				EOpenMobileCapabilityState::TemporarilyUnavailable)
 			{
 				OutFailureReason = EOpenMobileSensorFailureReason::

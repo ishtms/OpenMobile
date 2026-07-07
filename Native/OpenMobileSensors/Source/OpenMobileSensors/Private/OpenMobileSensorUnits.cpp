@@ -185,6 +185,11 @@ bool FOpenMobileSensorUnitConverter::NormalizeScalarSample(
 			&& Sample.Value > 0.0
 			&& Sample.Value <= 2000.0;
 	}
+	else if (Sample.Header.Sensor.Type ==
+		EOpenMobileSensorType::AmbientLight)
+	{
+		bValid = bValid && Sample.Value >= 0.0;
+	}
 	MarkNormalized(Sample.Header, bValid);
 	return bValid;
 }

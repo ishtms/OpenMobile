@@ -157,6 +157,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 	EOpenMobileSensorOverflowPolicy OverflowPolicy =
 		EOpenMobileSensorOverflowPolicy::DropOldest;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0"))
+	double MinimumScalarEventChange = 0.0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorFilterOptions Filters;
 

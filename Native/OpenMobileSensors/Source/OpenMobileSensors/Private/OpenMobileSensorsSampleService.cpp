@@ -168,6 +168,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		double StaleAfterSeconds = 1.0;
 		double AppliedSampleFrequencyHz = 0.0;
 		double MaximumCallbackFrequencyHz = 15.0;
+		double MinimumScalarEventChange = 0.0;
+		double LastScalarEventValue = 0.0;
 		double LastCallbackTimeSeconds = 0.0;
 		double RateIntervals[64] = {};
 		double RateIntervalSum = 0.0;
@@ -212,6 +214,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
 		bool bHasCallbackTime = false;
+		bool bHasLastScalarEventValue = false;
 		bool bHasRateTimestamp = false;
 		bool bHasAccuracyState = false;
 		bool bCalibrationNeeded = false;
@@ -683,6 +686,49 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.PendingProximity.Reset();
 		Slot.EventHighWaterMark = 0;
 		Slot.EventDroppedSamples = 0;
+		Slot.bHasLastScalarEventValue = false;
+	}
+
+	template <typename SampleType>
+	bool MeetsEventThreshold(
+		const FLatestSlot& Slot,
+		const SampleType& Sample
+	)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+		return true;
+	}
+
+	bool MeetsEventThreshold(
+		const FLatestSlot& Slot,
+		const FOpenMobileScalarSensorSample& Sample
+	)
+	{
+		return Slot.MinimumScalarEventChange <= 0.0
+			|| !Slot.bHasLastScalarEventValue
+			|| Sample.Header.bStatefulProcessingReset
+			|| FMath::Abs(Sample.Value - Slot.LastScalarEventValue) >=
+				Slot.MinimumScalarEventChange;
+	}
+
+	template <typename SampleType>
+	void RecordAcceptedEventSample(
+		FLatestSlot& Slot,
+		const SampleType& Sample
+	)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+	}
+
+	void RecordAcceptedEventSample(
+		FLatestSlot& Slot,
+		const FOpenMobileScalarSensorSample& Sample
+	)
+	{
+		Slot.LastScalarEventValue = Sample.Value;
+		Slot.bHasLastScalarEventValue = true;
 	}
 
 	template <typename SampleType>
@@ -703,6 +749,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			return false;
 		}
+		if (!MeetsEventThreshold(Slot, Sample))
+		{
+			return false;
+		}
 		TArray<SampleType>& Pending = Slot.*PendingMember;
 		if (Pending.Num() >= Slot.MaximumPendingSamples)
 		{
@@ -715,6 +765,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			Pending.RemoveAt(0, 1, EAllowShrinking::No);
 		}
 		Pending.Add(Sample);
+		RecordAcceptedEventSample(Slot, Sample);
 		Slot.EventHighWaterMark = FMath::Max(
 			Slot.EventHighWaterMark,
 			Pending.Num()
@@ -2425,6 +2476,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->StaleAfterSeconds = GetStaleAfterSeconds(Options);
 	Slot->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	Slot->MaximumCallbackFrequencyHz = Options.MaximumCallbackFrequencyHz;
+	Slot->MinimumScalarEventChange = Options.MinimumScalarEventChange;
 	Slot->MaximumPendingSamples = FMath::Clamp(
 		Options.BufferCapacitySamples,
 		1,
@@ -2531,6 +2583,7 @@ void FOpenMobileSensorsSampleService::SetSubscriptionState(
 			ResetGyroscopeDriftStatistics(**SlotPointer);
 			(*SlotPointer)->VectorFilter.Reset();
 			ResetDerivedEstimators(**SlotPointer);
+			(*SlotPointer)->bHasLastScalarEventValue = false;
 		}
 		bSchedulePendingEvents =
 			State == EOpenMobileSensorSubscriptionState::Active
@@ -2562,6 +2615,9 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	const bool bReferenceFrameChanged =
 		(*SlotPointer)->AttitudeReferenceFrame !=
 			Options.AttitudeReferenceFrame;
+	const bool bScalarThresholdChanged =
+		(*SlotPointer)->MinimumScalarEventChange !=
+			Options.MinimumScalarEventChange;
 	(*SlotPointer)->StaleAfterSeconds = GetStaleAfterSeconds(Options);
 	(*SlotPointer)->AppliedSampleFrequencyHz = Options.CustomFrequencyHz;
 	ResetRateStatistics(**SlotPointer);
@@ -2569,6 +2625,12 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	ResetDerivedEstimators(**SlotPointer);
 	(*SlotPointer)->MaximumCallbackFrequencyHz =
 		Options.MaximumCallbackFrequencyHz;
+	(*SlotPointer)->MinimumScalarEventChange =
+		Options.MinimumScalarEventChange;
+	if (bScalarThresholdChanged)
+	{
+		(*SlotPointer)->bHasLastScalarEventValue = false;
+	}
 	(*SlotPointer)->MaximumPendingSamples = FMath::Clamp(
 		Options.BufferCapacitySamples,
 		1,

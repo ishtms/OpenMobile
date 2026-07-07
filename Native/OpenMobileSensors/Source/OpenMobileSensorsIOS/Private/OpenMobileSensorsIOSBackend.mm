@@ -111,6 +111,24 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		return Capability;
 	}
 
+	FOpenMobileSensorCapability MakeUnsupportedAmbientLightCapability()
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor.Type = EOpenMobileSensorType::AmbientLight;
+		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Availability.Name =
+			FOpenMobileSensorTypes::GetStableName(
+				EOpenMobileSensorType::AmbientLight
+			);
+		Capability.Availability.State =
+			EOpenMobileCapabilityState::NotSupported;
+		Capability.Availability.Detail =
+			TEXT("Ordinary iOS applications have no public ambient-light stream.");
+		Capability.BackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Unsupported;
+		return Capability;
+	}
+
 	FOpenMobileAttitudeReferenceFrameCapability MakeReferenceCapability(
 		EOpenMobileAttitudeReferenceFrame ReferenceFrame,
 		EOpenMobileCapabilityState State,
@@ -360,6 +378,7 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		Capabilities.Add(MoveTemp(Capability));
 	}
 	Capabilities.Add(MakeAbsoluteAltitudeCapability(Availability));
+	Capabilities.Add(MakeUnsupportedAmbientLightCapability());
 	return Capabilities;
 }
 
