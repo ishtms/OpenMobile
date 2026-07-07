@@ -32,6 +32,7 @@ public final class OpenMobileHapticsBridgeV1 {
     static final int RESULT_UNSUPPORTED = 4;
     static final int RESULT_DEFAULT_AMPLITUDE = 5;
     static final int RESULT_PENDING = 6;
+    static final int RESULT_STALE = 7;
     private static final long MAXIMUM_SCHEDULED_DELAY_MILLIS = 60000L;
 
     private static final AtomicLong submissionCount = new AtomicLong();
@@ -184,9 +185,17 @@ public final class OpenMobileHapticsBridgeV1 {
                     return;
                 }
                 Activity current = weakActivity.get();
-                int result = current != null
-                    ? playback.play(current)
-                    : RESULT_SUPPRESSED;
+                int result = RESULT_SUPPRESSED;
+                if (current != null) {
+                    boolean canStart = false;
+                    try {
+                        canStart = nativeCanStart(requestId);
+                    } catch (UnsatisfiedLinkError ignored) {
+                    }
+                    result = canStart
+                        ? playback.play(current)
+                        : RESULT_STALE;
+                }
                 incrementBounded(callbackCount);
                 try {
                     nativeOnBridgeResult(requestId, result);
@@ -201,6 +210,15 @@ public final class OpenMobileHapticsBridgeV1 {
             return RESULT_FAILED;
         }
         return RESULT_PENDING;
+    }
+
+    static boolean cancelScheduledRequest(long requestId) {
+        Runnable request = SCHEDULED_REQUESTS.remove(requestId);
+        if (request == null) {
+            return false;
+        }
+        SCHEDULED_HANDLER.removeCallbacks(request);
+        return true;
     }
 
     private static void cancelScheduledRequests() {
@@ -1381,5 +1399,6 @@ public final class OpenMobileHapticsBridgeV1 {
         } while (!value.compareAndSet(current, current + 1));
     }
 
+    private static native boolean nativeCanStart(long requestId);
     private static native void nativeOnBridgeResult(long requestId, int result);
 }

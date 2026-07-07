@@ -1,10 +1,32 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/GameInstance.h"
+#include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "OpenMobileHapticsTimingPolicy.h"
 
+#include <limits>
+
 #if WITH_DEV_AUTOMATION_TESTS
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsDelayedStartGuardTest,
+	"OpenMobile.Haptics.Timing.DelayedStartGuard",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsDelayedStartGuardTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsScheduledStartGuard Guard(7);
+	TestTrue(TEXT("A matching lifecycle can start"), Guard.CanStart(7));
+	TestFalse(TEXT("A changed lifecycle cannot start"), Guard.CanStart(8));
+	Guard.Invalidate();
+	TestFalse(TEXT("Explicit invalidation prevents start"), Guard.CanStart(7));
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsAudioClockConversionTest,
@@ -203,6 +225,82 @@ bool FOpenMobileHapticsClockInvalidationTest::RunTest(
 			EOpenMobileHapticSynchronizationMode::BestEffort
 		).Outcome,
 		EOpenMobileHapticsTimingOutcome::TooLate);
+
+	FOpenMobileHapticSchedule BoundarySchedule;
+	BoundarySchedule.Mode = EOpenMobileHapticScheduleMode::Relative;
+	BoundarySchedule.TimeSeconds = 60.0;
+	const FOpenMobileHapticsTimingResolution HorizonBoundary = Policy.Resolve(
+		BoundarySchedule,
+		300.0,
+		5,
+		EOpenMobileHapticSynchronizationMode::BestEffort
+	);
+	TestEqual(TEXT("The exact scheduling horizon is accepted"),
+		HorizonBoundary.Outcome, EOpenMobileHapticsTimingOutcome::Ready);
+	TestTrue(TEXT("The exact horizon keeps one monotonic target"),
+		FMath::IsNearlyEqual(
+			HorizonBoundary.Diagnostics.ResolvedPlatformTimeSeconds,
+			360.0));
+	BoundarySchedule.TimeSeconds = 60.0001;
+	TestEqual(TEXT("A request beyond the scheduling horizon is rejected"),
+		Policy.Resolve(
+			BoundarySchedule,
+			300.0,
+			5,
+			EOpenMobileHapticSynchronizationMode::BestEffort
+		).Outcome,
+		EOpenMobileHapticsTimingOutcome::TooFar);
+
+	BoundarySchedule.Mode = EOpenMobileHapticScheduleMode::Immediate;
+	BoundarySchedule.TimeSeconds = 0.0;
+	BoundarySchedule.LatencyOffsetSeconds = 0.25;
+	const FOpenMobileHapticsTimingResolution PositiveOffset = Policy.Resolve(
+		BoundarySchedule,
+		300.0,
+		5,
+		EOpenMobileHapticSynchronizationMode::BestEffort
+	);
+	TestEqual(TEXT("The positive offset boundary is accepted"),
+		PositiveOffset.Outcome, EOpenMobileHapticsTimingOutcome::Ready);
+	TestTrue(TEXT("A positive offset schedules later"),
+		FMath::IsNearlyEqual(PositiveOffset.StartDelaySeconds, 0.25));
+	BoundarySchedule.LatencyOffsetSeconds = -0.25;
+	TestEqual(TEXT("The negative offset boundary is valid but too late"),
+		Policy.Resolve(
+			BoundarySchedule,
+			300.0,
+			5,
+			EOpenMobileHapticSynchronizationMode::BestEffort
+		).Outcome,
+		EOpenMobileHapticsTimingOutcome::TooLate);
+	BoundarySchedule.LatencyOffsetSeconds = 0.2501;
+	TestEqual(TEXT("An offset above the positive bound is invalid"),
+		Policy.Resolve(
+			BoundarySchedule,
+			300.0,
+			5,
+			EOpenMobileHapticSynchronizationMode::BestEffort
+		).Outcome,
+		EOpenMobileHapticsTimingOutcome::InvalidSchedule);
+	BoundarySchedule.LatencyOffsetSeconds = -0.2501;
+	TestEqual(TEXT("An offset below the negative bound is invalid"),
+		Policy.Resolve(
+			BoundarySchedule,
+			300.0,
+			5,
+			EOpenMobileHapticSynchronizationMode::BestEffort
+		).Outcome,
+		EOpenMobileHapticsTimingOutcome::InvalidSchedule);
+	BoundarySchedule.LatencyOffsetSeconds =
+		std::numeric_limits<double>::quiet_NaN();
+	TestEqual(TEXT("A non-finite offset is invalid"),
+		Policy.Resolve(
+			BoundarySchedule,
+			300.0,
+			5,
+			EOpenMobileHapticSynchronizationMode::BestEffort
+		).Outcome,
+		EOpenMobileHapticsTimingOutcome::InvalidSchedule);
 	return true;
 }
 

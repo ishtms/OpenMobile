@@ -58,6 +58,47 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		);
 	}
 
+	FOpenMobileHapticsApplePlaybackSchedule MakeAppleSchedule(
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
+	)
+	{
+		FOpenMobileHapticsApplePlaybackSchedule Schedule;
+		Schedule.PlatformTimeSeconds =
+			Parameters.Timing.Diagnostics.ResolvedPlatformTimeSeconds;
+		Schedule.MaximumLatenessSeconds =
+			FOpenMobileHapticsTimingLimits{}.MaximumLatenessSeconds;
+		Schedule.Guard = Parameters.ScheduledStartGuard;
+		return Schedule;
+	}
+
+	bool IsScheduled(
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
+	)
+	{
+		return Parameters.ScheduledStartGuard.IsValid()
+			&& Parameters.Timing.StartDelaySeconds > 0.0;
+	}
+
+	void ApplyAppleTimingDiagnostics(
+		FOpenMobileHapticsBackendSubmission& Submission,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
+	)
+	{
+		if (!Submission.Result.IsAccepted() || !IsScheduled(Parameters))
+		{
+			return;
+		}
+		if (Submission.Result.Synchronization.Mode
+			== EOpenMobileHapticSynchronizationMode::None)
+		{
+			Submission.Result.Synchronization = Parameters.Timing.Diagnostics;
+		}
+		Submission.Result.Synchronization.EstimatedPrecisionSeconds = FMath::Max(
+			Submission.Result.Synchronization.EstimatedPrecisionSeconds,
+			0.002
+		);
+	}
+
 	FOpenMobileHapticsApplePlaybackEventCallback MakePlaybackCallback(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FName PatternName,
@@ -84,21 +125,40 @@ namespace OpenMobileHapticsIOSBackendPrivate
 			BackendCallback.Token = Token;
 			BackendCallback.Sequence = 1;
 			BackendCallback.Event.Handle = Token.PlaybackHandle;
-			BackendCallback.Event.State = Event
-				== EOpenMobileHapticsApplePlaybackEvent::Completed
-					? EOpenMobileHapticPlaybackState::Completed
-					: EOpenMobileHapticPlaybackState::Failed;
-			BackendCallback.Event.Evidence =
-				EOpenMobileHapticEventEvidence::NativeConfirmed;
+			switch (Event)
+			{
+			case EOpenMobileHapticsApplePlaybackEvent::Completed:
+				BackendCallback.Event.State =
+					EOpenMobileHapticPlaybackState::Completed;
+				BackendCallback.Event.Evidence =
+					EOpenMobileHapticEventEvidence::NativeConfirmed;
+				break;
+			case EOpenMobileHapticsApplePlaybackEvent::Interrupted:
+				BackendCallback.Event.State =
+					EOpenMobileHapticPlaybackState::Interrupted;
+				BackendCallback.Event.Evidence =
+					EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+				break;
+			case EOpenMobileHapticsApplePlaybackEvent::Failed:
+				BackendCallback.Event.State =
+					EOpenMobileHapticPlaybackState::Failed;
+				BackendCallback.Event.Evidence =
+					EOpenMobileHapticEventEvidence::NativeConfirmed;
+				break;
+			}
 			BackendCallback.Event.TimestampSeconds = FPlatformTime::Seconds();
 			BackendCallback.Event.PatternOrEffect = PatternName;
 			BackendCallback.Event.Channel = Channel;
 			BackendCallback.Event.ResolvedPath = ResolvedPath;
-			if (Event == EOpenMobileHapticsApplePlaybackEvent::Failed)
+			if (Event != EOpenMobileHapticsApplePlaybackEvent::Completed)
 			{
 				BackendCallback.Event.Error = FOpenMobileHapticError::FromCommon(
-					EOpenMobileErrorCode::NativeFailure,
-					FailureMessage,
+					Event == EOpenMobileHapticsApplePlaybackEvent::Interrupted
+						? EOpenMobileErrorCode::Unavailable
+						: EOpenMobileErrorCode::NativeFailure,
+					Event == EOpenMobileHapticsApplePlaybackEvent::Interrupted
+						? TEXT("Apple Haptics playback was interrupted before its scheduled start.")
+						: FailureMessage,
 					EOpenMobileHapticFailureStage::Playback
 				);
 				BackendCallback.Event.Error.Handle = Token.PlaybackHandle;
@@ -116,18 +176,41 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		const FOpenMobileHapticNamedPatternRequest& Request,
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticsFallbackResolution& Resolution,
-		TArray<FName> Attempts
+		TArray<FName> Attempts,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		FOpenMobileHapticsBackendEventCallback Callback
 	)
 	{
 		FOpenMobileHapticsBackendSubmission Submission;
+		const bool bScheduled = IsScheduled(Parameters);
 		if (Resolution.Path == EOpenMobileHapticsFallbackPath::Semantic)
 		{
 			const FOpenMobileHapticsSemanticDescriptor Descriptor =
 				FOpenMobileHapticsSemanticPolicy::Describe(
 					Pattern.SemanticFallback
 				);
+			const FName ResolvedPath(TEXT("AppleSemanticFallback"));
 			const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-				Service.PlaySemantic(Descriptor.Behavior, Request.Intensity);
+				bScheduled
+				? Service.PlayScheduledSemantic(
+					Token.RequestId,
+					Descriptor.Behavior,
+					Request.Intensity,
+					MakeAppleSchedule(Parameters),
+					MakePlaybackCallback(
+						Token,
+						Request.PatternName,
+						Request.Options.Channel,
+						ResolvedPath,
+						TEXT("Apple scheduled semantic fallback failed."),
+						MoveTemp(Callback)
+					)
+				)
+				: Service.PlaySemantic(
+					Descriptor.Behavior,
+					Request.Intensity
+				);
 			if (BridgeResult
 				!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
 			{
@@ -139,15 +222,32 @@ namespace OpenMobileHapticsIOSBackendPrivate
 					EOpenMobileHapticPlaybackOutcome::Fallback;
 				Submission.Result.State =
 					EOpenMobileHapticPlaybackState::Accepted;
-				Submission.Result.ResolvedPath = TEXT("AppleSemanticFallback");
+				Submission.Result.ResolvedPath = ResolvedPath;
+				Submission.bCreatesControllablePlayback = bScheduled;
+				Submission.bExpectsCallbacks = bScheduled;
 			}
+			ApplyAppleTimingDiagnostics(Submission, Parameters);
 			AppendAttempts(Submission, Attempts);
 			return Submission;
 		}
 		if (Resolution.Path == EOpenMobileHapticsFallbackPath::BasicVibration)
 		{
+			const FName ResolvedPath(TEXT("AppleSystemVibrationFallback"));
 			const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-				Service.PlaySystemVibration();
+				bScheduled
+				? Service.PlayScheduledSystemVibration(
+					Token.RequestId,
+					MakeAppleSchedule(Parameters),
+					MakePlaybackCallback(
+						Token,
+						Request.PatternName,
+						Request.Options.Channel,
+						ResolvedPath,
+						TEXT("Apple scheduled vibration fallback failed."),
+						MoveTemp(Callback)
+					)
+				)
+				: Service.PlaySystemVibration();
 			if (BridgeResult
 				!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
 			{
@@ -159,9 +259,11 @@ namespace OpenMobileHapticsIOSBackendPrivate
 					EOpenMobileHapticPlaybackOutcome::Fallback;
 				Submission.Result.State =
 					EOpenMobileHapticPlaybackState::Accepted;
-				Submission.Result.ResolvedPath =
-					TEXT("AppleSystemVibrationFallback");
+				Submission.Result.ResolvedPath = ResolvedPath;
+				Submission.bCreatesControllablePlayback = bScheduled;
+				Submission.bExpectsCallbacks = bScheduled;
 			}
+			ApplyAppleTimingDiagnostics(Submission, Parameters);
 			AppendAttempts(Submission, Attempts);
 			return Submission;
 		}
@@ -358,7 +460,9 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 		? Supported
 		: Unsupported;
 	Capabilities.AHAP = bAHAPEnabled ? Supported : Unsupported;
-	Capabilities.Scheduling = bCoreHapticsEnabled ? Supported : Unsupported;
+	Capabilities.Scheduling = bSemanticEnabled || bCoreHapticsEnabled
+		? Supported
+		: Unsupported;
 	Capabilities.Pause = Unsupported;
 	Capabilities.Resume = Unsupported;
 	Capabilities.Seek = Unsupported;
@@ -490,9 +594,11 @@ FOpenMobileHapticsIOSBackend::GetControlSupport() const
 	FOpenMobileHapticsBackendControlSupport Support;
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	Support.bStop = Settings->bEnableCustomPlayback
+	Support.bStop = Settings->IOS.bEnableSemanticFeedback
+		|| (Settings->bEnableCustomPlayback
+			&& Settings->IOS.bEnableCoreHaptics);
+	Support.bDynamicParameters = Settings->bEnableCustomPlayback
 		&& Settings->IOS.bEnableCoreHaptics;
-	Support.bDynamicParameters = Support.bStop;
 	return Support;
 }
 
@@ -506,12 +612,12 @@ FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request,
 	const FOpenMobileHapticsSemanticResolution& Resolution,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
-	static_cast<void>(Token);
-	static_cast<void>(Callback);
+	using namespace OpenMobileHapticsIOSBackendPrivate;
 	FOpenMobileHapticsBackendSubmission Submission;
 	if (Resolution.Path == EOpenMobileHapticsSemanticPath::Unsupported)
 	{
@@ -523,7 +629,32 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	}
 	EOpenMobileHapticsAppleSubmissionResult BridgeResult =
 		EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
-	if (Resolution.Path == EOpenMobileHapticsSemanticPath::BasicVibration)
+	const bool bScheduled = IsScheduled(Parameters);
+	const FName ResolvedPath =
+		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
+	FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
+	if (bScheduled)
+	{
+		PlaybackCallback = MakePlaybackCallback(
+			Token,
+			FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect).Name,
+			Request.Options.Channel,
+			ResolvedPath,
+			TEXT("Apple scheduled semantic playback failed."),
+			MoveTemp(Callback)
+		);
+	}
+	if (Resolution.Path == EOpenMobileHapticsSemanticPath::BasicVibration
+		&& bScheduled)
+	{
+		BridgeResult = BridgeService->PlayScheduledSystemVibration(
+			Token.RequestId,
+			MakeAppleSchedule(Parameters),
+			MoveTemp(PlaybackCallback)
+		);
+	}
+	else if (Resolution.Path
+		== EOpenMobileHapticsSemanticPath::BasicVibration)
 	{
 		BridgeResult = BridgeService->PlaySystemVibration();
 	}
@@ -531,10 +662,18 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 	{
 		const FOpenMobileHapticsSemanticDescriptor Descriptor =
 			FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
-		BridgeResult = BridgeService->PlaySemantic(
-			Descriptor.Behavior,
-			Request.Intensity
-		);
+		BridgeResult = bScheduled
+			? BridgeService->PlayScheduledSemantic(
+				Token.RequestId,
+				Descriptor.Behavior,
+				Request.Intensity,
+				MakeAppleSchedule(Parameters),
+				MoveTemp(PlaybackCallback)
+			)
+			: BridgeService->PlaySemantic(
+				Descriptor.Behavior,
+				Request.Intensity
+			);
 	}
 	if (BridgeResult != EOpenMobileHapticsAppleSubmissionResult::Accepted)
 	{
@@ -546,8 +685,10 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 		? EOpenMobileHapticPlaybackOutcome::Fallback
 		: EOpenMobileHapticPlaybackOutcome::Accepted;
 	Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
-	Submission.Result.ResolvedPath =
-		FOpenMobileHapticsSemanticPolicy::PathName(Resolution.Path);
+	Submission.Result.ResolvedPath = ResolvedPath;
+	Submission.bCreatesControllablePlayback = bScheduled;
+	Submission.bExpectsCallbacks = bScheduled;
+	ApplyAppleTimingDiagnostics(Submission, Parameters);
 	return Submission;
 }
 
@@ -555,12 +696,12 @@ FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsIOSBackend::SubmitOneShot(
 	const FOpenMobileHapticOneShotRequest& Request,
 	const FOpenMobileHapticsOneShotResolution& Resolution,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
-	static_cast<void>(Token);
-	static_cast<void>(Callback);
+	using namespace OpenMobileHapticsIOSBackendPrivate;
 	FOpenMobileHapticsBackendSubmission Submission;
 	if (Resolution.Path == EOpenMobileHapticsOneShotPath::Unsupported)
 	{
@@ -569,6 +710,21 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 			TEXT("The Apple device has no available one-shot vibration path.")
 		);
 		return Submission;
+	}
+	const bool bScheduled = IsScheduled(Parameters);
+	const FName ResolvedPath =
+		FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
+	FOpenMobileHapticsApplePlaybackEventCallback PlaybackCallback;
+	if (bScheduled)
+	{
+		PlaybackCallback = MakePlaybackCallback(
+			Token,
+			TEXT("OneShot"),
+			Request.Options.Channel,
+			ResolvedPath,
+			TEXT("Apple scheduled one-shot playback failed."),
+			MoveTemp(Callback)
+		);
 	}
 	if (Resolution.Path == EOpenMobileHapticsOneShotPath::BasicVibration)
 	{
@@ -596,8 +752,13 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 			);
 			return Submission;
 		}
-		const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-			BridgeService->PlaySystemVibration();
+		const EOpenMobileHapticsAppleSubmissionResult BridgeResult = bScheduled
+			? BridgeService->PlayScheduledSystemVibration(
+				Token.RequestId,
+				MakeAppleSchedule(Parameters),
+				MoveTemp(PlaybackCallback)
+			)
+			: BridgeService->PlaySystemVibration();
 		if (BridgeResult
 			!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
 		{
@@ -622,11 +783,18 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 	}
 	else
 	{
-		const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-			BridgeService->PlaySemantic(
-			EOpenMobileHapticsSemanticBehavior::ImpactMedium,
-			Request.Intensity
-		);
+		const EOpenMobileHapticsAppleSubmissionResult BridgeResult = bScheduled
+			? BridgeService->PlayScheduledSemantic(
+				Token.RequestId,
+				EOpenMobileHapticsSemanticBehavior::ImpactMedium,
+				Request.Intensity,
+				MakeAppleSchedule(Parameters),
+				MoveTemp(PlaybackCallback)
+			)
+			: BridgeService->PlaySemantic(
+				EOpenMobileHapticsSemanticBehavior::ImpactMedium,
+				Request.Intensity
+			);
 		if (BridgeResult
 			!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
 		{
@@ -648,6 +816,9 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 		Submission.Result.ResolvedPath =
 			FOpenMobileHapticsOneShotPolicy::PathName(Resolution.Path);
 	}
+	Submission.bCreatesControllablePlayback = bScheduled;
+	Submission.bExpectsCallbacks = bScheduled;
+	ApplyAppleTimingDiagnostics(Submission, Parameters);
 	return Submission;
 }
 
@@ -752,9 +923,7 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			}
 			else
 			{
-				AHAP.Pattern.bScheduled = Request.Options.Schedule.Mode
-						!= EOpenMobileHapticScheduleMode::Immediate
-					|| Parameters.Timing.StartDelaySeconds > 0.0;
+				AHAP.Pattern.bScheduled = IsScheduled(Parameters);
 				AHAP.Pattern.ScheduledPlatformTimeSeconds =
 					Parameters.Timing.Diagnostics.ResolvedPlatformTimeSeconds;
 				AHAP.Pattern.bHasInitialDynamicParameters = true;
@@ -814,7 +983,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 							FallbackRequest,
 							*Pattern,
 							Fallback,
-							MoveTemp(Attempts)
+							MoveTemp(Attempts),
+							Parameters,
+							Token,
+							MoveTemp(Callback)
 						);
 					}
 					FOpenMobileHapticsBackendSubmission Submission;
@@ -849,7 +1021,21 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 						}
 					};
 				const EOpenMobileHapticsAppleSubmissionResult BridgeResult =
-					BridgeService->PlayAHAPPattern(
+					AHAP.Pattern.bScheduled
+					? BridgeService->PlayScheduledAHAPPattern(
+						Token.RequestId,
+						AHAP.Pattern,
+						MakeAppleSchedule(Parameters),
+						MakePlaybackCallback(
+							Token,
+							Request.PatternName,
+							Request.Options.Channel,
+							ResolvedPath,
+							TEXT("Apple AHAP playback failed."),
+							MoveTemp(AHAPCallback)
+						)
+					)
+					: BridgeService->PlayAHAPPattern(
 						Token.RequestId,
 						AHAP.Pattern,
 						MakePlaybackCallback(
@@ -890,19 +1076,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 				AppendAttempts(Submission, Attempts);
 				Submission.bCreatesControllablePlayback = true;
 				Submission.bExpectsCallbacks = true;
+				ApplyAppleTimingDiagnostics(Submission, Parameters);
 				return Submission;
 			}
 		}
-	}
-	if (Request.Options.Schedule.Mode
-		!= EOpenMobileHapticScheduleMode::Immediate)
-	{
-		FOpenMobileHapticsBackendSubmission Submission;
-		Submission.Result = FOpenMobileHapticPlaybackResult::MakeRejected(
-			EOpenMobileErrorCode::NotSupported,
-			TEXT("Scheduled Apple playback requires an AHAP platform override.")
-		);
-		return Submission;
 	}
 	const FOpenMobileHapticsFallbackResolution Ladder =
 		FOpenMobileHapticsFallbackPolicy::Resolve(
@@ -920,7 +1097,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			FallbackRequest,
 			*Pattern,
 			Ladder,
-			MoveTemp(Attempts)
+			MoveTemp(Attempts),
+			Parameters,
+			Token,
+			MoveTemp(Callback)
 		);
 	}
 
@@ -1034,7 +1214,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			FallbackRequest,
 			*Pattern,
 			Fallback,
-			MoveTemp(Attempts)
+			MoveTemp(Attempts),
+			Parameters,
+			Token,
+			MoveTemp(Callback)
 		);
 	}
 	const EOpenMobileHapticsAppleEngineResult EngineResult =
@@ -1064,7 +1247,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 				FallbackRequest,
 				*Pattern,
 				Fallback,
-				MoveTemp(Attempts)
+				MoveTemp(Attempts),
+				Parameters,
+				Token,
+				MoveTemp(Callback)
 			);
 		}
 		FOpenMobileHapticsBackendSubmission Submission;
@@ -1094,7 +1280,20 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 		EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	if (bUseContinuousTranslation)
 	{
-		BridgeResult = BridgeService->PlayContinuousPattern(
+		BridgeResult = IsScheduled(Parameters)
+			? BridgeService->PlayScheduledContinuousPattern(
+				Token.RequestId,
+				Continuous.Pattern,
+				MakeAppleSchedule(Parameters),
+				MoveTemp(NativeCallback),
+				Parameters.bHasInitialDynamicParameters
+					? &Parameters.InitialDynamicParameters
+					: nullptr,
+				Parameters.PortableTimeline
+					? Parameters.PortableTimeline->ResourceId
+					: 0
+			)
+			: BridgeService->PlayContinuousPattern(
 			Token.RequestId,
 			Continuous.Pattern,
 			MoveTemp(NativeCallback),
@@ -1108,7 +1307,20 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	}
 	else
 	{
-		BridgeResult = BridgeService->PlayTransientPattern(
+		BridgeResult = IsScheduled(Parameters)
+			? BridgeService->PlayScheduledTransientPattern(
+				Token.RequestId,
+				Transient.Pattern,
+				MakeAppleSchedule(Parameters),
+				MoveTemp(NativeCallback),
+				Parameters.bHasInitialDynamicParameters
+					? &Parameters.InitialDynamicParameters
+					: nullptr,
+				Parameters.PortableTimeline
+					? Parameters.PortableTimeline->ResourceId
+					: 0
+			)
+			: BridgeService->PlayTransientPattern(
 			Token.RequestId,
 			Transient.Pattern,
 			MoveTemp(NativeCallback),
@@ -1135,6 +1347,7 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	AppendAttempts(Submission, Attempts);
 	Submission.bCreatesControllablePlayback = true;
 	Submission.bExpectsCallbacks = true;
+	ApplyAppleTimingDiagnostics(Submission, Parameters);
 	return Submission;
 }
 

@@ -152,6 +152,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 				: EOpenMobileHapticPlaybackOutcome::Accepted;
 			Submission.Result.State = EOpenMobileHapticPlaybackState::Accepted;
 			Submission.bExpectsCallbacks = NativeResult == 6;
+			Submission.bCreatesControllablePlayback = NativeResult == 6;
 			break;
 		case 2:
 			Submission.Result.Outcome =
@@ -203,15 +204,14 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 
 	FOpenMobileHapticsAndroidScheduledPlayback MakeScheduledPlayback(
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
-		const FOpenMobileHapticNamedPatternRequest& Request,
+		FName PatternOrEffect,
+		const FOpenMobileHapticPlaybackOptions& Options,
 		FName ResolvedPath,
 		const FOpenMobileHapticsBackendEventCallback& Callback
 	)
 	{
 		FOpenMobileHapticsAndroidScheduledPlayback Scheduled;
-		if (Request.Options.Schedule.Mode
-				== EOpenMobileHapticScheduleMode::Immediate
-			&& Parameters.Timing.StartDelaySeconds <= 0.0)
+		if (Parameters.Timing.StartDelaySeconds <= 0.0)
 		{
 			return Scheduled;
 		}
@@ -230,23 +230,39 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			1,
 			60000
 		);
-		Scheduled.PatternOrEffect = Request.PatternName;
-		Scheduled.Channel = Request.Options.Channel;
+		Scheduled.ScheduledStartGuard = Parameters.ScheduledStartGuard;
+		Scheduled.PatternOrEffect = PatternOrEffect;
+		Scheduled.Channel = Options.Channel;
 		Scheduled.ResolvedPath = ResolvedPath;
 		Scheduled.Callback = Callback;
 		return Scheduled;
 	}
 
+	FOpenMobileHapticsAndroidScheduledPlayback MakeScheduledPlayback(
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		FName ResolvedPath,
+		const FOpenMobileHapticsBackendEventCallback& Callback
+	)
+	{
+		return MakeScheduledPlayback(
+			Parameters,
+			Request.PatternName,
+			Request.Options,
+			ResolvedPath,
+			Callback
+		);
+	}
+
 	void ApplyBestEffortTiming(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
-		const FOpenMobileHapticNamedPatternRequest& Request
+		const FOpenMobileHapticPlaybackOptions& Options
 	)
 	{
+		static_cast<void>(Options);
 		if (!Submission.Result.IsAccepted()
-			|| (Request.Options.Schedule.Mode
-					== EOpenMobileHapticScheduleMode::Immediate
-				&& Parameters.Timing.StartDelaySeconds <= 0.0))
+			|| Parameters.Timing.StartDelaySeconds <= 0.0)
 		{
 			return;
 		}
@@ -257,6 +273,15 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			0.010,
 			Submission.Result.Synchronization.EstimatedPrecisionSeconds
 		);
+	}
+
+	void ApplyBestEffortTiming(
+		FOpenMobileHapticsBackendSubmission& Submission,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
+		const FOpenMobileHapticNamedPatternRequest& Request
+	)
+	{
+		ApplyBestEffortTiming(Submission, Parameters, Request.Options);
 	}
 
 	FOpenMobileHapticsBackendSubmission SubmitPortableAndFallback(
@@ -443,6 +468,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 						EOpenMobileHapticsSemanticPath::SystemSemantic,
 						Purpose,
 						Scheduled.StartDelayMilliseconds,
+						Scheduled.ScheduledStartGuard,
 						Descriptor.Name,
 						Request.Options.Channel,
 						TEXT("AndroidSemanticFallback"),
@@ -575,6 +601,7 @@ FOpenMobileHapticsBackendControlSupport
 FOpenMobileHapticsAndroidBackend::GetControlSupport() const
 {
 	FOpenMobileHapticsBackendControlSupport Support;
+	Support.bStop = true;
 	Support.bStopAll = IsCustomPlaybackConfigured();
 	return Support;
 }
@@ -833,6 +860,7 @@ FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request,
 	const FOpenMobileHapticsSemanticResolution& Resolution,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
@@ -896,6 +924,14 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 	}
 	FName ResolvedPath =
 		FOpenMobileHapticsSemanticPolicy::PathName(SubmittedPath);
+	const FOpenMobileHapticsAndroidScheduledPlayback Scheduled =
+		OpenMobileHapticsAndroidBackendPrivate::MakeScheduledPlayback(
+			Parameters,
+			Descriptor.Name,
+			Request.Options,
+			ResolvedPath,
+			Callback
+		);
 	FOpenMobileHapticsBackendEventCallback RetryCallback = Callback;
 	FOpenMobileHapticsAndroidBridgeSubmission BridgeSubmission =
 		Bridge.PlaySemantic(
@@ -904,7 +940,8 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		Request.Intensity,
 		SubmittedPath,
 		Purpose,
-		0,
+		Scheduled.StartDelayMilliseconds,
+		Scheduled.ScheduledStartGuard,
 		Descriptor.Name,
 		Request.Options.Channel,
 		ResolvedPath,
@@ -924,7 +961,8 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 			Request.Intensity,
 			SubmittedPath,
 			Purpose,
-			0,
+			Scheduled.StartDelayMilliseconds,
+			Scheduled.ScheduledStartGuard,
 			Descriptor.Name,
 			Request.Options.Channel,
 			ResolvedPath,
@@ -939,6 +977,8 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 	}
 	Submission.Result.ResolvedPath = ResolvedPath;
 	Submission.bExpectsCallbacks = BridgeSubmission.bExpectsCallback;
+	Submission.bCreatesControllablePlayback =
+		BridgeSubmission.bExpectsCallback;
 	switch (BridgeSubmission.Result)
 	{
 	case 1:
@@ -972,7 +1012,32 @@ FOpenMobileHapticsAndroidBackend::SubmitSemantic(
 		);
 		break;
 	}
+	OpenMobileHapticsAndroidBackendPrivate::ApplyBestEffortTiming(
+		Submission,
+		Parameters,
+		Request.Options
+	);
 	return Submission;
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopPlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token
+)
+{
+	if (!Bridge.CancelScheduled(Token.RequestId))
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		Result.Error = FOpenMobileHapticError::FromCommon(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Android scheduled request is no longer pending."),
+			EOpenMobileHapticFailureStage::Playback
+		);
+		return Result;
+	}
+	FOpenMobileHapticControlResult Result;
+	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+	return Result;
 }
 
 FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
@@ -1000,11 +1065,11 @@ FOpenMobileHapticsBackendSubmission
 FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 	const FOpenMobileHapticOneShotRequest& Request,
 	const FOpenMobileHapticsOneShotResolution& Resolution,
+	const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 	const FOpenMobileHapticsBackendRequestToken& Token,
 	FOpenMobileHapticsBackendEventCallback Callback
 )
 {
-	static_cast<void>(Callback);
 	if (Resolution.Path != EOpenMobileHapticsOneShotPath::SystemSemantic
 		&& !IsCustomPlaybackConfigured())
 	{
@@ -1022,12 +1087,21 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		FMath::RoundToDouble(Request.DurationSeconds * 1000.0)
 	));
 	EOpenMobileHapticsOneShotPath SubmittedPath = Resolution.Path;
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled =
+		OpenMobileHapticsAndroidBackendPrivate::MakeScheduledPlayback(
+			Parameters,
+			TEXT("OneShot"),
+			Request.Options,
+			FOpenMobileHapticsOneShotPolicy::PathName(SubmittedPath),
+			Callback
+		);
 	int32 NativeResult = Bridge.PlayOneShot(
 		Token,
 		DurationMillis,
 		Request.Intensity,
 		SubmittedPath,
-		Purpose
+		Purpose,
+		Scheduled
 	);
 	bool bUsedFallback = false;
 	bool bSelectedNoEffect = false;
@@ -1044,12 +1118,15 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 				== EOpenMobileHapticSupportState::Supported)
 		{
 			SubmittedPath = EOpenMobileHapticsOneShotPath::BasicVibration;
+			Scheduled.ResolvedPath =
+				FOpenMobileHapticsOneShotPolicy::PathName(SubmittedPath);
 			NativeResult = Bridge.PlayOneShot(
 				Token,
 				DurationMillis,
 				Request.Intensity,
 				SubmittedPath,
-				Purpose
+				Purpose,
+				MoveTemp(Scheduled)
 			);
 			bUsedFallback = NativeResult != 4;
 		}
@@ -1140,6 +1217,13 @@ FOpenMobileHapticsAndroidBackend::SubmitOneShot(
 		);
 		break;
 	}
+	Submission.bExpectsCallbacks = NativeResult == 6;
+	Submission.bCreatesControllablePlayback = Submission.bExpectsCallbacks;
+	OpenMobileHapticsAndroidBackendPrivate::ApplyBestEffortTiming(
+		Submission,
+		Parameters,
+		Request.Options
+	);
 	return Submission;
 }
 

@@ -76,11 +76,42 @@ struct FOpenMobileHapticsBackendSubmission
 	bool bExpectsCallbacks = false;
 };
 
+class FOpenMobileHapticsScheduledStartGuard final
+{
+public:
+	explicit FOpenMobileHapticsScheduledStartGuard(
+		uint64 InLifecycleGeneration
+	)
+		: LifecycleGeneration(InLifecycleGeneration)
+	{
+	}
+
+	bool CanStart(uint64 CurrentLifecycleGeneration) const
+	{
+		return bValid.Load()
+			&& LifecycleGeneration != 0
+			&& LifecycleGeneration == CurrentLifecycleGeneration;
+	}
+
+	void Invalidate()
+	{
+		bValid.Store(false);
+	}
+
+private:
+	TAtomic<bool> bValid{true};
+	uint64 LifecycleGeneration = 0;
+};
+
 struct FOpenMobileHapticsBackendPlaybackParameters
 {
 	bool bHasInitialDynamicParameters = false;
 	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 	FOpenMobileHapticsTimingResolution Timing;
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> ScheduledStartGuard;
 	TSharedPtr<
 		const FOpenMobileHapticsPortableTimeline,
 		ESPMode::ThreadSafe
@@ -116,12 +147,14 @@ public:
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
 		const FOpenMobileHapticsSemanticResolution& Resolution,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) = 0;
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 		const FOpenMobileHapticOneShotRequest& Request,
 		const FOpenMobileHapticsOneShotResolution& Resolution,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) = 0;

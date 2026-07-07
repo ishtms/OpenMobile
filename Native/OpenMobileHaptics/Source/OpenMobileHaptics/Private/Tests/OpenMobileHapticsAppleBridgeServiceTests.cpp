@@ -78,6 +78,35 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
+			uint64 RequestId,
+			EOpenMobileHapticsSemanticBehavior Behavior,
+			float Intensity,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			LastRequestId = RequestId;
+			LastSemanticBehavior = Behavior;
+			LastSemanticIntensity = Intensity;
+			LastSchedule = Schedule;
+			PlaybackCallback = MoveTemp(Callback);
+			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledSystemVibration(
+			uint64 RequestId,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			LastRequestId = RequestId;
+			LastSchedule = Schedule;
+			PlaybackCallback = MoveTemp(Callback);
+			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -120,6 +149,46 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return ContinuousSubmissionResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledTransientPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
+		) override
+		{
+			LastSchedule = Schedule;
+			return PlayTransientPattern(
+				RequestId,
+				Pattern,
+				MoveTemp(Callback),
+				InitialParameters,
+				PreparedResourceId
+			);
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledContinuousPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
+		) override
+		{
+			LastSchedule = Schedule;
+			return PlayContinuousPattern(
+				RequestId,
+				Pattern,
+				MoveTemp(Callback),
+				InitialParameters,
+				PreparedResourceId
+			);
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -131,6 +200,21 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			LastAHAPPattern = Pattern;
 			PlaybackCallback = MoveTemp(Callback);
 			return AHAPSubmissionResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			LastSchedule = Schedule;
+			return PlayAHAPPattern(
+				RequestId,
+				Pattern,
+				MoveTemp(Callback)
+			);
 		}
 
 		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
@@ -225,6 +309,10 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
 		FOpenMobileHapticsAppleAHAPPattern LastAHAPPattern;
+		FOpenMobileHapticsApplePlaybackSchedule LastSchedule;
+		EOpenMobileHapticsSemanticBehavior LastSemanticBehavior =
+			EOpenMobileHapticsSemanticBehavior::Selection;
+		float LastSemanticIntensity = 0.0f;
 		FOpenMobileHapticDynamicParameterUpdate LastUpdate;
 		FOpenMobileHapticDynamicParameterUpdate LastInitialParameters;
 		bool bHadInitialParameters = false;
@@ -683,6 +771,68 @@ bool FOpenMobileHapticsAppleContinuousBridgeTest::RunTest(
 		ResetCount, 1);
 	TestTrue(TEXT("Engine reset notification reaches the game thread"),
 		bResetWasOnGameThread);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsAppleScheduledBridgeTest,
+	"OpenMobile.Haptics.Apple.Bridge.ScheduledPlayback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsAppleScheduledBridgeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsAppleBridgeServiceTests;
+
+	TUniquePtr<FMockAppleBridge> Bridge = MakeUnique<FMockAppleBridge>();
+	FMockAppleBridge* Mock = Bridge.Get();
+	FOpenMobileHapticsAppleBridgeService Service(MoveTemp(Bridge));
+	FOpenMobileHapticsApplePlaybackSchedule Schedule;
+	Schedule.PlatformTimeSeconds = 123.5;
+	Schedule.MaximumLatenessSeconds = 0.05;
+	Schedule.Guard = MakeShared<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	>(9);
+	int32 CallbackCount = 0;
+	bool bCallbackWasOnGameThread = false;
+	TestEqual(TEXT("Scheduled semantic playback reaches native"),
+		Service.PlayScheduledSemantic(
+			71,
+			EOpenMobileHapticsSemanticBehavior::Selection,
+			0.6f,
+			Schedule,
+			[&CallbackCount, &bCallbackWasOnGameThread](
+				EOpenMobileHapticsApplePlaybackEvent Event
+			)
+			{
+				static_cast<void>(Event);
+				++CallbackCount;
+				bCallbackWasOnGameThread = IsInGameThread();
+			}
+		),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("The request identity reaches scheduling"),
+		Mock->LastRequestId, static_cast<uint64>(71));
+	TestEqual(TEXT("The monotonic target crosses unchanged"),
+		Mock->LastSchedule.PlatformTimeSeconds, 123.5);
+	TestEqual(TEXT("The late bound crosses unchanged"),
+		Mock->LastSchedule.MaximumLatenessSeconds, 0.05);
+	TestTrue(TEXT("The delayed-start guard stays request scoped"),
+		Mock->LastSchedule.Guard == Schedule.Guard);
+
+	Mock->EmitPlayback(EOpenMobileHapticsApplePlaybackEvent::Interrupted);
+	TestEqual(TEXT("Scheduled completion is never delivered inline"),
+		CallbackCount, 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread);
+	TestEqual(TEXT("Scheduled completion reaches the owner once"),
+		CallbackCount, 1);
+	TestTrue(TEXT("Scheduled completion reaches the game thread"),
+		bCallbackWasOnGameThread);
 	return true;
 }
 

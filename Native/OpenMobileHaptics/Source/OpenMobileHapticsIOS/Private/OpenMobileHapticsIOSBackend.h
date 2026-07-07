@@ -25,12 +25,14 @@ public:
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
 		const FOpenMobileHapticsSemanticResolution& Resolution,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 		const FOpenMobileHapticOneShotRequest& Request,
 		const FOpenMobileHapticsOneShotResolution& Resolution,
+		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FOpenMobileHapticsBackendEventCallback Callback
 	) override;

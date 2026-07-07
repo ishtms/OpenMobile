@@ -783,9 +783,20 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"SCHEDULED_REQUESTS",
 			"removeCallbacks",
 			"cancelScheduledRequests",
+			"cancelScheduledRequest",
+			"nativeCanStart",
 			"RESULT_PENDING",
+			"RESULT_STALE",
 		):
 			self.assertIn(token, bridge)
+		scheduler = bridge[
+			bridge.index("private static int schedulePlayback"):
+			bridge.index("private static void cancelScheduledRequests")
+		]
+		self.assertLess(
+			scheduler.index("nativeCanStart(requestId)"),
+			scheduler.index("playback.play(current)"),
+		)
 
 		native_bridge = (
 			android_root
@@ -795,6 +806,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("StartDelayMilliseconds", native_bridge)
 		self.assertIn("PendingCallbacks.Add", native_bridge)
 		self.assertIn("ResultPending", native_bridge)
+		self.assertIn("HandleCanStart", native_bridge)
+		self.assertIn("CancelScheduled", native_bridge)
 
 		backend = (
 			android_root
@@ -812,6 +825,73 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("0.010", backend)
 		self.assertIn(
 			"Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported",
+			backend,
+		)
+
+	def test_apple_scheduled_playback_revalidates_on_native_scheduler(self) -> None:
+		bridge = load_ios_bridge()
+		backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"ScheduledStartTimers",
+			"ScheduledStartActions",
+			"handleScheduledStartTimer",
+			"PlayScheduledSemantic",
+			"PlayScheduledSystemVibration",
+			"PlayScheduledTransientPattern",
+			"PlayScheduledContinuousPattern",
+			"PlayScheduledAHAPPattern",
+			"EOpenMobileHapticsApplePlaybackEvent::Interrupted",
+		):
+			self.assertIn(token, bridge)
+		scheduled_start = bridge.split(
+			"- (void)handleScheduledStartTimer:(NSTimer*)Timer\n{", 1
+		)[1].split("\n}\n", 1)[0]
+		self.assertLess(
+			scheduled_start.index("Guard->CanStart"),
+			scheduled_start.index("(*Action)"),
+		)
+		self.assertIn(
+			"FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()",
+			scheduled_start,
+		)
+		self.assertIn("releaseAudioResourcesForRequest:RequestId", scheduled_start)
+		stop_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId\n{",
+			1,
+		)[1].split("\n}\n", 1)[0]
+		self.assertLess(
+			stop_pattern.index("cancelScheduledStart:RequestId"),
+			stop_pattern.index("[Players objectForKey:Key]"),
+		)
+		ahap_start = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)startAHAPPattern:\n"
+			"\t(uint64)RequestId\n"
+			"\tpattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern\n"
+			"\tnativePattern:(CHHapticPattern*)NativePattern\n{",
+			1,
+		)[1].split("\n}\n", 1)[0]
+		self.assertIn("ScheduleResult", ahap_start)
+		self.assertIn(
+			"EOpenMobileHapticsApplePlaybackEvent::Interrupted",
+			ahap_start,
+		)
+		self.assertIn("MakeAppleSchedule(Parameters)", backend)
+		self.assertIn("ApplyAppleTimingDiagnostics", backend)
+		self.assertIn("EstimatedPrecisionSeconds = FMath::Max", backend)
+		self.assertIn("0.002", backend)
+		self.assertIn(
+			"Capabilities.Scheduling = bSemanticEnabled || bCoreHapticsEnabled",
+			backend,
+		)
+		self.assertNotIn("static_cast<void>(Parameters)", backend)
+		self.assertNotIn(
+			"Scheduled Apple playback requires an AHAP platform override.",
 			backend,
 		)
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticsAppleContinuousPolicy.h"
 #include "OpenMobileHapticsAppleTransientPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -50,11 +51,32 @@ using FOpenMobileHapticsAppleBridgeEventCallback =
 enum class EOpenMobileHapticsApplePlaybackEvent : uint8
 {
 	Completed,
+	Interrupted,
 	Failed
 };
 
 using FOpenMobileHapticsApplePlaybackEventCallback =
 	TFunction<void(EOpenMobileHapticsApplePlaybackEvent)>;
+
+struct FOpenMobileHapticsApplePlaybackSchedule
+{
+	double PlatformTimeSeconds = 0.0;
+	double MaximumLatenessSeconds = 0.05;
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> Guard;
+
+	bool IsValid() const
+	{
+		return FMath::IsFinite(PlatformTimeSeconds)
+			&& PlatformTimeSeconds > 0.0
+			&& FMath::IsFinite(MaximumLatenessSeconds)
+			&& MaximumLatenessSeconds >= 0.0
+			&& MaximumLatenessSeconds <= 1.0
+			&& Guard.IsValid();
+	}
+};
 
 struct FOpenMobileHapticsAppleAudioResource
 {
@@ -105,6 +127,19 @@ public:
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult
 	PlaySystemVibration() = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
+		uint64 RequestId,
+		EOpenMobileHapticsSemanticBehavior Behavior,
+		float Intensity,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult
+	PlayScheduledSystemVibration(
+		uint64 RequestId,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -121,9 +156,33 @@ public:
 			nullptr,
 		uint64 PreparedResourceId = 0
 	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledTransientPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr,
+		uint64 PreparedResourceId = 0
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledContinuousPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr,
+		uint64 PreparedResourceId = 0
+	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
@@ -172,6 +231,18 @@ public:
 		float Intensity
 	);
 	EOpenMobileHapticsAppleSubmissionResult PlaySystemVibration();
+	EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
+		uint64 RequestId,
+		EOpenMobileHapticsSemanticBehavior Behavior,
+		float Intensity,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
+	EOpenMobileHapticsAppleSubmissionResult PlayScheduledSystemVibration(
+		uint64 RequestId,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
 	EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -188,9 +259,33 @@ public:
 			nullptr,
 		uint64 PreparedResourceId = 0
 	);
+	EOpenMobileHapticsAppleSubmissionResult PlayScheduledTransientPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleTransientPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr,
+		uint64 PreparedResourceId = 0
+	);
+	EOpenMobileHapticsAppleSubmissionResult PlayScheduledContinuousPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback,
+		const FOpenMobileHapticDynamicParameterUpdate* InitialParameters =
+			nullptr,
+		uint64 PreparedResourceId = 0
+	);
 	EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 		uint64 RequestId,
 		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
+	EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
+		uint64 RequestId,
+		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+		const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	);
 	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);
@@ -208,6 +303,9 @@ private:
 	struct FCallbackState;
 
 	FOpenMobileHapticsAppleHardwareProbe GetHardwareProbeLocked();
+	FOpenMobileHapticsApplePlaybackEventCallback RelayPlaybackCallback(
+		FOpenMobileHapticsApplePlaybackEventCallback Callback
+	);
 
 	TUniquePtr<IOpenMobileHapticsAppleBridge> Bridge;
 	TSharedRef<FCallbackState, ESPMode::ThreadSafe> CallbackState;

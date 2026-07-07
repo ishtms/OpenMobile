@@ -32,6 +32,11 @@ struct FOpenMobileHapticsSubsystemRequestState
 	float RuntimeIntensity = 1.0f;
 	float RuntimeSharpness = 0.5f;
 	bool bSupportsDynamicParameters = false;
+	bool bRequiresPreparedAsset = false;
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> ScheduledStartGuard;
 };
 
 struct FOpenMobileHapticsSubsystemState
@@ -159,6 +164,108 @@ namespace OpenMobileHapticsSubsystemPrivate
 			);
 		}
 		return Result;
+	}
+
+	bool ResolvePlaybackTiming(
+		FOpenMobileHapticsSubsystemState& State,
+		const FOpenMobileHapticCapabilities& Capabilities,
+		const FOpenMobileHapticSchedule& Schedule,
+		FName Effect,
+		FName Channel,
+		FOpenMobileHapticsTimingResolution& OutTiming,
+		FOpenMobileHapticPlaybackResult& OutRejection
+	)
+	{
+		if ((Schedule.Mode != EOpenMobileHapticScheduleMode::Immediate
+				|| Schedule.LatencyOffsetSeconds > 0.0)
+			&& Capabilities.Scheduling
+				!= EOpenMobileHapticSupportState::Supported)
+		{
+			OutRejection = MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::UnsupportedFeature,
+				EOpenMobileHapticFailureStage::Capability,
+				Effect,
+				Channel
+			);
+			return false;
+		}
+		const EOpenMobileHapticSynchronizationMode SynchronizationMode =
+			Schedule.Mode == EOpenMobileHapticScheduleMode::AbsoluteAudioTime
+				? EOpenMobileHapticSynchronizationMode::BestEffort
+				: EOpenMobileHapticSynchronizationMode::None;
+		OutTiming = State.TimingPolicy.Resolve(
+			Schedule,
+			FPlatformTime::Seconds(),
+			static_cast<int64>(
+				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+			),
+			SynchronizationMode
+		);
+		if (OutTiming.Outcome == EOpenMobileHapticsTimingOutcome::Ready)
+		{
+			return true;
+		}
+		OutRejection = MakeTimingRejectedPlaybackResult(
+			OutTiming.Outcome,
+			Effect,
+			Channel
+		);
+		return false;
+	}
+
+	void ApplyResolvedTiming(
+		FOpenMobileHapticPlaybackResult& Result,
+		const FOpenMobileHapticsTimingResolution& Timing
+	)
+	{
+		if (!Result.IsAccepted())
+		{
+			return;
+		}
+		if (Result.Synchronization.Mode
+			== EOpenMobileHapticSynchronizationMode::None)
+		{
+			Result.Synchronization = Timing.Diagnostics;
+		}
+		if (Timing.StartDelaySeconds > 0.0
+			&& Result.State == EOpenMobileHapticPlaybackState::Accepted)
+		{
+			Result.State = EOpenMobileHapticPlaybackState::Scheduled;
+		}
+	}
+
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> MakeScheduledStartGuard(
+		const FOpenMobileHapticsTimingResolution& Timing
+	)
+	{
+		if (Timing.StartDelaySeconds <= 0.0)
+		{
+			return nullptr;
+		}
+		return MakeShared<
+			FOpenMobileHapticsScheduledStartGuard,
+			ESPMode::ThreadSafe
+		>(FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration());
+	}
+
+	void InvalidateScheduledStarts(
+		FOpenMobileHapticsSubsystemState& State,
+		bool bPreparedAssetsOnly = false
+	)
+	{
+		for (TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Request :
+			State.Requests)
+		{
+			if (Request.Value.ScheduledStartGuard
+				&& (!bPreparedAssetsOnly
+					|| Request.Value.bRequiresPreparedAsset))
+			{
+				Request.Value.ScheduledStartGuard->Invalidate();
+			}
+		}
 	}
 
 	float FindScale(const TMap<FName, float>& Scales, FName Name)
@@ -312,6 +419,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 		if (const FOpenMobileHapticsSubsystemRequestState* Request =
 			State.Requests.Find(RequestId))
 		{
+			if (Request->ScheduledStartGuard)
+			{
+				Request->ScheduledStartGuard->Invalidate();
+			}
 			if (Request->Token.PlaybackHandle.IsValid())
 			{
 				State.RequestByHandle.Remove(Request->Token.PlaybackHandle);
@@ -441,6 +552,10 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 	if (IOpenMobileHapticsBackend* Backend =
 		FOpenMobileHapticsBackendRegistry::FindBackend())
 	{
+		if (State)
+		{
+			OpenMobileHapticsSubsystemPrivate::InvalidateScheduledStarts(*State);
+		}
 		if (State
 			&& !State->Requests.IsEmpty()
 			&& Backend->GetControlSupport().bStopAll)
@@ -1205,6 +1320,7 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 		State->ActiveLibraryPreload;
 	const EOpenMobileHapticPreparationState PreviousPreparationState =
 		State->PreparationState;
+	OpenMobileHapticsSubsystemPrivate::InvalidateScheduledStarts(*State, true);
 	if (State->LibraryLoadHandle)
 	{
 		State->LibraryLoadHandle->CancelHandle();
@@ -1451,6 +1567,21 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	const FOpenMobileHapticCapabilities Capabilities =
 		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	FOpenMobileHapticsTimingResolution Timing;
+	FOpenMobileHapticPlaybackResult TimingRejection;
+	if (!OpenMobileHapticsSubsystemPrivate::ResolvePlaybackTiming(
+		LocalState,
+		Capabilities,
+		Request.Options.Schedule,
+		Descriptor.Name,
+		Request.Options.Channel,
+		Timing,
+		TimingRejection
+	))
+	{
+		LocalState.LastError = TimingRejection.Error;
+		return TimingRejection;
+	}
 	const FOpenMobileHapticsSemanticResolution Resolution =
 		FOpenMobileHapticsSemanticPolicy::Resolve(
 			Capabilities,
@@ -1487,6 +1618,9 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			: AdjustedRequest.Intensity;
 		NamedRequest.Options = AdjustedRequest.Options;
 		FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
+		PlaybackParameters.Timing = Timing;
+		PlaybackParameters.ScheduledStartGuard =
+			OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
 		PlaybackParameters.bHasInitialDynamicParameters =
 			bSupportsDynamicParameters;
 		PlaybackParameters.InitialDynamicParameters.Intensity =
@@ -1500,6 +1634,9 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		OverrideState.Effect = Descriptor.Name;
 		OverrideState.bSupportsDynamicParameters =
 			bSupportsDynamicParameters;
+		OverrideState.bRequiresPreparedAsset = true;
+		OverrideState.ScheduledStartGuard =
+			PlaybackParameters.ScheduledStartGuard;
 		LocalState.Requests.Add(OverrideToken.RequestId, OverrideState);
 		FOpenMobileHapticPlaybackResult OverrideResult =
 			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
@@ -1513,6 +1650,10 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 					MakeBackendCallback()
 				)
 			);
+		OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(
+			OverrideResult,
+			Timing
+		);
 		if (OverrideResult.IsAccepted()
 			|| OverrideResult.Outcome
 				== EOpenMobileHapticPlaybackOutcome::Suppressed)
@@ -1596,24 +1737,38 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			Request.Options.Channel
 		);
 	}
+	FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
+	PlaybackParameters.Timing = Timing;
+	PlaybackParameters.ScheduledStartGuard =
+		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
+	const bool bScheduled = PlaybackParameters.ScheduledStartGuard.IsValid();
 	const FOpenMobileHapticsBackendRequestToken Token =
-		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, false);
-	LocalState.Requests.Add(
-		Token.RequestId,
-		{Token, 0, Request.Options.Channel}
-	);
+		FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+			*Backend,
+			bScheduled
+		);
+	FOpenMobileHapticsSubsystemRequestState RequestState;
+	RequestState.Token = Token;
+	RequestState.Channel = Request.Options.Channel;
+	RequestState.Category = Request.Options.Category;
+	RequestState.Effect = Descriptor.Name;
+	RequestState.ScheduledStartGuard =
+		PlaybackParameters.ScheduledStartGuard;
+	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
-		LocalState,
+			LocalState,
 		Token,
 		Request.Options.Channel,
-		Backend->SubmitSemantic(
-			AdjustedRequest,
-			Resolution,
-			Token,
-			MakeBackendCallback()
-		)
-	);
+			Backend->SubmitSemantic(
+				AdjustedRequest,
+				Resolution,
+				PlaybackParameters,
+				Token,
+				MakeBackendCallback()
+			)
+		);
+	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(Result, Timing);
 	if (Result.IsAccepted())
 	{
 		Result.Intensity.Requested = Request.Intensity;
@@ -1770,6 +1925,21 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	const FOpenMobileHapticCapabilities Capabilities =
 		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
+	FOpenMobileHapticsTimingResolution Timing;
+	FOpenMobileHapticPlaybackResult TimingRejection;
+	if (!OpenMobileHapticsSubsystemPrivate::ResolvePlaybackTiming(
+		LocalState,
+		Capabilities,
+		Request.Options.Schedule,
+		TEXT("OneShot"),
+		Request.Options.Channel,
+		Timing,
+		TimingRejection
+	))
+	{
+		LocalState.LastError = TimingRejection.Error;
+		return TimingRejection;
+	}
 	const FOpenMobileHapticsOneShotResolution Resolution =
 		FOpenMobileHapticsOneShotPolicy::Resolve(
 			Capabilities,
@@ -1860,11 +2030,22 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		);
 	}
 	const FOpenMobileHapticsBackendRequestToken Token =
-		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
-	LocalState.Requests.Add(
-		Token.RequestId,
-		{Token, 0, Request.Options.Channel}
-	);
+		FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+			*Backend,
+			true
+		);
+	FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
+	PlaybackParameters.Timing = Timing;
+	PlaybackParameters.ScheduledStartGuard =
+		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
+	FOpenMobileHapticsSubsystemRequestState RequestState;
+	RequestState.Token = Token;
+	RequestState.Channel = Request.Options.Channel;
+	RequestState.Category = Request.Options.Category;
+	RequestState.Effect = TEXT("OneShot");
+	RequestState.ScheduledStartGuard =
+		PlaybackParameters.ScheduledStartGuard;
+	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 		LocalState,
@@ -1873,10 +2054,12 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		Backend->SubmitOneShot(
 			AdjustedRequest,
 			Resolution,
+			PlaybackParameters,
 			Token,
 			MakeBackendCallback()
 		)
 	);
+	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(Result, Timing);
 	if (Result.IsAccepted() && Result.ResolvedPath.IsNone())
 	{
 		Result.ResolvedPath =
@@ -2041,46 +2224,20 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 
 	const FOpenMobileHapticCapabilities Capabilities =
 		FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot();
-	if ((Request.Options.Schedule.Mode
-				!= EOpenMobileHapticScheduleMode::Immediate
-			|| Request.Options.Schedule.LatencyOffsetSeconds > 0.0)
-		&& Capabilities.Scheduling
-			!= EOpenMobileHapticSupportState::Supported)
+	FOpenMobileHapticsTimingResolution Timing;
+	FOpenMobileHapticPlaybackResult TimingRejection;
+	if (!OpenMobileHapticsSubsystemPrivate::ResolvePlaybackTiming(
+		LocalState,
+		Capabilities,
+		Request.Options.Schedule,
+		Request.PatternName,
+		Request.Options.Channel,
+		Timing,
+		TimingRejection
+	))
 	{
-		FOpenMobileHapticPlaybackResult Result =
-			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
-				EOpenMobileHapticsFailureReason::UnsupportedFeature,
-				EOpenMobileHapticFailureStage::Capability,
-				Request.PatternName,
-				Request.Options.Channel
-			);
-		LocalState.LastError = Result.Error;
-		return Result;
-	}
-	const EOpenMobileHapticSynchronizationMode SynchronizationMode =
-		Request.Options.Schedule.Mode
-			== EOpenMobileHapticScheduleMode::AbsoluteAudioTime
-				? EOpenMobileHapticSynchronizationMode::BestEffort
-				: EOpenMobileHapticSynchronizationMode::None;
-	const FOpenMobileHapticsTimingResolution Timing =
-		LocalState.TimingPolicy.Resolve(
-			Request.Options.Schedule,
-			FPlatformTime::Seconds(),
-			static_cast<int64>(
-				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
-			),
-			SynchronizationMode
-		);
-	if (Timing.Outcome != EOpenMobileHapticsTimingOutcome::Ready)
-	{
-		FOpenMobileHapticPlaybackResult Result =
-			OpenMobileHapticsSubsystemPrivate::MakeTimingRejectedPlaybackResult(
-				Timing.Outcome,
-				Request.PatternName,
-				Request.Options.Channel
-			);
-		LocalState.LastError = Result.Error;
-		return Result;
+		LocalState.LastError = TimingRejection.Error;
+		return TimingRejection;
 	}
 	const bool bSupportsDynamicParameters =
 		Capabilities.DynamicParameters
@@ -2095,6 +2252,8 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	PlaybackParameters.InitialDynamicParameters.Intensity =
 		MutablePolicyScale;
 	PlaybackParameters.Timing = Timing;
+	PlaybackParameters.ScheduledStartGuard =
+		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
 	const UOpenMobileHapticPatternAsset* PortablePattern =
 		Cast<UOpenMobileHapticPatternAsset>(
 			ResolvedRequest.PatternAsset.ResolveObject()
@@ -2131,6 +2290,9 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	RequestState.Category = ResolvedRequest.Options.Category;
 	RequestState.Effect = ResolvedRequest.PatternName;
 	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
+	RequestState.bRequiresPreparedAsset = !Settings->NamedLibraries.IsEmpty();
+	RequestState.ScheduledStartGuard =
+		PlaybackParameters.ScheduledStartGuard;
 	LocalState.Requests.Add(Token.RequestId, RequestState);
 	FOpenMobileHapticsBackendSubmission Submission =
 		Backend->SubmitNamedPattern(
@@ -2139,21 +2301,10 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 			Token,
 			MakeBackendCallback()
 		);
-	if (Submission.Result.IsAccepted())
-	{
-		if (Submission.Result.Synchronization.Mode
-			== EOpenMobileHapticSynchronizationMode::None)
-		{
-			Submission.Result.Synchronization = Timing.Diagnostics;
-		}
-		if (Timing.StartDelaySeconds > 0.0
-			&& Submission.Result.State
-				== EOpenMobileHapticPlaybackState::Accepted)
-		{
-			Submission.Result.State =
-				EOpenMobileHapticPlaybackState::Scheduled;
-		}
-	}
+	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(
+		Submission.Result,
+		Timing
+	);
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 			LocalState,
@@ -2274,6 +2425,10 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::EndPlaybackNative(
 		Result.Error.Handle = Handle;
 		Result.Error.bRejectedBeforeSubmission = false;
 		return Result;
+	}
+	if (Request->ScheduledStartGuard)
+	{
+		Request->ScheduledStartGuard->Invalidate();
 	}
 	const uint64 OwnedRequestId = Request->Token.RequestId;
 	FOpenMobileHapticControlResult Result =
@@ -2716,6 +2871,7 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 	bUserPolicyEnabled.Store(Policy.bEnabled);
 	if (State)
 	{
+		OpenMobileHapticsSubsystemPrivate::InvalidateScheduledStarts(*State);
 		TArray<uint64> RequestIds;
 		State->Requests.GetKeys(RequestIds);
 		for (const uint64 RequestId : RequestIds)

@@ -27,6 +27,10 @@ struct FOpenMobileHapticsAndroidBridgeSubmission
 struct FOpenMobileHapticsAndroidScheduledPlayback
 {
 	int64 StartDelayMilliseconds = 0;
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> ScheduledStartGuard;
 	FName PatternOrEffect;
 	FName Channel;
 	FName ResolvedPath;
@@ -47,6 +51,10 @@ public:
 		EOpenMobileHapticsSemanticPath Path,
 		int32 Purpose,
 		int64 StartDelayMilliseconds,
+		TSharedPtr<
+			FOpenMobileHapticsScheduledStartGuard,
+			ESPMode::ThreadSafe
+		> ScheduledStartGuard,
 		FName PatternOrEffect,
 		FName Channel,
 		FName ResolvedPath,
@@ -78,6 +86,7 @@ public:
 		const FOpenMobileHapticsPreparedResourceLimits& Limits
 	);
 	void ReleasePreparedResources();
+	bool CancelScheduled(uint64 RequestId);
 	int32 PlayPredefined(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		int32 Effect,
@@ -103,12 +112,17 @@ public:
 	);
 	bool StopAll();
 	void Shutdown();
+	bool HandleCanStart(uint64 RequestId) const;
 	void HandleBridgeResult(uint64 RequestId, int32 Result);
 
 private:
 	struct FPendingCallback
 	{
 		FOpenMobileHapticsBackendRequestToken Token;
+		TSharedPtr<
+			FOpenMobileHapticsScheduledStartGuard,
+			ESPMode::ThreadSafe
+		> ScheduledStartGuard;
 		FName PatternOrEffect;
 		FName Channel;
 		FName ResolvedPath;
@@ -123,7 +137,7 @@ private:
 		FOpenMobileHapticsAndroidScheduledPlayback&& Scheduled
 	);
 
-	FCriticalSection Mutex;
+	mutable FCriticalSection Mutex;
 	jclass BridgeClass = nullptr;
 	jmethodID QueryCapabilitiesMethod = nullptr;
 	jmethodID PlaySemanticMethod = nullptr;
@@ -134,6 +148,7 @@ private:
 	jmethodID PlayPrimitivesMethod = nullptr;
 	jmethodID PlayEnvelopeMethod = nullptr;
 	jmethodID StopAllMethod = nullptr;
+	jmethodID CancelScheduledMethod = nullptr;
 	jmethodID ReleasePreparedResourcesMethod = nullptr;
 	TMap<uint64, FPendingCallback> PendingCallbacks;
 };

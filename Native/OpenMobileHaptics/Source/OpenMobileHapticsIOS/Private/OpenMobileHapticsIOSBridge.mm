@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsIOSBridge.h"
 
 #include "HAL/PlatformTime.h"
+#include "OpenMobileHapticsBackendRegistry.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
 
@@ -27,6 +28,27 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		FString Directory;
 		FString PatternPath;
 		bool bSucceeded = false;
+	};
+
+	using FScheduledStartAction = TFunction<
+		EOpenMobileHapticsAppleSubmissionResult(
+			FOpenMobileHapticsApplePlaybackEventCallback
+		)
+	>;
+
+	struct FRetainedHapticPattern
+	{
+		explicit FRetainedHapticPattern(CHHapticPattern* InPattern)
+			: Pattern([InPattern retain])
+		{
+		}
+
+		~FRetainedHapticPattern()
+		{
+			[Pattern release];
+		}
+
+		CHHapticPattern* Pattern = nil;
 	};
 
 	bool IsSafeAudioResourcePath(const FString& RelativePath)
@@ -592,6 +614,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	uint64 NextPreparedPatternAccessSequence;
 	NSMutableDictionary<NSNumber*, id<CHHapticPatternPlayer>>* Players;
 	NSMutableDictionary<NSNumber*, NSTimer*>* SafetyTimers;
+	NSMutableDictionary<NSNumber*, NSTimer*>* ScheduledStartTimers;
 	NSMutableSet<NSNumber*>* PendingAHAPRequests;
 	NSMutableDictionary<NSNumber*, NSString*>* ResourceDirectories;
 	TMap<uint64, int64> AudioResourceBytesByRequest;
@@ -605,6 +628,24 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			ESPMode::ThreadSafe
 		>
 	> PlaybackCallbacks;
+	TMap<
+		uint64,
+		TSharedPtr<
+			OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction,
+			ESPMode::ThreadSafe
+		>
+	> ScheduledStartActions;
+	TMap<
+		uint64,
+		TSharedPtr<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		>
+	> ScheduledStartCallbacks;
+	TMap<uint64, FOpenMobileHapticsApplePlaybackSchedule>
+		ScheduledStartSchedules;
+	TMap<uint64, FOpenMobileHapticsApplePlaybackSchedule>
+		PendingAHAPSchedules;
 	NSUInteger ActivityGeneration;
 	NSUInteger PreparationGeneration;
 	bool bShuttingDown;
@@ -637,6 +678,23 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
 - (CHHapticPattern*)preparedPattern:(uint64)ResourceId;
 - (void)playSystemVibration;
+- (EOpenMobileHapticsAppleSubmissionResult)scheduleRequest:
+	(uint64)RequestId
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	action:(OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction)Action
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (void)handleScheduledStartTimer:(NSTimer*)Timer;
+- (bool)cancelScheduledStart:(uint64)RequestId;
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledBehavior:
+	(uint64)RequestId
+	behavior:(EOpenMobileHapticsSemanticBehavior)Behavior
+	intensity:(CGFloat)Intensity
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledSystemVibration:
+	(uint64)RequestId
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleEngineResult)createEngine;
 - (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
 	(uint64)RequestId
@@ -652,9 +710,30 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledTransientPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledContinuousPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledAHAPPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
 - (EOpenMobileHapticsAppleSubmissionResult)startAHAPPattern:
 	(uint64)RequestId
@@ -1067,6 +1146,196 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 }
 
+- (EOpenMobileHapticsAppleSubmissionResult)scheduleRequest:
+	(uint64)RequestId
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	action:(OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction)Action
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	const double PlatformNow = FPlatformTime::Seconds();
+	const double LatenessSeconds =
+		PlatformNow - Schedule.PlatformTimeSeconds;
+	if (RequestId == 0
+		|| !Schedule.IsValid()
+		|| !Action
+		|| !Schedule.Guard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		)
+		|| LatenessSeconds > Schedule.MaximumLatenessSeconds
+		|| ScheduledStartActions.Contains(RequestId)
+		|| PlaybackCallbacks.Contains(RequestId))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	if ([Players objectForKey:Key])
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	const NSTimeInterval DelaySeconds = FMath::Max(
+		0.0,
+		Schedule.PlatformTimeSeconds - PlatformNow
+	);
+	NSTimer* Timer = [NSTimer
+		timerWithTimeInterval:DelaySeconds
+		target:self
+		selector:@selector(handleScheduledStartTimer:)
+		userInfo:Key
+		repeats:NO];
+	if (!Timer)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	Timer.tolerance = 0.0;
+	if (!ScheduledStartTimers)
+	{
+		ScheduledStartTimers = [[NSMutableDictionary alloc] init];
+	}
+	[ScheduledStartTimers setObject:Timer forKey:Key];
+	ScheduledStartActions.Add(
+		RequestId,
+		MakeShared<
+			OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction,
+			ESPMode::ThreadSafe
+		>(MoveTemp(Action))
+	);
+	ScheduledStartCallbacks.Add(
+		RequestId,
+		MakeShared<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		>(MoveTemp(Callback))
+	);
+	ScheduledStartSchedules.Add(RequestId, Schedule);
+	[[NSRunLoop mainRunLoop] addTimer:Timer forMode:NSRunLoopCommonModes];
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (void)handleScheduledStartTimer:(NSTimer*)Timer
+{
+	NSNumber* Key = static_cast<NSNumber*>(Timer.userInfo);
+	const uint64 RequestId = Key.unsignedLongLongValue;
+	const TSharedPtr<
+		OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction,
+		ESPMode::ThreadSafe
+	> Action = ScheduledStartActions.FindRef(RequestId);
+	const TSharedPtr<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	> Callback = ScheduledStartCallbacks.FindRef(RequestId);
+	const FOpenMobileHapticsApplePlaybackSchedule Schedule =
+		ScheduledStartSchedules.FindRef(RequestId);
+	[ScheduledStartTimers removeObjectForKey:Key];
+	ScheduledStartActions.Remove(RequestId);
+	ScheduledStartCallbacks.Remove(RequestId);
+	ScheduledStartSchedules.Remove(RequestId);
+
+	if (!Action || !Callback || !*Callback)
+	{
+		[self releaseAudioResourcesForRequest:RequestId];
+		return;
+	}
+	const bool bCanStart = !bShuttingDown
+		&& Schedule.IsValid()
+		&& Schedule.Guard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		);
+	if (!bCanStart)
+	{
+		[self releaseAudioResourcesForRequest:RequestId];
+		(*Callback)(EOpenMobileHapticsApplePlaybackEvent::Interrupted);
+		return;
+	}
+	if (FPlatformTime::Seconds() - Schedule.PlatformTimeSeconds
+		> Schedule.MaximumLatenessSeconds)
+	{
+		[self releaseAudioResourcesForRequest:RequestId];
+		(*Callback)(EOpenMobileHapticsApplePlaybackEvent::Failed);
+		return;
+	}
+	FOpenMobileHapticsApplePlaybackEventCallback ForwardCallback =
+		[Callback](EOpenMobileHapticsApplePlaybackEvent Event)
+		{
+			if (*Callback)
+			{
+				(*Callback)(Event);
+			}
+		};
+	if ((*Action)(MoveTemp(ForwardCallback))
+		!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+	{
+		[self releaseAudioResourcesForRequest:RequestId];
+		(*Callback)(EOpenMobileHapticsApplePlaybackEvent::Failed);
+	}
+}
+
+- (bool)cancelScheduledStart:(uint64)RequestId
+{
+	if (!ScheduledStartActions.Contains(RequestId))
+	{
+		return false;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	NSTimer* Timer = [ScheduledStartTimers objectForKey:Key];
+	[Timer invalidate];
+	[ScheduledStartTimers removeObjectForKey:Key];
+	ScheduledStartActions.Remove(RequestId);
+	ScheduledStartCallbacks.Remove(RequestId);
+	ScheduledStartSchedules.Remove(RequestId);
+	return true;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledBehavior:
+	(uint64)RequestId
+	behavior:(EOpenMobileHapticsSemanticBehavior)Behavior
+	intensity:(CGFloat)Intensity
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	OpenMobileHapticsAppleNativeService* Service = self;
+	return [self scheduleRequest:RequestId
+		schedule:Schedule
+		action:[Service, Behavior, Intensity](
+			FOpenMobileHapticsApplePlaybackEventCallback StartCallback
+		)
+		{
+			[Service playBehavior:Behavior intensity:Intensity];
+			if (StartCallback)
+			{
+				StartCallback(EOpenMobileHapticsApplePlaybackEvent::Completed);
+			}
+			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		}
+		callback:MoveTemp(Callback)];
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledSystemVibration:
+	(uint64)RequestId
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	OpenMobileHapticsAppleNativeService* Service = self;
+	return [self scheduleRequest:RequestId
+		schedule:Schedule
+		action:[Service](
+			FOpenMobileHapticsApplePlaybackEventCallback StartCallback
+		)
+		{
+			[Service playSystemVibration];
+			if (StartCallback)
+			{
+				StartCallback(EOpenMobileHapticsApplePlaybackEvent::Completed);
+			}
+			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		}
+		callback:MoveTemp(Callback)];
+}
+
 - (EOpenMobileHapticsAppleEngineResult)createEngine
 {
 	if (bShuttingDown)
@@ -1173,6 +1442,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		[Players removeObjectForKey:Key];
 	}
 	[PendingAHAPRequests removeObject:Key];
+	PendingAHAPSchedules.Remove(RequestId);
 	[self releaseAudioResourcesForRequest:RequestId];
 	TSharedPtr<
 		FOpenMobileHapticsApplePlaybackEventCallback,
@@ -1203,6 +1473,21 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		[self completePattern:RequestId
 			event:EOpenMobileHapticsApplePlaybackEvent::Failed];
+	}
+	RequestIds.Reset();
+	ScheduledStartCallbacks.GetKeys(RequestIds);
+	for (const uint64 RequestId : RequestIds)
+	{
+		const TSharedPtr<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		> Callback = ScheduledStartCallbacks.FindRef(RequestId);
+		[self cancelScheduledStart:RequestId];
+		[self releaseAudioResourcesForRequest:RequestId];
+		if (Callback && *Callback)
+		{
+			(*Callback)(EOpenMobileHapticsApplePlaybackEvent::Failed);
+		}
 	}
 }
 
@@ -1258,7 +1543,6 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 	}
-
 	NSError* Error = nil;
 	if (![Engine startAndReturnError:&Error] || Error)
 	{
@@ -1460,6 +1744,137 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 }
 
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledTransientPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	TSharedRef<FOpenMobileHapticsAppleTransientPattern, ESPMode::ThreadSafe>
+		PatternCopy = MakeShared<
+			FOpenMobileHapticsAppleTransientPattern,
+			ESPMode::ThreadSafe
+		>(Pattern);
+	TSharedRef<
+		TOptional<FOpenMobileHapticDynamicParameterUpdate>,
+		ESPMode::ThreadSafe
+	> ParametersCopy = MakeShared<
+		TOptional<FOpenMobileHapticDynamicParameterUpdate>,
+		ESPMode::ThreadSafe
+	>();
+	if (InitialParameters)
+	{
+		*ParametersCopy = *InitialParameters;
+	}
+	OpenMobileHapticsAppleNativeService* Service = self;
+	return [self scheduleRequest:RequestId
+		schedule:Schedule
+		action:[Service, RequestId, PatternCopy, ParametersCopy,
+			PreparedResourceId](
+			FOpenMobileHapticsApplePlaybackEventCallback StartCallback
+		)
+		{
+			return [Service
+				playTransientPattern:RequestId
+				pattern:*PatternCopy
+				initialParameters:ParametersCopy->IsSet()
+					? &ParametersCopy->GetValue()
+					: nullptr
+				preparedResourceId:PreparedResourceId
+				callback:MoveTemp(StartCallback)];
+		}
+		callback:MoveTemp(Callback)];
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledContinuousPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	initialParameters:
+		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
+	preparedResourceId:(uint64)PreparedResourceId
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	TSharedRef<FOpenMobileHapticsAppleContinuousPattern, ESPMode::ThreadSafe>
+		PatternCopy = MakeShared<
+			FOpenMobileHapticsAppleContinuousPattern,
+			ESPMode::ThreadSafe
+		>(Pattern);
+	TSharedRef<
+		TOptional<FOpenMobileHapticDynamicParameterUpdate>,
+		ESPMode::ThreadSafe
+	> ParametersCopy = MakeShared<
+		TOptional<FOpenMobileHapticDynamicParameterUpdate>,
+		ESPMode::ThreadSafe
+	>();
+	if (InitialParameters)
+	{
+		*ParametersCopy = *InitialParameters;
+	}
+	OpenMobileHapticsAppleNativeService* Service = self;
+	return [self scheduleRequest:RequestId
+		schedule:Schedule
+		action:[Service, RequestId, PatternCopy, ParametersCopy,
+			PreparedResourceId](
+			FOpenMobileHapticsApplePlaybackEventCallback StartCallback
+		)
+		{
+			return [Service
+				playContinuousPattern:RequestId
+				pattern:*PatternCopy
+				initialParameters:ParametersCopy->IsSet()
+					? &ParametersCopy->GetValue()
+					: nullptr
+				preparedResourceId:PreparedResourceId
+				callback:MoveTemp(StartCallback)];
+		}
+		callback:MoveTemp(Callback)];
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)playScheduledAHAPPattern:
+	(uint64)RequestId
+	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
+	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
+	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback
+{
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	const double LatenessSeconds =
+		FPlatformTime::Seconds() - Schedule.PlatformTimeSeconds;
+	if (RequestId == 0
+		|| !Schedule.IsValid()
+		|| !Schedule.Guard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		)
+		|| LatenessSeconds > Schedule.MaximumLatenessSeconds
+		|| PendingAHAPSchedules.Contains(RequestId)
+		|| ScheduledStartActions.Contains(RequestId))
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+	FOpenMobileHapticsAppleAHAPPattern ScheduledPattern = Pattern;
+	ScheduledPattern.bScheduled = true;
+	ScheduledPattern.ScheduledPlatformTimeSeconds =
+		Schedule.PlatformTimeSeconds;
+	ScheduledPattern.MaximumLatenessSeconds =
+		Schedule.MaximumLatenessSeconds;
+	PendingAHAPSchedules.Add(RequestId, Schedule);
+	const EOpenMobileHapticsAppleSubmissionResult Result =
+		[self playAHAPPattern:RequestId
+			pattern:ScheduledPattern
+			callback:MoveTemp(Callback)];
+	if (Result != EOpenMobileHapticsAppleSubmissionResult::Accepted)
+	{
+		PendingAHAPSchedules.Remove(RequestId);
+	}
+	return Result;
+}
+
 - (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
@@ -1619,6 +2034,74 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		|| !PlaybackCallbacks.Contains(RequestId))
 	{
 		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (const FOpenMobileHapticsApplePlaybackSchedule* PendingSchedule =
+		PendingAHAPSchedules.Find(RequestId))
+	{
+		const FOpenMobileHapticsApplePlaybackSchedule Schedule =
+			*PendingSchedule;
+		const TSharedPtr<
+			FOpenMobileHapticsApplePlaybackEventCallback,
+			ESPMode::ThreadSafe
+		> Callback = PlaybackCallbacks.FindRef(RequestId);
+		PendingAHAPSchedules.Remove(RequestId);
+		PlaybackCallbacks.Remove(RequestId);
+		if (!Callback || !*Callback)
+		{
+			return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+		}
+		FOpenMobileHapticsAppleAHAPPattern ImmediatePattern = Pattern;
+		ImmediatePattern.bScheduled = false;
+		const TSharedRef<FRetainedHapticPattern, ESPMode::ThreadSafe>
+			PatternHolder = MakeShared<
+				FRetainedHapticPattern,
+				ESPMode::ThreadSafe
+			>(NativePattern);
+		OpenMobileHapticsAppleNativeService* Service = self;
+		const EOpenMobileHapticsAppleSubmissionResult ScheduleResult =
+			[self scheduleRequest:RequestId
+			schedule:Schedule
+			action:[Service, RequestId, ImmediatePattern, PatternHolder, self](
+				FOpenMobileHapticsApplePlaybackEventCallback StartCallback
+			)
+			{
+				PlaybackCallbacks.Add(
+					RequestId,
+					MakeShared<
+						FOpenMobileHapticsApplePlaybackEventCallback,
+						ESPMode::ThreadSafe
+					>(MoveTemp(StartCallback))
+				);
+				const EOpenMobileHapticsAppleSubmissionResult Result =
+					[Service startAHAPPattern:RequestId
+						pattern:ImmediatePattern
+						nativePattern:PatternHolder->Pattern];
+				if (Result
+					!= EOpenMobileHapticsAppleSubmissionResult::Accepted)
+				{
+					PlaybackCallbacks.Remove(RequestId);
+				}
+				return Result;
+			}
+			callback:[Callback](EOpenMobileHapticsApplePlaybackEvent Event)
+			{
+				if (*Callback)
+				{
+					(*Callback)(Event);
+				}
+			}];
+		if (ScheduleResult
+			!= EOpenMobileHapticsAppleSubmissionResult::Accepted
+			&& *Callback)
+		{
+			(*Callback)(
+				ScheduleResult
+					== EOpenMobileHapticsAppleSubmissionResult::StaleRequest
+						? EOpenMobileHapticsApplePlaybackEvent::Interrupted
+						: EOpenMobileHapticsApplePlaybackEvent::Failed
+			);
+		}
+		return ScheduleResult;
 	}
 
 	NSError* Error = nil;
@@ -1854,12 +2337,19 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
 	}
 	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	if ([self cancelScheduledStart:RequestId])
+	{
+		PendingAHAPSchedules.Remove(RequestId);
+		[self releaseAudioResourcesForRequest:RequestId];
+		return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+	}
 	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
 		if ([PendingAHAPRequests containsObject:Key])
 		{
 			[PendingAHAPRequests removeObject:Key];
+			PendingAHAPSchedules.Remove(RequestId);
 			PlaybackCallbacks.Remove(RequestId);
 			[self releaseAudioResourcesForRequest:RequestId];
 		}
@@ -1930,6 +2420,17 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	[SafetyTimers removeAllObjects];
 	[SafetyTimers release];
 	SafetyTimers = nil;
+	for (NSTimer* Timer in [ScheduledStartTimers allValues])
+	{
+		[Timer invalidate];
+	}
+	[ScheduledStartTimers removeAllObjects];
+	[ScheduledStartTimers release];
+	ScheduledStartTimers = nil;
+	ScheduledStartActions.Reset();
+	ScheduledStartCallbacks.Reset();
+	ScheduledStartSchedules.Reset();
+	PendingAHAPSchedules.Reset();
 	for (id<CHHapticPatternPlayer> Player in [Players allValues])
 	{
 		OpenMobileHapticsIOSBridgePrivate::ClearCompletionHandler(Player);
@@ -2179,6 +2680,58 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
+			uint64 RequestId,
+			EOpenMobileHapticsSemanticBehavior Behavior,
+			float Intensity,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, Behavior, Intensity, &Schedule,
+				&Callback, &Result]()
+			{
+				Result = [Service
+					playScheduledBehavior:RequestId
+					behavior:Behavior
+					intensity:Intensity
+					schedule:Schedule
+					callback:MoveTemp(Callback)];
+			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledSystemVibration(
+			uint64 RequestId,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, &Schedule, &Callback, &Result]()
+			{
+				Result = [Service
+					playScheduledSystemVibration:RequestId
+					schedule:Schedule
+					callback:MoveTemp(Callback)];
+			});
+			return Result;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -2201,6 +2754,72 @@ namespace OpenMobileHapticsIOSBridgePrivate
 					Result = [Service
 						playTransientPattern:RequestId
 						pattern:Pattern
+						initialParameters:InitialParameters
+						preparedResourceId:PreparedResourceId
+						callback:MoveTemp(Callback)];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledTransientPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleTransientPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, &Pattern, &Schedule, &Callback, &Result,
+				 InitialParameters, PreparedResourceId]()
+				{
+					Result = [Service
+						playScheduledTransientPattern:RequestId
+						pattern:Pattern
+						schedule:Schedule
+						initialParameters:InitialParameters
+						preparedResourceId:PreparedResourceId
+						callback:MoveTemp(Callback)];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult
+		PlayScheduledContinuousPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback,
+			const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+			uint64 PreparedResourceId
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, &Pattern, &Schedule, &Callback, &Result,
+				 InitialParameters, PreparedResourceId]()
+				{
+					Result = [Service
+						playScheduledContinuousPattern:RequestId
+						pattern:Pattern
+						schedule:Schedule
 						initialParameters:InitialParameters
 						preparedResourceId:PreparedResourceId
 						callback:MoveTemp(Callback)];
@@ -2258,6 +2877,33 @@ namespace OpenMobileHapticsIOSBridgePrivate
 					Result = [Service
 						playAHAPPattern:RequestId
 						pattern:Pattern
+						callback:MoveTemp(Callback)];
+				}
+			);
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
+			uint64 RequestId,
+			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+			const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+			FOpenMobileHapticsApplePlaybackEventCallback Callback
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, &Pattern, &Schedule, &Callback, &Result]()
+				{
+					Result = [Service
+						playScheduledAHAPPattern:RequestId
+						pattern:Pattern
+						schedule:Schedule
 						callback:MoveTemp(Callback)];
 				}
 			);

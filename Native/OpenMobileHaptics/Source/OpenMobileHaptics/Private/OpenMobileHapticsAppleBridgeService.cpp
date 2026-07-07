@@ -59,6 +59,46 @@ FOpenMobileHapticsAppleBridgeService::~FOpenMobileHapticsAppleBridgeService()
 	Shutdown();
 }
 
+FOpenMobileHapticsApplePlaybackEventCallback
+FOpenMobileHapticsAppleBridgeService::RelayPlaybackCallback(
+	FOpenMobileHapticsApplePlaybackEventCallback Callback
+)
+{
+	const TSharedRef<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	> SharedCallback = MakeShared<
+		FOpenMobileHapticsApplePlaybackEventCallback,
+		ESPMode::ThreadSafe
+	>(MoveTemp(Callback));
+	TWeakPtr<FCallbackState, ESPMode::ThreadSafe> WeakState(CallbackState);
+	return [WeakState, SharedCallback](
+		EOpenMobileHapticsApplePlaybackEvent Event
+	)
+	{
+		AsyncTask(ENamedThreads::GameThread, [WeakState, SharedCallback, Event]()
+		{
+			const TSharedPtr<FCallbackState, ESPMode::ThreadSafe> State =
+				WeakState.Pin();
+			if (!State)
+			{
+				return;
+			}
+			{
+				FScopeLock StateLock(&State->Mutex);
+				if (State->bShuttingDown)
+				{
+					return;
+				}
+			}
+			if (*SharedCallback)
+			{
+				(*SharedCallback)(Event);
+			}
+		});
+	};
+}
+
 FOpenMobileHapticsAppleHardwareProbe
 FOpenMobileHapticsAppleBridgeService::GetHardwareProbeLocked()
 {
@@ -201,6 +241,48 @@ FOpenMobileHapticsAppleBridgeService::PlaySystemVibration()
 }
 
 EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayScheduledSemantic(
+	uint64 RequestId,
+	EOpenMobileHapticsSemanticBehavior Behavior,
+	float Intensity,
+	const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback
+)
+{
+	FOpenMobileHapticsApplePlaybackEventCallback RelayedCallback =
+		RelayPlaybackCallback(MoveTemp(Callback));
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PlayScheduledSemantic(
+			RequestId,
+			Behavior,
+			Intensity,
+			Schedule,
+			MoveTemp(RelayedCallback)
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayScheduledSystemVibration(
+	uint64 RequestId,
+	const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback
+)
+{
+	FOpenMobileHapticsApplePlaybackEventCallback RelayedCallback =
+		RelayPlaybackCallback(MoveTemp(Callback));
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PlayScheduledSystemVibration(
+			RequestId,
+			Schedule,
+			MoveTemp(RelayedCallback)
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::PlayTransientPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -321,6 +403,56 @@ FOpenMobileHapticsAppleBridgeService::PlayContinuousPattern(
 }
 
 EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayScheduledTransientPattern(
+	uint64 RequestId,
+	const FOpenMobileHapticsAppleTransientPattern& Pattern,
+	const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback,
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+	uint64 PreparedResourceId
+)
+{
+	FOpenMobileHapticsApplePlaybackEventCallback RelayedCallback =
+		RelayPlaybackCallback(MoveTemp(Callback));
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PlayScheduledTransientPattern(
+			RequestId,
+			Pattern,
+			Schedule,
+			MoveTemp(RelayedCallback),
+			InitialParameters,
+			PreparedResourceId
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayScheduledContinuousPattern(
+	uint64 RequestId,
+	const FOpenMobileHapticsAppleContinuousPattern& Pattern,
+	const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback,
+	const FOpenMobileHapticDynamicParameterUpdate* InitialParameters,
+	uint64 PreparedResourceId
+)
+{
+	FOpenMobileHapticsApplePlaybackEventCallback RelayedCallback =
+		RelayPlaybackCallback(MoveTemp(Callback));
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PlayScheduledContinuousPattern(
+			RequestId,
+			Pattern,
+			Schedule,
+			MoveTemp(RelayedCallback),
+			InitialParameters,
+			PreparedResourceId
+		);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::PlayAHAPPattern(
 	uint64 RequestId,
 	const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -374,6 +506,27 @@ FOpenMobileHapticsAppleBridgeService::PlayAHAPPattern(
 			);
 		}
 	);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PlayScheduledAHAPPattern(
+	uint64 RequestId,
+	const FOpenMobileHapticsAppleAHAPPattern& Pattern,
+	const FOpenMobileHapticsApplePlaybackSchedule& Schedule,
+	FOpenMobileHapticsApplePlaybackEventCallback Callback
+)
+{
+	FOpenMobileHapticsApplePlaybackEventCallback RelayedCallback =
+		RelayPlaybackCallback(MoveTemp(Callback));
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PlayScheduledAHAPPattern(
+			RequestId,
+			Pattern,
+			Schedule,
+			MoveTemp(RelayedCallback)
+		);
 }
 
 EOpenMobileHapticsAppleSubmissionResult

@@ -105,12 +105,14 @@ namespace OpenMobileHapticsTests
 		virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 			const FOpenMobileHapticSemanticRequest& Request,
 			const FOpenMobileHapticsSemanticResolution& Resolution,
+			const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
 			LastSemanticRequest = Request;
 			LastSemanticResolution = Resolution;
+			LastSemanticPlaybackParameters = Parameters;
 			++SemanticSubmissionCount;
 			LastToken = Token;
 			if (bNativePolicySuppressesSemantic)
@@ -123,18 +125,21 @@ namespace OpenMobileHapticsTests
 				Submission.Result.ResolvedPath = TEXT("SystemSemantic");
 				return Submission;
 			}
-			return MakeSubmission(false, false, MoveTemp(Callback));
+			const bool bScheduled = Parameters.Timing.StartDelaySeconds > 0.0;
+			return MakeSubmission(bScheduled, bScheduled, MoveTemp(Callback));
 		}
 
 		virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 			const FOpenMobileHapticOneShotRequest& Request,
 			const FOpenMobileHapticsOneShotResolution& Resolution,
+			const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			FOpenMobileHapticsBackendEventCallback Callback
 		) override
 		{
 			LastOneShotRequest = Request;
 			LastOneShotResolution = Resolution;
+			LastOneShotPlaybackParameters = Parameters;
 			++OneShotSubmissionCount;
 			LastToken = Token;
 			if (bBusyOneShot)
@@ -296,6 +301,10 @@ namespace OpenMobileHapticsTests
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
 		FOpenMobileHapticOneShotRequest LastOneShotRequest;
 		FOpenMobileHapticNamedPatternRequest LastNamedRequest;
+		FOpenMobileHapticsBackendPlaybackParameters
+			LastSemanticPlaybackParameters;
+		FOpenMobileHapticsBackendPlaybackParameters
+			LastOneShotPlaybackParameters;
 		FOpenMobileHapticsBackendPlaybackParameters
 			LastNamedPlaybackParameters;
 		FOpenMobileHapticDynamicParameterUpdate LastDynamicUpdate;
@@ -1198,6 +1207,8 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 		EOpenMobileHapticSupportState::Supported;
 	Backend.Capabilities.AmplitudeControl =
 		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 
 	UOpenMobileHapticsSettings* Settings =
@@ -1277,8 +1288,28 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 		FName(TEXT("PortableRich")));
 	TestEqual(TEXT("Diagnostics retain bounded fallback attempts"),
 		Subsystem->GetDiagnostics().LastFallbackAttempts.Num(), 2);
+	FOpenMobileHapticPlaybackOptions ScheduledOptions;
+	ScheduledOptions.Channel = TEXT("ScheduledPreparedAsset");
+	ScheduledOptions.Schedule.Mode = EOpenMobileHapticScheduleMode::Relative;
+	ScheduledOptions.Schedule.TimeSeconds = 0.15;
+	const FOpenMobileHapticPlaybackResult ScheduledPrepared =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("Weapon_Recoil"),
+			1.0f,
+			ScheduledOptions
+		);
+	TestTrue(TEXT("Prepared resources support delayed playback"),
+		ScheduledPrepared.IsAccepted());
+	const TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> PreparedGuard =
+		Backend.LastNamedPlaybackParameters.ScheduledStartGuard;
 
 	Subsystem->ReleaseNamedLibraries();
+	TestFalse(TEXT("Prepared-asset release invalidates delayed playback"),
+		PreparedGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
 	TestEqual(TEXT("Explicit release reaches native prepared resources"),
 		Backend.ReleasePreparedResourcesCount, 1);
 	TestEqual(TEXT("Explicit release clears preparation state"),
@@ -5738,6 +5769,15 @@ bool FOpenMobileHapticsAudioScheduleSubsystemTest::RunTest(
 		EOpenMobileHapticAvailability::RichHaptics;
 	Backend.Capabilities.Scheduling =
 		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.SemanticFeedback =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 
 	UOpenMobileHapticsSettings* Settings =
@@ -5790,6 +5830,90 @@ bool FOpenMobileHapticsAudioScheduleSubsystemTest::RunTest(
 	TestEqual(TEXT("The result reports the selected audio clock"),
 		Result.Synchronization.Clock,
 		EOpenMobileHapticTimingClock::Audio);
+
+	FOpenMobileHapticPlaybackOptions RelativeOptions;
+	RelativeOptions.Channel = TEXT("ScheduledSemantic");
+	RelativeOptions.Schedule.Mode = EOpenMobileHapticScheduleMode::Relative;
+	RelativeOptions.Schedule.TimeSeconds = 0.25;
+	const FOpenMobileHapticPlaybackResult SemanticResult =
+		Subsystem->PlaySemanticFeedbackAdvanced(
+			EOpenMobileHapticSemanticEffect::Click,
+			1.0f,
+			RelativeOptions
+		);
+	TestTrue(TEXT("A relative semantic request is accepted"),
+		SemanticResult.IsAccepted());
+	TestEqual(TEXT("A future semantic request returns scheduled state"),
+		SemanticResult.State, EOpenMobileHapticPlaybackState::Scheduled);
+	TestTrue(TEXT("A scheduled semantic request has a cancellable handle"),
+		SemanticResult.Handle.IsValid());
+	TestEqual(TEXT("Semantic submission receives resolved timing"),
+		Backend.LastSemanticPlaybackParameters.Timing.Outcome,
+		EOpenMobileHapticsTimingOutcome::Ready);
+	const TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> SemanticGuard =
+		Backend.LastSemanticPlaybackParameters.ScheduledStartGuard;
+	TestTrue(TEXT("Semantic scheduling owns a valid start guard"),
+		SemanticGuard
+		&& SemanticGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+	TestEqual(TEXT("A scheduled semantic request can be cancelled"),
+		Subsystem->CancelPlayback(SemanticResult.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Cancellation becomes the terminal handle state"),
+		Subsystem->GetPlaybackState(SemanticResult.Handle),
+		EOpenMobileHapticPlaybackState::Cancelled);
+	TestFalse(TEXT("Cancellation invalidates the native start guard"),
+		SemanticGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+
+	RelativeOptions.Channel = TEXT("ScheduledOneShot");
+	RelativeOptions.Schedule.TimeSeconds = 0.2;
+	const FOpenMobileHapticPlaybackResult OneShotResult =
+		Subsystem->VibrateAdvanced(0.05f, 1.0f, RelativeOptions);
+	TestTrue(TEXT("A relative one-shot request is accepted"),
+		OneShotResult.IsAccepted());
+	TestEqual(TEXT("A future one-shot request returns scheduled state"),
+		OneShotResult.State, EOpenMobileHapticPlaybackState::Scheduled);
+	TestTrue(TEXT("A scheduled one-shot request has a cancellable handle"),
+		OneShotResult.Handle.IsValid());
+	TestEqual(TEXT("One-shot submission receives resolved timing"),
+		Backend.LastOneShotPlaybackParameters.Timing.Outcome,
+		EOpenMobileHapticsTimingOutcome::Ready);
+	const TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> PolicyGuard =
+		Backend.LastOneShotPlaybackParameters.ScheduledStartGuard;
+	TestTrue(TEXT("The policy test owns a valid start guard"),
+		PolicyGuard
+		&& PolicyGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+	TestEqual(TEXT("A valid policy update is accepted"),
+		Subsystem->UpdateUserPolicy(Subsystem->GetUserPolicy()).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestFalse(TEXT("A policy revision invalidates a delayed start"),
+		PolicyGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+
+	RelativeOptions.Channel = TEXT("ScheduledLifecycle");
+	RelativeOptions.Schedule.TimeSeconds = 0.15;
+	const FOpenMobileHapticPlaybackResult LifecycleResult =
+		Subsystem->VibrateAdvanced(0.05f, 1.0f, RelativeOptions);
+	TestTrue(TEXT("The lifecycle request is scheduled"),
+		LifecycleResult.IsAccepted());
+	const TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> LifecycleGuard =
+		Backend.LastOneShotPlaybackParameters.ScheduledStartGuard;
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
+	TestFalse(TEXT("Suspend invalidates the previous lifecycle generation"),
+		LifecycleGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
 
 	Backend.Capabilities.Scheduling =
 		EOpenMobileHapticSupportState::Unsupported;

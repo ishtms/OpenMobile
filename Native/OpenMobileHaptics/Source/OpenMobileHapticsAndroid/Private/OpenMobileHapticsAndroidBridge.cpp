@@ -2,6 +2,7 @@
 
 #include "Android/AndroidApplication.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileHapticsBackendRegistry.h"
 
 namespace OpenMobileHapticsAndroidBridgePrivate
 {
@@ -10,9 +11,29 @@ namespace OpenMobileHapticsAndroidBridgePrivate
 	constexpr int32 ResultFallback = 3;
 	constexpr int32 ResultDefaultAmplitude = 5;
 	constexpr int32 ResultPending = 6;
+	constexpr int32 ResultStale = 7;
 
 	FCriticalSection ActiveBridgeMutex;
 	FOpenMobileHapticsAndroidBridge* ActiveBridge = nullptr;
+}
+
+JNI_METHOD jboolean Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeCanStart(
+	JNIEnv* Env,
+	jclass Class,
+	jlong RequestId
+)
+{
+	static_cast<void>(Env);
+	static_cast<void>(Class);
+	FScopeLock Lock(
+		&OpenMobileHapticsAndroidBridgePrivate::ActiveBridgeMutex
+	);
+	return OpenMobileHapticsAndroidBridgePrivate::ActiveBridge
+		&& OpenMobileHapticsAndroidBridgePrivate::ActiveBridge->HandleCanStart(
+			static_cast<uint64>(RequestId)
+		)
+			? JNI_TRUE
+			: JNI_FALSE;
 }
 
 JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnBridgeResult(
@@ -121,6 +142,11 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		"stopAll",
 		"(Landroid/app/Activity;)Z"
 	);
+	CancelScheduledMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"cancelScheduledRequest",
+		"(J)Z"
+	);
 	ReleasePreparedResourcesMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"releasePreparedResources",
@@ -136,6 +162,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		|| !PlayPrimitivesMethod
 		|| !PlayEnvelopeMethod
 		|| !StopAllMethod
+		|| !CancelScheduledMethod
 		|| !ReleasePreparedResourcesMethod)
 	{
 		ClearException(Env);
@@ -150,6 +177,7 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		PlayPrimitivesMethod = nullptr;
 		PlayEnvelopeMethod = nullptr;
 		StopAllMethod = nullptr;
+		CancelScheduledMethod = nullptr;
 		ReleasePreparedResourcesMethod = nullptr;
 		return false;
 	}
@@ -219,6 +247,10 @@ FOpenMobileHapticsAndroidBridge::PlaySemantic(
 	EOpenMobileHapticsSemanticPath Path,
 	int32 Purpose,
 	int64 StartDelayMilliseconds,
+	TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> ScheduledStartGuard,
 	FName PatternOrEffect,
 	FName Channel,
 	FName ResolvedPath,
@@ -236,6 +268,7 @@ FOpenMobileHapticsAndroidBridge::PlaySemantic(
 
 	FPendingCallback Pending;
 	Pending.Token = Token;
+	Pending.ScheduledStartGuard = MoveTemp(ScheduledStartGuard);
 	Pending.PatternOrEffect = PatternOrEffect;
 	Pending.Channel = Channel;
 	Pending.ResolvedPath = ResolvedPath;
@@ -279,6 +312,7 @@ void FOpenMobileHapticsAndroidBridge::RegisterScheduledCallback(
 	}
 	FPendingCallback Pending;
 	Pending.Token = Token;
+	Pending.ScheduledStartGuard = MoveTemp(Scheduled.ScheduledStartGuard);
 	Pending.PatternOrEffect = Scheduled.PatternOrEffect;
 	Pending.Channel = Scheduled.Channel;
 	Pending.ResolvedPath = Scheduled.ResolvedPath;
@@ -708,6 +742,32 @@ int32 FOpenMobileHapticsAndroidBridge::PlayEnvelope(
 	return Result;
 }
 
+bool FOpenMobileHapticsAndroidBridge::CancelScheduled(uint64 RequestId)
+{
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env || !BridgeClass || !CancelScheduledMethod || RequestId == 0)
+	{
+		return false;
+	}
+	const jboolean Result = Env->CallStaticBooleanMethod(
+		BridgeClass,
+		CancelScheduledMethod,
+		static_cast<jlong>(RequestId)
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return false;
+	}
+	if (Result != JNI_TRUE)
+	{
+		return false;
+	}
+	PendingCallbacks.Remove(RequestId);
+	return true;
+}
+
 bool FOpenMobileHapticsAndroidBridge::StopAll()
 {
 	FScopeLock Lock(&Mutex);
@@ -733,6 +793,18 @@ bool FOpenMobileHapticsAndroidBridge::StopAll()
 		return true;
 	}
 	return false;
+}
+
+bool FOpenMobileHapticsAndroidBridge::HandleCanStart(uint64 RequestId) const
+{
+	FScopeLock Lock(&Mutex);
+	const FPendingCallback* Pending = PendingCallbacks.Find(RequestId);
+	return Pending
+		&& FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Pending->Token)
+		&& Pending->ScheduledStartGuard
+		&& Pending->ScheduledStartGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		);
 }
 
 void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
@@ -764,7 +836,9 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 	Callback.Event.ResolvedPath = Pending.ResolvedPath;
 	Callback.Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
 	Callback.Event.State = Result
-		== OpenMobileHapticsAndroidBridgePrivate::ResultAccepted
+		== OpenMobileHapticsAndroidBridgePrivate::ResultStale
+		? EOpenMobileHapticPlaybackState::Interrupted
+		: Result == OpenMobileHapticsAndroidBridgePrivate::ResultAccepted
 		|| Result == OpenMobileHapticsAndroidBridgePrivate::ResultSuppressed
 		|| Result == OpenMobileHapticsAndroidBridgePrivate::ResultFallback
 		|| Result
@@ -804,5 +878,6 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	PlayPrimitivesMethod = nullptr;
 	PlayEnvelopeMethod = nullptr;
 	StopAllMethod = nullptr;
+	CancelScheduledMethod = nullptr;
 	ReleasePreparedResourcesMethod = nullptr;
 }
