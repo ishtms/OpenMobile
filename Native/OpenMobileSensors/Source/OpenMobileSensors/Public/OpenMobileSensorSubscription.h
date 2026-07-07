@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.generated.h"
@@ -161,4 +162,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileError Error;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorFailureDetails Failure;
 };

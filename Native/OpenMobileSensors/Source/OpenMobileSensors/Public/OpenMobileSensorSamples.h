@@ -203,6 +203,29 @@ struct OPENMOBILESENSORS_API FOpenMobileRelativeAltitudeMetadata
 	int32 QualityLimitationFlags = 0;
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileAbsoluteAltitudeSource : uint8
+{
+	None,
+	NativePlatform
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileAbsoluteAltitudeMetadata
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileAbsoluteAltitudeSource Source =
+		EOpenMobileAbsoluteAltitudeSource::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasVerticalAccuracy = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double VerticalAccuracyMeters = 0.0;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 {
@@ -216,6 +239,9 @@ struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileRelativeAltitudeMetadata RelativeAltitude;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileAbsoluteAltitudeMetadata AbsoluteAltitude;
 };
 
 UENUM(BlueprintType)

@@ -41,6 +41,7 @@ namespace OpenMobileSensorSourcePolicyPrivate
 			|| Sensor == EOpenMobileSensorType::LinearAcceleration
 			|| Sensor == EOpenMobileSensorType::Attitude
 			|| Sensor == EOpenMobileSensorType::RelativeAltitude
+			|| Sensor == EOpenMobileSensorType::AbsoluteAltitude
 			|| Sensor == EOpenMobileSensorType::MagneticHeading
 			|| Sensor == EOpenMobileSensorType::TrueHeading;
 	}

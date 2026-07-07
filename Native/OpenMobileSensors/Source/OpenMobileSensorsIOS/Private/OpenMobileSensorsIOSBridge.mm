@@ -95,7 +95,12 @@ namespace OpenMobileSensorsIOSBridgePrivate
 				return EOpenMobileSensorsIOSBridgeFailure::PermissionDenied;
 			}
 			if (Error.code == CMErrorNotAvailable
-				|| Error.code == CMErrorMotionActivityNotAvailable)
+				|| Error.code == CMErrorNilData)
+			{
+				return EOpenMobileSensorsIOSBridgeFailure::
+					ServiceTemporarilyUnavailable;
+			}
+			if (Error.code == CMErrorMotionActivityNotAvailable)
 			{
 				return EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable;
 			}
@@ -120,6 +125,10 @@ namespace OpenMobileSensorsIOSBridgePrivate
 	)
 	{
 		FOpenMobileSensorsIOSAvailability Availability;
+		if (@available(iOS 15.0, *))
+		{
+			Availability.bAbsoluteAltitudeApiSupported = true;
+		}
 		if (!Manager)
 		{
 			return Availability;
@@ -1296,6 +1305,15 @@ private:
 				Active.bResetNextSample
 			);
 			Sample.Value = Data.altitude;
+			Sample.AbsoluteAltitude.Source =
+				EOpenMobileAbsoluteAltitudeSource::NativePlatform;
+			Sample.AbsoluteAltitude.bHasVerticalAccuracy =
+				FMath::IsFinite(Data.accuracy)
+				&& Data.accuracy >= 0.0;
+			Sample.AbsoluteAltitude.VerticalAccuracyMeters =
+				Sample.AbsoluteAltitude.bHasVerticalAccuracy
+					? Data.accuracy
+					: 0.0;
 			FOpenMobileScalarSensorBatch Batch;
 			Batch.Samples.Reserve(MaximumCallbackBatchSamples);
 			Batch.Samples.Add(MoveTemp(Sample));

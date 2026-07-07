@@ -11,6 +11,7 @@ enum class EOpenMobileSensorsIOSBridgeFailure : uint8
 	None,
 	InvalidArgument,
 	SensorUnavailable,
+	ServiceTemporarilyUnavailable,
 	ReferenceFrameUnavailable,
 	PermissionDenied,
 	MissingUsageDescription,
@@ -27,6 +28,7 @@ struct FOpenMobileSensorsIOSAvailability
 	bool bMagnetometer = false;
 	bool bDeviceMotion = false;
 	bool bRelativeAltitude = false;
+	bool bAbsoluteAltitudeApiSupported = false;
 	bool bAbsoluteAltitude = false;
 	bool bMagneticNorthReference = false;
 };

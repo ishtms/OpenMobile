@@ -752,6 +752,34 @@ namespace OpenMobileSensorsSampleServicePrivate
 	}
 
 	void NormalizeSampleAccuracyMetadata(
+		FOpenMobileScalarSensorSample& Sample
+	)
+	{
+		if (Sample.Header.Sensor.Type !=
+			EOpenMobileSensorType::AbsoluteAltitude)
+		{
+			NormalizeHeaderAccuracy(Sample.Header);
+			return;
+		}
+		FOpenMobileAbsoluteAltitudeMetadata& Metadata =
+			Sample.AbsoluteAltitude;
+		if (Metadata.bHasVerticalAccuracy
+			&& FMath::IsFinite(Metadata.VerticalAccuracyMeters)
+			&& Metadata.VerticalAccuracyMeters >= 0.0)
+		{
+			Sample.Header.bHasEstimatedError = true;
+			Sample.Header.EstimatedError = Metadata.VerticalAccuracyMeters;
+		}
+		else
+		{
+			Metadata.bHasVerticalAccuracy = false;
+			Metadata.VerticalAccuracyMeters = 0.0;
+			Sample.Header.bHasEstimatedError = false;
+			Sample.Header.EstimatedError = 0.0;
+		}
+	}
+
+	void NormalizeSampleAccuracyMetadata(
 		FOpenMobileHeadingSensorSample& Sample
 	)
 	{
@@ -776,6 +804,21 @@ namespace OpenMobileSensorsSampleServicePrivate
 	void SyncSampleAccuracyMetadata(SampleType& Sample)
 	{
 		static_cast<void>(Sample);
+	}
+
+	void SyncSampleAccuracyMetadata(FOpenMobileScalarSensorSample& Sample)
+	{
+		if (Sample.Header.Sensor.Type !=
+			EOpenMobileSensorType::AbsoluteAltitude)
+		{
+			return;
+		}
+		Sample.AbsoluteAltitude.bHasVerticalAccuracy =
+			Sample.Header.bHasEstimatedError;
+		Sample.AbsoluteAltitude.VerticalAccuracyMeters =
+			Sample.Header.bHasEstimatedError
+				? Sample.Header.EstimatedError
+				: 0.0;
 	}
 
 	void SyncSampleAccuracyMetadata(FOpenMobileHeadingSensorSample& Sample)
@@ -1074,10 +1117,24 @@ namespace OpenMobileSensorsSampleServicePrivate
 	}
 
 	template <typename SampleType>
+	bool HasPerSampleAccuracy(const SampleType& Sample)
+	{
+		static_cast<void>(Sample);
+		return false;
+	}
+
+	bool HasPerSampleAccuracy(const FOpenMobileScalarSensorSample& Sample)
+	{
+		return Sample.Header.Sensor.Type ==
+			EOpenMobileSensorType::AbsoluteAltitude;
+	}
+
+	template <typename SampleType>
 	bool ApplyAccuracyState(FLatestSlot& Slot, SampleType& Sample)
 	{
 		NormalizeSampleAccuracyMetadata(Sample);
-		const bool bHasExplicitAccuracy = !Slot.bHasAccuracyState
+		const bool bHasExplicitAccuracy = HasPerSampleAccuracy(Sample)
+			|| !Slot.bHasAccuracyState
 			|| Sample.Header.Accuracy != EOpenMobileSensorAccuracy::Unknown
 			|| Sample.Header.bCalibrationRequired
 			|| Sample.Header.bHasEstimatedError;

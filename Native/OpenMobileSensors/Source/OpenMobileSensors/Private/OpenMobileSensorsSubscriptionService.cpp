@@ -50,6 +50,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		EOpenMobileSensorSubscriptionState State =
 			EOpenMobileSensorSubscriptionState::Accepted;
 		FOpenMobileError Error;
+		FOpenMobileSensorFailureDetails Failure;
 		double LastDeliveryTimestampSeconds = 0.0;
 		bool bHasDeliveredSample = false;
 	};
@@ -618,6 +619,51 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			OutPhysicalSensor = Pressure->Sensor;
 			return true;
 		}
+		if (LogicalSensor.Type == EOpenMobileSensorType::AbsoluteAltitude)
+		{
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* AbsoluteAltitude =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							LogicalSensor.Type
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			if (AbsoluteAltitude
+				&& AbsoluteAltitude->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& AbsoluteAltitude->Source !=
+					EOpenMobileSensorAvailabilitySource::Derived)
+			{
+				return true;
+			}
+			if (!AbsoluteAltitude
+				|| AbsoluteAltitude->Availability.State ==
+					EOpenMobileCapabilityState::Unavailable)
+			{
+				OutFailureReason =
+					EOpenMobileSensorFailureReason::MissingHardware;
+			}
+			else if (AbsoluteAltitude->Availability.State ==
+				EOpenMobileCapabilityState::TemporarilyUnavailable)
+			{
+				OutFailureReason = EOpenMobileSensorFailureReason::
+					TemporarilyUnavailable;
+			}
+			else
+			{
+				OutFailureReason =
+					EOpenMobileSensorFailureReason::UnsupportedPlatform;
+			}
+			return false;
+		}
 		if (LogicalSensor.Type ==
 			EOpenMobileSensorType::BarometricPressure)
 		{
@@ -764,6 +810,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			);
 		}
 		Snapshot.Error = Entry.Error;
+		Snapshot.Failure = Entry.Failure;
 		return Snapshot;
 	}
 
@@ -989,7 +1036,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	void SetState(
 		const FGuid& Identifier,
 		EOpenMobileSensorSubscriptionState State,
-		const FOpenMobileError& Error = {}
+		const FOpenMobileError& Error = {},
+		const FOpenMobileSensorFailureDetails& Failure = {}
 	)
 	{
 		FSubscriptionEntry* Entry = Subscriptions.Find(Identifier);
@@ -1000,6 +1048,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		const FOpenMobileSensorSubscriptionHandle EntryHandle = Entry->Handle;
 		Entry->State = State;
 		Entry->Error = Error;
+		Entry->Failure = Failure;
 		FOpenMobileSensorsSampleService::SetSubscriptionState(
 			Entry->Handle,
 			State
@@ -1337,7 +1386,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			SetState(
 				Identifier,
 				EOpenMobileSensorSubscriptionState::Failed,
-				Error
+				Error,
+				Operation.Failure
 			);
 		}
 	}
@@ -2388,7 +2438,8 @@ bool FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
 		SetState(
 			Identifier,
 			EOpenMobileSensorSubscriptionState::Failed,
-			Error
+			Error,
+			Failure.Failure
 		);
 	}
 	return true;

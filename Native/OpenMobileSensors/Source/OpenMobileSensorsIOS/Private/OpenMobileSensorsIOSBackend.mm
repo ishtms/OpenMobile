@@ -70,6 +70,47 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		return Sensors;
 	}
 
+	FOpenMobileSensorCapability MakeAbsoluteAltitudeCapability(
+		const FOpenMobileSensorsIOSAvailability& Availability
+	)
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor.Type = EOpenMobileSensorType::AbsoluteAltitude;
+		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Availability.Name =
+			FOpenMobileSensorTypes::GetStableName(
+				EOpenMobileSensorType::AbsoluteAltitude
+			);
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		Capability.bSupportsNativeBatching = false;
+		Capability.BackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Suspended;
+		if (!Availability.bAbsoluteAltitudeApiSupported)
+		{
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::NotSupported;
+			Capability.Availability.Detail =
+				TEXT("Native absolute altitude requires iOS 15 or later.");
+			return Capability;
+		}
+		if (!Availability.bAbsoluteAltitude)
+		{
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::Unavailable;
+			Capability.Availability.Detail =
+				TEXT("This device does not provide native absolute altitude.");
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::MissingHardware;
+			return Capability;
+		}
+		Capability.Availability.State = EOpenMobileCapabilityState::Available;
+		Capability.Availability.Detail =
+			TEXT("Available from Core Motion on iOS 15 or later.");
+		Capability.MinimumFrequencyHz = 1.0;
+		Capability.MaximumFrequencyHz = 1.0;
+		return Capability;
+	}
+
 	FOpenMobileAttitudeReferenceFrameCapability MakeReferenceCapability(
 		EOpenMobileAttitudeReferenceFrame ReferenceFrame,
 		EOpenMobileCapabilityState State,
@@ -167,6 +208,9 @@ namespace OpenMobileSensorsIOSBackendPrivate
 			return TEXT("InvalidArgument");
 		case EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable:
 			return TEXT("SensorUnavailable");
+		case EOpenMobileSensorsIOSBridgeFailure::
+			ServiceTemporarilyUnavailable:
+			return TEXT("ServiceTemporarilyUnavailable");
 		case EOpenMobileSensorsIOSBridgeFailure::ReferenceFrameUnavailable:
 			return TEXT("ReferenceFrameUnavailable");
 		case EOpenMobileSensorsIOSBridgeFailure::PermissionDenied:
@@ -265,6 +309,12 @@ FOpenMobileCapability FOpenMobileSensorsIOSBackend::GetBackendCapability() const
 		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;
 		Capability.Detail = TEXT("Core Motion is paused while the app is inactive.");
 	}
+	else if (Failure == EOpenMobileSensorsIOSBridgeFailure::
+		ServiceTemporarilyUnavailable)
+	{
+		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;
+		Capability.Detail = TEXT("Core Motion is temporarily unavailable.");
+	}
 	else
 	{
 		Capability.State = EOpenMobileCapabilityState::Unavailable;
@@ -282,6 +332,10 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 	for (const FSupportedSensor& Supported :
 		GetSupportedSensors(Availability))
 	{
+		if (Supported.Type == EOpenMobileSensorType::AbsoluteAltitude)
+		{
+			continue;
+		}
 		FOpenMobileSensorCapability Capability;
 		Capability.Sensor.Type = Supported.Type;
 		Capability.Sensor.InstanceId = TEXT("Default");
@@ -305,6 +359,7 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		}
 		Capabilities.Add(MoveTemp(Capability));
 	}
+	Capabilities.Add(MakeAbsoluteAltitudeCapability(Availability));
 	return Capabilities;
 }
 
@@ -640,6 +695,10 @@ FOpenMobileSensorOperationResult FOpenMobileSensorsIOSBackend::MapBridgeFailure(
 		break;
 	case EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable:
 		Reason = EOpenMobileSensorFailureReason::MissingHardware;
+		break;
+	case EOpenMobileSensorsIOSBridgeFailure::
+		ServiceTemporarilyUnavailable:
+		Reason = EOpenMobileSensorFailureReason::TemporarilyUnavailable;
 		break;
 	case EOpenMobileSensorsIOSBridgeFailure::ReferenceFrameUnavailable:
 		Reason = EOpenMobileSensorFailureReason::InvalidReferenceFrame;
