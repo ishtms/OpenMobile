@@ -21,6 +21,7 @@ class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsSubsystemState;
+struct FOpenMobileHapticsTimingResolution;
 
 struct FOpenMobileHapticsSubsystemStateDeleter
 {
@@ -258,6 +259,7 @@ private:
 	friend class FOpenMobileHapticsAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
+	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
 
 	enum class EPlaybackCursorControl : uint8
 	{
@@ -274,6 +276,19 @@ private:
 	void HandleBackendCallback(
 		const FOpenMobileHapticsBackendCallback& Callback
 	);
+	void PublishSubmissionEvents(
+		const FOpenMobileHapticPlaybackResult& Result,
+		const FOpenMobileHapticsTimingResolution& Timing
+	);
+	void PublishDeferredSubmissionEvents(uint64 RequestId);
+	void PublishPlaybackEvent(
+		uint64 RequestId,
+		FOpenMobileHapticPlaybackEvent Event
+	);
+	void ScheduleEstimatedStart(uint64 RequestId, double DelaySeconds);
+	void PublishEstimatedStart(uint64 RequestId);
+	void ScheduleTerminalWatchdog(uint64 RequestId, double DelaySeconds);
+	void PublishTerminalTimeout(uint64 RequestId);
 	FOpenMobileHapticControlResult EndPlaybackNative(
 		FOpenMobileHapticPlaybackHandle Handle,
 		EOpenMobileHapticPlaybackState TerminalState

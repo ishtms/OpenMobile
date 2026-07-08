@@ -184,6 +184,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		FName Channel,
 		FName ResolvedPath,
 		FString FailureMessage,
+		EOpenMobileHapticEventEvidence CompletionEvidence,
 		FOpenMobileHapticsBackendEventCallback Callback
 	)
 	{
@@ -193,6 +194,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 			Channel,
 			ResolvedPath,
 			FailureMessage = MoveTemp(FailureMessage),
+			CompletionEvidence,
 			Callback = MoveTemp(Callback)
 		](EOpenMobileHapticsApplePlaybackEvent Event) mutable
 		{
@@ -210,7 +212,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 				BackendCallback.Event.State =
 					EOpenMobileHapticPlaybackState::Completed;
 				BackendCallback.Event.Evidence =
-					EOpenMobileHapticEventEvidence::NativeConfirmed;
+					CompletionEvidence;
 				break;
 			case EOpenMobileHapticsApplePlaybackEvent::Interrupted:
 				BackendCallback.Event.State =
@@ -283,6 +285,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 						Request.Options.Channel,
 						ResolvedPath,
 						TEXT("Apple scheduled semantic fallback failed."),
+						EOpenMobileHapticEventEvidence::Estimated,
 						MoveTemp(Callback)
 					)
 				)
@@ -323,6 +326,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 						Request.Options.Channel,
 						ResolvedPath,
 						TEXT("Apple scheduled vibration fallback failed."),
+						EOpenMobileHapticEventEvidence::Estimated,
 						MoveTemp(Callback)
 					)
 				)
@@ -723,6 +727,7 @@ FOpenMobileHapticsIOSBackend::SubmitSemantic(
 			Request.Options.Channel,
 			ResolvedPath,
 			TEXT("Apple scheduled semantic playback failed."),
+			EOpenMobileHapticEventEvidence::Estimated,
 			MoveTemp(Callback)
 		);
 	}
@@ -805,6 +810,7 @@ FOpenMobileHapticsIOSBackend::SubmitOneShot(
 			Request.Options.Channel,
 			ResolvedPath,
 			TEXT("Apple scheduled one-shot playback failed."),
+			EOpenMobileHapticEventEvidence::Estimated,
 			MoveTemp(Callback)
 		);
 	}
@@ -1114,6 +1120,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 							Request.Options.Channel,
 							ResolvedPath,
 							TEXT("Apple AHAP playback failed."),
+							AHAP.Pattern.bRequiresAdvancedPlayer
+								&& !AHAP.Pattern.bLoop
+								? EOpenMobileHapticEventEvidence::NativeConfirmed
+								: EOpenMobileHapticEventEvidence::SchedulerConfirmed,
 							MoveTemp(AHAPCallback)
 						)
 					)
@@ -1126,6 +1136,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 							Request.Options.Channel,
 							ResolvedPath,
 							TEXT("Apple AHAP playback failed."),
+							AHAP.Pattern.bRequiresAdvancedPlayer
+								&& !AHAP.Pattern.bLoop
+								? EOpenMobileHapticEventEvidence::NativeConfirmed
+								: EOpenMobileHapticEventEvidence::SchedulerConfirmed,
 							MoveTemp(AHAPCallback)
 						)
 					);
@@ -1365,7 +1379,10 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 			bUseContinuousTranslation
 				? TEXT("Apple continuous playback failed.")
 				: TEXT("Apple transient playback failed."),
-			MoveTemp(Callback)
+		bUseContinuousTranslation && Continuous.Pattern.bLoop
+			? EOpenMobileHapticEventEvidence::SchedulerConfirmed
+			: EOpenMobileHapticEventEvidence::NativeConfirmed,
+		MoveTemp(Callback)
 		);
 	EOpenMobileHapticsAppleSubmissionResult BridgeResult =
 		EOpenMobileHapticsAppleSubmissionResult::NativeFailure;

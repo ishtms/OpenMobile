@@ -290,15 +290,32 @@ namespace OpenMobileHapticsTests
 		void Emit(
 			int32 PendingIndex,
 			EOpenMobileHapticPlaybackState State,
-			uint64 Sequence
+			uint64 Sequence,
+			EOpenMobileHapticEventEvidence Evidence =
+				EOpenMobileHapticEventEvidence::Estimated
+		)
+		{
+			FOpenMobileHapticPlaybackEvent Event;
+			Event.State = State;
+			Event.Evidence = Evidence;
+			Event.TimestampSeconds = CurrentTimeSeconds;
+			EmitEvent(PendingIndex, Sequence, MoveTemp(Event));
+		}
+
+		void EmitEvent(
+			int32 PendingIndex,
+			uint64 Sequence,
+			FOpenMobileHapticPlaybackEvent Event
 		)
 		{
 			FOpenMobileHapticsBackendCallback Callback;
 			Callback.Token = PendingCallbacks[PendingIndex].Token;
 			Callback.Sequence = Sequence;
-			Callback.Event.Handle = Callback.Token.PlaybackHandle;
-			Callback.Event.State = State;
-			Callback.Event.TimestampSeconds = CurrentTimeSeconds;
+			Callback.Event = MoveTemp(Event);
+			if (!Callback.Event.Handle.IsValid())
+			{
+				Callback.Event.Handle = Callback.Token.PlaybackHandle;
+			}
 			PendingCallbacks[PendingIndex].Callback(Callback);
 		}
 
@@ -5364,15 +5381,22 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	);
 
 	int32 EventCount = 0;
+	int32 TerminalEventCount = 0;
 	EOpenMobileHapticPlaybackState LastState =
 		EOpenMobileHapticPlaybackState::Invalid;
 	double LastTimestamp = 0.0;
 	Subsystem->OnPlaybackEventNative().AddLambda(
-		[&EventCount, &LastState, &LastTimestamp](
+		[&EventCount, &TerminalEventCount, &LastState, &LastTimestamp](
 			const FOpenMobileHapticPlaybackEvent& Event
 		)
 		{
 			++EventCount;
+			TerminalEventCount +=
+				Event.State == EOpenMobileHapticPlaybackState::Stopped
+				|| Event.State == EOpenMobileHapticPlaybackState::Cancelled
+				|| Event.State == EOpenMobileHapticPlaybackState::Completed
+				|| Event.State == EOpenMobileHapticPlaybackState::Interrupted
+				|| Event.State == EOpenMobileHapticPlaybackState::Failed;
 			LastState = Event.State;
 			LastTimestamp = Event.TimestampSeconds;
 		}
@@ -5381,6 +5405,8 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 		Subsystem->PlayNamedPattern(TEXT("UI_Confirm"));
 	TestTrue(TEXT("Named request is accepted"), Named.IsAccepted());
 	TestTrue(TEXT("Controllable request has a handle"), Named.Handle.IsValid());
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Accepted handle broadcasts acceptance"), EventCount, 1);
 	TestEqual(
 		TEXT("Accepted handle state is retained"),
 		Subsystem->GetPlaybackState(Named.Handle),
@@ -5407,18 +5433,19 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	TestEqual(TEXT("Stop immediately records terminal state"),
 		Subsystem->GetPlaybackState(Named.Handle),
 		EOpenMobileHapticPlaybackState::Stopped);
-	TestEqual(TEXT("Stop broadcasts one terminal event"), EventCount, 1);
+	TestEqual(TEXT("Stop broadcasts one terminal event"), TerminalEventCount, 1);
+	TestEqual(TEXT("Acceptance remains before stop"), EventCount, 2);
 	TestEqual(TEXT("Stop event is distinct from cancellation"), LastState,
 		EOpenMobileHapticPlaybackState::Stopped);
 	TestEqual(TEXT("Repeated stop is idempotent"),
 		Subsystem->StopPlayback(Named.Handle).Outcome,
 		EOpenMobileHapticControlOutcome::Accepted);
-	TestEqual(TEXT("Repeated stop does not duplicate events"), EventCount, 1);
+	TestEqual(TEXT("Repeated stop does not duplicate events"), EventCount, 2);
 
 	High.CurrentTimeSeconds = 12.5;
 	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Callback queued before stop is invalidated"), EventCount, 1);
+	TestEqual(TEXT("Callback queued before stop is invalidated"), EventCount, 2);
 	TestEqual(
 		TEXT("Stopped state cannot regress"),
 		LastState,
@@ -5426,11 +5453,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	);
 	High.Emit(0, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Duplicate callback is ignored"), EventCount, 1);
+	TestEqual(TEXT("Duplicate callback is ignored"), EventCount, 2);
 
 	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 2);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Post-stop terminal callback is ignored"), EventCount, 1);
+	TestEqual(TEXT("Post-stop terminal callback is ignored"), EventCount, 2);
 	TestEqual(
 		TEXT("Stopped state remains queryable"),
 		Subsystem->GetPlaybackState(Named.Handle),
@@ -5438,15 +5465,23 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	);
 	High.Emit(0, EOpenMobileHapticPlaybackState::Completed, 3);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 1);
+	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 2);
 
 	const FOpenMobileHapticPlaybackResult Stale =
 		Subsystem->PlayNamedPattern(TEXT("Stale"));
 	FMockBackend Newest(TEXT("Newest"), 20);
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Newest);
+	TestEqual(TEXT("Control against a replaced backend becomes stale"),
+		Subsystem->StopPlayback(Stale.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::StaleHandle);
+	TestEqual(TEXT("Replaced backend handle becomes interrupted"),
+		Subsystem->GetPlaybackState(Stale.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("Backend replacement emits one terminal event"),
+		TerminalEventCount, 2);
 	High.Emit(1, EOpenMobileHapticPlaybackState::Started, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
-	TestEqual(TEXT("Stale backend callback is ignored"), EventCount, 1);
+	TestEqual(TEXT("Stale backend callback is ignored"), EventCount, 4);
 	TestTrue(TEXT("Stale request originally had a handle"), Stale.Handle.IsValid());
 
 	Newest.bFailSubmissions = true;
@@ -5469,6 +5504,485 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(High);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Low);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackLifecycleOrderingTest,
+	"OpenMobile.Haptics.Playback.Lifecycle.Ordering",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackLifecycleOrderingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("Lifecycle"));
+	Backend.SubmissionResolvedPath = TEXT("PortableTimeline");
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	TArray<FOpenMobileHapticPlaybackEvent> Events;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&Events](const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+	FOpenMobileHapticPlaybackOptions Options;
+	Options.Channel = TEXT("Gameplay");
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("LifecyclePattern"),
+			1.0f,
+			Options
+		);
+	TestTrue(TEXT("Lifecycle playback is accepted"), Playback.IsAccepted());
+	TestEqual(TEXT("Submission returns before any delegate runs"),
+		Events.Num(), 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Acceptance is the first event"), Events.Num(), 1);
+	if (Events.Num() == 1)
+	{
+		TestEqual(TEXT("Acceptance reports its state"), Events[0].State,
+			EOpenMobileHapticPlaybackState::Accepted);
+		TestEqual(TEXT("Acceptance reports the request handle"),
+			Events[0].Handle, Playback.Handle);
+		TestEqual(TEXT("Acceptance reports the effect"),
+			Events[0].PatternOrEffect, FName(TEXT("LifecyclePattern")));
+		TestEqual(TEXT("Acceptance reports the channel"),
+			Events[0].Channel, FName(TEXT("Gameplay")));
+		TestEqual(TEXT("Acceptance reports the resolved path"),
+			Events[0].ResolvedPath, FName(TEXT("PortableTimeline")));
+		TestEqual(TEXT("Acceptance is scheduler-confirmed"),
+			Events[0].Evidence,
+			EOpenMobileHapticEventEvidence::SchedulerConfirmed);
+		TestTrue(TEXT("Acceptance has a monotonic timestamp"),
+			Events[0].TimestampSeconds > 0.0);
+	}
+
+	Backend.CurrentTimeSeconds = FPlatformTime::Seconds();
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Completed, 2);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Missing start is estimated before completion"),
+		Events.Num(), 3);
+	if (Events.Num() == 3)
+	{
+		TestEqual(TEXT("Estimated start preserves ordering"), Events[1].State,
+			EOpenMobileHapticPlaybackState::Started);
+		TestEqual(TEXT("Missing start is marked estimated"), Events[1].Evidence,
+			EOpenMobileHapticEventEvidence::Estimated);
+		TestEqual(TEXT("Completion remains terminal"), Events[2].State,
+			EOpenMobileHapticPlaybackState::Completed);
+		for (const FOpenMobileHapticPlaybackEvent& Event : Events)
+		{
+			TestEqual(TEXT("Every event preserves the request handle"),
+				Event.Handle, Playback.Handle);
+			TestEqual(TEXT("Every event preserves the effect"),
+				Event.PatternOrEffect,
+				FName(TEXT("LifecyclePattern")));
+			TestEqual(TEXT("Every event preserves the channel"),
+				Event.Channel, FName(TEXT("Gameplay")));
+			TestEqual(TEXT("Every event preserves the resolved path"),
+				Event.ResolvedPath, FName(TEXT("PortableTimeline")));
+		}
+	}
+
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Completed, 3);
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Started, 4);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Post-terminal callbacks cannot add events"),
+		Events.Num(), 3);
+	int32 TerminalCount = 0;
+	for (const FOpenMobileHapticPlaybackEvent& Event : Events)
+	{
+		TerminalCount += Event.State == EOpenMobileHapticPlaybackState::Stopped
+			|| Event.State == EOpenMobileHapticPlaybackState::Cancelled
+			|| Event.State == EOpenMobileHapticPlaybackState::Completed
+			|| Event.State == EOpenMobileHapticPlaybackState::Interrupted
+			|| Event.State == EOpenMobileHapticPlaybackState::Failed;
+	}
+	TestEqual(TEXT("Accepted handle receives exactly one terminal event"),
+		TerminalCount, 1);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest,
+	"OpenMobile.Haptics.Playback.Lifecycle.MissingTerminalCallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("MissingTerminal"));
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	TArray<FOpenMobileHapticPlaybackEvent> Events;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&Events](const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPattern(TEXT("MissingTerminal"));
+	Subsystem->PublishTerminalTimeout(Backend.LastToken.RequestId);
+	TestEqual(TEXT("Missing terminal callback receives a bounded fallback"),
+		Events.Num(), 3);
+	if (Events.Num() == 3)
+	{
+		TestEqual(TEXT("Timeout keeps acceptance first"), Events[0].State,
+			EOpenMobileHapticPlaybackState::Accepted);
+		TestEqual(TEXT("Timeout estimates a missing start"), Events[1].State,
+			EOpenMobileHapticPlaybackState::Started);
+		TestEqual(TEXT("Timeout terminates as failed"), Events[2].State,
+			EOpenMobileHapticPlaybackState::Failed);
+		TestEqual(TEXT("Timeout failure is explicitly estimated"),
+			Events[2].Evidence, EOpenMobileHapticEventEvidence::Estimated);
+		TestEqual(TEXT("Timeout failure identifies the handle"),
+			Events[2].Handle, Playback.Handle);
+		TestEqual(TEXT("Timeout failure is typed"), Events[2].Error.Code,
+			EOpenMobileHapticErrorCode::NativeEngineFailure);
+	}
+	TestEqual(TEXT("Timed-out handle retains its terminal state"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Failed);
+
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Completed, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Late native completion cannot duplicate the timeout"),
+		Events.Num(), 3);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackLifecycleCallbackRaceTest,
+	"OpenMobile.Haptics.Playback.Lifecycle.CallbackRaces",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackLifecycleCallbackRaceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("LifecycleRaces"));
+	Backend.Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported;
+	Backend.SubmissionResolvedPath = TEXT("ScheduledPortableTimeline");
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	TArray<FOpenMobileHapticPlaybackEvent> Events;
+	bool bAllEventsOnGameThread = true;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&Events, &bAllEventsOnGameThread](
+			const FOpenMobileHapticPlaybackEvent& Event
+		)
+		{
+			bAllEventsOnGameThread &= IsInGameThread();
+			Events.Add(Event);
+		}
+	);
+	FOpenMobileHapticPlaybackOptions Options;
+	Options.Channel = TEXT("Cinematic");
+	Options.Schedule.Mode = EOpenMobileHapticScheduleMode::Relative;
+	Options.Schedule.TimeSeconds = 0.25;
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("ScheduledLifecycle"),
+			1.0f,
+			Options
+		);
+	TestEqual(TEXT("Delayed playback reports scheduled state"), Playback.State,
+		EOpenMobileHapticPlaybackState::Scheduled);
+	TestEqual(TEXT("Scheduled submission returns before delegates run"),
+		Events.Num(), 0);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Accepted and scheduled events publish immediately"),
+		Events.Num(), 2);
+	if (Events.Num() == 2)
+	{
+		TestEqual(TEXT("Scheduled ordering starts with acceptance"),
+			Events[0].State, EOpenMobileHapticPlaybackState::Accepted);
+		TestEqual(TEXT("Scheduled ordering publishes the queue state second"),
+			Events[1].State, EOpenMobileHapticPlaybackState::Scheduled);
+	}
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Started, 0);
+	FOpenMobileHapticPlaybackEvent WrongHandleStart;
+	WrongHandleStart.State = EOpenMobileHapticPlaybackState::Started;
+	WrongHandleStart.Handle.Id = FGuid(42, 0, 0, 1);
+	Backend.EmitEvent(0, 1, MoveTemp(WrongHandleStart));
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Invalid sequence and mismatched handle are ignored"),
+		Events.Num(), 2);
+
+	Backend.CurrentTimeSeconds = FPlatformTime::Seconds() + 1.0;
+	TFuture<void> Worker = Async(
+		EAsyncExecution::ThreadPool,
+		[&Backend]()
+		{
+			Backend.Emit(
+				0,
+				EOpenMobileHapticPlaybackState::Started,
+				1,
+				EOpenMobileHapticEventEvidence::NativeConfirmed
+			);
+		}
+	);
+	Worker.Wait();
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Off-thread start is appended after scheduled"),
+		Events.Num(), 3);
+	TestTrue(TEXT("Off-thread callback returns to the game thread"),
+		bAllEventsOnGameThread);
+	if (Events.Num() == 3)
+	{
+		TestEqual(TEXT("Started evidence is preserved"), Events[2].Evidence,
+			EOpenMobileHapticEventEvidence::NativeConfirmed);
+	}
+
+	Backend.Emit(
+		0,
+		EOpenMobileHapticPlaybackState::Started,
+		1,
+		EOpenMobileHapticEventEvidence::NativeConfirmed
+	);
+	Backend.Emit(
+		0,
+		EOpenMobileHapticPlaybackState::Scheduled,
+		2,
+		EOpenMobileHapticEventEvidence::SchedulerConfirmed
+	);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Duplicate and delayed states are ignored"), Events.Num(), 3);
+
+	Backend.Emit(
+		0,
+		EOpenMobileHapticPlaybackState::Paused,
+		3,
+		EOpenMobileHapticEventEvidence::NativeConfirmed
+	);
+	Backend.Emit(
+		0,
+		EOpenMobileHapticPlaybackState::Resumed,
+		4,
+		EOpenMobileHapticEventEvidence::SchedulerConfirmed
+	);
+	Backend.Emit(
+		0,
+		EOpenMobileHapticPlaybackState::Completed,
+		5,
+		EOpenMobileHapticEventEvidence::NativeConfirmed
+	);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Nonterminal transitions remain ordered"), Events.Num(), 6);
+	if (Events.Num() == 6)
+	{
+		const TArray<EOpenMobileHapticPlaybackState> ExpectedStates = {
+			EOpenMobileHapticPlaybackState::Accepted,
+			EOpenMobileHapticPlaybackState::Scheduled,
+			EOpenMobileHapticPlaybackState::Started,
+			EOpenMobileHapticPlaybackState::Paused,
+			EOpenMobileHapticPlaybackState::Resumed,
+			EOpenMobileHapticPlaybackState::Completed
+		};
+		for (int32 Index = 0; Index < ExpectedStates.Num(); ++Index)
+		{
+			TestEqual(TEXT("Lifecycle state matches deterministic order"),
+				Events[Index].State, ExpectedStates[Index]);
+			TestEqual(TEXT("Lifecycle event preserves its handle"),
+				Events[Index].Handle, Playback.Handle);
+			TestEqual(TEXT("Lifecycle event preserves its effect"),
+				Events[Index].PatternOrEffect,
+				FName(TEXT("ScheduledLifecycle")));
+			TestEqual(TEXT("Lifecycle event preserves its channel"),
+				Events[Index].Channel, FName(TEXT("Cinematic")));
+			TestEqual(TEXT("Lifecycle event preserves its resolved path"),
+				Events[Index].ResolvedPath,
+				FName(TEXT("ScheduledPortableTimeline")));
+			if (Index > 0)
+			{
+				TestTrue(TEXT("Lifecycle timestamps never regress"),
+					Events[Index].TimestampSeconds
+						>= Events[Index - 1].TimestampSeconds);
+			}
+		}
+	}
+
+	const int32 EventCountAfterTerminal = Events.Num();
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Failed, 6);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Post-terminal failure is ignored"), Events.Num(),
+		EventCountAfterTerminal);
+
+	const FOpenMobileHapticPlaybackResult TeardownPlayback =
+		Subsystem->PlayNamedPattern(TEXT("TeardownLifecycle"));
+	TestTrue(TEXT("Teardown playback receives a handle"),
+		TeardownPlayback.Handle.IsValid());
+	const int32 EventCountBeforeTeardown = Events.Num();
+	Subsystem->Deinitialize();
+	Backend.Emit(1, EOpenMobileHapticPlaybackState::Completed, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Post-teardown callback is ignored"), Events.Num(),
+		EventCountBeforeTeardown);
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackLifecycleHistoryTest,
+	"OpenMobile.Haptics.Playback.Lifecycle.HistoryAndReentrancy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackLifecycleHistoryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const int32 SavedMaximumDiagnosticEvents =
+		Settings->MaximumDiagnosticEvents;
+	Settings->NamedLibraries.Reset();
+	Settings->MaximumDiagnosticEvents = 3;
+
+	FMockBackend Backend(TEXT("LifecycleHistory"));
+	Backend.ControlSupport.bStop = true;
+	Backend.SubmissionResolvedPath = TEXT("/private/native/fallback");
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	bool bReentered = false;
+	FOpenMobileHapticControlResult ReentrantStop;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[Subsystem, &bReentered, &ReentrantStop](
+			const FOpenMobileHapticPlaybackEvent& Event
+		)
+		{
+			if (!bReentered
+				&& Event.State == EOpenMobileHapticPlaybackState::Accepted
+				&& Event.PatternOrEffect == TEXT("Reentrant"))
+			{
+				bReentered = true;
+				static_cast<void>(Subsystem->GetDiagnostics());
+				ReentrantStop = Subsystem->StopPlayback(Event.Handle);
+			}
+		}
+	);
+	const FOpenMobileHapticPlaybackResult ReentrantPlayback =
+		Subsystem->PlayNamedPattern(TEXT("Reentrant"));
+	TestFalse(TEXT("Accepted delegate is deferred until after submission"),
+		bReentered);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestTrue(TEXT("Accepted delegate can reenter the subsystem"), bReentered);
+	TestEqual(TEXT("Reentrant stop succeeds without a held lock"),
+		ReentrantStop.Outcome, EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Reentrant stop owns the terminal state"),
+		Subsystem->GetPlaybackState(ReentrantPlayback.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+
+	const FOpenMobileHapticPlaybackResult PrivatePlayback =
+		Subsystem->PlayNamedPattern(TEXT("/Game/Private/SecretPattern"));
+	FOpenMobileHapticPlaybackEvent Failure;
+	Failure.State = EOpenMobileHapticPlaybackState::Failed;
+	Failure.Evidence = EOpenMobileHapticEventEvidence::NativeConfirmed;
+	Failure.TimestampSeconds = FPlatformTime::Seconds();
+	Failure.Error = FOpenMobileHapticError::FromCommon(
+		EOpenMobileErrorCode::NativeFailure,
+		TEXT("Native failure at /Users/person/private/file.ahap"),
+		EOpenMobileHapticFailureStage::Playback
+	);
+	Failure.Error.NativeDomain = TEXT("/private/native/domain");
+	Backend.EmitEvent(1, 1, MoveTemp(Failure));
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+
+	const FOpenMobileHapticsDiagnostics Diagnostics =
+		Subsystem->GetDiagnostics();
+	TestEqual(TEXT("Recent event history obeys the configured bound"),
+		Diagnostics.RecentPlaybackEvents.Num(), 3);
+	if (Diagnostics.RecentPlaybackEvents.Num() == 3)
+	{
+		TestEqual(TEXT("History retains the newest terminal events"),
+			Diagnostics.RecentPlaybackEvents[0].State,
+			EOpenMobileHapticPlaybackState::Stopped);
+		TestEqual(TEXT("Path-like effect names are redacted in history"),
+			Diagnostics.RecentPlaybackEvents[1].PatternOrEffect,
+			FName(TEXT("redacted")));
+		TestEqual(TEXT("Path-like resolved paths are redacted in history"),
+			Diagnostics.RecentPlaybackEvents[2].ResolvedPath,
+			FName(TEXT("redacted")));
+		TestEqual(TEXT("Path-like error messages are redacted in history"),
+			Diagnostics.RecentPlaybackEvents[2].Error.Message,
+			FString(TEXT("redacted")));
+		TestEqual(TEXT("Path-like native details are redacted in history"),
+			Diagnostics.RecentPlaybackEvents[2].Error.NativeDomain,
+			FString(TEXT("redacted")));
+		TestEqual(TEXT("History still identifies the terminal handle"),
+			Diagnostics.RecentPlaybackEvents[2].Handle,
+			PrivatePlayback.Handle);
+	}
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->MaximumDiagnosticEvents = SavedMaximumDiagnosticEvents;
 	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }

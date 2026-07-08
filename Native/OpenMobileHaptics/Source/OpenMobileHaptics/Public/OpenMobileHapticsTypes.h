@@ -1214,4 +1214,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	TArray<FName> LastFallbackAttempts;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticPlaybackEvent> RecentPlaybackEvents;
 };

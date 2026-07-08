@@ -1166,7 +1166,6 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 	Callback.Event.PatternOrEffect = Pending.PatternOrEffect;
 	Callback.Event.Channel = Pending.Channel;
 	Callback.Event.ResolvedPath = Pending.ResolvedPath;
-	Callback.Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
 	Callback.Event.State = Result
 		== OpenMobileHapticsAndroidBridgePrivate::ResultStale
 		? EOpenMobileHapticPlaybackState::Interrupted
@@ -1177,6 +1176,13 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 			== OpenMobileHapticsAndroidBridgePrivate::ResultDefaultAmplitude
 		? EOpenMobileHapticPlaybackState::Completed
 		: EOpenMobileHapticPlaybackState::Failed;
+	Callback.Event.Evidence = Callback.Event.State
+		== EOpenMobileHapticPlaybackState::Completed
+		? EOpenMobileHapticEventEvidence::Estimated
+		: Callback.Event.State == EOpenMobileHapticPlaybackState::Interrupted
+			? EOpenMobileHapticEventEvidence::SchedulerConfirmed
+			: EOpenMobileHapticEventEvidence::NativeConfirmed;
+	Callback.Event.TimestampSeconds = FPlatformTime::Seconds();
 	Pending.Callback(Callback);
 }
 

@@ -30,6 +30,15 @@ struct FOpenMobileHapticsSubsystemRequestState
 	FName Channel;
 	FName Category;
 	FName Effect;
+	FName ResolvedPath;
+	TArray<FName> FallbackAttempts;
+	EOpenMobileHapticPlaybackState LastPublishedState =
+		EOpenMobileHapticPlaybackState::Invalid;
+	EOpenMobileHapticPlaybackState SubmissionState =
+		EOpenMobileHapticPlaybackState::Invalid;
+	double LastEventTimestampSeconds = 0.0;
+	double SubmissionTimestampSeconds = 0.0;
+	double EstimatedStartTimeSeconds = 0.0;
 	float RuntimeIntensity = 1.0f;
 	float RuntimeSharpness = 0.5f;
 	bool bSupportsDynamicParameters = false;
@@ -40,6 +49,8 @@ struct FOpenMobileHapticsSubsystemRequestState
 		FOpenMobileHapticsScheduledStartGuard,
 		ESPMode::ThreadSafe
 	> ScheduledStartGuard;
+	FTSTicker::FDelegateHandle EstimatedStartTickerHandle;
+	FTSTicker::FDelegateHandle TerminalWatchdogTickerHandle;
 };
 
 struct FOpenMobileHapticsSubsystemState
@@ -53,6 +64,7 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticIntensityDiagnostics LastIntensity;
 	FName LastResolvedPath;
 	TArray<FName> LastFallbackAttempts;
+	TArray<FOpenMobileHapticPlaybackEvent> RecentPlaybackEvents;
 	FOpenMobileHapticsLibraryResolver LibraryResolver;
 	TSharedPtr<FStreamableHandle> LibraryLoadHandle;
 	TSharedPtr<FStreamableHandle> PatternLoadHandle;
@@ -414,6 +426,132 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	bool CanPublishState(
+		EOpenMobileHapticPlaybackState CurrentState,
+		EOpenMobileHapticPlaybackState NextState
+	)
+	{
+		if (CurrentState == EOpenMobileHapticPlaybackState::Invalid)
+		{
+			return NextState == EOpenMobileHapticPlaybackState::Accepted;
+		}
+		if (IsTerminalState(CurrentState)
+			|| NextState == EOpenMobileHapticPlaybackState::Invalid
+			|| NextState == EOpenMobileHapticPlaybackState::Accepted)
+		{
+			return false;
+		}
+		if (IsTerminalState(NextState))
+		{
+			return true;
+		}
+		switch (NextState)
+		{
+		case EOpenMobileHapticPlaybackState::Scheduled:
+			return CurrentState == EOpenMobileHapticPlaybackState::Accepted;
+		case EOpenMobileHapticPlaybackState::Started:
+			return CurrentState == EOpenMobileHapticPlaybackState::Accepted
+				|| CurrentState == EOpenMobileHapticPlaybackState::Scheduled;
+		case EOpenMobileHapticPlaybackState::Paused:
+			return CurrentState == EOpenMobileHapticPlaybackState::Started
+				|| CurrentState == EOpenMobileHapticPlaybackState::Resumed;
+		case EOpenMobileHapticPlaybackState::Resumed:
+			return CurrentState == EOpenMobileHapticPlaybackState::Paused;
+		default:
+			return false;
+		}
+	}
+
+	bool IsValidEvidence(EOpenMobileHapticEventEvidence Evidence)
+	{
+		return Evidence == EOpenMobileHapticEventEvidence::Estimated
+			|| Evidence
+				== EOpenMobileHapticEventEvidence::SchedulerConfirmed
+			|| Evidence == EOpenMobileHapticEventEvidence::NativeConfirmed;
+	}
+
+	FName SanitizeHistoryName(FName Value)
+	{
+		if (Value.IsNone())
+		{
+			return NAME_None;
+		}
+		const FString Text = Value.ToString();
+		if (Text.Len() > 64
+			|| Text.Contains(TEXT("/"))
+			|| Text.Contains(TEXT("\\"))
+			|| Text.Contains(TEXT("\n"))
+			|| Text.Contains(TEXT("\r")))
+		{
+			return TEXT("redacted");
+		}
+		return Value;
+	}
+
+	FString SanitizeHistoryText(const FString& Value)
+	{
+		if (Value.IsEmpty())
+		{
+			return {};
+		}
+		if (Value.Contains(TEXT("/"))
+			|| Value.Contains(TEXT("\\"))
+			|| Value.Contains(TEXT("\n"))
+			|| Value.Contains(TEXT("\r")))
+		{
+			return TEXT("redacted");
+		}
+		return Value.Left(256);
+	}
+
+	FOpenMobileHapticPlaybackEvent SanitizeHistoryEvent(
+		const FOpenMobileHapticPlaybackEvent& Event
+	)
+	{
+		FOpenMobileHapticPlaybackEvent Sanitized = Event;
+		Sanitized.PatternOrEffect = SanitizeHistoryName(Event.PatternOrEffect);
+		Sanitized.Channel = SanitizeHistoryName(Event.Channel);
+		Sanitized.ResolvedPath = SanitizeHistoryName(Event.ResolvedPath);
+		Sanitized.Error.Message = SanitizeHistoryText(Event.Error.Message);
+		Sanitized.Error.NativeDomain =
+			SanitizeHistoryText(Event.Error.NativeDomain).Left(64);
+		Sanitized.Error.NativeCode =
+			SanitizeHistoryText(Event.Error.NativeCode).Left(64);
+		Sanitized.Error.FailedItem =
+			SanitizeHistoryName(Event.Error.FailedItem);
+		Sanitized.Error.Channel = SanitizeHistoryName(Event.Error.Channel);
+		for (FName& Attempt : Sanitized.Error.FallbackAttempts)
+		{
+			Attempt = SanitizeHistoryName(Attempt);
+		}
+		Sanitized.Error.Correction =
+			SanitizeHistoryText(Event.Error.Correction);
+		return Sanitized;
+	}
+
+	void AppendEventHistory(
+		FOpenMobileHapticsSubsystemState& State,
+		const FOpenMobileHapticPlaybackEvent& Event
+	)
+	{
+		const int32 MaximumEvents = FMath::Clamp(
+			GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents,
+			1,
+			512
+		);
+		const int32 Excess = State.RecentPlaybackEvents.Num()
+			- MaximumEvents + 1;
+		if (Excess > 0)
+		{
+			State.RecentPlaybackEvents.RemoveAt(
+				0,
+				Excess,
+				EAllowShrinking::No
+			);
+		}
+		State.RecentPlaybackEvents.Add(SanitizeHistoryEvent(Event));
+	}
+
 	void RemoveRequest(
 		FOpenMobileHapticsSubsystemState& State,
 		uint64 RequestId
@@ -422,6 +560,18 @@ namespace OpenMobileHapticsSubsystemPrivate
 		if (const FOpenMobileHapticsSubsystemRequestState* Request =
 			State.Requests.Find(RequestId))
 		{
+			if (Request->EstimatedStartTickerHandle.IsValid())
+			{
+				FTSTicker::GetCoreTicker().RemoveTicker(
+					Request->EstimatedStartTickerHandle
+				);
+			}
+			if (Request->TerminalWatchdogTickerHandle.IsValid())
+			{
+				FTSTicker::GetCoreTicker().RemoveTicker(
+					Request->TerminalWatchdogTickerHandle
+				);
+			}
 			if (Request->ScheduledStartGuard)
 			{
 				Request->ScheduledStartGuard->Invalidate();
@@ -551,6 +701,11 @@ void UOpenMobileHapticsSubsystem::Initialize(
 	UserPolicy.MasterIntensity = Settings->DefaultMasterIntensity;
 	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
+	State->RecentPlaybackEvents.Reserve(FMath::Clamp(
+		Settings->MaximumDiagnosticEvents,
+		1,
+		512
+	));
 }
 
 void UOpenMobileHapticsSubsystem::Deinitialize()
@@ -596,6 +751,15 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 		if (Action.IsValid())
 		{
 			Action->HandleGameInstanceTeardown();
+		}
+	}
+	if (State)
+	{
+		TArray<uint64> RequestIds;
+		State->Requests.GetKeys(RequestIds);
+		for (const uint64 RequestId : RequestIds)
+		{
+			OpenMobileHapticsSubsystemPrivate::RemoveRequest(*State, RequestId);
 		}
 	}
 	NativePlaybackEvent.Clear();
@@ -1704,6 +1868,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 				OverrideResult.Intensity.Resolved = AdjustedRequest.Intensity;
 				LocalState.LastIntensity = OverrideResult.Intensity;
 			}
+			PublishSubmissionEvents(OverrideResult, Timing);
 			return OverrideResult;
 		}
 		if (Request.Options.FallbackPolicy
@@ -1842,6 +2007,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	{
 		Result.Error.FallbackAttempts.Add(PatternOverride);
 	}
+	PublishSubmissionEvents(Result, Timing);
 	return Result;
 }
 
@@ -2124,6 +2290,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		LocalState.LastDuration = Result.Duration;
 		LocalState.LastIntensity = Result.Intensity;
 	}
+	PublishSubmissionEvents(Result, Timing);
 	return Result;
 }
 
@@ -2357,6 +2524,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		Result.Intensity.Resolved = StaticIntensity * MutablePolicyScale;
 		LocalState.LastIntensity = Result.Intensity;
 	}
+	PublishSubmissionEvents(Result, Timing);
 	return Result;
 }
 
@@ -2372,20 +2540,11 @@ void UOpenMobileHapticsSubsystem::CompleteControlledRequest(
 	{
 		return;
 	}
-	const FOpenMobileHapticPlaybackHandle Handle =
-		Request->Token.PlaybackHandle;
-	const FName Channel = Request->Channel;
-	LocalState.PlaybackStates.Add(Handle, TerminalState);
-	OpenMobileHapticsSubsystemPrivate::RemoveRequest(LocalState, RequestId);
-
 	FOpenMobileHapticPlaybackEvent Event;
-	Event.Handle = Handle;
 	Event.State = TerminalState;
 	Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
 	Event.TimestampSeconds = FPlatformTime::Seconds();
-	Event.Channel = Channel;
-	OnPlaybackEvent.Broadcast(Event);
-	NativePlaybackEvent.Broadcast(Event);
+	PublishPlaybackEvent(RequestId, MoveTemp(Event));
 }
 
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::EndPlaybackNative(
@@ -2431,21 +2590,14 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::EndPlaybackNative(
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
 		return Result;
 	}
-	if (!Backend)
-	{
-		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
-	}
-
-	if (!FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
+	if (!Backend
+		|| !FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
 		|| Backend->GetBackendName() != Request->Token.BackendName)
 	{
-		LocalState.PlaybackStates.Add(
-			Handle,
+		const uint64 OwnedRequestId = Request->Token.RequestId;
+		CompleteControlledRequest(
+			OwnedRequestId,
 			EOpenMobileHapticPlaybackState::Interrupted
-		);
-		OpenMobileHapticsSubsystemPrivate::RemoveRequest(
-			LocalState,
-			Request->Token.RequestId
 		);
 		FOpenMobileHapticControlResult Result;
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
@@ -2579,6 +2731,11 @@ UOpenMobileHapticsSubsystem::ApplyPlaybackCursorControl(
 		Context.Handle = Handle;
 		Context.bAfterAcceptance = true;
 		Result.Error = FOpenMobileHapticsErrorMapper::Map(Context);
+		const uint64 OwnedRequestId = Request->Token.RequestId;
+		CompleteControlledRequest(
+			OwnedRequestId,
+			EOpenMobileHapticPlaybackState::Interrupted
+		);
 		return Result;
 	}
 
@@ -2677,22 +2834,20 @@ UOpenMobileHapticsSubsystem::ApplyPlaybackCursorControl(
 		static_cast<uint64>(MAX_int64)
 	));
 	Result.bQuantized = Transition.bQuantized;
-	LocalState.PlaybackStates.Add(Handle, Transition.State);
-
 	if (Control != EPlaybackCursorControl::Seek)
 	{
 		FOpenMobileHapticPlaybackEvent Event;
-		Event.Handle = Handle;
 		Event.State = Transition.State;
 		Event.Evidence = Result.Implementation
 			== EOpenMobileHapticControlImplementation::Native
 				? EOpenMobileHapticEventEvidence::NativeConfirmed
 				: EOpenMobileHapticEventEvidence::SchedulerConfirmed;
 		Event.TimestampSeconds = NowSeconds;
-		Event.PatternOrEffect = Request->Effect;
-		Event.Channel = Request->Channel;
-		OnPlaybackEvent.Broadcast(Event);
-		NativePlaybackEvent.Broadcast(Event);
+		PublishPlaybackEvent(*RequestId, MoveTemp(Event));
+	}
+	else
+	{
+		LocalState.PlaybackStates.Add(Handle, Transition.State);
 	}
 	return Result;
 }
@@ -3155,6 +3310,24 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 		Diagnostics.PreparationState = GetPreparationState();
 		Diagnostics.LastResolvedPath = State->LastResolvedPath;
 		Diagnostics.LastFallbackAttempts = State->LastFallbackAttempts;
+		const int32 MaximumEvents = FMath::Clamp(
+			GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents,
+			1,
+			512
+		);
+		const int32 FirstEvent = FMath::Max(
+			0,
+			State->RecentPlaybackEvents.Num() - MaximumEvents
+		);
+		const int32 EventCount =
+			State->RecentPlaybackEvents.Num() - FirstEvent;
+		if (EventCount > 0)
+		{
+			Diagnostics.RecentPlaybackEvents.Append(
+				State->RecentPlaybackEvents.GetData() + FirstEvent,
+				EventCount
+			);
+		}
 	}
 	return Diagnostics;
 }
@@ -3190,6 +3363,403 @@ UOpenMobileHapticsSubsystem::GetOrCreateState() const
 		State.Reset(new FOpenMobileHapticsSubsystemState());
 	}
 	return *State;
+}
+
+void UOpenMobileHapticsSubsystem::PublishSubmissionEvents(
+	const FOpenMobileHapticPlaybackResult& Result,
+	const FOpenMobileHapticsTimingResolution& Timing
+)
+{
+	check(IsInGameThread());
+	if (!Result.IsAccepted() || !Result.Handle.IsValid() || bDeinitialized)
+	{
+		return;
+	}
+
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const uint64* RequestId = LocalState.RequestByHandle.Find(Result.Handle);
+	FOpenMobileHapticsSubsystemRequestState* Request = RequestId
+		? LocalState.Requests.Find(*RequestId)
+		: nullptr;
+	if (!Request)
+	{
+		return;
+	}
+	const uint64 OwnedRequestId = *RequestId;
+	Request->ResolvedPath = Result.ResolvedPath;
+	Request->FallbackAttempts = Result.FallbackAttempts;
+	const double NowSeconds = FPlatformTime::Seconds();
+	Request->SubmissionState = Result.State;
+	Request->SubmissionTimestampSeconds = NowSeconds;
+	Request->EstimatedStartTimeSeconds = NowSeconds
+		+ FMath::Max(0.0, Timing.StartDelaySeconds);
+	double MaximumPlaybackDurationSeconds = FMath::Clamp<double>(
+		GetDefault<UOpenMobileHapticsSettings>()
+			->MaximumContinuousDurationSeconds,
+		0.1,
+		300.0
+	);
+	if (FMath::IsFinite(Result.Duration.ResolvedSeconds)
+		&& Result.Duration.ResolvedSeconds > 0.0)
+	{
+		MaximumPlaybackDurationSeconds = Result.Duration.ResolvedSeconds;
+	}
+	else if (Request->PlaybackControlSupport.bHasRepeatPlan)
+	{
+		const FOpenMobileHapticsRepeatPlan& RepeatPlan =
+			Request->PlaybackControlSupport.RepeatPlan;
+		const double PlannedDurationSeconds = RepeatPlan.bRepeatUntilStopped
+			? RepeatPlan.MaximumDurationSeconds
+			: RepeatPlan.TotalDurationSeconds;
+		if (FMath::IsFinite(PlannedDurationSeconds)
+			&& PlannedDurationSeconds > 0.0)
+		{
+			MaximumPlaybackDurationSeconds = PlannedDurationSeconds;
+		}
+	}
+	MaximumPlaybackDurationSeconds = FMath::Clamp(
+		MaximumPlaybackDurationSeconds,
+		0.001,
+		300.0
+	);
+
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	AsyncTask(
+		ENamedThreads::GameThread,
+		[WeakSubsystem, OwnedRequestId]()
+		{
+			if (UOpenMobileHapticsSubsystem* Subsystem = WeakSubsystem.Get())
+			{
+				Subsystem->PublishDeferredSubmissionEvents(OwnedRequestId);
+			}
+		}
+	);
+	ScheduleEstimatedStart(OwnedRequestId, Timing.StartDelaySeconds);
+	ScheduleTerminalWatchdog(
+		OwnedRequestId,
+		Timing.StartDelaySeconds + MaximumPlaybackDurationSeconds + 1.0
+	);
+}
+
+void UOpenMobileHapticsSubsystem::PublishDeferredSubmissionEvents(
+	uint64 RequestId
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request
+		|| Request->SubmissionState
+			== EOpenMobileHapticPlaybackState::Invalid)
+	{
+		return;
+	}
+	const EOpenMobileHapticPlaybackState SubmissionState =
+		Request->SubmissionState;
+	const double SubmissionTimestampSeconds =
+		Request->SubmissionTimestampSeconds;
+	if (Request->LastPublishedState
+		== EOpenMobileHapticPlaybackState::Invalid)
+	{
+		FOpenMobileHapticPlaybackEvent Event;
+		Event.State = EOpenMobileHapticPlaybackState::Accepted;
+		Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+		Event.TimestampSeconds = SubmissionTimestampSeconds;
+		PublishPlaybackEvent(RequestId, MoveTemp(Event));
+	}
+
+	Request = State ? State->Requests.Find(RequestId) : nullptr;
+	if (Request
+		&& SubmissionState == EOpenMobileHapticPlaybackState::Scheduled
+		&& Request->LastPublishedState
+			== EOpenMobileHapticPlaybackState::Accepted)
+	{
+		FOpenMobileHapticPlaybackEvent Event;
+		Event.State = EOpenMobileHapticPlaybackState::Scheduled;
+		Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+		Event.TimestampSeconds = SubmissionTimestampSeconds;
+		PublishPlaybackEvent(RequestId, MoveTemp(Event));
+	}
+}
+
+void UOpenMobileHapticsSubsystem::ScheduleEstimatedStart(
+	uint64 RequestId,
+	double DelaySeconds
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || RequestId == 0)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		GetOrCreateState().Requests.Find(RequestId);
+	if (!Request || Request->EstimatedStartTickerHandle.IsValid())
+	{
+		return;
+	}
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	Request->EstimatedStartTickerHandle =
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda(
+				[WeakSubsystem, RequestId](float)
+				{
+					if (UOpenMobileHapticsSubsystem* Subsystem =
+						WeakSubsystem.Get())
+					{
+						Subsystem->PublishEstimatedStart(RequestId);
+					}
+					return false;
+				}
+			),
+			static_cast<float>(FMath::Clamp(DelaySeconds, 0.0, 60.0))
+		);
+}
+
+void UOpenMobileHapticsSubsystem::PublishEstimatedStart(uint64 RequestId)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request)
+	{
+		return;
+	}
+	Request->EstimatedStartTickerHandle.Reset();
+	FOpenMobileHapticPlaybackEvent Event;
+	Event.State = EOpenMobileHapticPlaybackState::Started;
+	Event.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+	Event.TimestampSeconds = Request->EstimatedStartTimeSeconds;
+	PublishPlaybackEvent(RequestId, MoveTemp(Event));
+}
+
+void UOpenMobileHapticsSubsystem::ScheduleTerminalWatchdog(
+	uint64 RequestId,
+	double DelaySeconds
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || RequestId == 0)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		GetOrCreateState().Requests.Find(RequestId);
+	if (!Request || Request->TerminalWatchdogTickerHandle.IsValid())
+	{
+		return;
+	}
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	Request->TerminalWatchdogTickerHandle =
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda(
+				[WeakSubsystem, RequestId](float)
+				{
+					if (UOpenMobileHapticsSubsystem* Subsystem =
+						WeakSubsystem.Get())
+					{
+						Subsystem->PublishTerminalTimeout(RequestId);
+					}
+					return false;
+				}
+			),
+			static_cast<float>(FMath::Clamp(DelaySeconds, 1.0, 361.0))
+		);
+}
+
+void UOpenMobileHapticsSubsystem::PublishTerminalTimeout(uint64 RequestId)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request)
+	{
+		return;
+	}
+	Request->TerminalWatchdogTickerHandle.Reset();
+	if (Request->LastPublishedState
+		== EOpenMobileHapticPlaybackState::Invalid)
+	{
+		PublishDeferredSubmissionEvents(RequestId);
+		Request = State ? State->Requests.Find(RequestId) : nullptr;
+		if (!Request)
+		{
+			return;
+		}
+	}
+	if (Request->LastPublishedState
+			== EOpenMobileHapticPlaybackState::Accepted
+		|| Request->LastPublishedState
+			== EOpenMobileHapticPlaybackState::Scheduled)
+	{
+		if (Request->EstimatedStartTickerHandle.IsValid())
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(
+				Request->EstimatedStartTickerHandle
+			);
+			Request->EstimatedStartTickerHandle.Reset();
+		}
+		FOpenMobileHapticPlaybackEvent StartEvent;
+		StartEvent.State = EOpenMobileHapticPlaybackState::Started;
+		StartEvent.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+		StartEvent.TimestampSeconds = FMath::Max(
+			Request->EstimatedStartTimeSeconds,
+			FPlatformTime::Seconds()
+		);
+		PublishPlaybackEvent(RequestId, MoveTemp(StartEvent));
+		Request = State ? State->Requests.Find(RequestId) : nullptr;
+		if (!Request)
+		{
+			return;
+		}
+	}
+	FOpenMobileHapticPlaybackEvent Event;
+	Event.State = EOpenMobileHapticPlaybackState::Failed;
+	Event.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+	Event.TimestampSeconds = FPlatformTime::Seconds();
+	PublishPlaybackEvent(RequestId, MoveTemp(Event));
+}
+
+void UOpenMobileHapticsSubsystem::PublishPlaybackEvent(
+	uint64 RequestId,
+	FOpenMobileHapticPlaybackEvent Event
+)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State || RequestId == 0)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request || !Request->Token.PlaybackHandle.IsValid())
+	{
+		return;
+	}
+	if (Event.State != EOpenMobileHapticPlaybackState::Accepted
+		&& Request->LastPublishedState
+			== EOpenMobileHapticPlaybackState::Invalid)
+	{
+		PublishDeferredSubmissionEvents(RequestId);
+		Request = State ? State->Requests.Find(RequestId) : nullptr;
+		if (!Request)
+		{
+			return;
+		}
+	}
+
+	const bool bNeedsEstimatedStart =
+		(Event.State == EOpenMobileHapticPlaybackState::Completed
+			|| Event.State == EOpenMobileHapticPlaybackState::Paused)
+		&& (Request->LastPublishedState
+				== EOpenMobileHapticPlaybackState::Accepted
+			|| Request->LastPublishedState
+				== EOpenMobileHapticPlaybackState::Scheduled);
+	if (bNeedsEstimatedStart)
+	{
+		FOpenMobileHapticPlaybackEvent StartEvent;
+		StartEvent.State = EOpenMobileHapticPlaybackState::Started;
+		StartEvent.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+		StartEvent.TimestampSeconds = Request->EstimatedStartTimeSeconds;
+		if (FMath::IsFinite(Event.TimestampSeconds)
+			&& Event.TimestampSeconds > 0.0)
+		{
+			StartEvent.TimestampSeconds = FMath::Min(
+				StartEvent.TimestampSeconds,
+				Event.TimestampSeconds
+			);
+		}
+		PublishPlaybackEvent(RequestId, MoveTemp(StartEvent));
+		Request = State ? State->Requests.Find(RequestId) : nullptr;
+		if (!Request)
+		{
+			return;
+		}
+	}
+
+	if (!OpenMobileHapticsSubsystemPrivate::CanPublishState(
+		Request->LastPublishedState,
+		Event.State
+	))
+	{
+		return;
+	}
+	Event.Handle = Request->Token.PlaybackHandle;
+	Event.PatternOrEffect = Request->Effect;
+	Event.Channel = Request->Channel;
+	Event.ResolvedPath = Request->ResolvedPath;
+	if (!OpenMobileHapticsSubsystemPrivate::IsValidEvidence(Event.Evidence))
+	{
+		Event.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+	}
+	if (Event.State == EOpenMobileHapticPlaybackState::Accepted
+		|| Event.State == EOpenMobileHapticPlaybackState::Scheduled)
+	{
+		Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+	}
+	if (!FMath::IsFinite(Event.TimestampSeconds)
+		|| Event.TimestampSeconds <= 0.0)
+	{
+		Event.TimestampSeconds = FPlatformTime::Seconds();
+	}
+	Event.TimestampSeconds = FMath::Max(
+		Request->LastEventTimestampSeconds,
+		Event.TimestampSeconds
+	);
+
+	if (Event.State == EOpenMobileHapticPlaybackState::Interrupted
+		|| Event.State == EOpenMobileHapticPlaybackState::Failed)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason =
+			Event.State == EOpenMobileHapticPlaybackState::Interrupted
+				? EOpenMobileHapticsFailureReason::Interrupted
+				: EOpenMobileHapticsFailureReason::NativeEngineFailure;
+		Context.Stage =
+			Event.State == EOpenMobileHapticPlaybackState::Interrupted
+				? EOpenMobileHapticFailureStage::Interruption
+				: EOpenMobileHapticFailureStage::Playback;
+		Context.FailedItem = Request->Effect;
+		Context.Channel = Request->Channel;
+		Context.Handle = Request->Token.PlaybackHandle;
+		Context.FallbackAttempts = Request->FallbackAttempts;
+		Context.bAfterAcceptance = true;
+		Event.Error = FOpenMobileHapticsErrorMapper::Complete(
+			MoveTemp(Event.Error),
+			Context
+		);
+		Event.Error.FailedItem = Request->Effect;
+		Event.Error.Channel = Request->Channel;
+		Event.Error.Handle = Request->Token.PlaybackHandle;
+	}
+
+	Request->LastPublishedState = Event.State;
+	Request->LastEventTimestampSeconds = Event.TimestampSeconds;
+	State->PlaybackStates.Add(Event.Handle, Event.State);
+	if (Event.Error.IsSet())
+	{
+		State->LastError = Event.Error;
+	}
+	OpenMobileHapticsSubsystemPrivate::AppendEventHistory(*State, Event);
+	if (OpenMobileHapticsSubsystemPrivate::IsTerminalState(Event.State))
+	{
+		OpenMobileHapticsSubsystemPrivate::RemoveRequest(*State, RequestId);
+	}
+
+	OnPlaybackEvent.Broadcast(Event);
+	NativePlaybackEvent.Broadcast(Event);
 }
 
 TFunction<void(const FOpenMobileHapticsBackendCallback&)>
@@ -3237,46 +3807,5 @@ void UOpenMobileHapticsSubsystem::HandleBackendCallback(
 		return;
 	}
 	Request->LastCallbackSequence = Callback.Sequence;
-
-	FOpenMobileHapticPlaybackEvent Event = Callback.Event;
-	Event.Handle = Callback.Token.PlaybackHandle;
-	if (Event.State == EOpenMobileHapticPlaybackState::Interrupted
-		|| Event.State == EOpenMobileHapticPlaybackState::Failed)
-	{
-		FOpenMobileHapticsErrorContext Context;
-		Context.Reason =
-			Event.State == EOpenMobileHapticPlaybackState::Interrupted
-				? EOpenMobileHapticsFailureReason::Interrupted
-				: EOpenMobileHapticsFailureReason::NativeEngineFailure;
-		Context.Stage =
-			Event.State == EOpenMobileHapticPlaybackState::Interrupted
-				? EOpenMobileHapticFailureStage::Interruption
-				: EOpenMobileHapticFailureStage::Playback;
-		Context.FailedItem = Event.PatternOrEffect;
-		Context.Channel = Event.Channel;
-		Context.Handle = Event.Handle;
-		Context.bAfterAcceptance = true;
-		Event.Error = FOpenMobileHapticsErrorMapper::Complete(
-			MoveTemp(Event.Error),
-			Context
-		);
-	}
-	if (Event.Handle.IsValid())
-	{
-		LocalState.PlaybackStates.Add(Event.Handle, Event.State);
-	}
-	if (Event.Error.IsSet())
-	{
-		LocalState.LastError = Event.Error;
-	}
-	if (OpenMobileHapticsSubsystemPrivate::IsTerminalState(Event.State))
-	{
-		OpenMobileHapticsSubsystemPrivate::RemoveRequest(
-			LocalState,
-			Callback.Token.RequestId
-		);
-	}
-
-	OnPlaybackEvent.Broadcast(Event);
-	NativePlaybackEvent.Broadcast(Event);
+	PublishPlaybackEvent(Callback.Token.RequestId, Callback.Event);
 }
