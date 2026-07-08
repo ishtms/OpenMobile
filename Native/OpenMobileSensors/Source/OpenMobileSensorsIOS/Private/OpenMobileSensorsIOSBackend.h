@@ -62,6 +62,11 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileHeadingSensorBatch& Batch
 	);
+	bool PublishProximityBatchFromProximityQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileProximitySensorBatch& Batch
+	);
 	bool PublishMagneticFieldAccuracyFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& Handle,

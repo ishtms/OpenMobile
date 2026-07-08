@@ -67,6 +67,9 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		Add(Availability.bAbsoluteAltitude,
 			EOpenMobileSensorType::AbsoluteAltitude,
 			TEXT("IOS-AbsoluteAltitude"));
+		Add(Availability.bProximityApiSupported,
+			EOpenMobileSensorType::Proximity,
+			TEXT("IOS-ProximityState"));
 		return Sensors;
 	}
 
@@ -360,7 +363,10 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		Capability.Availability.Name =
 			FOpenMobileSensorTypes::GetStableName(Supported.Type);
 		Capability.Availability.State = EOpenMobileCapabilityState::Available;
-		Capability.Availability.Detail = TEXT("Available from Core Motion.");
+		Capability.Availability.Detail = Supported.Type ==
+			EOpenMobileSensorType::Proximity
+			? TEXT("UIKit proximity monitoring is available; hardware is confirmed when streaming starts.")
+			: TEXT("Available from Core Motion.");
 		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
 		Capability.bSupportsNativeBatching = false;
 		Capability.BackgroundSupport =
@@ -608,6 +614,38 @@ bool FOpenMobileSensorsIOSBackend::PublishHeadingBatchFromMotionQueue(
 		Token,
 		Handle,
 		NormalizedBatch);
+}
+
+bool FOpenMobileSensorsIOSBackend::PublishProximityBatchFromProximityQueue(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileProximitySensorBatch& Batch)
+{
+	if (bShuttingDown.Load())
+	{
+		return false;
+	}
+	FOpenMobileProximitySensorBatch NormalizedBatch = Batch;
+	for (FOpenMobileProximitySensorSample& Sample : NormalizedBatch.Samples)
+	{
+		if (Sample.Header.SourceFlags == 0)
+		{
+			Sample.Header.SourceFlags =
+				FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
+					Sample.Header.Sensor.Type);
+		}
+		FOpenMobileSensorUnitConverter::NormalizeProximitySample(
+			EOpenMobileSensorNativePlatform::IOS,
+			Sample);
+	}
+	OpenMobile::DispatchToGameThread(
+		[Token, Handle, Batch = MoveTemp(NormalizedBatch)]() mutable
+		{
+			FOpenMobileSensorsSampleService::
+				PublishProximityBatchFromBackend(Token, Handle, Batch);
+		}
+	);
+	return true;
 }
 
 bool FOpenMobileSensorsIOSBackend::

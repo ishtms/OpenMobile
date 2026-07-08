@@ -649,7 +649,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			return true;
 		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::AbsoluteAltitude
-			|| LogicalSensor.Type == EOpenMobileSensorType::AmbientLight)
+			|| LogicalSensor.Type == EOpenMobileSensorType::AmbientLight
+			|| LogicalSensor.Type == EOpenMobileSensorType::Proximity)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
 				FOpenMobileSensorsCapabilityService::GetSnapshot();

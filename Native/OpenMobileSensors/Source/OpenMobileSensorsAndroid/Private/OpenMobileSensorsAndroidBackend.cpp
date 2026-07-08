@@ -1085,8 +1085,6 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 				FMath::IsFinite(Descriptor.MaximumRange)
 				&& Descriptor.MaximumRange >= 0.0;
 			Sample.MaximumRangeMeters = Descriptor.MaximumRange;
-			Sample.bNear = Sample.bHasMaximumRangeMeters
-				&& Sample.DistanceMeters < Sample.MaximumRangeMeters;
 			FOpenMobileSensorUnitConverter::NormalizeProximitySample(
 				EOpenMobileSensorNativePlatform::Android,
 				Sample

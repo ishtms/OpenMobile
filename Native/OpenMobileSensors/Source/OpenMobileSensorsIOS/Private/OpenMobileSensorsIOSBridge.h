@@ -30,6 +30,7 @@ struct FOpenMobileSensorsIOSAvailability
 	bool bRelativeAltitude = false;
 	bool bAbsoluteAltitudeApiSupported = false;
 	bool bAbsoluteAltitude = false;
+	bool bProximityApiSupported = false;
 	bool bMagneticNorthReference = false;
 };
 

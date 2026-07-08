@@ -415,10 +415,15 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 	Pressure.Sensor = MakeRequest(
 		EOpenMobileSensorType::BarometricPressure
 	).Sensor;
+	FOpenMobileSensorCapability ProximityCapability =
+		MakeAttitudeCapability();
+	ProximityCapability.Sensor =
+		MakeRequest(EOpenMobileSensorType::Proximity).Sensor;
 	Backend.SetSensorCapabilities({
 		MakeAttitudeCapability(),
 		PhysicalOrientation,
-		Pressure
+		Pressure,
+		ProximityCapability
 	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();

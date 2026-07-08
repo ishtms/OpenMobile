@@ -238,19 +238,42 @@ bool FOpenMobileSensorsProximityUnitTest::RunTest(
 	Android.DistanceMeters = 5.0;
 	Android.bHasMaximumRangeMeters = true;
 	Android.MaximumRangeMeters = 10.0;
-	FOpenMobileSensorUnitConverter::NormalizeProximitySample(
-		EOpenMobileSensorNativePlatform::Android, Android);
+	TestTrue(TEXT("Android proximity values normalize"),
+		FOpenMobileSensorUnitConverter::NormalizeProximitySample(
+			EOpenMobileSensorNativePlatform::Android, Android));
 	TestEqual(TEXT("Android proximity centimetres convert to metres"),
 		Android.DistanceMeters, 0.05);
 	TestEqual(TEXT("Android maximum range converts to metres"),
 		Android.MaximumRangeMeters, 0.1);
+	TestTrue(TEXT("Android distance below maximum range is near"),
+		Android.bNear);
+	FOpenMobileProximitySensorSample OutOfRange;
+	OutOfRange.Header = MakeHeader(EOpenMobileSensorType::Proximity);
+	OutOfRange.bHasDistanceMeters = true;
+	OutOfRange.DistanceMeters = 10.01;
+	OutOfRange.bHasMaximumRangeMeters = true;
+	OutOfRange.MaximumRangeMeters = 10.0;
+	TestFalse(TEXT("Distance beyond the native range is rejected"),
+		FOpenMobileSensorUnitConverter::NormalizeProximitySample(
+			EOpenMobileSensorNativePlatform::Android, OutOfRange));
+	TestFalse(TEXT("Rejected proximity is marked invalid"),
+		OutOfRange.Header.bValid);
 	FOpenMobileProximitySensorSample IOS;
 	IOS.Header = MakeHeader(EOpenMobileSensorType::Proximity);
 	IOS.bNear = true;
-	FOpenMobileSensorUnitConverter::NormalizeProximitySample(
-		EOpenMobileSensorNativePlatform::IOS, IOS);
+	IOS.DistanceMeters = std::numeric_limits<double>::quiet_NaN();
+	IOS.MaximumRangeMeters = 123.0;
+	TestTrue(TEXT("iOS state-only proximity normalizes"),
+		FOpenMobileSensorUnitConverter::NormalizeProximitySample(
+			EOpenMobileSensorNativePlatform::IOS, IOS));
 	TestTrue(TEXT("iOS proximity remains a near-state flag"), IOS.bNear);
 	TestFalse(TEXT("iOS does not invent a distance"), IOS.bHasDistanceMeters);
+	TestEqual(TEXT("Missing iOS distance is canonical"),
+		IOS.DistanceMeters, 0.0);
+	TestFalse(TEXT("iOS does not invent a maximum range"),
+		IOS.bHasMaximumRangeMeters);
+	TestEqual(TEXT("Missing iOS maximum range is canonical"),
+		IOS.MaximumRangeMeters, 0.0);
 	return true;
 }
 

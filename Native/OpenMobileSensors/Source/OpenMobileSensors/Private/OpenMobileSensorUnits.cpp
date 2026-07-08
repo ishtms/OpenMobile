@@ -331,12 +331,28 @@ bool FOpenMobileSensorUnitConverter::NormalizeProximitySample(
 			Sample.DistanceMeters *= CentimetersToMeters;
 		}
 	}
+	else
+	{
+		Sample.DistanceMeters = 0.0;
+	}
 	if (Sample.bHasMaximumRangeMeters)
 	{
 		bValid &= IsFiniteNonnegative(Sample.MaximumRangeMeters);
 		if (Platform == EOpenMobileSensorNativePlatform::Android)
 		{
 			Sample.MaximumRangeMeters *= CentimetersToMeters;
+		}
+	}
+	else
+	{
+		Sample.MaximumRangeMeters = 0.0;
+	}
+	if (Sample.bHasDistanceMeters && Sample.bHasMaximumRangeMeters)
+	{
+		bValid &= Sample.DistanceMeters <= Sample.MaximumRangeMeters;
+		if (Platform == EOpenMobileSensorNativePlatform::Android)
+		{
+			Sample.bNear = Sample.DistanceMeters < Sample.MaximumRangeMeters;
 		}
 	}
 	MarkNormalized(Sample.Header, bValid);

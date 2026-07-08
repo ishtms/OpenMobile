@@ -3,7 +3,9 @@
 #import <CoreMotion/CoreMotion.h>
 #import <UIKit/UIKit.h>
 
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileProximityMonitoringPolicy.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsIOSBackend.h"
@@ -20,8 +22,22 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		Magnetometer,
 		DeviceMotion,
 		RelativeAltitude,
-		AbsoluteAltitude
+		AbsoluteAltitude,
+		Proximity
 	};
+
+	template <typename CallableType>
+	void RunOnMainQueue(CallableType&& Callable)
+	{
+		if ([NSThread isMainThread])
+		{
+			Callable();
+			return;
+		}
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			Callable();
+		});
+	}
 
 	FString FromNSString(NSString* Value)
 	{
@@ -69,6 +85,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			return EService::RelativeAltitude;
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return EService::AbsoluteAltitude;
+		case EOpenMobileSensorType::Proximity:
+			return EService::Proximity;
 		default:
 			return EService::Unknown;
 		}
@@ -125,6 +143,7 @@ namespace OpenMobileSensorsIOSBridgePrivate
 	)
 	{
 		FOpenMobileSensorsIOSAvailability Availability;
+		Availability.bProximityApiSupported = true;
 		if (@available(iOS 15.0, *))
 		{
 			Availability.bAbsoluteAltitudeApiSupported = true;
@@ -187,6 +206,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			return Availability.bRelativeAltitude;
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return Availability.bAbsoluteAltitude;
+		case EOpenMobileSensorType::Proximity:
+			return Availability.bProximityApiSupported;
 		default:
 			return false;
 		}
@@ -217,16 +238,24 @@ public:
 			OpenMobileSensorsIOSBridgePrivate::AvailabilityForManager(
 				MotionManager
 			);
+		LifecycleQueue =
+			OpenMobileSensorsIOSBridgePrivate::MakeSerialQueue(
+				@"OpenMobileSensorsLifecycleQueue"
+			);
 		bApplicationActive = [UIApplication sharedApplication].applicationState
 			== UIApplicationStateActive;
 		FImpl* Self = this;
+		NSOperationQueue* Queue = LifecycleQueue;
 		WillResignObserver = [[NSNotificationCenter defaultCenter]
 			addObserverForName:UIApplicationWillResignActiveNotification
 			object:nil
 			queue:nil
 			usingBlock:^(NSNotification*)
 			{
-				Self->SetApplicationActive(false);
+				[Queue addOperationWithBlock:^
+				{
+					Self->SetApplicationActive(false);
+				}];
 			}];
 		DidBecomeActiveObserver = [[NSNotificationCenter defaultCenter]
 			addObserverForName:UIApplicationDidBecomeActiveNotification
@@ -234,7 +263,10 @@ public:
 			queue:nil
 			usingBlock:^(NSNotification*)
 			{
-				Self->SetApplicationActive(true);
+				[Queue addOperationWithBlock:^
+				{
+					Self->SetApplicationActive(true);
+				}];
 			}];
 	}
 
@@ -263,7 +295,8 @@ public:
 		{
 			return {EOpenMobileSensorsIOSBridgeFailure::InvalidArgument};
 		}
-		if (!HasMotionUsageDescription())
+		if (Request.Sensor.Type != EOpenMobileSensorType::Proximity
+			&& !HasMotionUsageDescription())
 		{
 			return {
 				EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription
@@ -353,6 +386,14 @@ public:
 		const FOpenMobileSensorPhysicalStreamRequest Previous = Active->Request;
 		Active->Request = Request;
 		const EService Service = ServiceForType(Request.Sensor.Type);
+		if (Service == EService::Proximity)
+		{
+			Active->bResetNextSample = true;
+			Active->RegistrationGeneration = ProximityGeneration;
+			FOpenMobileSensorsIOSBridgeResult Result;
+			Result.AppliedFrequencyHz = Request.RequestedFrequencyHz;
+			return Result;
+		}
 		FOpenMobileSensorsIOSBridgeResult Result =
 			RestartServiceLocked(Service);
 		if (!Result.IsSuccess())
@@ -391,31 +432,44 @@ public:
 				return;
 			}
 			bShuttingDown = true;
+			LocalWillResignObserver = WillResignObserver;
+			LocalDidBecomeActiveObserver = DidBecomeActiveObserver;
+			WillResignObserver = nil;
+			DidBecomeActiveObserver = nil;
+		}
+		OpenMobileSensorsIOSBridgePrivate::RunOnMainQueue(
+			[LocalWillResignObserver, LocalDidBecomeActiveObserver]()
+			{
+				if (LocalWillResignObserver)
+				{
+					[[NSNotificationCenter defaultCenter]
+						removeObserver:LocalWillResignObserver];
+				}
+				if (LocalDidBecomeActiveObserver)
+				{
+					[[NSNotificationCenter defaultCenter]
+						removeObserver:LocalDidBecomeActiveObserver];
+				}
+			}
+		);
+		{
+			FScopeLock Lock(&Mutex);
 			bApplicationActive = false;
 			StopAllServicesLocked();
 			ActiveStreams.Reset();
+			ApplyProximityMonitoringActionLocked(
+				ProximityMonitoringPolicy.Shutdown()
+			);
 			Queues = {
 				AccelerometerQueue,
 				GyroscopeQueue,
 				MagnetometerQueue,
 				DeviceMotionQueue,
 				AltimeterQueue,
-				AbsoluteAltitudeQueue
+				AbsoluteAltitudeQueue,
+				ProximityQueue,
+				LifecycleQueue
 			};
-			LocalWillResignObserver = WillResignObserver;
-			LocalDidBecomeActiveObserver = DidBecomeActiveObserver;
-			WillResignObserver = nil;
-			DidBecomeActiveObserver = nil;
-		}
-		if (LocalWillResignObserver)
-		{
-			[[NSNotificationCenter defaultCenter]
-				removeObserver:LocalWillResignObserver];
-		}
-		if (LocalDidBecomeActiveObserver)
-		{
-			[[NSNotificationCenter defaultCenter]
-				removeObserver:LocalDidBecomeActiveObserver];
 		}
 		for (NSOperationQueue* Queue : Queues)
 		{
@@ -433,6 +487,8 @@ public:
 		DeviceMotionQueue = nil;
 		AltimeterQueue = nil;
 		AbsoluteAltitudeQueue = nil;
+		ProximityQueue = nil;
+		LifecycleQueue = nil;
 	}
 
 private:
@@ -460,7 +516,8 @@ private:
 	{
 		for (const TPair<FGuid, FActiveStream>& Pair : ActiveStreams)
 		{
-			if (Pair.Value.Request.Sensor == Request.Sensor)
+			if (Pair.Value.Request.Sensor == Request.Sensor
+				&& Request.Sensor.Type != EOpenMobileSensorType::Proximity)
 			{
 				return true;
 			}
@@ -563,6 +620,22 @@ private:
 		return false;
 	}
 
+	int32 CountServiceStreamsLocked(
+		OpenMobileSensorsIOSBridgePrivate::EService Service
+	) const
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		int32 Count = 0;
+		for (const TPair<FGuid, FActiveStream>& Pair : ActiveStreams)
+		{
+			if (ServiceForType(Pair.Value.Request.Sensor.Type) == Service)
+			{
+				++Count;
+			}
+		}
+		return Count;
+	}
+
 	double ResolveIntervalLocked(
 		OpenMobileSensorsIOSBridgePrivate::EService Service
 	) const
@@ -598,11 +671,242 @@ private:
 		}
 	}
 
+	bool ReadProximityMonitoringEnabledLocked() const
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		bool bEnabled = false;
+		RunOnMainQueue([&bEnabled]()
+		{
+			bEnabled = [UIDevice currentDevice].proximityMonitoringEnabled;
+		});
+		return bEnabled;
+	}
+
+	bool ApplyProximityMonitoringActionLocked(
+		const FOpenMobileProximityMonitoringAction& Action
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		bool bEnabled = false;
+		RunOnMainQueue([&Action, &bEnabled]()
+		{
+			UIDevice* Device = [UIDevice currentDevice];
+			if (Action.bShouldSetMonitoringEnabled)
+			{
+				Device.proximityMonitoringEnabled =
+					Action.bMonitoringEnabled;
+			}
+			bEnabled = Device.proximityMonitoringEnabled;
+		});
+		ProximityMonitoringPolicy.ObserveMonitoringEnabled(bEnabled);
+		return bEnabled;
+	}
+
+	void SetProximityObserverLocked(bool bEnabled)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		if (bEnabled && !ProximityObserver)
+		{
+			ProximityQueue = ProximityQueue
+				? ProximityQueue
+				: MakeSerialQueue(@"OpenMobileSensorsProximityQueue");
+			const uint64 Generation = ProximityGeneration;
+			FImpl* Self = this;
+			NSOperationQueue* Queue = ProximityQueue;
+			RunOnMainQueue([this, Self, Queue, Generation]()
+			{
+				ProximityObserver = [[NSNotificationCenter defaultCenter]
+					addObserverForName:
+						UIDeviceProximityStateDidChangeNotification
+					object:[UIDevice currentDevice]
+					queue:[NSOperationQueue mainQueue]
+					usingBlock:^(NSNotification*)
+					{
+						const bool bNear =
+							[UIDevice currentDevice].proximityState;
+						const double TimestampSeconds =
+							FPlatformTime::Seconds();
+						[Queue addOperationWithBlock:^
+						{
+							Self->HandleProximityStateChange(
+								Generation,
+								bNear,
+								TimestampSeconds
+							);
+						}];
+					}];
+			});
+			return;
+		}
+		if (!bEnabled && ProximityObserver)
+		{
+			id Observer = ProximityObserver;
+			ProximityObserver = nil;
+			RunOnMainQueue([Observer]()
+			{
+				[[NSNotificationCenter defaultCenter]
+					removeObserver:Observer];
+			});
+			[ProximityQueue cancelAllOperations];
+		}
+	}
+
+	void PublishProximityState(
+		const FActiveStream& Active,
+		bool bNear,
+		double TimestampSeconds
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		FOpenMobileProximitySensorSample Sample;
+		Sample.Header = MakeHeader(
+			Active.Request.Sensor,
+			TimestampSeconds,
+			Active.bResetNextSample
+		);
+		Sample.bNear = bNear;
+		FOpenMobileProximitySensorBatch Batch;
+		Batch.Samples.Reserve(MaximumCallbackBatchSamples);
+		Batch.Samples.Add(MoveTemp(Sample));
+		Backend.PublishProximityBatchFromProximityQueue(
+			Active.Token,
+			Active.Handle,
+			Batch
+		);
+	}
+
+	void HandleProximityStateChange(
+		uint64 Generation,
+		bool bNear,
+		double TimestampSeconds
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		const TArray<FActiveStream> Streams =
+			TakeStreamsForCallback(EService::Proximity, Generation);
+		for (const FActiveStream& Active : Streams)
+		{
+			PublishProximityState(Active, bNear, TimestampSeconds);
+		}
+	}
+
+	void ScheduleInitialProximitySamplesLocked()
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		TArray<FActiveStream> Pending;
+		for (TPair<FGuid, FActiveStream>& Pair : ActiveStreams)
+		{
+			FActiveStream& Active = Pair.Value;
+			if (ServiceForType(Active.Request.Sensor.Type) != EService::Proximity
+				|| Active.RegistrationGeneration == ProximityGeneration)
+			{
+				continue;
+			}
+			Active.RegistrationGeneration = ProximityGeneration;
+			Active.bResetNextSample = true;
+			Pending.Add(Active);
+			Active.bResetNextSample = false;
+		}
+		if (Pending.IsEmpty())
+		{
+			return;
+		}
+		bool bNear = false;
+		RunOnMainQueue([&bNear]()
+		{
+			bNear = [UIDevice currentDevice].proximityState;
+		});
+		const double TimestampSeconds = FPlatformTime::Seconds();
+		FImpl* Self = this;
+		[ProximityQueue addOperationWithBlock:^
+		{
+			for (const FActiveStream& Active : Pending)
+			{
+				Self->PublishProximityState(
+					Active,
+					bNear,
+					TimestampSeconds
+				);
+			}
+		}];
+	}
+
+	FOpenMobileSensorsIOSBridgeResult ReconcileProximityServiceLocked()
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		const int32 DesiredLeaseCount =
+			CountServiceStreamsLocked(EService::Proximity);
+		const bool bShouldRun = DesiredLeaseCount > 0
+			&& bApplicationActive
+			&& !bShuttingDown;
+		if (!bShouldRun && bProximityServiceActive)
+		{
+			++ProximityGeneration;
+			SetProximityObserverLocked(false);
+			bProximityServiceActive = false;
+		}
+		while (ProximityMonitoringPolicy.GetLeaseCount() < DesiredLeaseCount)
+		{
+			const bool bCurrentEnabled =
+				ReadProximityMonitoringEnabledLocked();
+			ApplyProximityMonitoringActionLocked(
+				ProximityMonitoringPolicy.Acquire(
+					bCurrentEnabled,
+					bApplicationActive
+				)
+			);
+		}
+		while (ProximityMonitoringPolicy.GetLeaseCount() > DesiredLeaseCount)
+		{
+			ApplyProximityMonitoringActionLocked(
+				ProximityMonitoringPolicy.Release()
+			);
+		}
+		const bool bMonitoringEnabled =
+			ApplyProximityMonitoringActionLocked(
+				ProximityMonitoringPolicy.SetApplicationActive(
+					bApplicationActive
+				)
+			);
+		if (!bShouldRun)
+		{
+			return {};
+		}
+		if (!bMonitoringEnabled)
+		{
+			return {
+				EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable
+			};
+		}
+		if (!bProximityServiceActive)
+		{
+			++ProximityGeneration;
+			for (TPair<FGuid, FActiveStream>& Pair : ActiveStreams)
+			{
+				if (ServiceForType(Pair.Value.Request.Sensor.Type) ==
+					EService::Proximity)
+				{
+					Pair.Value.RegistrationGeneration = 0;
+				}
+			}
+			SetProximityObserverLocked(true);
+			bProximityServiceActive = true;
+		}
+		ScheduleInitialProximitySamplesLocked();
+		return SuccessWithAppliedInterval(
+			ResolveIntervalLocked(EService::Proximity)
+		);
+	}
+
 	FOpenMobileSensorsIOSBridgeResult RestartServiceLocked(
 		OpenMobileSensorsIOSBridgePrivate::EService Service
 	)
 	{
 		using namespace OpenMobileSensorsIOSBridgePrivate;
+		if (Service == EService::Proximity)
+		{
+			return ReconcileProximityServiceLocked();
+		}
 		StopServiceLocked(Service);
 		if (!HasServiceStreamsLocked(Service)
 			|| !bApplicationActive
@@ -785,6 +1089,14 @@ private:
 			}
 			[AbsoluteAltitudeQueue cancelAllOperations];
 			break;
+		case EService::Proximity:
+			++ProximityGeneration;
+			SetProximityObserverLocked(false);
+			bProximityServiceActive = false;
+			ApplyProximityMonitoringActionLocked(
+				ProximityMonitoringPolicy.SetApplicationActive(false)
+			);
+			break;
 		case EService::Unknown:
 		default:
 			break;
@@ -800,6 +1112,7 @@ private:
 		StopServiceLocked(EService::DeviceMotion);
 		StopServiceLocked(EService::RelativeAltitude);
 		StopServiceLocked(EService::AbsoluteAltitude);
+		StopServiceLocked(EService::Proximity);
 	}
 
 	void RestartAllServicesLocked()
@@ -811,6 +1124,7 @@ private:
 		RestartServiceLocked(EService::DeviceMotion);
 		RestartServiceLocked(EService::RelativeAltitude);
 		RestartServiceLocked(EService::AbsoluteAltitude);
+		RestartServiceLocked(EService::Proximity);
 	}
 
 	void SetApplicationActive(bool bActive)
@@ -885,6 +1199,8 @@ private:
 			return AltimeterGeneration;
 		case EService::AbsoluteAltitude:
 			return AbsoluteAltitudeGeneration;
+		case EService::Proximity:
+			return ProximityGeneration;
 		case EService::Unknown:
 		default:
 			return 0;
@@ -1337,15 +1653,21 @@ private:
 	__strong NSOperationQueue* DeviceMotionQueue = nil;
 	__strong NSOperationQueue* AltimeterQueue = nil;
 	__strong NSOperationQueue* AbsoluteAltitudeQueue = nil;
+	__strong NSOperationQueue* ProximityQueue = nil;
+	__strong NSOperationQueue* LifecycleQueue = nil;
 	__strong id WillResignObserver = nil;
 	__strong id DidBecomeActiveObserver = nil;
+	__strong id ProximityObserver = nil;
+	FOpenMobileProximityMonitoringPolicy ProximityMonitoringPolicy;
 	uint64 AccelerometerGeneration = 0;
 	uint64 GyroscopeGeneration = 0;
 	uint64 MagnetometerGeneration = 0;
 	uint64 DeviceMotionGeneration = 0;
 	uint64 AltimeterGeneration = 0;
 	uint64 AbsoluteAltitudeGeneration = 0;
+	uint64 ProximityGeneration = 0;
 	bool bApplicationActive = false;
+	bool bProximityServiceActive = false;
 	bool bShuttingDown = false;
 };
 
