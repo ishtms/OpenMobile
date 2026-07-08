@@ -77,6 +77,36 @@ public:
 		int32 Purpose,
 		FOpenMobileHapticsAndroidScheduledPlayback Scheduled = {}
 	);
+	int32 PlayControlledWaveform(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		uint64 PreparedResourceId,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int32 Purpose,
+		int64 CompletionDurationMilliseconds,
+		FOpenMobileHapticsAndroidScheduledPlayback Scheduled
+	);
+	int32 PauseControlledWaveform(uint64 RequestId, uint64 Revision);
+	int32 ResumeControlledWaveform(
+		uint64 RequestId,
+		uint64 Revision,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int32 Purpose,
+		int64 CompletionDurationMilliseconds
+	);
+	int32 SeekControlledWaveform(
+		uint64 RequestId,
+		uint64 Revision,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int32 Purpose,
+		int64 CompletionDurationMilliseconds
+	);
+	bool StopControlledWaveform(uint64 RequestId);
 	int32 PrepareWaveform(
 		uint64 ResourceId,
 		const TArray<int64>& TimingsMilliseconds,
@@ -114,6 +144,11 @@ public:
 	void Shutdown();
 	bool HandleCanStart(uint64 RequestId) const;
 	void HandleBridgeResult(uint64 RequestId, int32 Result);
+	void HandleControlledWaveformEvent(
+		uint64 RequestId,
+		uint64 ControlRevision,
+		int32 Event
+	);
 
 private:
 	struct FPendingCallback
@@ -127,6 +162,8 @@ private:
 		FName Channel;
 		FName ResolvedPath;
 		FOpenMobileHapticsBackendEventCallback Callback;
+		uint64 LastControlRevision = 0;
+		bool bControlledWaveform = false;
 	};
 
 	bool EnsureInitialized(JNIEnv* Env);
@@ -136,6 +173,16 @@ private:
 		int32 Result,
 		FOpenMobileHapticsAndroidScheduledPlayback&& Scheduled
 	);
+	int32 UpdateControlledWaveform(
+		jmethodID Method,
+		uint64 RequestId,
+		uint64 Revision,
+		const TArray<int64>& TimingsMilliseconds,
+		const TArray<int32>& Amplitudes,
+		int32 RepeatIndex,
+		int32 Purpose,
+		int64 CompletionDurationMilliseconds
+	);
 
 	mutable FCriticalSection Mutex;
 	jclass BridgeClass = nullptr;
@@ -144,6 +191,11 @@ private:
 	jmethodID PlayOneShotMethod = nullptr;
 	jmethodID PrepareWaveformMethod = nullptr;
 	jmethodID PlayWaveformMethod = nullptr;
+	jmethodID PlayControlledWaveformMethod = nullptr;
+	jmethodID PauseControlledWaveformMethod = nullptr;
+	jmethodID ResumeControlledWaveformMethod = nullptr;
+	jmethodID SeekControlledWaveformMethod = nullptr;
+	jmethodID StopControlledWaveformMethod = nullptr;
 	jmethodID PlayPredefinedMethod = nullptr;
 	jmethodID PlayPrimitivesMethod = nullptr;
 	jmethodID PlayEnvelopeMethod = nullptr;

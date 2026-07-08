@@ -223,6 +223,15 @@ enum class EOpenMobileHapticControlOutcome : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticControlImplementation : uint8
+{
+	None,
+	Native,
+	Emulated,
+	Unsupported
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticEventEvidence : uint8
 {
 	Estimated,
@@ -1060,6 +1069,32 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticControlOutcome Outcome =
 		EOpenMobileHapticControlOutcome::Rejected;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticControlImplementation Implementation =
+		EOpenMobileHapticControlImplementation::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticPlaybackState State =
+		EOpenMobileHapticPlaybackState::Invalid;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double RequestedPositionSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double ResolvedPositionSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double PositionGranularitySeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 CompletedRepeatCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 ControlRevision = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bQuantized = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticError Error;

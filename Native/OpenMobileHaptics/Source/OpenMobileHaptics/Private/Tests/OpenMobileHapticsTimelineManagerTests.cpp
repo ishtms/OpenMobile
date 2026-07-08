@@ -105,6 +105,11 @@ bool FOpenMobileHapticsTimelineRoutingAndCacheTest::RunTest(
 		TestEqual(TEXT("Silence remains an explicit segment"),
 			First.Timeline->Android.TimingsMilliseconds,
 			TArray<int64>({30, 1, 10}));
+		TestTrue(TEXT("Portable timelines retain their control plan"),
+			First.Timeline->bHasRepeatPlan);
+		TestTrue(TEXT("Android retains one control compilation"),
+			First.Timeline->AndroidControlBase.Outcome
+				== EOpenMobileHapticsAndroidWaveformOutcome::Ready);
 	}
 
 	const FOpenMobileHapticsTimelineLookup Second = Manager.Resolve(
@@ -119,6 +124,28 @@ bool FOpenMobileHapticsTimelineRoutingAndCacheTest::RunTest(
 	TestTrue(TEXT("Identical translation is a cache hit"), Second.bCacheHit);
 	TestTrue(TEXT("Cache hit reuses the immutable timeline"),
 		First.Timeline == Second.Timeline);
+
+	FOpenMobileHapticLoopOptions FiniteLoop;
+	FiniteLoop.bLoop = true;
+	FiniteLoop.RepeatCount = 2;
+	FiniteLoop.RepeatStartTimeSeconds = 0.03;
+	FiniteLoop.MaximumDurationSeconds = 1.0;
+	const FOpenMobileHapticsTimelineLookup Looped = Manager.Resolve(
+		TEXT("Android"),
+		*Pattern,
+		FiniteLoop,
+		AndroidCapabilities(),
+		1.0f,
+		EOpenMobileHapticFallbackPolicy::Automatic,
+		7
+	);
+	TestTrue(TEXT("Finite repeat plan remains available to controls"),
+		Looped.Timeline && Looped.Timeline->bHasRepeatPlan
+		&& Looped.Timeline->RepeatPlan.RepeatCount == 2);
+	TestTrue(TEXT("Control base does not duplicate finite repeats"),
+		Looped.Timeline
+		&& Looped.Timeline->AndroidControlBase.TimingsMilliseconds.Num()
+			< Looped.Timeline->Android.TimingsMilliseconds.Num());
 
 	FOpenMobileHapticCapabilities UnsupportedApple = AppleCapabilities();
 	UnsupportedApple.RichHaptics = EOpenMobileHapticSupportState::Unsupported;

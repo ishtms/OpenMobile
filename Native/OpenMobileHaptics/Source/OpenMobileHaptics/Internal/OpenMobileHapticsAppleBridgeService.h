@@ -188,6 +188,16 @@ public:
 	virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 		uint64 RequestId
 	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult PausePattern(
+		uint64 RequestId
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult ResumePattern(
+		uint64 RequestId
+	) = 0;
+	virtual EOpenMobileHapticsAppleSubmissionResult SeekPattern(
+		uint64 RequestId,
+		double PositionSeconds
+	) = 0;
 	virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
 		uint64 RequestId,
 		const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -289,6 +299,12 @@ public:
 		FOpenMobileHapticsApplePlaybackEventCallback Callback
 	);
 	EOpenMobileHapticsAppleSubmissionResult StopPattern(uint64 RequestId);
+	EOpenMobileHapticsAppleSubmissionResult PausePattern(uint64 RequestId);
+	EOpenMobileHapticsAppleSubmissionResult ResumePattern(uint64 RequestId);
+	EOpenMobileHapticsAppleSubmissionResult SeekPattern(
+		uint64 RequestId,
+		double PositionSeconds
+	);
 	EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
 		uint64 RequestId,
 		const FOpenMobileHapticDynamicParameterUpdate& Update

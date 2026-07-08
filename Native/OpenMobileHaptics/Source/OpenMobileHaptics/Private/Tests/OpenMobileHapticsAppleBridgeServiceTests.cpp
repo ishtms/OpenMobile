@@ -226,6 +226,35 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return StopResult;
 		}
 
+		virtual EOpenMobileHapticsAppleSubmissionResult PausePattern(
+			uint64 RequestId
+		) override
+		{
+			++PauseCount;
+			LastRequestId = RequestId;
+			return PauseResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult ResumePattern(
+			uint64 RequestId
+		) override
+		{
+			++ResumeCount;
+			LastRequestId = RequestId;
+			return ResumeResult;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult SeekPattern(
+			uint64 RequestId,
+			double PositionSeconds
+		) override
+		{
+			++SeekCount;
+			LastRequestId = RequestId;
+			LastSeekPositionSeconds = PositionSeconds;
+			return SeekResult;
+		}
+
 		virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
 			uint64 RequestId,
 			const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -284,6 +313,12 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult UpdateResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult PauseResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult ResumeResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
+		EOpenMobileHapticsAppleSubmissionResult SeekResult =
+			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult PrepareSemanticResult =
 			EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		EOpenMobileHapticsAppleSubmissionResult PreparePatternResult =
@@ -296,6 +331,9 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		int32 AHAPSubmissionCount = 0;
 		int32 StopCount = 0;
 		int32 UpdateCount = 0;
+		int32 PauseCount = 0;
+		int32 ResumeCount = 0;
+		int32 SeekCount = 0;
 		int32 PrepareSemanticCount = 0;
 		int32 PrepareTransientCount = 0;
 		int32 PrepareContinuousCount = 0;
@@ -305,6 +343,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 		uint64 LastPlaybackResourceId = 0;
 		int64 LastEstimatedBytes = 0;
 		double LastIdleLifetimeSeconds = 0.0;
+		double LastSeekPositionSeconds = 0.0;
 		FOpenMobileHapticsPreparedResourceLimits LastLimits;
 		FOpenMobileHapticsAppleTransientPattern LastTransientPattern;
 		FOpenMobileHapticsAppleContinuousPattern LastContinuousPattern;
@@ -771,6 +810,48 @@ bool FOpenMobileHapticsAppleContinuousBridgeTest::RunTest(
 		ResetCount, 1);
 	TestTrue(TEXT("Engine reset notification reaches the game thread"),
 		bResetWasOnGameThread);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsApplePlaybackControlBridgeTest,
+	"OpenMobile.Haptics.Apple.Bridge.PlaybackControls",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsApplePlaybackControlBridgeTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsAppleBridgeServiceTests;
+	TUniquePtr<FMockAppleBridge> Bridge = MakeUnique<FMockAppleBridge>();
+	FMockAppleBridge* Mock = Bridge.Get();
+	FOpenMobileHapticsAppleBridgeService Service(MoveTemp(Bridge));
+
+	TestEqual(TEXT("Pause reaches the request-owned advanced player"),
+		Service.PausePattern(101),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Pause preserves request identity"),
+		Mock->LastRequestId, static_cast<uint64>(101));
+	TestEqual(TEXT("Pause crosses the bridge once"), Mock->PauseCount, 1);
+
+	TestEqual(TEXT("Resume reaches the same request-owned player"),
+		Service.ResumePattern(101),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Resume crosses the bridge once"), Mock->ResumeCount, 1);
+
+	TestEqual(TEXT("Seek reaches the same request-owned player"),
+		Service.SeekPattern(101, 0.375),
+		EOpenMobileHapticsAppleSubmissionResult::Accepted);
+	TestEqual(TEXT("Seek preserves the native offset"),
+		Mock->LastSeekPositionSeconds, 0.375);
+	TestEqual(TEXT("Seek crosses the bridge once"), Mock->SeekCount, 1);
+
+	Mock->PauseResult = EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	TestEqual(TEXT("Stale advanced players remain distinguishable"),
+		Service.PausePattern(102),
+		EOpenMobileHapticsAppleSubmissionResult::StaleRequest);
 	return true;
 }
 

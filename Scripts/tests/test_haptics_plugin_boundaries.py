@@ -828,6 +828,75 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			backend,
 		)
 
+	def test_android_portable_controls_are_request_owned_and_emulated(self) -> None:
+		bridge = load_android_bridge()
+		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
+		native_bridge = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBridge.cpp"
+		).read_text(encoding="utf-8")
+		backend = (
+			android_root / "Private" / "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"ControlledWaveform",
+			"CONTROLLED_WAVEFORM_LOCK",
+			"playControlledWaveform",
+			"pauseControlledWaveform",
+			"resumeControlledWaveform",
+			"seekControlledWaveform",
+			"stopControlledWaveform",
+			"nativeOnControlledWaveformEvent",
+			"controlRevision",
+			"completionRunnable",
+			"SystemClock.uptimeMillis()",
+			"nativeCanStart(requestId)",
+			):
+				self.assertIn(token, bridge)
+		self.assertNotIn("Thread.sleep", bridge)
+		controlled_event_dispatch = bridge.split(
+			"private static void emitControlledWaveformEvent(", 1
+		)[1].split("private static void removeControlledCallbacks", 1)[0]
+		self.assertIn("SCHEDULED_HANDLER.post", controlled_event_dispatch)
+		controlled_play = bridge.split(
+			"static int playControlledWaveform(", 1
+		)[1].split("static int pauseControlledWaveform(", 1)[0]
+		self.assertIn("preparedResourceId", controlled_play)
+		controlled_start = bridge.split(
+			"private static int startControlledOutputLocked(", 1
+		)[1].split("static int playControlledWaveform(", 1)[0]
+		self.assertIn(
+			"PREPARED_WAVEFORMS.get(preparedResourceId)",
+			controlled_start,
+		)
+		controlled_seek = bridge.split(
+			"static int seekControlledWaveform(", 1
+		)[1].split("static boolean stopControlledWaveform(", 1)[0]
+		seek_restart_failure = controlled_seek.split(
+			"if (result != RESULT_ACCEPTED", 1
+		)[1].split("return result;", 1)[0]
+		self.assertIn("CONTROLLED_EVENT_FAILED", seek_restart_failure)
+
+		for token in (
+			"PlayControlledWaveformMethod",
+			"PauseControlledWaveformMethod",
+			"ResumeControlledWaveformMethod",
+			"SeekControlledWaveformMethod",
+			"StopControlledWaveformMethod",
+			"HandleControlledWaveformEvent",
+		):
+			self.assertIn(token, native_bridge)
+		for token in (
+			"FOpenMobileHapticsAndroidPlaybackControlPolicy::Resolve",
+			"EOpenMobileHapticControlImplementation::Emulated",
+			"Support.bPause = IsCustomPlaybackConfigured()",
+			"Support.bResume = IsCustomPlaybackConfigured()",
+			"Support.bSeek = IsCustomPlaybackConfigured()",
+			"PausePlayback(",
+			"ResumePlayback(",
+			"SeekPlayback(",
+		):
+			self.assertIn(token, backend)
+
 	def test_apple_scheduled_playback_revalidates_on_native_scheduler(self) -> None:
 		bridge = load_ios_bridge()
 		backend = (
@@ -894,6 +963,74 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"Scheduled Apple playback requires an AHAP platform override.",
 			backend,
 		)
+
+	def test_apple_playback_controls_require_advanced_players(self) -> None:
+		bridge = load_ios_bridge()
+		backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		for token in (
+			"pausePattern:",
+			"resumePattern:",
+			"seekPattern:",
+			"pauseAtTime:CHHapticTimeImmediate",
+			"resumeAtTime:CHHapticTimeImmediate",
+			"seekToOffset:PositionSeconds",
+			"PausedSafetyRemainingByRequest",
+			"SafetyDeadlineByRequest",
+		):
+			self.assertIn(token, bridge)
+
+		pause_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)pausePattern:(uint64)RequestId\n{",
+			1,
+		)[1].split("\n}\n", 1)[0]
+		self.assertLess(
+			pause_pattern.index("AsAdvancedPlayer"),
+			pause_pattern.index("pauseAtTime:CHHapticTimeImmediate"),
+		)
+		self.assertIn("pauseSafetyTimerForKey", pause_pattern)
+
+		resume_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)resumePattern:(uint64)RequestId\n{",
+			1,
+		)[1].split("\n}\n", 1)[0]
+		self.assertLess(
+			resume_pattern.index("AsAdvancedPlayer"),
+			resume_pattern.index("resumeAtTime:CHHapticTimeImmediate"),
+		)
+		self.assertIn("resumeSafetyTimerForKey", resume_pattern)
+
+		seek_pattern = bridge.split(
+			"- (EOpenMobileHapticsAppleSubmissionResult)seekPattern:\n"
+			"\t(uint64)RequestId\n"
+			"\tpositionSeconds:(double)PositionSeconds\n{",
+			1,
+		)[1].split("\n}\n", 1)[0]
+		self.assertIn("FMath::IsFinite(PositionSeconds)", seek_pattern)
+		self.assertLess(
+			seek_pattern.index("AsAdvancedPlayer"),
+			seek_pattern.index("seekToOffset:PositionSeconds"),
+		)
+		for token in (
+			"Support.bPause = bCoreHapticsEnabled",
+			"Support.bResume = bCoreHapticsEnabled",
+			"Support.bSeek = bCoreHapticsEnabled",
+			"Capabilities.Pause = bCoreHapticsEnabled",
+			"Capabilities.Resume = bCoreHapticsEnabled",
+			"Capabilities.Seek = bCoreHapticsEnabled",
+			"MakeNativePlaybackControlSupport",
+			"PausePlayback(",
+			"ResumePlayback(",
+			"SeekPlayback(",
+		):
+			self.assertIn(token, backend)
+		self.assertIn("AHAP.Pattern.bRequiresAdvancedPlayer", backend)
+		self.assertIn("EOpenMobileHapticControlImplementation::Native", backend)
 
 	def test_android_bridge_is_versioned_and_lifecycle_safe(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"

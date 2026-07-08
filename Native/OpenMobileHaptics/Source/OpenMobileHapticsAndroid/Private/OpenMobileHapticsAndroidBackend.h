@@ -4,6 +4,36 @@
 #include "OpenMobileHapticsAndroidBridge.h"
 #include "OpenMobileHapticsPlatformBackend.h"
 
+struct FOpenMobileHapticsPortableTimeline;
+
+struct FOpenMobileHapticsAndroidControlledPlayback
+{
+	TSharedPtr<
+		const FOpenMobileHapticsPortableTimeline,
+		ESPMode::ThreadSafe
+	> Timeline;
+	int32 Purpose = 0;
+};
+
+class FOpenMobileHapticsAndroidPlaybackControlStore final
+{
+public:
+	void Add(
+		uint64 RequestId,
+		FOpenMobileHapticsAndroidControlledPlayback Playback
+	);
+	bool Find(
+		uint64 RequestId,
+		FOpenMobileHapticsAndroidControlledPlayback& OutPlayback
+	) const;
+	void Remove(uint64 RequestId);
+	void Reset();
+
+private:
+	mutable FCriticalSection Mutex;
+	TMap<uint64, FOpenMobileHapticsAndroidControlledPlayback> Playbacks;
+};
+
 class FOpenMobileHapticsAndroidBackend final
 	: public FOpenMobileHapticsPlatformBackend
 {
@@ -30,6 +60,18 @@ public:
 	virtual FOpenMobileHapticControlResult StopPlayback(
 		const FOpenMobileHapticsBackendRequestToken& Token
 	) override;
+	virtual FOpenMobileHapticControlResult PausePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
+	virtual FOpenMobileHapticControlResult ResumePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
+	virtual FOpenMobileHapticControlResult SeekPlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
 	virtual FOpenMobileHapticControlResult StopAll() override;
 	virtual void BeginShutdown() override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
@@ -54,5 +96,6 @@ private:
 	mutable TOptional<FOpenMobileHapticCapabilities> StableCapabilities;
 	EOpenMobileHapticPreparationState PreparationState =
 		EOpenMobileHapticPreparationState::Unprepared;
+	FOpenMobileHapticsAndroidPlaybackControlStore PlaybackControlStore;
 	mutable FOpenMobileHapticsAndroidBridge Bridge;
 };

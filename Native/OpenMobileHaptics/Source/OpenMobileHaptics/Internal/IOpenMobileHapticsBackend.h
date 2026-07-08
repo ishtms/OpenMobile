@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsTimingPolicy.h"
 #include "OpenMobileHapticsTypes.h"
@@ -34,6 +35,48 @@ struct FOpenMobileHapticsBackendControlSupport
 	bool bResume = false;
 	bool bSeek = false;
 	bool bDynamicParameters = false;
+};
+
+struct FOpenMobileHapticsBackendPlaybackControlSupport
+{
+	EOpenMobileHapticControlImplementation PauseImplementation =
+		EOpenMobileHapticControlImplementation::Unsupported;
+	EOpenMobileHapticControlImplementation ResumeImplementation =
+		EOpenMobileHapticControlImplementation::Unsupported;
+	EOpenMobileHapticControlImplementation SeekImplementation =
+		EOpenMobileHapticControlImplementation::Unsupported;
+	double SeekGranularitySeconds = 0.0;
+	FOpenMobileHapticsRepeatPlan RepeatPlan;
+	bool bHasRepeatPlan = false;
+
+	bool SupportsAnyControl() const
+	{
+		return PauseImplementation
+				== EOpenMobileHapticControlImplementation::Native
+			|| PauseImplementation
+				== EOpenMobileHapticControlImplementation::Emulated
+			|| ResumeImplementation
+				== EOpenMobileHapticControlImplementation::Native
+			|| ResumeImplementation
+				== EOpenMobileHapticControlImplementation::Emulated
+			|| SeekImplementation
+				== EOpenMobileHapticControlImplementation::Native
+			|| SeekImplementation
+				== EOpenMobileHapticControlImplementation::Emulated;
+	}
+};
+
+struct FOpenMobileHapticsBackendControlCommand
+{
+	uint64 Revision = 0;
+	EOpenMobileHapticPlaybackState State =
+		EOpenMobileHapticPlaybackState::Invalid;
+	double RequestedPositionSeconds = 0.0;
+	double ResolvedPositionSeconds = 0.0;
+	double ActiveDurationSeconds = 0.0;
+	double PositionGranularitySeconds = 0.0;
+	int32 CompletedRepeatCount = 0;
+	bool bQuantized = false;
 };
 
 struct FOpenMobileHapticsBackendRequestToken
@@ -72,6 +115,7 @@ using FOpenMobileHapticsBackendEventCallback =
 struct FOpenMobileHapticsBackendSubmission
 {
 	FOpenMobileHapticPlaybackResult Result;
+	FOpenMobileHapticsBackendPlaybackControlSupport PlaybackControlSupport;
 	bool bCreatesControllablePlayback = false;
 	bool bExpectsCallbacks = false;
 };
@@ -177,6 +221,45 @@ public:
 		static_cast<void>(Update);
 		FOpenMobileHapticControlResult Result;
 		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		return Result;
+	}
+	virtual FOpenMobileHapticControlResult PausePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	)
+	{
+		static_cast<void>(Token);
+		static_cast<void>(Command);
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Unsupported;
+		return Result;
+	}
+	virtual FOpenMobileHapticControlResult ResumePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	)
+	{
+		static_cast<void>(Token);
+		static_cast<void>(Command);
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Unsupported;
+		return Result;
+	}
+	virtual FOpenMobileHapticControlResult SeekPlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	)
+	{
+		static_cast<void>(Token);
+		static_cast<void>(Command);
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Unsupported;
 		return Result;
 	}
 	virtual FOpenMobileHapticControlResult StopChannel(FName Channel)

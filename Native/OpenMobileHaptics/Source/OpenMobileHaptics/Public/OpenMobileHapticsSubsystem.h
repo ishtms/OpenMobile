@@ -165,6 +165,22 @@ public:
 		const FOpenMobileHapticDynamicParameterUpdate& Update
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Pause Haptic Playback", ToolTip = "Pauses a playback handle only when its resolved native or portable path supports pause."))
+	FOpenMobileHapticControlResult PausePlayback(
+		FOpenMobileHapticPlaybackHandle Handle
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Resume Haptic Playback", ToolTip = "Resumes a paused playback handle using its resolved native or portable control path."))
+	FOpenMobileHapticControlResult ResumePlayback(
+		FOpenMobileHapticPlaybackHandle Handle
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Seek Haptic Playback", ToolTip = "Moves a controllable playback handle to a validated timeline position and reports any platform quantization."))
+	FOpenMobileHapticControlResult SeekPlayback(
+		FOpenMobileHapticPlaybackHandle Handle,
+		double PositionSeconds
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Channel", ToolTip = "Stops plugin-owned work on one named Haptics channel."))
 	FOpenMobileHapticControlResult StopChannel(FName Channel);
 
@@ -213,6 +229,16 @@ public:
 		FOpenMobileHapticPlaybackHandle Handle,
 		const FOpenMobileHapticDynamicParameterUpdate& Update
 	) override;
+	virtual FOpenMobileHapticControlResult PausePlaybackNative(
+		FOpenMobileHapticPlaybackHandle Handle
+	) override;
+	virtual FOpenMobileHapticControlResult ResumePlaybackNative(
+		FOpenMobileHapticPlaybackHandle Handle
+	) override;
+	virtual FOpenMobileHapticControlResult SeekPlaybackNative(
+		FOpenMobileHapticPlaybackHandle Handle,
+		double PositionSeconds
+	) override;
 	virtual FOpenMobileHapticControlResult StopChannelNative(
 		FName Channel
 	) override;
@@ -232,6 +258,13 @@ private:
 	friend class FOpenMobileHapticsAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
+
+	enum class EPlaybackCursorControl : uint8
+	{
+		Pause,
+		Resume,
+		Seek
+	};
 
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
@@ -258,6 +291,11 @@ private:
 		uint64 RequestId,
 		const FOpenMobileHapticDynamicParameterUpdate& Update,
 		double SubmissionTimeSeconds
+	);
+	FOpenMobileHapticControlResult ApplyPlaybackCursorControl(
+		FOpenMobileHapticPlaybackHandle Handle,
+		EPlaybackCursorControl Control,
+		double PositionSeconds
 	);
 	void ScheduleDynamicParameterFlush();
 	void FlushDynamicParameterUpdates(double NowSeconds);

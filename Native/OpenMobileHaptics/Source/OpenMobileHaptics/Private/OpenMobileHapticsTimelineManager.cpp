@@ -140,6 +140,9 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		case EOpenMobileHapticsTimelinePath::AndroidWaveform:
 			Bytes += Timeline.Android.TimingsMilliseconds.GetAllocatedSize();
 			Bytes += Timeline.Android.Amplitudes.GetAllocatedSize();
+			Bytes += Timeline.AndroidControlBase.TimingsMilliseconds
+				.GetAllocatedSize();
+			Bytes += Timeline.AndroidControlBase.Amplitudes.GetAllocatedSize();
 			break;
 		case EOpenMobileHapticsTimelinePath::AppleTransient:
 			Bytes += Timeline.AppleTransient.Pattern.StartTimesSeconds
@@ -368,6 +371,22 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 			FOpenMobileHapticsPortableTimeline,
 			ESPMode::ThreadSafe
 		>();
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	const FOpenMobileHapticsRepeatPlanResult Repeat =
+		FOpenMobileHapticsRepeatPolicy::Resolve(
+			Loop,
+			static_cast<double>(
+				Pattern.GetCookedPattern().DurationMicroseconds
+			) / 1000000.0,
+			Settings->MaximumFiniteRepeatCount,
+			Settings->MaximumContinuousDurationSeconds
+		);
+	if (Repeat.IsSuccess())
+	{
+		Timeline->RepeatPlan = Repeat.Plan;
+		Timeline->bHasRepeatPlan = true;
+	}
 	if (BackendName == TEXT("Android"))
 	{
 		Timeline->Path = EOpenMobileHapticsTimelinePath::AndroidWaveform;
@@ -375,6 +394,13 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 			FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 				Pattern,
 				Loop,
+				Capabilities,
+				RequestIntensity,
+				FallbackPolicy
+			);
+		Timeline->AndroidControlBase =
+			FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
+				Pattern,
 				Capabilities,
 				RequestIntensity,
 				FallbackPolicy

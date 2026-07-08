@@ -79,6 +79,85 @@ namespace OpenMobileHapticsIOSBackendPrivate
 			&& Parameters.Timing.StartDelaySeconds > 0.0;
 	}
 
+	FOpenMobileHapticsBackendPlaybackControlSupport
+	MakeNativePlaybackControlSupport(
+		const FOpenMobileHapticLoopOptions& Loop,
+		double PatternDurationSeconds,
+		bool bScheduled
+	)
+	{
+		FOpenMobileHapticsBackendPlaybackControlSupport Support;
+		if (bScheduled)
+		{
+			return Support;
+		}
+		const UOpenMobileHapticsSettings* Settings =
+			GetDefault<UOpenMobileHapticsSettings>();
+		const FOpenMobileHapticsRepeatPlanResult Repeat =
+			FOpenMobileHapticsRepeatPolicy::Resolve(
+				Loop,
+				PatternDurationSeconds,
+				Settings->MaximumFiniteRepeatCount,
+				Settings->MaximumContinuousDurationSeconds
+			);
+		if (!Repeat.IsSuccess())
+		{
+			return Support;
+		}
+		Support.PauseImplementation =
+			EOpenMobileHapticControlImplementation::Native;
+		Support.ResumeImplementation =
+			EOpenMobileHapticControlImplementation::Native;
+		Support.SeekImplementation =
+			EOpenMobileHapticControlImplementation::Native;
+		Support.RepeatPlan = Repeat.Plan;
+		Support.bHasRepeatPlan = true;
+		return Support;
+	}
+
+	FOpenMobileHapticControlResult MakePlaybackControlResult(
+		EOpenMobileHapticsAppleSubmissionResult NativeResult,
+		const TCHAR* FailureMessage
+	)
+	{
+		FOpenMobileHapticControlResult Result;
+		if (NativeResult == EOpenMobileHapticsAppleSubmissionResult::Accepted)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			Result.Implementation =
+				EOpenMobileHapticControlImplementation::Native;
+			return Result;
+		}
+		if (NativeResult
+			== EOpenMobileHapticsAppleSubmissionResult::Unsupported)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+			Result.Implementation =
+				EOpenMobileHapticControlImplementation::Unsupported;
+			Result.Error = FOpenMobileHapticError::FromCommon(
+				EOpenMobileErrorCode::NotSupported,
+				FailureMessage,
+				EOpenMobileHapticFailureStage::Playback
+			);
+			return Result;
+		}
+		if (NativeResult
+			== EOpenMobileHapticsAppleSubmissionResult::StaleRequest)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+			Result.Error = FOpenMobileHapticError::FromCommon(
+				EOpenMobileErrorCode::Unavailable,
+				FailureMessage,
+				EOpenMobileHapticFailureStage::Playback
+			);
+			return Result;
+		}
+		return FOpenMobileHapticControlResult::MakeRejected(
+			EOpenMobileErrorCode::NativeFailure,
+			FailureMessage
+		);
+	}
+
 	void ApplyAppleTimingDiagnostics(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
@@ -463,9 +542,9 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.Scheduling = bSemanticEnabled || bCoreHapticsEnabled
 		? Supported
 		: Unsupported;
-	Capabilities.Pause = Unsupported;
-	Capabilities.Resume = Unsupported;
-	Capabilities.Seek = Unsupported;
+	Capabilities.Pause = bCoreHapticsEnabled ? Supported : Unsupported;
+	Capabilities.Resume = bCoreHapticsEnabled ? Supported : Unsupported;
+	Capabilities.Seek = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Detail = bCoreHapticsEnabled
 		? TEXT("Apple transient and continuous Core Haptics playback is available.")
 		: bSemanticEnabled
@@ -594,11 +673,14 @@ FOpenMobileHapticsIOSBackend::GetControlSupport() const
 	FOpenMobileHapticsBackendControlSupport Support;
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	Support.bStop = Settings->IOS.bEnableSemanticFeedback
-		|| (Settings->bEnableCustomPlayback
-			&& Settings->IOS.bEnableCoreHaptics);
-	Support.bDynamicParameters = Settings->bEnableCustomPlayback
+	const bool bCoreHapticsEnabled = Settings->bEnableCustomPlayback
 		&& Settings->IOS.bEnableCoreHaptics;
+	Support.bStop = Settings->IOS.bEnableSemanticFeedback
+		|| bCoreHapticsEnabled;
+	Support.bPause = bCoreHapticsEnabled;
+	Support.bResume = bCoreHapticsEnabled;
+	Support.bSeek = bCoreHapticsEnabled;
+	Support.bDynamicParameters = bCoreHapticsEnabled;
 	return Support;
 }
 
@@ -1076,6 +1158,15 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 				AppendAttempts(Submission, Attempts);
 				Submission.bCreatesControllablePlayback = true;
 				Submission.bExpectsCallbacks = true;
+				if (AHAP.Pattern.bRequiresAdvancedPlayer)
+				{
+					Submission.PlaybackControlSupport =
+						MakeNativePlaybackControlSupport(
+							EffectiveLoop,
+							AHAP.Pattern.DurationSeconds,
+							AHAP.Pattern.bScheduled
+						);
+				}
 				ApplyAppleTimingDiagnostics(Submission, Parameters);
 				return Submission;
 			}
@@ -1347,6 +1438,13 @@ FOpenMobileHapticsIOSBackend::SubmitNamedPattern(
 	AppendAttempts(Submission, Attempts);
 	Submission.bCreatesControllablePlayback = true;
 	Submission.bExpectsCallbacks = true;
+	Submission.PlaybackControlSupport = MakeNativePlaybackControlSupport(
+		EffectiveLoop,
+		static_cast<double>(
+			Pattern->GetCookedPattern().DurationMicroseconds
+		) / 1000000.0,
+		IsScheduled(Parameters)
+	);
 	ApplyAppleTimingDiagnostics(Submission, Parameters);
 	return Submission;
 }
@@ -1369,6 +1467,44 @@ FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::StopPlayback(
 			? EOpenMobileErrorCode::NotSupported
 			: EOpenMobileErrorCode::NativeFailure,
 		TEXT("Apple could not stop the pattern.")
+	);
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::PausePlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	static_cast<void>(Command);
+	return OpenMobileHapticsIOSBackendPrivate::MakePlaybackControlResult(
+		BridgeService->PausePattern(Token.RequestId),
+		TEXT("Apple could not pause the advanced pattern.")
+	);
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::ResumePlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	static_cast<void>(Command);
+	return OpenMobileHapticsIOSBackendPrivate::MakePlaybackControlResult(
+		BridgeService->ResumePattern(Token.RequestId),
+		TEXT("Apple could not resume the advanced pattern.")
+	);
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsIOSBackend::SeekPlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	return OpenMobileHapticsIOSBackendPrivate::MakePlaybackControlResult(
+		BridgeService->SeekPattern(
+			Token.RequestId,
+			Command.ResolvedPositionSeconds
+		),
+		TEXT("Apple could not seek the advanced pattern.")
 	);
 }
 

@@ -539,6 +539,36 @@ FOpenMobileHapticsAppleBridgeService::StopPattern(uint64 RequestId)
 }
 
 EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::PausePattern(uint64 RequestId)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->PausePattern(RequestId);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::ResumePattern(uint64 RequestId)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->ResumePattern(RequestId);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
+FOpenMobileHapticsAppleBridgeService::SeekPattern(
+	uint64 RequestId,
+	double PositionSeconds
+)
+{
+	FScopeLock Lock(&Mutex);
+	return bShuttingDown
+		? EOpenMobileHapticsAppleSubmissionResult::ShuttingDown
+		: Bridge->SeekPattern(RequestId, PositionSeconds);
+}
+
+EOpenMobileHapticsAppleSubmissionResult
 FOpenMobileHapticsAppleBridgeService::UpdatePattern(
 	uint64 RequestId,
 	const FOpenMobileHapticDynamicParameterUpdate& Update

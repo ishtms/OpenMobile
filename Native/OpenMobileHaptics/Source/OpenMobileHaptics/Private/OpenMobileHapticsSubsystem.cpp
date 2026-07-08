@@ -16,6 +16,7 @@
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsPlaybackControlPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
@@ -33,6 +34,8 @@ struct FOpenMobileHapticsSubsystemRequestState
 	float RuntimeSharpness = 0.5f;
 	bool bSupportsDynamicParameters = false;
 	bool bRequiresPreparedAsset = false;
+	FOpenMobileHapticsBackendPlaybackControlSupport PlaybackControlSupport;
+	TOptional<FOpenMobileHapticsPlaybackControlPolicy> PlaybackControlPolicy;
 	TSharedPtr<
 		FOpenMobileHapticsScheduledStartGuard,
 		ESPMode::ThreadSafe
@@ -497,8 +500,22 @@ namespace OpenMobileHapticsSubsystemPrivate
 			Result.Handle = Token.PlaybackHandle;
 			State.RequestByHandle.Add(Token.PlaybackHandle, Token.RequestId);
 			State.PlaybackStates.Add(Token.PlaybackHandle, Result.State);
-			const FOpenMobileHapticsSubsystemRequestState* Request =
+			FOpenMobileHapticsSubsystemRequestState* Request =
 				State.Requests.Find(Token.RequestId);
+			if (Request)
+			{
+				Request->PlaybackControlSupport =
+					Submission.PlaybackControlSupport;
+				if (Submission.PlaybackControlSupport.bHasRepeatPlan
+					&& Submission.PlaybackControlSupport.SupportsAnyControl())
+				{
+					Request->PlaybackControlPolicy.Emplace(
+						Submission.PlaybackControlSupport.RepeatPlan,
+						Result.State,
+						FPlatformTime::Seconds()
+					);
+				}
+			}
 			if (Request && Request->bSupportsDynamicParameters)
 			{
 				State.DynamicParameterPolicy.RegisterPlayback(
@@ -1387,6 +1404,28 @@ UOpenMobileHapticsSubsystem::UpdatePlaybackParameters(
 )
 {
 	return UpdatePlaybackParametersNative(Handle, Update);
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::PausePlayback(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return PausePlaybackNative(Handle);
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ResumePlayback(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return ResumePlaybackNative(Handle);
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::SeekPlayback(
+	FOpenMobileHapticPlaybackHandle Handle,
+	double PositionSeconds
+)
+{
+	return SeekPlaybackNative(Handle, PositionSeconds);
 }
 
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::StopChannel(
@@ -2460,6 +2499,202 @@ UOpenMobileHapticsSubsystem::CancelPlaybackNative(
 		Handle,
 		EOpenMobileHapticPlaybackState::Cancelled
 	);
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::PausePlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return ApplyPlaybackCursorControl(
+		Handle,
+		EPlaybackCursorControl::Pause,
+		0.0
+	);
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::ResumePlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle
+)
+{
+	return ApplyPlaybackCursorControl(
+		Handle,
+		EPlaybackCursorControl::Resume,
+		0.0
+	);
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::SeekPlaybackNative(
+	FOpenMobileHapticPlaybackHandle Handle,
+	double PositionSeconds
+)
+{
+	return ApplyPlaybackCursorControl(
+		Handle,
+		EPlaybackCursorControl::Seek,
+		PositionSeconds
+	);
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::ApplyPlaybackCursorControl(
+	FOpenMobileHapticPlaybackHandle Handle,
+	EPlaybackCursorControl Control,
+	double PositionSeconds
+)
+{
+	check(IsInGameThread());
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const uint64* RequestId = LocalState.RequestByHandle.Find(Handle);
+	FOpenMobileHapticsSubsystemRequestState* Request = RequestId
+		? LocalState.Requests.Find(*RequestId)
+		: nullptr;
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Request)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = Handle.IsValid();
+		FOpenMobileHapticControlResult Result =
+			FOpenMobileHapticControlResult::MakeRejected(
+				FOpenMobileHapticsErrorMapper::Map(Context)
+			);
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		return Result;
+	}
+	if (!Backend
+		|| !FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Request->Token)
+		|| Backend->GetBackendName() != Request->Token.BackendName)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::BackendUnavailable;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = true;
+		Result.Error = FOpenMobileHapticsErrorMapper::Map(Context);
+		return Result;
+	}
+
+	const FOpenMobileHapticsBackendControlSupport BackendSupport =
+		Backend->GetControlSupport();
+	const EOpenMobileHapticControlImplementation Implementation =
+		Control == EPlaybackCursorControl::Pause
+			? Request->PlaybackControlSupport.PauseImplementation
+			: Control == EPlaybackCursorControl::Resume
+				? Request->PlaybackControlSupport.ResumeImplementation
+				: Request->PlaybackControlSupport.SeekImplementation;
+	const bool bBackendSupportsControl =
+		Control == EPlaybackCursorControl::Pause
+			? BackendSupport.bPause
+			: Control == EPlaybackCursorControl::Resume
+				? BackendSupport.bResume
+				: BackendSupport.bSeek;
+	if (!bBackendSupportsControl
+		|| (Implementation != EOpenMobileHapticControlImplementation::Native
+			&& Implementation
+				!= EOpenMobileHapticControlImplementation::Emulated)
+		|| !Request->PlaybackControlPolicy.IsSet()
+		|| !Request->PlaybackControlPolicy->IsValid())
+	{
+		FOpenMobileHapticControlResult Result =
+			OpenMobileHapticsSubsystemPrivate::MakeUnsupportedControlResult();
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Unsupported;
+		Result.Error.Handle = Handle;
+		Result.Error.bRejectedBeforeSubmission = false;
+		return Result;
+	}
+
+	FOpenMobileHapticsPlaybackControlPolicy Candidate =
+		Request->PlaybackControlPolicy.GetValue();
+	const double NowSeconds = FPlatformTime::Seconds();
+	const FOpenMobileHapticsPlaybackControlTransition Transition =
+		Control == EPlaybackCursorControl::Pause
+			? Candidate.Pause(NowSeconds)
+			: Control == EPlaybackCursorControl::Resume
+				? Candidate.Resume(NowSeconds)
+				: Candidate.Seek(
+					PositionSeconds,
+					NowSeconds,
+					Request->PlaybackControlSupport.SeekGranularitySeconds
+				);
+	if (Transition.Outcome
+		!= EOpenMobileHapticsPlaybackControlTransitionOutcome::Accepted)
+	{
+		FOpenMobileHapticsErrorContext Context;
+		Context.Reason = EOpenMobileHapticsFailureReason::InvalidRequest;
+		Context.Stage = EOpenMobileHapticFailureStage::Playback;
+		Context.Handle = Handle;
+		Context.bAfterAcceptance = true;
+		return FOpenMobileHapticControlResult::MakeRejected(
+			FOpenMobileHapticsErrorMapper::Map(Context)
+		);
+	}
+
+	FOpenMobileHapticsBackendControlCommand Command;
+	Command.Revision = Transition.Revision;
+	Command.State = Transition.State;
+	Command.RequestedPositionSeconds = Transition.RequestedPositionSeconds;
+	Command.ResolvedPositionSeconds = Transition.ResolvedPositionSeconds;
+	Command.ActiveDurationSeconds = Transition.ActiveDurationSeconds;
+	Command.PositionGranularitySeconds =
+		Request->PlaybackControlSupport.SeekGranularitySeconds;
+	Command.CompletedRepeatCount = Transition.CompletedRepeatCount;
+	Command.bQuantized = Transition.bQuantized;
+	FOpenMobileHapticControlResult Result =
+		Control == EPlaybackCursorControl::Pause
+			? Backend->PausePlayback(Request->Token, Command)
+			: Control == EPlaybackCursorControl::Resume
+				? Backend->ResumePlayback(Request->Token, Command)
+				: Backend->SeekPlayback(Request->Token, Command);
+	if (Result.Outcome != EOpenMobileHapticControlOutcome::Accepted)
+	{
+		Result.Error.Handle = Handle;
+		Result.Error.bRejectedBeforeSubmission = false;
+		return Result;
+	}
+
+	Request->PlaybackControlPolicy = MoveTemp(Candidate);
+	Result.Implementation = Result.Implementation
+		== EOpenMobileHapticControlImplementation::None
+			? Implementation
+			: Result.Implementation;
+	Result.State = Transition.State;
+	Result.RequestedPositionSeconds = Transition.RequestedPositionSeconds;
+	Result.ResolvedPositionSeconds = Transition.ResolvedPositionSeconds;
+	Result.PositionGranularitySeconds =
+		Request->PlaybackControlSupport.SeekGranularitySeconds;
+	Result.CompletedRepeatCount = Transition.CompletedRepeatCount;
+	Result.ControlRevision = static_cast<int64>(FMath::Min<uint64>(
+		Transition.Revision,
+		static_cast<uint64>(MAX_int64)
+	));
+	Result.bQuantized = Transition.bQuantized;
+	LocalState.PlaybackStates.Add(Handle, Transition.State);
+
+	if (Control != EPlaybackCursorControl::Seek)
+	{
+		FOpenMobileHapticPlaybackEvent Event;
+		Event.Handle = Handle;
+		Event.State = Transition.State;
+		Event.Evidence = Result.Implementation
+			== EOpenMobileHapticControlImplementation::Native
+				? EOpenMobileHapticEventEvidence::NativeConfirmed
+				: EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+		Event.TimestampSeconds = NowSeconds;
+		Event.PatternOrEffect = Request->Effect;
+		Event.Channel = Request->Channel;
+		OnPlaybackEvent.Broadcast(Event);
+		NativePlaybackEvent.Broadcast(Event);
+	}
+	return Result;
 }
 
 FOpenMobileHapticControlResult

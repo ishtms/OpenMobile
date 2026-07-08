@@ -195,6 +195,45 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		virtual FOpenMobileHapticControlResult PausePlayback(
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			const FOpenMobileHapticsBackendControlCommand& Command
+		) override
+		{
+			LastControlToken = Token;
+			LastControlCommand = Command;
+			++PauseCount;
+			return MakePlaybackControlResult(
+				SubmissionControlSupport.PauseImplementation
+			);
+		}
+
+		virtual FOpenMobileHapticControlResult ResumePlayback(
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			const FOpenMobileHapticsBackendControlCommand& Command
+		) override
+		{
+			LastControlToken = Token;
+			LastControlCommand = Command;
+			++ResumeCount;
+			return MakePlaybackControlResult(
+				SubmissionControlSupport.ResumeImplementation
+			);
+		}
+
+		virtual FOpenMobileHapticControlResult SeekPlayback(
+			const FOpenMobileHapticsBackendRequestToken& Token,
+			const FOpenMobileHapticsBackendControlCommand& Command
+		) override
+		{
+			LastControlToken = Token;
+			LastControlCommand = Command;
+			++SeekCount;
+			return MakePlaybackControlResult(
+				SubmissionControlSupport.SeekImplementation
+			);
+		}
+
 		virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -273,6 +312,8 @@ namespace OpenMobileHapticsTests
 		};
 		FOpenMobileHapticsBackendPreparationRequest LastPreparationRequest;
 		FOpenMobileHapticsBackendControlSupport ControlSupport;
+		FOpenMobileHapticsBackendPlaybackControlSupport
+			SubmissionControlSupport;
 		bool bAvailable = true;
 		bool bCustomPlaybackConfigured = true;
 		bool bFailSubmissions = false;
@@ -282,6 +323,7 @@ namespace OpenMobileHapticsTests
 		bool bBusyOneShot = false;
 		bool bOneShotControllable = true;
 		bool bFailDynamicUpdates = false;
+		bool bFailPlaybackControls = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
@@ -292,11 +334,16 @@ namespace OpenMobileHapticsTests
 		int32 StopChannelCount = 0;
 		int32 StopAllCount = 0;
 		int32 DynamicUpdateCount = 0;
+		int32 PauseCount = 0;
+		int32 ResumeCount = 0;
+		int32 SeekCount = 0;
 		int32 PrepareResourcesCount = 0;
 		int32 ReleasePreparedResourcesCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
 		FOpenMobileHapticsBackendRequestToken LastDynamicToken;
+		FOpenMobileHapticsBackendRequestToken LastControlToken;
+		FOpenMobileHapticsBackendControlCommand LastControlCommand;
 		FName LastStoppedChannel;
 		FOpenMobileHapticSemanticRequest LastSemanticRequest;
 		FOpenMobileHapticOneShotRequest LastOneShotRequest;
@@ -348,11 +395,32 @@ namespace OpenMobileHapticsTests
 			Submission.Result.FallbackAttempts = SubmissionFallbackAttempts;
 			Submission.bCreatesControllablePlayback = bControllable;
 			Submission.bExpectsCallbacks = bExpectsCallbacks;
+			Submission.PlaybackControlSupport = SubmissionControlSupport;
 			if (bExpectsCallbacks)
 			{
 				PendingCallbacks.Add({LastToken, MoveTemp(Callback)});
 			}
 			return Submission;
+		}
+
+		FOpenMobileHapticControlResult MakePlaybackControlResult(
+			EOpenMobileHapticControlImplementation Implementation
+		) const
+		{
+			if (bFailPlaybackControls)
+			{
+				return FOpenMobileHapticControlResult::MakeRejected(
+					EOpenMobileErrorCode::NativeFailure,
+					TEXT("Injected playback control failure.")
+				);
+			}
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = Implementation
+				== EOpenMobileHapticControlImplementation::Unsupported
+					? EOpenMobileHapticControlOutcome::Unsupported
+					: EOpenMobileHapticControlOutcome::Accepted;
+			Result.Implementation = Implementation;
+			return Result;
 		}
 
 		FName Name;
@@ -5510,6 +5578,180 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 	Subsystem->Deinitialize();
 	TestEqual(TEXT("Shutdown stops native playback once more"),
 		Backend.StopAllCount, 2);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackCursorControlTest,
+	"OpenMobile.Haptics.Playback.Controls.SubsystemContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackCursorControlTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("CursorControls"));
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bPause = true;
+	Backend.ControlSupport.bResume = true;
+	Backend.ControlSupport.bSeek = true;
+	Backend.SubmissionControlSupport.PauseImplementation =
+		EOpenMobileHapticControlImplementation::Native;
+	Backend.SubmissionControlSupport.ResumeImplementation =
+		EOpenMobileHapticControlImplementation::Native;
+	Backend.SubmissionControlSupport.SeekImplementation =
+		EOpenMobileHapticControlImplementation::Emulated;
+	Backend.SubmissionControlSupport.SeekGranularitySeconds = 0.001;
+	Backend.SubmissionControlSupport.bHasRepeatPlan = true;
+	Backend.SubmissionControlSupport.RepeatPlan.PatternDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.TotalDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.MaximumDurationSeconds = 30.0;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	TArray<EOpenMobileHapticPlaybackState> ControlEvents;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&ControlEvents](const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			if (Event.State == EOpenMobileHapticPlaybackState::Paused
+				|| Event.State == EOpenMobileHapticPlaybackState::Resumed)
+			{
+				ControlEvents.Add(Event.State);
+			}
+		}
+	);
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPattern(TEXT("Controlled"));
+	TestTrue(TEXT("Control-capable playback returns a handle"),
+		Playback.Handle.IsValid());
+	TestEqual(TEXT("Active playback cannot resume"),
+		Subsystem->ResumePlayback(Playback.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Invalid resume does not cross the backend seam"),
+		Backend.ResumeCount, 0);
+
+	const FOpenMobileHapticControlResult Paused =
+		Subsystem->PausePlayback(Playback.Handle);
+	TestEqual(TEXT("Supported playback pauses"), Paused.Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Pause reports the native implementation"),
+		Paused.Implementation,
+		EOpenMobileHapticControlImplementation::Native);
+	TestEqual(TEXT("Pause reports the resulting state"), Paused.State,
+		EOpenMobileHapticPlaybackState::Paused);
+	TestEqual(TEXT("Pause starts the serialized control revision"),
+		Paused.ControlRevision, static_cast<int64>(1));
+	TestEqual(TEXT("Pause reaches the owning backend once"),
+		Backend.PauseCount, 1);
+	TestEqual(TEXT("Pause updates handle state"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Paused);
+	TestEqual(TEXT("Pause emits one state event"), ControlEvents.Num(), 1);
+
+	TestEqual(TEXT("Repeated pause is rejected before native control"),
+		Subsystem->PausePlayback(Playback.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Repeated pause does not cross the backend seam"),
+		Backend.PauseCount, 1);
+
+	const FOpenMobileHapticControlResult Resumed =
+		Subsystem->ResumePlayback(Playback.Handle);
+	TestEqual(TEXT("Paused playback resumes"), Resumed.Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Resume reports the resulting state"), Resumed.State,
+		EOpenMobileHapticPlaybackState::Resumed);
+	TestEqual(TEXT("Resume advances the control revision"),
+		Resumed.ControlRevision, static_cast<int64>(2));
+	TestEqual(TEXT("Resume emits one ordered state event"),
+		ControlEvents,
+		TArray<EOpenMobileHapticPlaybackState>({
+			EOpenMobileHapticPlaybackState::Paused,
+			EOpenMobileHapticPlaybackState::Resumed
+		}));
+
+	TestEqual(TEXT("Negative seek is rejected before native control"),
+		Subsystem->SeekPlayback(Playback.Handle, -0.001).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Pattern-end seek is rejected before native control"),
+		Subsystem->SeekPlayback(Playback.Handle, 2.0).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Nonfinite seek is rejected before native control"),
+		Subsystem->SeekPlayback(
+			Playback.Handle,
+			std::numeric_limits<double>::quiet_NaN()
+		).Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Invalid seeks do not cross the backend seam"),
+		Backend.SeekCount, 0);
+
+	const FOpenMobileHapticControlResult Sought =
+		Subsystem->SeekPlayback(Playback.Handle, 1.2344);
+	TestEqual(TEXT("Valid seek is accepted"), Sought.Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Seek reports portable emulation"),
+		Sought.Implementation,
+		EOpenMobileHapticControlImplementation::Emulated);
+	TestTrue(TEXT("Seek reports platform quantization"),
+		Sought.bQuantized);
+	TestEqual(TEXT("Seek reports the requested position"),
+		Sought.RequestedPositionSeconds, 1.2344);
+	TestEqual(TEXT("Seek reports the resolved position"),
+		Sought.ResolvedPositionSeconds, 1.234);
+	TestEqual(TEXT("Seek reports native granularity"),
+		Sought.PositionGranularitySeconds, 0.001);
+	TestEqual(TEXT("Seek reaches the backend with the same revision"),
+		static_cast<int64>(Backend.LastControlCommand.Revision),
+		Sought.ControlRevision);
+
+	Subsystem->PausePlayback(Playback.Handle);
+	Backend.bFailPlaybackControls = true;
+	const FOpenMobileHapticControlResult FailedResume =
+		Subsystem->ResumePlayback(Playback.Handle);
+	TestEqual(TEXT("Native resume failure is returned"), FailedResume.Outcome,
+		EOpenMobileHapticControlOutcome::Rejected);
+	TestEqual(TEXT("Native failure rolls the logical state back"),
+		Subsystem->GetPlaybackState(Playback.Handle),
+		EOpenMobileHapticPlaybackState::Paused);
+	Backend.bFailPlaybackControls = false;
+	TestEqual(TEXT("Resume can retry after native failure"),
+		Subsystem->ResumePlayback(Playback.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Interrupted, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Terminal callback makes later controls stale"),
+		Subsystem->PausePlayback(Playback.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::StaleHandle);
+
+	const int32 PauseCallsBeforeUnsupported = Backend.PauseCount;
+	Backend.SubmissionControlSupport.PauseImplementation =
+		EOpenMobileHapticControlImplementation::Unsupported;
+	const FOpenMobileHapticPlaybackResult UnsupportedPlayback =
+		Subsystem->PlayNamedPattern(TEXT("UnsupportedControl"));
+	const FOpenMobileHapticControlResult Unsupported =
+		Subsystem->PausePlayback(UnsupportedPlayback.Handle);
+	TestEqual(TEXT("Request-specific fallback support is enforced"),
+		Unsupported.Outcome,
+		EOpenMobileHapticControlOutcome::Unsupported);
+	TestEqual(TEXT("Unsupported control never reaches the backend"),
+		Backend.PauseCount, PauseCallsBeforeUnsupported);
+
+	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	Settings->NamedLibraries = SavedLibraries;

@@ -4,6 +4,7 @@
 #include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsAppleContinuousPolicy.h"
 #include "OpenMobileHapticsAppleTransientPolicy.h"
+#include "OpenMobileHapticsRepeatPolicy.h"
 
 class UOpenMobileHapticPatternAsset;
 
@@ -21,8 +22,11 @@ struct FOpenMobileHapticsPortableTimeline
 	EOpenMobileHapticsTimelinePath Path =
 		EOpenMobileHapticsTimelinePath::AndroidWaveform;
 	FOpenMobileHapticsAndroidWaveformResolution Android;
+	FOpenMobileHapticsAndroidWaveformResolution AndroidControlBase;
 	FOpenMobileHapticsAppleTransientResolution AppleTransient;
 	FOpenMobileHapticsAppleContinuousResolution AppleContinuous;
+	FOpenMobileHapticsRepeatPlan RepeatPlan;
+	bool bHasRepeatPlan = false;
 };
 
 struct FOpenMobileHapticsTimelineLookup

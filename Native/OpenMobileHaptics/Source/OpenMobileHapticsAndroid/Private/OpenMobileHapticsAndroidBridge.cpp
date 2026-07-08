@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsAndroidBridge.h"
 
 #include "Android/AndroidApplication.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 
@@ -12,6 +13,10 @@ namespace OpenMobileHapticsAndroidBridgePrivate
 	constexpr int32 ResultDefaultAmplitude = 5;
 	constexpr int32 ResultPending = 6;
 	constexpr int32 ResultStale = 7;
+	constexpr int32 ControlledEventStarted = 1;
+	constexpr int32 ControlledEventCompleted = 2;
+	constexpr int32 ControlledEventInterrupted = 3;
+	constexpr int32 ControlledEventFailed = 4;
 
 	FCriticalSection ActiveBridgeMutex;
 	FOpenMobileHapticsAndroidBridge* ActiveBridge = nullptr;
@@ -54,6 +59,30 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnBr
 			static_cast<uint64>(RequestId),
 			static_cast<int32>(Result)
 		);
+	}
+}
+
+JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnControlledWaveformEvent(
+	JNIEnv* Env,
+	jclass Class,
+	jlong RequestId,
+	jlong ControlRevision,
+	jint Event
+)
+{
+	static_cast<void>(Env);
+	static_cast<void>(Class);
+	FScopeLock Lock(
+		&OpenMobileHapticsAndroidBridgePrivate::ActiveBridgeMutex
+	);
+	if (OpenMobileHapticsAndroidBridgePrivate::ActiveBridge)
+	{
+		OpenMobileHapticsAndroidBridgePrivate::ActiveBridge
+			->HandleControlledWaveformEvent(
+				static_cast<uint64>(RequestId),
+				static_cast<uint64>(ControlRevision),
+				static_cast<int32>(Event)
+			);
 	}
 }
 
@@ -122,6 +151,31 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		"playWaveform",
 		"(Landroid/app/Activity;JJ[J[IIIJ)I"
 	);
+	PlayControlledWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"playControlledWaveform",
+		"(Landroid/app/Activity;JJ[J[IIIJJ)I"
+	);
+	PauseControlledWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"pauseControlledWaveform",
+		"(Landroid/app/Activity;JJ)I"
+	);
+	ResumeControlledWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"resumeControlledWaveform",
+		"(Landroid/app/Activity;JJ[J[IIIJ)I"
+	);
+	SeekControlledWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"seekControlledWaveform",
+		"(Landroid/app/Activity;JJ[J[IIIJ)I"
+	);
+	StopControlledWaveformMethod = Env->GetStaticMethodID(
+		BridgeClass,
+		"stopControlledWaveform",
+		"(J)Z"
+	);
 	PlayPredefinedMethod = Env->GetStaticMethodID(
 		BridgeClass,
 		"playPredefined",
@@ -158,6 +212,11 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		|| !PlayOneShotMethod
 		|| !PrepareWaveformMethod
 		|| !PlayWaveformMethod
+		|| !PlayControlledWaveformMethod
+		|| !PauseControlledWaveformMethod
+		|| !ResumeControlledWaveformMethod
+		|| !SeekControlledWaveformMethod
+		|| !StopControlledWaveformMethod
 		|| !PlayPredefinedMethod
 		|| !PlayPrimitivesMethod
 		|| !PlayEnvelopeMethod
@@ -173,6 +232,11 @@ bool FOpenMobileHapticsAndroidBridge::EnsureInitialized(JNIEnv* Env)
 		PlayOneShotMethod = nullptr;
 		PrepareWaveformMethod = nullptr;
 		PlayWaveformMethod = nullptr;
+		PlayControlledWaveformMethod = nullptr;
+		PauseControlledWaveformMethod = nullptr;
+		ResumeControlledWaveformMethod = nullptr;
+		SeekControlledWaveformMethod = nullptr;
+		StopControlledWaveformMethod = nullptr;
 		PlayPredefinedMethod = nullptr;
 		PlayPrimitivesMethod = nullptr;
 		PlayEnvelopeMethod = nullptr;
@@ -434,6 +498,274 @@ int32 FOpenMobileHapticsAndroidBridge::PlayWaveform(
 	}
 	RegisterScheduledCallback(Token, Result, MoveTemp(Scheduled));
 	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::PlayControlledWaveform(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	uint64 PreparedResourceId,
+	const TArray<int64>& TimingsMilliseconds,
+	const TArray<int32>& Amplitudes,
+	int32 RepeatIndex,
+	int32 Purpose,
+	int64 CompletionDurationMilliseconds,
+	FOpenMobileHapticsAndroidScheduledPlayback Scheduled
+)
+{
+	const int32 Count = TimingsMilliseconds.Num();
+	if (Count <= 0 || Amplitudes.Num() != Count
+		|| Token.RequestId == 0 || !Scheduled.Callback)
+	{
+		return 0;
+	}
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity || !EnsureInitialized(Env))
+	{
+		return 0;
+	}
+	FScopedJavaObject<jlongArray> TimingValues(Env->NewLongArray(Count));
+	FScopedJavaObject<jintArray> AmplitudeValues(Env->NewIntArray(Count));
+	if (!TimingValues || !AmplitudeValues || Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	TArray<jlong, TInlineAllocator<32>> NativeTimings;
+	TArray<jint, TInlineAllocator<32>> NativeAmplitudes;
+	NativeTimings.Reserve(Count);
+	NativeAmplitudes.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		NativeTimings.Add(static_cast<jlong>(TimingsMilliseconds[Index]));
+		NativeAmplitudes.Add(static_cast<jint>(Amplitudes[Index]));
+	}
+	Env->SetLongArrayRegion(
+		*TimingValues, 0, Count, NativeTimings.GetData()
+	);
+	Env->SetIntArrayRegion(
+		*AmplitudeValues, 0, Count, NativeAmplitudes.GetData()
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+
+	FPendingCallback Pending;
+	Pending.Token = Token;
+	Pending.ScheduledStartGuard = MoveTemp(Scheduled.ScheduledStartGuard);
+	Pending.PatternOrEffect = Scheduled.PatternOrEffect;
+	Pending.Channel = Scheduled.Channel;
+	Pending.ResolvedPath = Scheduled.ResolvedPath;
+	Pending.Callback = MoveTemp(Scheduled.Callback);
+	Pending.bControlledWaveform = true;
+	PendingCallbacks.Add(Token.RequestId, MoveTemp(Pending));
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PlayControlledWaveformMethod,
+		Activity,
+		static_cast<jlong>(Token.RequestId),
+		static_cast<jlong>(PreparedResourceId),
+		*TimingValues,
+		*AmplitudeValues,
+		static_cast<jint>(RepeatIndex),
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(CompletionDurationMilliseconds),
+		static_cast<jlong>(Scheduled.StartDelayMilliseconds)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		PendingCallbacks.Remove(Token.RequestId);
+		return 0;
+	}
+	if (Result != OpenMobileHapticsAndroidBridgePrivate::ResultPending)
+	{
+		PendingCallbacks.Remove(Token.RequestId);
+	}
+	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::PauseControlledWaveform(
+	uint64 RequestId,
+	uint64 Revision
+)
+{
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	FPendingCallback* Pending = PendingCallbacks.Find(RequestId);
+	if (!Env || !Activity || !EnsureInitialized(Env) || !Pending
+		|| !Pending->bControlledWaveform)
+	{
+		return OpenMobileHapticsAndroidBridgePrivate::ResultStale;
+	}
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		PauseControlledWaveformMethod,
+		Activity,
+		static_cast<jlong>(RequestId),
+		static_cast<jlong>(Revision)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	if (Result == OpenMobileHapticsAndroidBridgePrivate::ResultAccepted)
+	{
+		Pending->LastControlRevision = Revision;
+	}
+	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::UpdateControlledWaveform(
+	jmethodID Method,
+	uint64 RequestId,
+	uint64 Revision,
+	const TArray<int64>& TimingsMilliseconds,
+	const TArray<int32>& Amplitudes,
+	int32 RepeatIndex,
+	int32 Purpose,
+	int64 CompletionDurationMilliseconds
+)
+{
+	const int32 Count = TimingsMilliseconds.Num();
+	if (Count <= 0 || Amplitudes.Num() != Count)
+	{
+		return 0;
+	}
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	FPendingCallback* Pending = PendingCallbacks.Find(RequestId);
+	if (!Env || !Activity || !EnsureInitialized(Env) || !Method || !Pending
+		|| !Pending->bControlledWaveform)
+	{
+		return OpenMobileHapticsAndroidBridgePrivate::ResultStale;
+	}
+	FScopedJavaObject<jlongArray> TimingValues(Env->NewLongArray(Count));
+	FScopedJavaObject<jintArray> AmplitudeValues(Env->NewIntArray(Count));
+	if (!TimingValues || !AmplitudeValues || Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	TArray<jlong, TInlineAllocator<32>> NativeTimings;
+	TArray<jint, TInlineAllocator<32>> NativeAmplitudes;
+	NativeTimings.Reserve(Count);
+	NativeAmplitudes.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		NativeTimings.Add(static_cast<jlong>(TimingsMilliseconds[Index]));
+		NativeAmplitudes.Add(static_cast<jint>(Amplitudes[Index]));
+	}
+	Env->SetLongArrayRegion(
+		*TimingValues, 0, Count, NativeTimings.GetData()
+	);
+	Env->SetIntArrayRegion(
+		*AmplitudeValues, 0, Count, NativeAmplitudes.GetData()
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	const int32 Result = static_cast<int32>(Env->CallStaticIntMethod(
+		BridgeClass,
+		Method,
+		Activity,
+		static_cast<jlong>(RequestId),
+		static_cast<jlong>(Revision),
+		*TimingValues,
+		*AmplitudeValues,
+		static_cast<jint>(RepeatIndex),
+		static_cast<jint>(Purpose),
+		static_cast<jlong>(CompletionDurationMilliseconds)
+	));
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return 0;
+	}
+	if (Result == OpenMobileHapticsAndroidBridgePrivate::ResultAccepted)
+	{
+		Pending->LastControlRevision = Revision;
+	}
+	return Result;
+}
+
+int32 FOpenMobileHapticsAndroidBridge::ResumeControlledWaveform(
+	uint64 RequestId,
+	uint64 Revision,
+	const TArray<int64>& TimingsMilliseconds,
+	const TArray<int32>& Amplitudes,
+	int32 RepeatIndex,
+	int32 Purpose,
+	int64 CompletionDurationMilliseconds
+)
+{
+	return UpdateControlledWaveform(
+		ResumeControlledWaveformMethod,
+		RequestId,
+		Revision,
+		TimingsMilliseconds,
+		Amplitudes,
+		RepeatIndex,
+		Purpose,
+		CompletionDurationMilliseconds
+	);
+}
+
+int32 FOpenMobileHapticsAndroidBridge::SeekControlledWaveform(
+	uint64 RequestId,
+	uint64 Revision,
+	const TArray<int64>& TimingsMilliseconds,
+	const TArray<int32>& Amplitudes,
+	int32 RepeatIndex,
+	int32 Purpose,
+	int64 CompletionDurationMilliseconds
+)
+{
+	return UpdateControlledWaveform(
+		SeekControlledWaveformMethod,
+		RequestId,
+		Revision,
+		TimingsMilliseconds,
+		Amplitudes,
+		RepeatIndex,
+		Purpose,
+		CompletionDurationMilliseconds
+	);
+}
+
+bool FOpenMobileHapticsAndroidBridge::StopControlledWaveform(
+	uint64 RequestId
+)
+{
+	FScopeLock Lock(&Mutex);
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env || !BridgeClass || !StopControlledWaveformMethod)
+	{
+		return false;
+	}
+	const jboolean Result = Env->CallStaticBooleanMethod(
+		BridgeClass,
+		StopControlledWaveformMethod,
+		static_cast<jlong>(RequestId)
+	);
+	if (Env->ExceptionCheck())
+	{
+		ClearException(Env);
+		return false;
+	}
+	if (Result == JNI_TRUE)
+	{
+		PendingCallbacks.Remove(RequestId);
+		return true;
+	}
+	return false;
 }
 
 int32 FOpenMobileHapticsAndroidBridge::PrepareWaveform(
@@ -848,6 +1180,67 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 	Pending.Callback(Callback);
 }
 
+void FOpenMobileHapticsAndroidBridge::HandleControlledWaveformEvent(
+	uint64 RequestId,
+	uint64 ControlRevision,
+	int32 Event
+)
+{
+	FPendingCallback Pending;
+	{
+		FScopeLock Lock(&Mutex);
+		FPendingCallback* Found = PendingCallbacks.Find(RequestId);
+		if (!Found || !Found->bControlledWaveform
+			|| ControlRevision < Found->LastControlRevision)
+		{
+			return;
+		}
+		Pending = *Found;
+		const bool bTerminal = Event
+			!= OpenMobileHapticsAndroidBridgePrivate::ControlledEventStarted;
+		if (bTerminal)
+		{
+			PendingCallbacks.Remove(RequestId);
+		}
+	}
+	if (!Pending.Callback)
+	{
+		return;
+	}
+	FOpenMobileHapticsBackendCallback Callback;
+	Callback.Token = Pending.Token;
+	const uint64 TerminalSequence = ControlRevision > MAX_uint64 - 2
+		? MAX_uint64
+		: FMath::Max<uint64>(2, ControlRevision + 2);
+	Callback.Sequence = Event
+		== OpenMobileHapticsAndroidBridgePrivate::ControlledEventStarted
+			? 1
+			: TerminalSequence;
+	Callback.Event.PatternOrEffect = Pending.PatternOrEffect;
+	Callback.Event.Channel = Pending.Channel;
+	Callback.Event.ResolvedPath = Pending.ResolvedPath;
+	Callback.Event.Evidence =
+		EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+	switch (Event)
+	{
+	case OpenMobileHapticsAndroidBridgePrivate::ControlledEventStarted:
+		Callback.Event.State = EOpenMobileHapticPlaybackState::Started;
+		break;
+	case OpenMobileHapticsAndroidBridgePrivate::ControlledEventCompleted:
+		Callback.Event.State = EOpenMobileHapticPlaybackState::Completed;
+		break;
+	case OpenMobileHapticsAndroidBridgePrivate::ControlledEventInterrupted:
+		Callback.Event.State = EOpenMobileHapticPlaybackState::Interrupted;
+		break;
+	case OpenMobileHapticsAndroidBridgePrivate::ControlledEventFailed:
+	default:
+		Callback.Event.State = EOpenMobileHapticPlaybackState::Failed;
+		break;
+	}
+	Callback.Event.TimestampSeconds = FPlatformTime::Seconds();
+	Pending.Callback(Callback);
+}
+
 void FOpenMobileHapticsAndroidBridge::Shutdown()
 {
 	{
@@ -864,6 +1257,12 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
 	if (Env && BridgeClass)
 	{
+		jobject Activity = FAndroidApplication::GetGameActivityThis();
+		if (Activity && StopAllMethod)
+		{
+			Env->CallStaticBooleanMethod(BridgeClass, StopAllMethod, Activity);
+			ClearException(Env);
+		}
 		Env->CallStaticVoidMethod(BridgeClass, ReleasePreparedResourcesMethod);
 		ClearException(Env);
 		Env->DeleteGlobalRef(BridgeClass);
@@ -874,6 +1273,11 @@ void FOpenMobileHapticsAndroidBridge::Shutdown()
 	PlayOneShotMethod = nullptr;
 	PrepareWaveformMethod = nullptr;
 	PlayWaveformMethod = nullptr;
+	PlayControlledWaveformMethod = nullptr;
+	PauseControlledWaveformMethod = nullptr;
+	ResumeControlledWaveformMethod = nullptr;
+	SeekControlledWaveformMethod = nullptr;
+	StopControlledWaveformMethod = nullptr;
 	PlayPredefinedMethod = nullptr;
 	PlayPrimitivesMethod = nullptr;
 	PlayEnvelopeMethod = nullptr;

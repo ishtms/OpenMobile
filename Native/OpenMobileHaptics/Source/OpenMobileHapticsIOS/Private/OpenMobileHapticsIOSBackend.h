@@ -45,6 +45,18 @@ public:
 	virtual FOpenMobileHapticControlResult StopPlayback(
 		const FOpenMobileHapticsBackendRequestToken& Token
 	) override;
+	virtual FOpenMobileHapticControlResult PausePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
+	virtual FOpenMobileHapticControlResult ResumePlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
+	virtual FOpenMobileHapticControlResult SeekPlayback(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	) override;
 	virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const FOpenMobileHapticDynamicParameterUpdate& Update

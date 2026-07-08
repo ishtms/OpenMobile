@@ -7,6 +7,7 @@
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsAndroidConfigurationPolicy.h"
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
+#include "OpenMobileHapticsAndroidPlaybackControlPolicy.h"
 #include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsFallbackPolicy.h"
@@ -15,6 +16,43 @@
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsTimelineManager.h"
+
+void FOpenMobileHapticsAndroidPlaybackControlStore::Add(
+	uint64 RequestId,
+	FOpenMobileHapticsAndroidControlledPlayback Playback
+)
+{
+	FScopeLock Lock(&Mutex);
+	Playbacks.Add(RequestId, MoveTemp(Playback));
+}
+
+bool FOpenMobileHapticsAndroidPlaybackControlStore::Find(
+	uint64 RequestId,
+	FOpenMobileHapticsAndroidControlledPlayback& OutPlayback
+) const
+{
+	FScopeLock Lock(&Mutex);
+	const FOpenMobileHapticsAndroidControlledPlayback* Playback =
+		Playbacks.Find(RequestId);
+	if (!Playback)
+	{
+		return false;
+	}
+	OutPlayback = *Playback;
+	return true;
+}
+
+void FOpenMobileHapticsAndroidPlaybackControlStore::Remove(uint64 RequestId)
+{
+	FScopeLock Lock(&Mutex);
+	Playbacks.Remove(RequestId);
+}
+
+void FOpenMobileHapticsAndroidPlaybackControlStore::Reset()
+{
+	FScopeLock Lock(&Mutex);
+	Playbacks.Reset();
+}
 
 namespace OpenMobileHapticsAndroidBackendPrivate
 {
@@ -32,6 +70,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	constexpr int64 HasPrimitiveKnowledge = 1LL << 11;
 	constexpr int64 HasEnvelopeKnowledge = 1LL << 12;
 	constexpr int64 HasFrequencyKnowledge = 1LL << 13;
+	constexpr int32 MaximumControlledWaveformSegmentCount = 4096;
 
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
@@ -130,6 +169,87 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			: Category == TEXT("Gameplay") ? 1 : 0;
 	}
 
+	bool IsTerminalPlaybackState(EOpenMobileHapticPlaybackState State)
+	{
+		switch (State)
+		{
+		case EOpenMobileHapticPlaybackState::Stopped:
+		case EOpenMobileHapticPlaybackState::Cancelled:
+		case EOpenMobileHapticPlaybackState::Completed:
+		case EOpenMobileHapticPlaybackState::Interrupted:
+		case EOpenMobileHapticPlaybackState::Failed:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	FOpenMobileHapticControlResult MakeEmulatedControlResult(
+		int32 NativeResult,
+		const TCHAR* FailureMessage
+	)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Emulated;
+		if (NativeResult == 1)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			return Result;
+		}
+		if (NativeResult == 7)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+			Result.Error = FOpenMobileHapticError::FromCommon(
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("The Android portable waveform is no longer active."),
+				EOpenMobileHapticFailureStage::Playback
+			);
+			return Result;
+		}
+		if (NativeResult == 4)
+		{
+			Result.Outcome = EOpenMobileHapticControlOutcome::Unsupported;
+			Result.Implementation =
+				EOpenMobileHapticControlImplementation::Unsupported;
+			Result.Error = FOpenMobileHapticError::FromCommon(
+				EOpenMobileErrorCode::NotSupported,
+				FailureMessage,
+				EOpenMobileHapticFailureStage::Capability
+			);
+			return Result;
+		}
+		Result.Error = FOpenMobileHapticError::FromCommon(
+			EOpenMobileErrorCode::NativeFailure,
+			FailureMessage,
+			EOpenMobileHapticFailureStage::Playback
+		);
+		return Result;
+	}
+
+	FOpenMobileHapticsAndroidPlaybackControlResolution ResolveControlledWaveform(
+		const FOpenMobileHapticsAndroidControlledPlayback& Playback,
+		const FOpenMobileHapticsBackendControlCommand& Command
+	)
+	{
+		if (!Playback.Timeline || !Playback.Timeline->bHasRepeatPlan
+			|| Playback.Timeline->AndroidControlBase.Outcome
+				!= EOpenMobileHapticsAndroidWaveformOutcome::Ready)
+		{
+			return {};
+		}
+		return FOpenMobileHapticsAndroidPlaybackControlPolicy::Resolve(
+			Playback.Timeline->AndroidControlBase.TimingsMilliseconds,
+			Playback.Timeline->AndroidControlBase.Amplitudes,
+			Playback.Timeline->RepeatPlan,
+			Command.ResolvedPositionSeconds,
+			Command.CompletedRepeatCount,
+			Playback.Timeline->RepeatPlan.MaximumDurationSeconds
+				- Command.ActiveDurationSeconds,
+			MaximumControlledWaveformSegmentCount
+		);
+	}
+
 	FOpenMobileHapticsBackendSubmission MakeNativeSubmission(
 		int32 NativeResult,
 		FName ResolvedPath,
@@ -211,6 +331,11 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	)
 	{
 		FOpenMobileHapticsAndroidScheduledPlayback Scheduled;
+		Scheduled.ScheduledStartGuard = Parameters.ScheduledStartGuard;
+		Scheduled.PatternOrEffect = PatternOrEffect;
+		Scheduled.Channel = Options.Channel;
+		Scheduled.ResolvedPath = ResolvedPath;
+		Scheduled.Callback = Callback;
 		if (Parameters.Timing.StartDelaySeconds <= 0.0)
 		{
 			return Scheduled;
@@ -230,11 +355,6 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			1,
 			60000
 		);
-		Scheduled.ScheduledStartGuard = Parameters.ScheduledStartGuard;
-		Scheduled.PatternOrEffect = PatternOrEffect;
-		Scheduled.Channel = Options.Channel;
-		Scheduled.ResolvedPath = ResolvedPath;
-		Scheduled.Callback = Callback;
 		return Scheduled;
 	}
 
@@ -286,6 +406,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 
 	FOpenMobileHapticsBackendSubmission SubmitPortableAndFallback(
 		FOpenMobileHapticsAndroidBridge& Bridge,
+		FOpenMobileHapticsAndroidPlaybackControlStore& PlaybackControlStore,
 		const FOpenMobileHapticNamedPatternRequest& Request,
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		const UOpenMobileHapticPatternAsset& Pattern,
@@ -312,6 +433,122 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			const FName ResolvedPath = Portable.bUsesDefaultAmplitude
 				? FName(TEXT("AndroidPortableWaveformDefaultAmplitude"))
 				: FName(TEXT("AndroidPortableWaveform"));
+			const bool bCanEmulateControls =
+				Parameters.Timing.StartDelaySeconds <= 0.0
+				&& Parameters.PortableTimeline
+				&& Parameters.PortableTimeline->bHasRepeatPlan
+				&& Parameters.PortableTimeline->AndroidControlBase.Outcome
+					== EOpenMobileHapticsAndroidWaveformOutcome::Ready
+				&& Callback;
+			if (bCanEmulateControls)
+			{
+				FOpenMobileHapticsBackendControlCommand InitialCommand;
+				InitialCommand.State =
+					EOpenMobileHapticPlaybackState::Accepted;
+				FOpenMobileHapticsAndroidControlledPlayback Controlled;
+				Controlled.Timeline = Parameters.PortableTimeline;
+				Controlled.Purpose = Purpose;
+				const FOpenMobileHapticsAndroidPlaybackControlResolution
+					ControlledWaveform = ResolveControlledWaveform(
+						Controlled,
+						InitialCommand
+					);
+				if (ControlledWaveform.IsSuccess())
+				{
+					const uint64 PreparedResourceId =
+						ControlledWaveform.TimingsMilliseconds
+							== Portable.TimingsMilliseconds
+						&& ControlledWaveform.Amplitudes
+							== Portable.Amplitudes
+						&& ControlledWaveform.RepeatIndex
+							== Portable.RepeatIndex
+							? Parameters.PortableTimeline->ResourceId
+							: 0;
+					FOpenMobileHapticsBackendEventCallback ControlledCallback =
+						[&PlaybackControlStore,
+						 RequestId = Token.RequestId,
+						 Callback](
+							const FOpenMobileHapticsBackendCallback& Event
+						) mutable
+						{
+							if (IsTerminalPlaybackState(Event.Event.State))
+							{
+								PlaybackControlStore.Remove(RequestId);
+							}
+							if (Callback)
+							{
+								Callback(Event);
+							}
+						};
+					PlaybackControlStore.Add(
+						Token.RequestId,
+						Controlled
+					);
+					const int32 ControlledResult =
+						Bridge.PlayControlledWaveform(
+							Token,
+							PreparedResourceId,
+							ControlledWaveform.TimingsMilliseconds,
+							ControlledWaveform.Amplitudes,
+							ControlledWaveform.RepeatIndex,
+							Purpose,
+							ControlledWaveform.CompletionDurationMilliseconds,
+							MakeScheduledPlayback(
+								Parameters,
+								Request,
+								ResolvedPath,
+								ControlledCallback
+							)
+						);
+					if (ControlledResult != 4)
+					{
+						if (ControlledResult != 6)
+						{
+							PlaybackControlStore.Remove(Token.RequestId);
+						}
+						FOpenMobileHapticsBackendSubmission Submission =
+							MakeNativeSubmission(
+								ControlledResult,
+								ResolvedPath,
+								true,
+								TEXT("Android rejected the controllable portable waveform."),
+								TEXT("Android could not submit the controllable portable waveform.")
+							);
+						if (ControlledResult == 6)
+						{
+							Submission.PlaybackControlSupport.PauseImplementation =
+								EOpenMobileHapticControlImplementation::Emulated;
+							Submission.PlaybackControlSupport.ResumeImplementation =
+								EOpenMobileHapticControlImplementation::Emulated;
+							Submission.PlaybackControlSupport.SeekImplementation =
+								EOpenMobileHapticControlImplementation::Emulated;
+							Submission.PlaybackControlSupport.SeekGranularitySeconds =
+								0.001;
+							Submission.PlaybackControlSupport.RepeatPlan =
+								Parameters.PortableTimeline->RepeatPlan;
+							Submission.PlaybackControlSupport.bHasRepeatPlan = true;
+						}
+						if (Portable.bUsesDefaultAmplitude)
+						{
+							Submission.Result.Intensity.bNativeClamped = true;
+							Attempts.Add(TEXT("AmplitudeControl:Default"));
+						}
+						AppendAttempts(Submission, Attempts);
+						ApplyBestEffortTiming(
+							Submission,
+							Parameters,
+							Request
+						);
+						return Submission;
+					}
+					PlaybackControlStore.Remove(Token.RequestId);
+					Attempts.Add(TEXT("PlaybackControls:NativeSupportChanged"));
+				}
+				else
+				{
+					Attempts.Add(TEXT("PlaybackControls:SegmentLimit"));
+				}
+			}
 			const int32 NativeResult = Bridge.PlayWaveform(
 				Token,
 				Parameters.PortableTimeline
@@ -603,6 +840,9 @@ FOpenMobileHapticsAndroidBackend::GetControlSupport() const
 	FOpenMobileHapticsBackendControlSupport Support;
 	Support.bStop = true;
 	Support.bStopAll = IsCustomPlaybackConfigured();
+	Support.bPause = IsCustomPlaybackConfigured();
+	Support.bResume = IsCustomPlaybackConfigured();
+	Support.bSeek = IsCustomPlaybackConfigured();
 	return Support;
 }
 
@@ -701,9 +941,6 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported;
-	Capabilities.Pause = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Resume = EOpenMobileHapticSupportState::Unsupported;
-	Capabilities.Seek = EOpenMobileHapticSupportState::Unsupported;
 	AddDetailedSupport(Capabilities, Probe);
 	if (Probe.MaximumControlPointCount >= 0
 		&& Probe.MaximumControlPointCount <= MAX_int32)
@@ -750,6 +987,9 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 		IsCustomPlaybackConfigured(),
 		Capabilities
 	);
+	Capabilities.Pause = Capabilities.WaveformTiming;
+	Capabilities.Resume = Capabilities.WaveformTiming;
+	Capabilities.Seek = Capabilities.WaveformTiming;
 	return Capabilities;
 }
 
@@ -843,6 +1083,8 @@ void FOpenMobileHapticsAndroidBackend::ReleasePreparedResources()
 
 void FOpenMobileHapticsAndroidBackend::HandleLifecycleChange()
 {
+	Bridge.StopAll();
+	PlaybackControlStore.Reset();
 	{
 		FScopeLock Lock(&CacheMutex);
 		StableCapabilities.Reset();
@@ -852,6 +1094,8 @@ void FOpenMobileHapticsAndroidBackend::HandleLifecycleChange()
 
 void FOpenMobileHapticsAndroidBackend::BeginShutdown()
 {
+	Bridge.StopAll();
+	PlaybackControlStore.Reset();
 	ReleasePreparedResources();
 	Bridge.Shutdown();
 }
@@ -1024,6 +1268,25 @@ FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopPlayback(
 	const FOpenMobileHapticsBackendRequestToken& Token
 )
 {
+	FOpenMobileHapticsAndroidControlledPlayback Controlled;
+	if (PlaybackControlStore.Find(Token.RequestId, Controlled))
+	{
+		const bool bStopped = Bridge.StopControlledWaveform(Token.RequestId);
+		PlaybackControlStore.Remove(Token.RequestId);
+		if (bStopped)
+		{
+			FOpenMobileHapticControlResult Result;
+			Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			Result.Implementation =
+				EOpenMobileHapticControlImplementation::Emulated;
+			return Result;
+		}
+		return OpenMobileHapticsAndroidBackendPrivate::
+			MakeEmulatedControlResult(
+				7,
+				TEXT("Android could not stop the portable waveform.")
+			);
+	}
 	if (!Bridge.CancelScheduled(Token.RequestId))
 	{
 		FOpenMobileHapticControlResult Result;
@@ -1038,6 +1301,126 @@ FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopPlayback(
 	FOpenMobileHapticControlResult Result;
 	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 	return Result;
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::PausePlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	FOpenMobileHapticsAndroidControlledPlayback Controlled;
+	if (!PlaybackControlStore.Find(Token.RequestId, Controlled))
+	{
+		return OpenMobileHapticsAndroidBackendPrivate::
+			MakeEmulatedControlResult(
+				7,
+				TEXT("Android could not pause the portable waveform.")
+			);
+	}
+	const int32 NativeResult = Bridge.PauseControlledWaveform(
+		Token.RequestId,
+		Command.Revision
+	);
+	if (NativeResult == 7)
+	{
+		PlaybackControlStore.Remove(Token.RequestId);
+	}
+	return OpenMobileHapticsAndroidBackendPrivate::MakeEmulatedControlResult(
+		NativeResult,
+		TEXT("Android could not pause the portable waveform.")
+	);
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::ResumePlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	using namespace OpenMobileHapticsAndroidBackendPrivate;
+	FOpenMobileHapticsAndroidControlledPlayback Controlled;
+	if (!PlaybackControlStore.Find(Token.RequestId, Controlled))
+	{
+		return MakeEmulatedControlResult(
+			7,
+			TEXT("Android could not resume the portable waveform.")
+		);
+	}
+	const FOpenMobileHapticsAndroidPlaybackControlResolution Waveform =
+		ResolveControlledWaveform(Controlled, Command);
+	if (!Waveform.IsSuccess())
+	{
+		FOpenMobileHapticControlResult Result =
+			FOpenMobileHapticControlResult::MakeRejected(
+				EOpenMobileErrorCode::NativeFailure,
+				TEXT("Android could not compile the remaining portable waveform.")
+			);
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Emulated;
+		return Result;
+	}
+	const int32 NativeResult = Bridge.ResumeControlledWaveform(
+		Token.RequestId,
+		Command.Revision,
+		Waveform.TimingsMilliseconds,
+		Waveform.Amplitudes,
+		Waveform.RepeatIndex,
+		Controlled.Purpose,
+		Waveform.CompletionDurationMilliseconds
+	);
+	if (NativeResult == 7)
+	{
+		PlaybackControlStore.Remove(Token.RequestId);
+	}
+	return MakeEmulatedControlResult(
+		NativeResult,
+		TEXT("Android could not resume the portable waveform.")
+	);
+}
+
+FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::SeekPlayback(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticsBackendControlCommand& Command
+)
+{
+	using namespace OpenMobileHapticsAndroidBackendPrivate;
+	FOpenMobileHapticsAndroidControlledPlayback Controlled;
+	if (!PlaybackControlStore.Find(Token.RequestId, Controlled))
+	{
+		return MakeEmulatedControlResult(
+			7,
+			TEXT("Android could not seek the portable waveform.")
+		);
+	}
+	const FOpenMobileHapticsAndroidPlaybackControlResolution Waveform =
+		ResolveControlledWaveform(Controlled, Command);
+	if (!Waveform.IsSuccess())
+	{
+		FOpenMobileHapticControlResult Result =
+			FOpenMobileHapticControlResult::MakeRejected(
+				EOpenMobileErrorCode::NativeFailure,
+				TEXT("Android could not compile the requested waveform position.")
+			);
+		Result.Implementation =
+			EOpenMobileHapticControlImplementation::Emulated;
+		return Result;
+	}
+	const int32 NativeResult = Bridge.SeekControlledWaveform(
+		Token.RequestId,
+		Command.Revision,
+		Waveform.TimingsMilliseconds,
+		Waveform.Amplitudes,
+		Waveform.RepeatIndex,
+		Controlled.Purpose,
+		Waveform.CompletionDurationMilliseconds
+	);
+	if (NativeResult == 7)
+	{
+		PlaybackControlStore.Remove(Token.RequestId);
+	}
+	return MakeEmulatedControlResult(
+		NativeResult,
+		TEXT("Android could not seek the portable waveform.")
+	);
 }
 
 FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
@@ -1056,6 +1439,7 @@ FOpenMobileHapticControlResult FOpenMobileHapticsAndroidBackend::StopAll()
 			TEXT("Android could not stop application vibration.")
 		);
 	}
+	PlaybackControlStore.Reset();
 	FOpenMobileHapticControlResult Result;
 	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 	return Result;
@@ -1276,6 +1660,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		{
 			return SubmitPortableAndFallback(
 				Bridge,
+				PlaybackControlStore,
 				Request,
 				Token,
 				*PortablePattern,
@@ -1297,6 +1682,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			RichAttempts.Add(TEXT("ExactOverride:MissingLoadedAsset"));
 			return SubmitPortableAndFallback(
 				Bridge,
+				PlaybackControlStore,
 				Request,
 				Token,
 				*PortablePattern,
@@ -1336,6 +1722,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 				));
 				return SubmitPortableAndFallback(
 					Bridge,
+					PlaybackControlStore,
 					Request,
 					Token,
 					*PortablePattern,
@@ -1386,6 +1773,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			RichAttempts.Add(TEXT("ExactOverride:NativeSupportChanged"));
 			return SubmitPortableAndFallback(
 				Bridge,
+				PlaybackControlStore,
 				Request,
 				Token,
 				*PortablePattern,
@@ -1481,6 +1869,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		}
 		return SubmitPortableAndFallback(
 			Bridge,
+			PlaybackControlStore,
 			Request,
 			Token,
 			*PortablePattern,
@@ -1558,6 +1947,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 			));
 			return SubmitPortableAndFallback(
 				Bridge,
+				PlaybackControlStore,
 				Request,
 				Token,
 				*PortablePattern,
@@ -1590,6 +1980,7 @@ FOpenMobileHapticsAndroidBackend::SubmitNamedPattern(
 		));
 		return SubmitPortableAndFallback(
 			Bridge,
+			PlaybackControlStore,
 			Request,
 			Token,
 			*PortablePattern,

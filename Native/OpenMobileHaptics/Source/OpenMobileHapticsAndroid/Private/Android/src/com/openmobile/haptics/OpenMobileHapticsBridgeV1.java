@@ -34,6 +34,11 @@ public final class OpenMobileHapticsBridgeV1 {
     static final int RESULT_PENDING = 6;
     static final int RESULT_STALE = 7;
     private static final long MAXIMUM_SCHEDULED_DELAY_MILLIS = 60000L;
+    private static final long MAXIMUM_CONTROLLED_DURATION_MILLIS = 300000L;
+    private static final int CONTROLLED_EVENT_STARTED = 1;
+    private static final int CONTROLLED_EVENT_COMPLETED = 2;
+    private static final int CONTROLLED_EVENT_INTERRUPTED = 3;
+    private static final int CONTROLLED_EVENT_FAILED = 4;
 
     private static final AtomicLong submissionCount = new AtomicLong();
     private static final AtomicLong callbackCount = new AtomicLong();
@@ -42,6 +47,8 @@ public final class OpenMobileHapticsBridgeV1 {
         new Handler(Looper.getMainLooper());
     private static final ConcurrentHashMap<Long, Runnable> SCHEDULED_REQUESTS =
         new ConcurrentHashMap<Long, Runnable>();
+    private static final Object CONTROLLED_WAVEFORM_LOCK = new Object();
+    private static ControlledWaveform controlledWaveform;
     private static volatile EnvelopeApi36 envelopeApi36;
     private static final LinkedHashMap<Long, PreparedWaveform>
         PREPARED_WAVEFORMS = new LinkedHashMap<Long, PreparedWaveform>(
@@ -74,6 +81,21 @@ public final class OpenMobileHapticsBridgeV1 {
             this.usedDefaultAmplitude = usedDefaultAmplitude;
             this.estimatedBytes = Math.max(1L, estimatedBytes);
             this.lastAccessMillis = lastAccessMillis;
+        }
+    }
+
+    private static final class ControlledWaveform {
+        final long requestId;
+        final WeakReference<Activity> activity;
+        Runnable startRunnable;
+        Runnable completionRunnable;
+        long controlRevision;
+        boolean started;
+        boolean paused;
+
+        ControlledWaveform(Activity owner, long id) {
+            requestId = id;
+            activity = new WeakReference<Activity>(owner);
         }
     }
 
@@ -226,6 +248,491 @@ public final class OpenMobileHapticsBridgeV1 {
             SCHEDULED_HANDLER.removeCallbacks(entry.getValue());
         }
         SCHEDULED_REQUESTS.clear();
+    }
+
+    private static void emitControlledWaveformEvent(
+        ControlledWaveform state,
+        int event
+    ) {
+        final long requestId = state.requestId;
+        final long controlRevision = state.controlRevision;
+        final int controlledEvent = event;
+        SCHEDULED_HANDLER.post(new Runnable() {
+            @Override
+            public void run() {
+                incrementBounded(callbackCount);
+                try {
+                    nativeOnControlledWaveformEvent(
+                        requestId,
+                        controlRevision,
+                        controlledEvent
+                    );
+                } catch (UnsatisfiedLinkError ignored) {
+                }
+            }
+        });
+    }
+
+    private static void removeControlledCallbacks(ControlledWaveform state) {
+        if (state.startRunnable != null) {
+            SCHEDULED_HANDLER.removeCallbacks(state.startRunnable);
+            state.startRunnable = null;
+        }
+        if (state.completionRunnable != null) {
+            SCHEDULED_HANDLER.removeCallbacks(state.completionRunnable);
+            state.completionRunnable = null;
+        }
+    }
+
+    private static void cancelControlledOutput(ControlledWaveform state) {
+        Activity activity = state.activity.get();
+        try {
+            Vibrator vibrator = vibrator(activity);
+            if (vibrator != null) {
+                vibrator.cancel();
+            }
+        } catch (SecurityException ignored) {
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void finishControlledWaveformLocked(
+        ControlledWaveform state,
+        int event,
+        boolean cancelOutput,
+        boolean emitEvent
+    ) {
+        if (controlledWaveform != state) {
+            return;
+        }
+        removeControlledCallbacks(state);
+        if (cancelOutput) {
+            cancelControlledOutput(state);
+        }
+        controlledWaveform = null;
+        if (emitEvent) {
+            emitControlledWaveformEvent(state, event);
+        }
+    }
+
+    private static void interruptControlledWaveform() {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            if (controlledWaveform != null) {
+                finishControlledWaveformLocked(
+                    controlledWaveform,
+                    CONTROLLED_EVENT_INTERRUPTED,
+                    true,
+                    true
+                );
+            }
+        }
+    }
+
+    private static int startControlledOutputLocked(
+        final ControlledWaveform state,
+        long preparedResourceId,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        int purpose,
+        long completionDurationMillis,
+        boolean emitStarted
+    ) {
+        if (controlledWaveform != state
+            || completionDurationMillis <= 0L
+            || completionDurationMillis > MAXIMUM_CONTROLLED_DURATION_MILLIS) {
+            return RESULT_FAILED;
+        }
+        Activity activity = state.activity.get();
+        if (activity == null) {
+            return RESULT_SUPPRESSED;
+        }
+        try {
+            Vibrator vibrator = vibrator(activity);
+            Context context = applicationContext(activity);
+            if (!systemHapticsEnabled(context)) {
+                return RESULT_SUPPRESSED;
+            }
+            long nowMillis = SystemClock.elapsedRealtime();
+            PreparedWaveform prepared = null;
+            if (preparedResourceId != 0L) {
+                synchronized (PREPARED_WAVEFORMS) {
+                    prunePreparedWaveformsLocked(nowMillis);
+                    prepared = PREPARED_WAVEFORMS.get(preparedResourceId);
+                    if (prepared != null) {
+                        prepared.lastAccessMillis = nowMillis;
+                    }
+                }
+            }
+            if (prepared == null) {
+                prepared = createPreparedWaveform(
+                    vibrator,
+                    timingsMilliseconds,
+                    amplitudes,
+                    repeatIndex,
+                    1L,
+                    nowMillis
+                );
+            }
+            if (prepared == null) {
+                return RESULT_UNSUPPORTED;
+            }
+            vibrateControlled(vibrator, prepared.effect, purpose);
+            state.started = true;
+            state.paused = false;
+            final long expectedRevision = state.controlRevision;
+            state.completionRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (CONTROLLED_WAVEFORM_LOCK) {
+                        if (controlledWaveform != state
+                            || state.paused
+                            || state.controlRevision != expectedRevision) {
+                            return;
+                        }
+                        finishControlledWaveformLocked(
+                            state,
+                            CONTROLLED_EVENT_COMPLETED,
+                            true,
+                            true
+                        );
+                    }
+                }
+            };
+            long completionUptimeMillis = SystemClock.uptimeMillis()
+                + completionDurationMillis;
+            if (!SCHEDULED_HANDLER.postAtTime(
+                state.completionRunnable,
+                completionUptimeMillis
+            )) {
+                state.completionRunnable = null;
+                vibrator.cancel();
+                return RESULT_FAILED;
+            }
+            if (emitStarted) {
+                final long startedRevision = state.controlRevision;
+                SCHEDULED_HANDLER.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+                            if (controlledWaveform == state
+                                && state.controlRevision == startedRevision) {
+                                emitControlledWaveformEvent(
+                                    state,
+                                    CONTROLLED_EVENT_STARTED
+                                );
+                            }
+                        }
+                    }
+                });
+            }
+            return prepared.usedDefaultAmplitude
+                ? RESULT_DEFAULT_AMPLITUDE
+                : RESULT_ACCEPTED;
+        } catch (SecurityException exception) {
+            return RESULT_FAILED;
+        } catch (Exception exception) {
+            return RESULT_FAILED;
+        }
+    }
+
+    static int playControlledWaveform(
+        Activity activity,
+        final long requestId,
+        final long preparedResourceId,
+        final long[] timingsMilliseconds,
+        final int[] amplitudes,
+        final int repeatIndex,
+        final int purpose,
+        final long completionDurationMillis,
+        long startDelayMillis
+    ) {
+        recordSubmission(requestId);
+        if (activity == null || requestId == 0L
+            || startDelayMillis < 0L
+            || startDelayMillis > MAXIMUM_SCHEDULED_DELAY_MILLIS) {
+            return RESULT_UNSUPPORTED;
+        }
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            if (controlledWaveform != null) {
+                finishControlledWaveformLocked(
+                    controlledWaveform,
+                    CONTROLLED_EVENT_INTERRUPTED,
+                    true,
+                    true
+                );
+            }
+            final ControlledWaveform state =
+                new ControlledWaveform(activity, requestId);
+            controlledWaveform = state;
+            if (startDelayMillis > 0L) {
+                state.startRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+                            if (controlledWaveform != state) {
+                                return;
+                            }
+                            state.startRunnable = null;
+                            boolean canStart = false;
+                            try {
+                                canStart = nativeCanStart(requestId);
+                            } catch (UnsatisfiedLinkError ignored) {
+                            }
+                            if (!canStart) {
+                                finishControlledWaveformLocked(
+                                    state,
+                                    CONTROLLED_EVENT_INTERRUPTED,
+                                    false,
+                                    true
+                                );
+                                return;
+                            }
+                            int result = startControlledOutputLocked(
+                                state,
+                                preparedResourceId,
+                                timingsMilliseconds,
+                                amplitudes,
+                                repeatIndex,
+                                purpose,
+                                completionDurationMillis,
+                                true
+                            );
+                            if (result != RESULT_ACCEPTED
+                                && result != RESULT_DEFAULT_AMPLITUDE) {
+                                finishControlledWaveformLocked(
+                                    state,
+                                    CONTROLLED_EVENT_FAILED,
+                                    true,
+                                    true
+                                );
+                            }
+                        }
+                    }
+                };
+                long startUptimeMillis = SystemClock.uptimeMillis()
+                    + startDelayMillis;
+                if (!SCHEDULED_HANDLER.postAtTime(
+                    state.startRunnable,
+                    startUptimeMillis
+                )) {
+                    controlledWaveform = null;
+                    return RESULT_FAILED;
+                }
+                return RESULT_PENDING;
+            }
+            int result = startControlledOutputLocked(
+                state,
+                preparedResourceId,
+                timingsMilliseconds,
+                amplitudes,
+                repeatIndex,
+                purpose,
+                completionDurationMillis,
+                true
+            );
+            if (result != RESULT_ACCEPTED
+                && result != RESULT_DEFAULT_AMPLITUDE) {
+                finishControlledWaveformLocked(
+                    state,
+                    CONTROLLED_EVENT_FAILED,
+                    true,
+                    false
+                );
+                return result;
+            }
+            return RESULT_PENDING;
+        }
+    }
+
+    static int pauseControlledWaveform(
+        Activity activity,
+        long requestId,
+        long controlRevision
+    ) {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            ControlledWaveform state = controlledWaveform;
+            if (state == null || state.requestId != requestId) {
+                return RESULT_STALE;
+            }
+            if (state.activity.get() != activity) {
+                finishControlledWaveformLocked(
+                    state,
+                    CONTROLLED_EVENT_INTERRUPTED,
+                    true,
+                    true
+                );
+                return RESULT_STALE;
+            }
+            if (!state.started || state.paused
+                || state.controlRevision == Long.MAX_VALUE
+                || controlRevision != state.controlRevision + 1L) {
+                return RESULT_FAILED;
+            }
+            removeControlledCallbacks(state);
+            cancelControlledOutput(state);
+            state.controlRevision = controlRevision;
+            state.paused = true;
+            return RESULT_ACCEPTED;
+        }
+    }
+
+    static int resumeControlledWaveform(
+        Activity activity,
+        long requestId,
+        long controlRevision,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        int purpose,
+        long completionDurationMillis
+    ) {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            ControlledWaveform state = controlledWaveform;
+            if (state == null || state.requestId != requestId) {
+                return RESULT_STALE;
+            }
+            if (state.activity.get() != activity) {
+                finishControlledWaveformLocked(
+                    state,
+                    CONTROLLED_EVENT_INTERRUPTED,
+                    true,
+                    true
+                );
+                return RESULT_STALE;
+            }
+            if (!state.paused
+                || state.controlRevision == Long.MAX_VALUE
+                || controlRevision != state.controlRevision + 1L) {
+                return RESULT_FAILED;
+            }
+            long previousRevision = state.controlRevision;
+            state.controlRevision = controlRevision;
+            int result = startControlledOutputLocked(
+                state,
+                0L,
+                timingsMilliseconds,
+                amplitudes,
+                repeatIndex,
+                purpose,
+                completionDurationMillis,
+                false
+            );
+            if (result != RESULT_ACCEPTED
+                && result != RESULT_DEFAULT_AMPLITUDE) {
+                state.controlRevision = previousRevision;
+                state.paused = true;
+                return result;
+            }
+            return RESULT_ACCEPTED;
+        }
+    }
+
+    static int seekControlledWaveform(
+        Activity activity,
+        long requestId,
+        long controlRevision,
+        long[] timingsMilliseconds,
+        int[] amplitudes,
+        int repeatIndex,
+        int purpose,
+        long completionDurationMillis
+    ) {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            ControlledWaveform state = controlledWaveform;
+            if (state == null || state.requestId != requestId) {
+                return RESULT_STALE;
+            }
+            Activity owner = state.activity.get();
+            if (owner == null || owner != activity) {
+                finishControlledWaveformLocked(
+                    state,
+                    CONTROLLED_EVENT_INTERRUPTED,
+                    true,
+                    true
+                );
+                return RESULT_STALE;
+            }
+            if (!state.started
+                || state.controlRevision == Long.MAX_VALUE
+                || controlRevision != state.controlRevision + 1L) {
+                return RESULT_FAILED;
+            }
+            if (state.paused) {
+                try {
+                    PreparedWaveform prepared = createPreparedWaveform(
+                        vibrator(owner),
+                        timingsMilliseconds,
+                        amplitudes,
+                        repeatIndex,
+                        1L,
+                        SystemClock.uptimeMillis()
+                    );
+                    if (prepared == null) {
+                        return RESULT_UNSUPPORTED;
+                    }
+                } catch (Exception exception) {
+                    return RESULT_FAILED;
+                }
+                state.controlRevision = controlRevision;
+                return RESULT_ACCEPTED;
+            }
+            removeControlledCallbacks(state);
+            cancelControlledOutput(state);
+            long previousRevision = state.controlRevision;
+            state.controlRevision = controlRevision;
+            int result = startControlledOutputLocked(
+                state,
+                0L,
+                timingsMilliseconds,
+                amplitudes,
+                repeatIndex,
+                purpose,
+                completionDurationMillis,
+                false
+            );
+            if (result != RESULT_ACCEPTED
+                && result != RESULT_DEFAULT_AMPLITUDE) {
+                state.controlRevision = previousRevision;
+                finishControlledWaveformLocked(
+                    state,
+                    CONTROLLED_EVENT_FAILED,
+                    true,
+                    true
+                );
+                return result;
+            }
+            return RESULT_ACCEPTED;
+        }
+    }
+
+    static boolean stopControlledWaveform(long requestId) {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            ControlledWaveform state = controlledWaveform;
+            if (state == null || state.requestId != requestId) {
+                return false;
+            }
+            finishControlledWaveformLocked(
+                state,
+                CONTROLLED_EVENT_COMPLETED,
+                true,
+                false
+            );
+            return true;
+        }
+    }
+
+    private static void clearControlledWaveform() {
+        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+            if (controlledWaveform != null) {
+                finishControlledWaveformLocked(
+                    controlledWaveform,
+                    CONTROLLED_EVENT_COMPLETED,
+                    true,
+                    false
+                );
+            }
+        }
     }
 
     private static EnvelopeApi36 envelopeApi36()
@@ -1109,10 +1616,11 @@ public final class OpenMobileHapticsBridgeV1 {
 
     static boolean stopAll(Activity activity) {
         cancelScheduledRequests();
+        clearControlledWaveform();
         try {
             Vibrator vibrator = vibrator(activity);
             if (vibrator == null) {
-                return false;
+                return true;
             }
             vibrator.cancel();
             return true;
@@ -1192,6 +1700,7 @@ public final class OpenMobileHapticsBridgeV1 {
         if (view == null || !view.isShown() || !view.hasWindowFocus()) {
             return RESULT_SUPPRESSED;
         }
+        interruptControlledWaveform();
         return view.performHapticFeedback(feedbackConstant(behavior))
             ? RESULT_ACCEPTED
             : RESULT_SUPPRESSED;
@@ -1235,6 +1744,24 @@ public final class OpenMobileHapticsBridgeV1 {
     }
 
     private static void vibrate(
+        Vibrator vibrator,
+        VibrationEffect effect,
+        long durationMillis,
+        int purpose
+    ) {
+        interruptControlledWaveform();
+        vibrateNative(vibrator, effect, durationMillis, purpose);
+    }
+
+    private static void vibrateControlled(
+        Vibrator vibrator,
+        VibrationEffect effect,
+        int purpose
+    ) {
+        vibrateNative(vibrator, effect, 0L, purpose);
+    }
+
+    private static void vibrateNative(
         Vibrator vibrator,
         VibrationEffect effect,
         long durationMillis,
@@ -1401,4 +1928,9 @@ public final class OpenMobileHapticsBridgeV1 {
 
     private static native boolean nativeCanStart(long requestId);
     private static native void nativeOnBridgeResult(long requestId, int result);
+    private static native void nativeOnControlledWaveformEvent(
+        long requestId,
+        long controlRevision,
+        int event
+    );
 }

@@ -614,6 +614,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	uint64 NextPreparedPatternAccessSequence;
 	NSMutableDictionary<NSNumber*, id<CHHapticPatternPlayer>>* Players;
 	NSMutableDictionary<NSNumber*, NSTimer*>* SafetyTimers;
+	TMap<uint64, double> SafetyDeadlineByRequest;
+	TMap<uint64, double> PausedSafetyRemainingByRequest;
 	NSMutableDictionary<NSNumber*, NSTimer*>* ScheduledStartTimers;
 	NSMutableSet<NSNumber*>* PendingAHAPRequests;
 	NSMutableDictionary<NSNumber*, NSString*>* ResourceDirectories;
@@ -747,7 +749,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (void)releaseAudioResourcesForRequest:(uint64)RequestId;
 - (void)handleSafetyTimer:(NSTimer*)Timer;
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key;
+- (void)pauseSafetyTimerForKey:(NSNumber*)Key;
+- (bool)resumeSafetyTimerForKey:(NSNumber*)Key;
 - (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId;
+- (EOpenMobileHapticsAppleSubmissionResult)pausePattern:(uint64)RequestId;
+- (EOpenMobileHapticsAppleSubmissionResult)resumePattern:(uint64)RequestId;
+- (EOpenMobileHapticsAppleSubmissionResult)seekPattern:
+	(uint64)RequestId
+	positionSeconds:(double)PositionSeconds;
 - (EOpenMobileHapticsAppleSubmissionResult)updatePattern:
 	(uint64)RequestId
 	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update;
@@ -1737,6 +1746,10 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			SafetyTimers = [[NSMutableDictionary alloc] init];
 		}
 		[SafetyTimers setObject:SafetyTimer forKey:Key];
+		SafetyDeadlineByRequest.Add(
+			RequestId,
+			FPlatformTime::Seconds() + Pattern.SafetyDurationSeconds
+		);
 		[[NSRunLoop mainRunLoop]
 			addTimer:SafetyTimer
 			forMode:NSRunLoopCommonModes];
@@ -2206,6 +2219,11 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			SafetyTimers = [[NSMutableDictionary alloc] init];
 		}
 		[SafetyTimers setObject:SafetyTimer forKey:Key];
+		SafetyDeadlineByRequest.Add(
+			RequestId,
+			FPlatformTime::Seconds()
+				+ Pattern.SafetyDurationSeconds + StartDelaySeconds
+		);
 		[[NSRunLoop mainRunLoop]
 			addTimer:SafetyTimer
 			forMode:NSRunLoopCommonModes];
@@ -2276,12 +2294,72 @@ namespace OpenMobileHapticsIOSBridgePrivate
 
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key
 {
+	const uint64 RequestId = Key.unsignedLongLongValue;
 	NSTimer* Timer = [SafetyTimers objectForKey:Key];
 	if (Timer)
 	{
 		[Timer invalidate];
 		[SafetyTimers removeObjectForKey:Key];
 	}
+	SafetyDeadlineByRequest.Remove(RequestId);
+	PausedSafetyRemainingByRequest.Remove(RequestId);
+}
+
+- (void)pauseSafetyTimerForKey:(NSNumber*)Key
+{
+	NSTimer* Timer = [SafetyTimers objectForKey:Key];
+	if (!Timer)
+	{
+		return;
+	}
+	const uint64 RequestId = Key.unsignedLongLongValue;
+	const double* Deadline = SafetyDeadlineByRequest.Find(RequestId);
+	const double RemainingSeconds = Deadline
+		? FMath::Max(0.0, *Deadline - FPlatformTime::Seconds())
+		: 0.0;
+	[Timer invalidate];
+	[SafetyTimers removeObjectForKey:Key];
+	SafetyDeadlineByRequest.Remove(RequestId);
+	PausedSafetyRemainingByRequest.Add(RequestId, RemainingSeconds);
+}
+
+- (bool)resumeSafetyTimerForKey:(NSNumber*)Key
+{
+	const uint64 RequestId = Key.unsignedLongLongValue;
+	const double* Remaining =
+		PausedSafetyRemainingByRequest.Find(RequestId);
+	if (!Remaining)
+	{
+		return true;
+	}
+	if (!FMath::IsFinite(*Remaining) || *Remaining <= 0.0)
+	{
+		return false;
+	}
+	NSTimer* Timer = [NSTimer
+		timerWithTimeInterval:*Remaining
+		target:self
+		selector:@selector(handleSafetyTimer:)
+		userInfo:Key
+		repeats:NO];
+	if (!Timer)
+	{
+		return false;
+	}
+	if (!SafetyTimers)
+	{
+		SafetyTimers = [[NSMutableDictionary alloc] init];
+	}
+	[SafetyTimers setObject:Timer forKey:Key];
+	SafetyDeadlineByRequest.Add(
+		RequestId,
+		FPlatformTime::Seconds() + *Remaining
+	);
+	PausedSafetyRemainingByRequest.Remove(RequestId);
+	[[NSRunLoop mainRunLoop]
+		addTimer:Timer
+		forMode:NSRunLoopCommonModes];
+	return true;
 }
 
 - (void)handleSafetyTimer:(NSTimer*)Timer
@@ -2300,12 +2378,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 	[Timer invalidate];
 	[SafetyTimers removeObjectForKey:Key];
+	const uint64 RequestId = Key.unsignedLongLongValue;
+	SafetyDeadlineByRequest.Remove(RequestId);
+	PausedSafetyRemainingByRequest.Remove(RequestId);
 	if (bShuttingDown)
 	{
 		return;
 	}
 
-	const uint64 RequestId = Key.unsignedLongLongValue;
 	id<CHHapticPatternPlayer> Player = [Players objectForKey:Key];
 	if (!Player)
 	{
@@ -2369,6 +2449,104 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 }
 
+- (EOpenMobileHapticsAppleSubmissionResult)pausePattern:(uint64)RequestId
+{
+	using namespace OpenMobileHapticsIOSBridgePrivate;
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticPatternPlayer> BasePlayer = [Players objectForKey:Key];
+	if (!BasePlayer)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+	id<CHHapticAdvancedPatternPlayer> Player = AsAdvancedPlayer(BasePlayer);
+	if (!Player)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	NSError* Error = nil;
+	const bool bPaused = [Player
+		pauseAtTime:CHHapticTimeImmediate
+		error:&Error];
+	if (!bPaused || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	[self pauseSafetyTimerForKey:Key];
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)resumePattern:(uint64)RequestId
+{
+	using namespace OpenMobileHapticsIOSBridgePrivate;
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticPatternPlayer> BasePlayer = [Players objectForKey:Key];
+	if (!BasePlayer)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+	id<CHHapticAdvancedPatternPlayer> Player = AsAdvancedPlayer(BasePlayer);
+	if (!Player)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	NSError* Error = nil;
+	const bool bResumed = [Player
+		resumeAtTime:CHHapticTimeImmediate
+		error:&Error];
+	if (!bResumed || Error)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	if (![self resumeSafetyTimerForKey:Key])
+	{
+		Error = nil;
+		[Player pauseAtTime:CHHapticTimeImmediate error:&Error];
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	return EOpenMobileHapticsAppleSubmissionResult::Accepted;
+}
+
+- (EOpenMobileHapticsAppleSubmissionResult)seekPattern:
+	(uint64)RequestId
+	positionSeconds:(double)PositionSeconds
+{
+	using namespace OpenMobileHapticsIOSBridgePrivate;
+	if (bShuttingDown)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+	}
+	if (!FMath::IsFinite(PositionSeconds) || PositionSeconds < 0.0)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+	}
+	NSNumber* Key = [NSNumber numberWithUnsignedLongLong:RequestId];
+	id<CHHapticPatternPlayer> BasePlayer = [Players objectForKey:Key];
+	if (!BasePlayer)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::StaleRequest;
+	}
+	id<CHHapticAdvancedPatternPlayer> Player = AsAdvancedPlayer(BasePlayer);
+	if (!Player)
+	{
+		return EOpenMobileHapticsAppleSubmissionResult::Unsupported;
+	}
+	NSError* Error = nil;
+	const bool bSought = [Player
+		seekToOffset:PositionSeconds
+		error:&Error];
+	return bSought && !Error
+		? EOpenMobileHapticsAppleSubmissionResult::Accepted
+		: EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+}
+
 - (EOpenMobileHapticsAppleSubmissionResult)updatePattern:
 	(uint64)RequestId
 	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update
@@ -2420,6 +2598,8 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	[SafetyTimers removeAllObjects];
 	[SafetyTimers release];
 	SafetyTimers = nil;
+	SafetyDeadlineByRequest.Reset();
+	PausedSafetyRemainingByRequest.Reset();
 	for (NSTimer* Timer in [ScheduledStartTimers allValues])
 	{
 		[Timer invalidate];
@@ -2925,6 +3105,65 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			{
 				Result = [Service stopPattern:RequestId];
 			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult PausePattern(
+			uint64 RequestId
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, &Result]()
+			{
+				Result = [Service pausePattern:RequestId];
+			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult ResumePattern(
+			uint64 RequestId
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue([Service, RequestId, &Result]()
+			{
+				Result = [Service resumePattern:RequestId];
+			});
+			return Result;
+		}
+
+		virtual EOpenMobileHapticsAppleSubmissionResult SeekPattern(
+			uint64 RequestId,
+			double PositionSeconds
+		) override
+		{
+			if (!NativeService)
+			{
+				return EOpenMobileHapticsAppleSubmissionResult::ShuttingDown;
+			}
+			EOpenMobileHapticsAppleSubmissionResult Result =
+				EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
+			OpenMobileHapticsAppleNativeService* Service = NativeService;
+			RunOnMainQueue(
+				[Service, RequestId, PositionSeconds, &Result]()
+				{
+					Result = [Service
+						seekPattern:RequestId
+						positionSeconds:PositionSeconds];
+				}
+			);
 			return Result;
 		}
 
