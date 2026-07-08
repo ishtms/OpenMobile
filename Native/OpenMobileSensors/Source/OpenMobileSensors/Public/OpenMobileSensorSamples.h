@@ -323,6 +323,22 @@ enum class EOpenMobileStepCountDiscontinuity : uint8
 	SessionReset
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileStepDetectionSource : uint8
+{
+	Unknown,
+	AndroidStepDetector,
+	IOSPedometerDelta
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileStepDetectionQuality : uint8
+{
+	Unknown,
+	DirectHardwareEvent,
+	InferredFromPedometerDelta
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobilePedometerMetrics
 {
@@ -382,6 +398,23 @@ struct OPENMOBILESENSORS_API FOpenMobileStepsSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bCountSaturated = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (ToolTip = "Number of newly detected steps represented by this StepDetector event."))
+	int64 DetectedStepDelta = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasNativeTotal = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (ToolTip = "Platform cumulative total used to derive the event when available."))
+	int64 NativeTotal = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileStepDetectionSource DetectionSource =
+		EOpenMobileStepDetectionSource::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileStepDetectionQuality DetectionQuality =
+		EOpenMobileStepDetectionQuality::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasQueryInterval = false;

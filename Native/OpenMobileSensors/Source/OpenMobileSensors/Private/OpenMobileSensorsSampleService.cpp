@@ -21,6 +21,7 @@
 #include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsTrueHeadingService.h"
 #include "OpenMobileStepCountSessionTracker.h"
+#include "OpenMobileStepDetectionTracker.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -212,6 +213,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			LinearAccelerationEstimator;
 		FOpenMobileSensorRelativeAltitudeEstimator RelativeAltitudeEstimator;
 		FOpenMobileStepCountSessionTracker StepCountSessionTracker;
+		FOpenMobileStepDetectionTracker StepDetectionTracker;
 		FOpenMobileSensorOrientationClassifier OrientationClassifier;
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
@@ -1324,6 +1326,16 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileStepsSensorSample& Sample
 	)
 	{
+		if (Slot.Sensor.Type == EOpenMobileSensorType::StepDetector)
+		{
+			FOpenMobileStepsSensorSample Event;
+			if (!Slot.StepDetectionTracker.Process(Sample, Event))
+			{
+				return false;
+			}
+			Sample = MoveTemp(Event);
+			return true;
+		}
 		if (!Slot.bResettableStepCountSession)
 		{
 			return Slot.Sensor == Sample.Header.Sensor;
@@ -2516,6 +2528,10 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
 	Slot->bResettableStepCountSession = bResettableStepCountSession;
+	if (Sensor.Type == EOpenMobileSensorType::StepDetector)
+	{
+		Slot->StepDetectionTracker.Initialize(Handle.GetIdentifier());
+	}
 	if (bResettableStepCountSession)
 	{
 		Slot->StepCountSessionTracker.Initialize(Handle.GetIdentifier());

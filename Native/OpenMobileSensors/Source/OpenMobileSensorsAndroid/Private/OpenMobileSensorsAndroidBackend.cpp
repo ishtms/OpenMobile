@@ -1109,6 +1109,12 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 				{
 					Sample.Origin = EOpenMobileStepCountOrigin::Session;
 					Sample.OriginIdentifier = Handle.Identifier;
+					Sample.DetectedStepDelta = Sample.Count;
+					Sample.DetectionSource =
+						EOpenMobileStepDetectionSource::AndroidStepDetector;
+					Sample.DetectionQuality = EOpenMobileStepDetectionQuality::
+						DirectHardwareEvent;
+					Sample.Header.bValid &= Sample.DetectedStepDelta > 0;
 				}
 				FOpenMobileSensorUnitConverter::NormalizeStepsSample(
 					EOpenMobileSensorNativePlatform::Android,

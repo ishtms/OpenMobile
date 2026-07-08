@@ -74,6 +74,9 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		Add(Availability.bStepCounting,
 			EOpenMobileSensorType::StepCounter,
 			TEXT("IOS-Pedometer"));
+		Add(Availability.bStepCounting,
+			EOpenMobileSensorType::StepDetector,
+			TEXT("IOS-PedometerDelta"));
 		return Sensors;
 	}
 
@@ -147,6 +150,26 @@ namespace OpenMobileSensorsIOSBackendPrivate
 			Capability.Availability.Detail =
 				TEXT("Motion access has not been decided for pedometer data.");
 			break;
+		}
+		return Capability;
+	}
+
+	FOpenMobileSensorCapability MakeStepDetectorCapability(
+		const FOpenMobileSensorsIOSAvailability& Availability
+	)
+	{
+		FOpenMobileSensorCapability Capability =
+			MakeStepCounterCapability(Availability);
+		Capability.Sensor.Type = EOpenMobileSensorType::StepDetector;
+		Capability.Availability.Name =
+			FOpenMobileSensorTypes::GetStableName(
+				EOpenMobileSensorType::StepDetector
+			);
+		if (Capability.Availability.State ==
+			EOpenMobileCapabilityState::Available)
+		{
+			Capability.Availability.Detail =
+				TEXT("Available from Core Motion pedometer deltas.");
 		}
 		return Capability;
 	}
@@ -434,7 +457,8 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		GetSupportedSensors(Availability))
 	{
 		if (Supported.Type == EOpenMobileSensorType::AbsoluteAltitude
-			|| Supported.Type == EOpenMobileSensorType::StepCounter)
+			|| Supported.Type == EOpenMobileSensorType::StepCounter
+			|| Supported.Type == EOpenMobileSensorType::StepDetector)
 		{
 			continue;
 		}
@@ -466,6 +490,7 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 	}
 	Capabilities.Add(MakeAbsoluteAltitudeCapability(Availability));
 	Capabilities.Add(MakeStepCounterCapability(Availability));
+	Capabilities.Add(MakeStepDetectorCapability(Availability));
 	Capabilities.Add(MakeUnsupportedAmbientLightCapability());
 	return Capabilities;
 }
@@ -807,10 +832,6 @@ bool FOpenMobileSensorsIOSBackend::PublishStepsBatchFromPedometerQueue(
 		FScopeLock Lock(&NativeStepCountersMutex);
 		FOpenMobileNativeStepCounterTracker* Tracker =
 			NativeStepCounters.Find(Handle.Identifier);
-		if (!Tracker)
-		{
-			return false;
-		}
 		for (FOpenMobileStepsSensorSample& Sample : NormalizedBatch.Samples)
 		{
 			if (Sample.Header.SourceFlags == 0)
@@ -819,7 +840,29 @@ bool FOpenMobileSensorsIOSBackend::PublishStepsBatchFromPedometerQueue(
 					FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
 						Sample.Header.Sensor.Type);
 			}
-			Sample.Header.bValid &= Tracker->Apply(Sample);
+			if (Sample.Header.Sensor.Type ==
+				EOpenMobileSensorType::StepCounter)
+			{
+				if (!Tracker)
+				{
+					return false;
+				}
+				Sample.Header.bValid &= Tracker->Apply(Sample);
+			}
+			else if (Sample.Header.Sensor.Type ==
+				EOpenMobileSensorType::StepDetector)
+			{
+				Sample.bHasNativeTotal = true;
+				Sample.NativeTotal = Sample.Count;
+				Sample.DetectionSource =
+					EOpenMobileStepDetectionSource::IOSPedometerDelta;
+				Sample.DetectionQuality = EOpenMobileStepDetectionQuality::
+					InferredFromPedometerDelta;
+			}
+			else
+			{
+				return false;
+			}
 			FOpenMobileSensorUnitConverter::NormalizeStepsSample(
 				EOpenMobileSensorNativePlatform::IOS,
 				Sample);

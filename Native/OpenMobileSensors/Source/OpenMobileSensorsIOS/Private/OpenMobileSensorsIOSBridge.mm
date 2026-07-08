@@ -93,6 +93,7 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return EService::AbsoluteAltitude;
 		case EOpenMobileSensorType::StepCounter:
+		case EOpenMobileSensorType::StepDetector:
 			return EService::Pedometer;
 		case EOpenMobileSensorType::Proximity:
 			return EService::Proximity;
@@ -245,6 +246,7 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return Availability.bAbsoluteAltitude;
 		case EOpenMobileSensorType::StepCounter:
+		case EOpenMobileSensorType::StepDetector:
 			return Availability.bStepCounting;
 		case EOpenMobileSensorType::Proximity:
 			return Availability.bProximityApiSupported;
@@ -361,7 +363,8 @@ public:
 				EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription
 			};
 		}
-		if (Request.Sensor.Type == EOpenMobileSensorType::StepCounter)
+		if (Request.Sensor.Type == EOpenMobileSensorType::StepCounter
+			|| Request.Sensor.Type == EOpenMobileSensorType::StepDetector)
 		{
 			if (@available(iOS 11.0, *))
 			{
