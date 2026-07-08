@@ -313,6 +313,15 @@ enum class EOpenMobileStepCountOrigin : uint8
 	Session
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileStepCountDiscontinuity : uint8
+{
+	None,
+	StreamStarted,
+	NativeCounterReset,
+	OriginChanged
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobilePedometerMetrics
 {
@@ -362,6 +371,22 @@ struct OPENMOBILESENSORS_API FOpenMobileStepsSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileStepCountOrigin Origin = EOpenMobileStepCountOrigin::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FGuid OriginIdentifier;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileStepCountDiscontinuity Discontinuity =
+		EOpenMobileStepCountDiscontinuity::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasQueryInterval = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (ToolTip = "Start of the native query interval in Unix time seconds."))
+	double QueryStartUnixTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (ToolTip = "End of the native query interval in Unix time seconds."))
+	double QueryEndUnixTimeSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobilePedometerMetrics Metrics;

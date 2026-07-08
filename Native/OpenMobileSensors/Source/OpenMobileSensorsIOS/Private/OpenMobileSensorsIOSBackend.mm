@@ -3,6 +3,7 @@
 #include "OpenMobileAsync.h"
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
+#include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
@@ -70,7 +71,84 @@ namespace OpenMobileSensorsIOSBackendPrivate
 		Add(Availability.bProximityApiSupported,
 			EOpenMobileSensorType::Proximity,
 			TEXT("IOS-ProximityState"));
+		Add(Availability.bStepCounting,
+			EOpenMobileSensorType::StepCounter,
+			TEXT("IOS-Pedometer"));
 		return Sensors;
+	}
+
+	FOpenMobileSensorCapability MakeStepCounterCapability(
+		const FOpenMobileSensorsIOSAvailability& Availability
+	)
+	{
+		FOpenMobileSensorCapability Capability;
+		Capability.Sensor.Type = EOpenMobileSensorType::StepCounter;
+		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Availability.Name =
+			FOpenMobileSensorTypes::GetStableName(
+				EOpenMobileSensorType::StepCounter
+			);
+		Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
+		Capability.bSupportsNativeBatching = false;
+		Capability.BackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Suspended;
+		Capability.RequiredPermission =
+			FOpenMobileSensorPermissions::GetPermissionName(
+				EOpenMobileSensorPermission::MotionActivity
+			);
+		if (!Availability.bPedometerApiSupported)
+		{
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::NotSupported;
+			Capability.Availability.Detail =
+				TEXT("Native step counting requires CMPedometer.");
+			return Capability;
+		}
+		if (!Availability.bStepCounting)
+		{
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::Unavailable;
+			Capability.Availability.Detail =
+				TEXT("This Apple device does not provide step counting.");
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::MissingHardware;
+			return Capability;
+		}
+		switch (Availability.PedometerAuthorizationStatus)
+		{
+		case EOpenMobilePermissionStatus::Granted:
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::Available;
+			Capability.Availability.Detail =
+				TEXT("Available from Core Motion pedometer data.");
+			break;
+		case EOpenMobilePermissionStatus::Denied:
+		case EOpenMobilePermissionStatus::PermanentlyDenied:
+			Capability.Availability.State = EOpenMobileCapabilityState::Denied;
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::Permission;
+			Capability.Availability.Detail =
+				TEXT("Motion access was denied for pedometer data.");
+			break;
+		case EOpenMobilePermissionStatus::Restricted:
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::Restricted;
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::Permission;
+			Capability.Availability.Detail =
+				TEXT("System policy restricts pedometer data.");
+			break;
+		case EOpenMobilePermissionStatus::NotDetermined:
+		default:
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::PermissionRequired;
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::Permission;
+			Capability.Availability.Detail =
+				TEXT("Motion access has not been decided for pedometer data.");
+			break;
+		}
+		return Capability;
 	}
 
 	FOpenMobileSensorCapability MakeAbsoluteAltitudeCapability(
@@ -236,6 +314,8 @@ namespace OpenMobileSensorsIOSBackendPrivate
 			return TEXT("ReferenceFrameUnavailable");
 		case EOpenMobileSensorsIOSBridgeFailure::PermissionDenied:
 			return TEXT("PermissionDenied");
+		case EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted:
+			return TEXT("PermissionRestricted");
 		case EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription:
 			return TEXT("MissingUsageDescription");
 		case EOpenMobileSensorsIOSBridgeFailure::ManagerError:
@@ -353,7 +433,8 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 	for (const FSupportedSensor& Supported :
 		GetSupportedSensors(Availability))
 	{
-		if (Supported.Type == EOpenMobileSensorType::AbsoluteAltitude)
+		if (Supported.Type == EOpenMobileSensorType::AbsoluteAltitude
+			|| Supported.Type == EOpenMobileSensorType::StepCounter)
 		{
 			continue;
 		}
@@ -384,6 +465,7 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 		Capabilities.Add(MoveTemp(Capability));
 	}
 	Capabilities.Add(MakeAbsoluteAltitudeCapability(Availability));
+	Capabilities.Add(MakeStepCounterCapability(Availability));
 	Capabilities.Add(MakeUnsupportedAmbientLightCapability());
 	return Capabilities;
 }
@@ -423,12 +505,33 @@ FOpenMobileSensorsIOSBackend::StartSensorStream(
 	}
 	const FOpenMobileSensorsBackendToken Token =
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const bool bTrackNativeSteps = InOutRequest.Sensor.Type ==
+		EOpenMobileSensorType::StepCounter;
+	if (bTrackNativeSteps)
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		if (NativeStepCounters.Contains(Handle.Identifier))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidRequest
+			);
+		}
+		NativeStepCounters.Add(
+			Handle.Identifier,
+			FOpenMobileNativeStepCounterTracker{}
+		);
+	}
 	const FOpenMobileSensorsIOSBridgeResult Result = GetBridge().StartStream(
 		Token,
 		Handle,
 		InOutRequest);
 	if (!Result.IsSuccess())
 	{
+		if (bTrackNativeSteps)
+		{
+			FScopeLock Lock(&NativeStepCountersMutex);
+			NativeStepCounters.Remove(Handle.Identifier);
+		}
 		LastBridgeFailure.Store(static_cast<uint8>(Result.Failure));
 		return MapBridgeFailure(
 			Result.Failure,
@@ -477,6 +580,10 @@ FOpenMobileSensorsIOSBackend::ReconfigureSensorStream(
 void FOpenMobileSensorsIOSBackend::StopSensorStream(
 	const FOpenMobileSensorBackendStreamHandle& Handle)
 {
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Remove(Handle.Identifier);
+	}
 	if (Bridge)
 	{
 		Bridge->StopStream(Handle);
@@ -496,6 +603,44 @@ FOpenMobileSensorsIOSBackend::FlushSensorStream(
 		EOpenMobileSensorFailureReason::UnsupportedOperation,
 		TEXT("CoreMotion"),
 		TEXT("NoNativeFifo"));
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsIOSBackend::QueryNativeStepCount(
+	const FGuid& RequestId,
+	const FOpenMobileNativeStepCountQuery& Query,
+	FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion)
+{
+	using namespace OpenMobileSensorsIOSBackendPrivate;
+	if (bShuttingDown.Load())
+	{
+		return MapBridgeFailure(
+			EOpenMobileSensorsIOSBridgeFailure::ShuttingDown);
+	}
+	const FOpenMobileSensorsIOSBridgeResult Result =
+		GetBridge().QueryNativeStepCount(
+			RequestId,
+			Query,
+			MoveTemp(Completion));
+	if (!Result.IsSuccess())
+	{
+		LastBridgeFailure.Store(static_cast<uint8>(Result.Failure));
+		return MapBridgeFailure(
+			Result.Failure,
+			Result.NativeDomain,
+			Result.NativeCode.IsEmpty()
+				? FailureCode(Result.Failure)
+				: Result.NativeCode);
+	}
+	LastBridgeFailure.Store(
+		static_cast<uint8>(EOpenMobileSensorsIOSBridgeFailure::None));
+	return {EOpenMobileSensorResultCode::Accepted};
+}
+
+bool FOpenMobileSensorsIOSBackend::CancelNativeStepCountQuery(
+	const FGuid& RequestId)
+{
+	return Bridge && Bridge->CancelNativeStepCountQuery(RequestId);
 }
 
 bool FOpenMobileSensorsIOSBackend::PublishVectorBatchFromMotionQueue(
@@ -648,6 +793,44 @@ bool FOpenMobileSensorsIOSBackend::PublishProximityBatchFromProximityQueue(
 	return true;
 }
 
+bool FOpenMobileSensorsIOSBackend::PublishStepsBatchFromPedometerQueue(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	const FOpenMobileStepsSensorBatch& Batch)
+{
+	if (bShuttingDown.Load())
+	{
+		return false;
+	}
+	FOpenMobileStepsSensorBatch NormalizedBatch = Batch;
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		FOpenMobileNativeStepCounterTracker* Tracker =
+			NativeStepCounters.Find(Handle.Identifier);
+		if (!Tracker)
+		{
+			return false;
+		}
+		for (FOpenMobileStepsSensorSample& Sample : NormalizedBatch.Samples)
+		{
+			if (Sample.Header.SourceFlags == 0)
+			{
+				Sample.Header.SourceFlags =
+					FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
+						Sample.Header.Sensor.Type);
+			}
+			Sample.Header.bValid &= Tracker->Apply(Sample);
+			FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+				EOpenMobileSensorNativePlatform::IOS,
+				Sample);
+		}
+	}
+	return FOpenMobileSensorsSampleService::PublishStepsBatchFromBackend(
+		Token,
+		Handle,
+		NormalizedBatch);
+}
+
 bool FOpenMobileSensorsIOSBackend::
 PublishMagneticFieldAccuracyFromMotionQueue(
 	const FOpenMobileSensorsBackendToken& Token,
@@ -692,6 +875,10 @@ void FOpenMobileSensorsIOSBackend::FailPhysicalStreamFromBackend(
 	FString NativeDomain,
 	FString NativeCode)
 {
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Remove(Handle.Identifier);
+	}
 	LastBridgeFailure.Store(static_cast<uint8>(Failure));
 	FOpenMobileSensorOperationResult Result = MapBridgeFailure(
 		Failure,
@@ -712,6 +899,10 @@ void FOpenMobileSensorsIOSBackend::BeginShutdown()
 	if (bShuttingDown.Exchange(true))
 	{
 		return;
+	}
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Reset();
 	}
 	if (Bridge)
 	{
@@ -762,6 +953,9 @@ FOpenMobileSensorOperationResult FOpenMobileSensorsIOSBackend::MapBridgeFailure(
 		break;
 	case EOpenMobileSensorsIOSBridgeFailure::PermissionDenied:
 		Reason = EOpenMobileSensorFailureReason::PermissionDenied;
+		break;
+	case EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted:
+		Reason = EOpenMobileSensorFailureReason::PermissionRestricted;
 		break;
 	case EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription:
 		Reason = EOpenMobileSensorFailureReason::ConfigurationBlocked;

@@ -247,7 +247,27 @@ bool FOpenMobileSensorUnitConverter::NormalizeStepsSample(
 		return true;
 	}
 	CaptureDiagnostics(Diagnostics, {static_cast<double>(Sample.Count)});
-	bool bValid = Sample.Count >= 0;
+	bool bValid = Sample.Count >= 0
+		&& Sample.Origin != EOpenMobileStepCountOrigin::Unknown
+		&& Sample.OriginIdentifier.IsValid();
+	if (Sample.Origin == EOpenMobileStepCountOrigin::QueryInterval)
+	{
+		bValid &= Sample.bHasQueryInterval
+			&& FMath::IsFinite(Sample.QueryStartUnixTimeSeconds)
+			&& FMath::IsFinite(Sample.QueryEndUnixTimeSeconds)
+			&& Sample.QueryEndUnixTimeSeconds >=
+				Sample.QueryStartUnixTimeSeconds;
+	}
+	else
+	{
+		Sample.bHasQueryInterval = false;
+		Sample.QueryStartUnixTimeSeconds = 0.0;
+		Sample.QueryEndUnixTimeSeconds = 0.0;
+	}
+	if (Sample.Discontinuity != EOpenMobileStepCountDiscontinuity::None)
+	{
+		Sample.Header.bStatefulProcessingReset = true;
+	}
 	if (Sample.Metrics.bHasDistanceMeters)
 	{
 		bValid &= IsFiniteNonnegative(Sample.Metrics.DistanceMeters);

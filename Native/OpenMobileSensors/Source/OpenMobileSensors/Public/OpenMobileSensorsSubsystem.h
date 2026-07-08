@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileNativeStepCount.h"
 #include "OpenMobilePermissionTypes.h"
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorCalibration.h"
@@ -88,6 +89,10 @@ DECLARE_DELEGATE_OneParam(
 DECLARE_DELEGATE_OneParam(
 	FOnOpenMobileSensorReplayComplete,
 	const FOpenMobileSensorReplayResult&
+);
+DECLARE_DELEGATE_OneParam(
+	FOnOpenMobileNativeStepCountQueryComplete,
+	const FOpenMobileNativeStepCountQueryResult&
 );
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
@@ -386,6 +391,11 @@ public:
 	FOpenMobileSensorOperationResult StopRelativeAltitudeSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+	FGuid QueryNativeStepCountNative(
+		const FOpenMobileNativeStepCountQuery& Query,
+		FOnOpenMobileNativeStepCountQueryComplete&& Completion
+	);
+	bool CancelNativeStepCountQueryNative(const FGuid& RequestId);
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Request Native Sensor Calibration Prompt", ToolTip = "Explicitly asks the active backend to show a native calibration prompt when supported."))
 	FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(

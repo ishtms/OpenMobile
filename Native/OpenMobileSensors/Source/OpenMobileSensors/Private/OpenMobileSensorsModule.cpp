@@ -1,6 +1,7 @@
 #include "OpenMobileSensorsModule.h"
 
 #include "Modules/ModuleManager.h"
+#include "OpenMobileNativeStepQueryService.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsMetadataService.h"
@@ -15,12 +16,14 @@ void FOpenMobileSensorsModule::StartupModule()
 	FOpenMobileSensorsSampleService::Start();
 	FOpenMobileSensorsSubscriptionService::Start();
 	FOpenMobileSensorsRecordingService::Start();
+	FOpenMobileNativeStepQueryService::Start();
 	FOpenMobileSensorsBackendRegistry::Start();
 }
 
 void FOpenMobileSensorsModule::ShutdownModule()
 {
 	FOpenMobileSensorsRecordingService::BeginShutdown();
+	FOpenMobileNativeStepQueryService::BeginShutdown();
 	FOpenMobileSensorsCapabilityService::BeginShutdown();
 	FOpenMobileSensorsMetadataService::BeginShutdown();
 	FOpenMobileSensorsSubscriptionService::BeginShutdown();

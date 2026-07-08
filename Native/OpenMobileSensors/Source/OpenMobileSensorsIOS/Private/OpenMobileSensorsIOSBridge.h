@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobilePermissionTypes.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 
 class FOpenMobileSensorsIOSBackend;
@@ -14,6 +15,7 @@ enum class EOpenMobileSensorsIOSBridgeFailure : uint8
 	ServiceTemporarilyUnavailable,
 	ReferenceFrameUnavailable,
 	PermissionDenied,
+	PermissionRestricted,
 	MissingUsageDescription,
 	ManagerError,
 	Paused,
@@ -32,6 +34,10 @@ struct FOpenMobileSensorsIOSAvailability
 	bool bAbsoluteAltitude = false;
 	bool bProximityApiSupported = false;
 	bool bMagneticNorthReference = false;
+	bool bPedometerApiSupported = false;
+	bool bStepCounting = false;
+	EOpenMobilePermissionStatus PedometerAuthorizationStatus =
+		EOpenMobilePermissionStatus::NotDetermined;
 };
 
 struct FOpenMobileSensorsIOSBridgeResult
@@ -70,6 +76,12 @@ public:
 	FOpenMobileSensorsIOSBridgeResult StopStream(
 		const FOpenMobileSensorBackendStreamHandle& Handle
 	);
+	FOpenMobileSensorsIOSBridgeResult QueryNativeStepCount(
+		const FGuid& RequestId,
+		const FOpenMobileNativeStepCountQuery& Query,
+		FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion
+	);
+	bool CancelNativeStepCountQuery(const FGuid& RequestId);
 	void Shutdown();
 
 private:

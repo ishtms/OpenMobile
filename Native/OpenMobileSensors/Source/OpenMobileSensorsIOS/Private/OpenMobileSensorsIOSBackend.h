@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileNativeStepCounter.h"
 
 struct FOpenMobileSensorsBackendToken;
 class FOpenMobileSensorsIOSBridge;
@@ -32,6 +33,14 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FGuid& RequestId,
 		FOnOpenMobileSensorBackendFlushComplete&& Completion
+	) override;
+	virtual FOpenMobileSensorOperationResult QueryNativeStepCount(
+		const FGuid& RequestId,
+		const FOpenMobileNativeStepCountQuery& Query,
+		FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion
+	) override;
+	virtual bool CancelNativeStepCountQuery(
+		const FGuid& RequestId
 	) override;
 	virtual void BeginShutdown() override;
 	static double ConvertCoreMotionTimestampSeconds(double TimestampSeconds);
@@ -67,6 +76,11 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileProximitySensorBatch& Batch
 	);
+	bool PublishStepsBatchFromPedometerQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileStepsSensorBatch& Batch
+	);
 	bool PublishMagneticFieldAccuracyFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& Handle,
@@ -89,19 +103,21 @@ public:
 		FString NativeDomain,
 		FString NativeCode
 	);
-
-private:
-	friend class FOpenMobileSensorsIOSBridge;
-
-	FOpenMobileSensorsIOSBridge& GetBridge() const;
-	FOpenMobileSensorsIOSAvailability QueryAvailability() const;
 	FOpenMobileSensorOperationResult MapBridgeFailure(
 		EOpenMobileSensorsIOSBridgeFailure Failure,
 		FString NativeDomain = {},
 		FString NativeCode = {}
 	) const;
 
+private:
+	friend class FOpenMobileSensorsIOSBridge;
+
+	FOpenMobileSensorsIOSBridge& GetBridge() const;
+	FOpenMobileSensorsIOSAvailability QueryAvailability() const;
+
 	mutable TUniquePtr<FOpenMobileSensorsIOSBridge> Bridge;
+	FCriticalSection NativeStepCountersMutex;
+	TMap<FGuid, FOpenMobileNativeStepCounterTracker> NativeStepCounters;
 	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };

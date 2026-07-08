@@ -2,6 +2,7 @@
 
 #include "OpenMobileAsync.h"
 #include "OpenMobilePermissions.h"
+#include "OpenMobileNativeStepQueryService.h"
 #include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "HAL/PlatformTime.h"
@@ -27,6 +28,9 @@ void UOpenMobileSensorsSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 			)
 		);
 		FOpenMobileSensorsRecordingService::CancelOwner(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileNativeStepQueryService::CancelOwner(
 			SubscriptionOwnerIdentifier
 		);
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
@@ -60,6 +64,9 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 			)
 		);
 		FOpenMobileSensorsRecordingService::CancelOwner(
+			SubscriptionOwnerIdentifier
+		);
+		FOpenMobileNativeStepQueryService::CancelOwner(
 			SubscriptionOwnerIdentifier
 		);
 		FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
@@ -617,6 +624,36 @@ UOpenMobileSensorsSubsystem::StopRelativeAltitudeSessionNative(
 		);
 	}
 	return StopSubscriptionNative(Handle);
+}
+
+FGuid UOpenMobileSensorsSubsystem::QueryNativeStepCountNative(
+	const FOpenMobileNativeStepCountQuery& Query,
+	FOnOpenMobileNativeStepCountQueryComplete&& Completion
+)
+{
+	if (!Completion.IsBound())
+	{
+		return {};
+	}
+	return FOpenMobileNativeStepQueryService::Query(
+		SubscriptionOwnerIdentifier,
+		Query,
+		[Completion = MoveTemp(Completion)](
+			const FOpenMobileNativeStepCountQueryResult& Result) mutable
+		{
+			Completion.ExecuteIfBound(Result);
+		}
+	);
+}
+
+bool UOpenMobileSensorsSubsystem::CancelNativeStepCountQueryNative(
+	const FGuid& RequestId
+)
+{
+	return FOpenMobileNativeStepQueryService::Cancel(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
 }
 
 FOpenMobileSensorOperationResult

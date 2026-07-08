@@ -23,7 +23,14 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		DeviceMotion,
 		RelativeAltitude,
 		AbsoluteAltitude,
+		Pedometer,
 		Proximity
+	};
+
+	struct FPedometerCallbackGate
+	{
+		FCriticalSection Mutex;
+		void* Owner = nullptr;
 	};
 
 	template <typename CallableType>
@@ -85,6 +92,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			return EService::RelativeAltitude;
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return EService::AbsoluteAltitude;
+		case EOpenMobileSensorType::StepCounter:
+			return EService::Pedometer;
 		case EOpenMobileSensorType::Proximity:
 			return EService::Proximity;
 		default:
@@ -144,6 +153,35 @@ namespace OpenMobileSensorsIOSBridgePrivate
 	{
 		FOpenMobileSensorsIOSAvailability Availability;
 		Availability.bProximityApiSupported = true;
+		if (@available(iOS 8.0, *))
+		{
+			Availability.bPedometerApiSupported = true;
+			Availability.bStepCounting =
+				[CMPedometer isStepCountingAvailable];
+		}
+		if (@available(iOS 11.0, *))
+		{
+			switch ([CMPedometer authorizationStatus])
+			{
+			case CMAuthorizationStatusAuthorized:
+				Availability.PedometerAuthorizationStatus =
+					EOpenMobilePermissionStatus::Granted;
+				break;
+			case CMAuthorizationStatusDenied:
+				Availability.PedometerAuthorizationStatus =
+					EOpenMobilePermissionStatus::Denied;
+				break;
+			case CMAuthorizationStatusRestricted:
+				Availability.PedometerAuthorizationStatus =
+					EOpenMobilePermissionStatus::Restricted;
+				break;
+			case CMAuthorizationStatusNotDetermined:
+			default:
+				Availability.PedometerAuthorizationStatus =
+					EOpenMobilePermissionStatus::NotDetermined;
+				break;
+			}
+		}
 		if (@available(iOS 15.0, *))
 		{
 			Availability.bAbsoluteAltitudeApiSupported = true;
@@ -206,6 +244,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			return Availability.bRelativeAltitude;
 		case EOpenMobileSensorType::AbsoluteAltitude:
 			return Availability.bAbsoluteAltitude;
+		case EOpenMobileSensorType::StepCounter:
+			return Availability.bStepCounting;
 		case EOpenMobileSensorType::Proximity:
 			return Availability.bProximityApiSupported;
 		default:
@@ -221,6 +261,20 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		Queue.qualityOfService = NSQualityOfServiceUserInitiated;
 		return Queue;
 	}
+
+	double MonotonicTimestampForDate(NSDate* Date)
+	{
+		const double NowSeconds = FPlatformTime::Seconds();
+		if (!Date)
+		{
+			return NowSeconds;
+		}
+		const double AgeSeconds = FMath::Max(
+			0.0,
+			-[Date timeIntervalSinceNow]
+		);
+		return FMath::Max(0.0, NowSeconds - AgeSeconds);
+	}
 }
 
 class FOpenMobileSensorsIOSBridge::FImpl final
@@ -233,7 +287,12 @@ public:
 		if (@available(iOS 8.0, *))
 		{
 			Altimeter = [[CMAltimeter alloc] init];
+			Pedometer = [[CMPedometer alloc] init];
 		}
+		PedometerCallbackGate =
+			MakeShared<OpenMobileSensorsIOSBridgePrivate::
+				FPedometerCallbackGate, ESPMode::ThreadSafe>();
+		PedometerCallbackGate->Owner = this;
 		Availability =
 			OpenMobileSensorsIOSBridgePrivate::AvailabilityForManager(
 				MotionManager
@@ -301,6 +360,26 @@ public:
 			return {
 				EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription
 			};
+		}
+		if (Request.Sensor.Type == EOpenMobileSensorType::StepCounter)
+		{
+			if (@available(iOS 11.0, *))
+			{
+				const CMAuthorizationStatus Status =
+					[CMPedometer authorizationStatus];
+				if (Status == CMAuthorizationStatusRestricted)
+				{
+					return {
+						EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted
+					};
+				}
+				if (Status == CMAuthorizationStatusDenied)
+				{
+					return {
+						EOpenMobileSensorsIOSBridgeFailure::PermissionDenied
+					};
+				}
+			}
 		}
 		FScopeLock Lock(&Mutex);
 		if (bShuttingDown)
@@ -386,6 +465,10 @@ public:
 		const FOpenMobileSensorPhysicalStreamRequest Previous = Active->Request;
 		Active->Request = Request;
 		const EService Service = ServiceForType(Request.Sensor.Type);
+		if (Service == EService::Pedometer)
+		{
+			return {};
+		}
 		if (Service == EService::Proximity)
 		{
 			Active->bResetNextSample = true;
@@ -420,9 +503,104 @@ public:
 		return RestartServiceLocked(Service);
 	}
 
+	FOpenMobileSensorsIOSBridgeResult QueryNativeStepCount(
+		const FGuid& RequestId,
+		const FOpenMobileNativeStepCountQuery& Query,
+		FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		if (!RequestId.IsValid()
+			|| !Completion.IsBound()
+			|| !FMath::IsFinite(Query.StartUnixTimeSeconds)
+			|| !FMath::IsFinite(Query.EndUnixTimeSeconds)
+			|| Query.StartUnixTimeSeconds < 0.0
+			|| Query.EndUnixTimeSeconds <= Query.StartUnixTimeSeconds)
+		{
+			return {EOpenMobileSensorsIOSBridgeFailure::InvalidArgument};
+		}
+		if (!HasMotionUsageDescription())
+		{
+			return {
+				EOpenMobileSensorsIOSBridgeFailure::MissingUsageDescription
+			};
+		}
+		if (@available(iOS 11.0, *))
+		{
+			const CMAuthorizationStatus Status =
+				[CMPedometer authorizationStatus];
+			if (Status == CMAuthorizationStatusRestricted)
+			{
+				return {
+					EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted
+				};
+			}
+			if (Status == CMAuthorizationStatusDenied)
+			{
+				return {
+					EOpenMobileSensorsIOSBridgeFailure::PermissionDenied
+				};
+			}
+		}
+		FScopeLock Lock(&Mutex);
+		if (bShuttingDown)
+		{
+			return {EOpenMobileSensorsIOSBridgeFailure::ShuttingDown};
+		}
+		if (!bApplicationActive)
+		{
+			return {EOpenMobileSensorsIOSBridgeFailure::Paused};
+		}
+		if (!Availability.bPedometerApiSupported
+			|| !Availability.bStepCounting
+			|| !Pedometer)
+		{
+			return {EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable};
+		}
+		if (PendingStepQueries.Contains(RequestId))
+		{
+			return {EOpenMobileSensorsIOSBridgeFailure::InvalidArgument};
+		}
+		FPendingStepQuery Pending;
+		Pending.Query = Query;
+		Pending.Completion = MoveTemp(Completion);
+		PendingStepQueries.Add(RequestId, MoveTemp(Pending));
+		const TSharedPtr<FPedometerCallbackGate, ESPMode::ThreadSafe> Gate =
+			PedometerCallbackGate;
+		NSDate* StartDate = [NSDate
+			dateWithTimeIntervalSince1970:Query.StartUnixTimeSeconds];
+		NSDate* EndDate = [NSDate
+			dateWithTimeIntervalSince1970:Query.EndUnixTimeSeconds];
+		[Pedometer
+			queryPedometerDataFromDate:StartDate
+			toDate:EndDate
+			withHandler:^(CMPedometerData* Data, NSError* Error)
+			{
+				if (!Gate)
+				{
+					return;
+				}
+				FScopeLock GateLock(&Gate->Mutex);
+				if (Gate->Owner)
+				{
+					static_cast<FImpl*>(Gate->Owner)->
+						HandleHistoricalStepQuery(RequestId, Data, Error);
+				}
+			}];
+		return {};
+	}
+
+	bool CancelNativeStepCountQuery(const FGuid& RequestId)
+	{
+		FScopeLock Lock(&Mutex);
+		return PendingStepQueries.Remove(RequestId) > 0;
+	}
+
 	void Shutdown()
 	{
 		TArray<NSOperationQueue*> Queues;
+		TArray<FOnOpenMobileNativeStepCountBackendQueryComplete>
+			PendingStepCompletions;
 		id LocalWillResignObserver = nil;
 		id LocalDidBecomeActiveObserver = nil;
 		{
@@ -432,6 +610,12 @@ public:
 				return;
 			}
 			bShuttingDown = true;
+			PendingStepCompletions.Reserve(PendingStepQueries.Num());
+			for (TPair<FGuid, FPendingStepQuery>& Pair : PendingStepQueries)
+			{
+				PendingStepCompletions.Add(MoveTemp(Pair.Value.Completion));
+			}
+			PendingStepQueries.Reset();
 			LocalWillResignObserver = WillResignObserver;
 			LocalDidBecomeActiveObserver = DidBecomeActiveObserver;
 			WillResignObserver = nil;
@@ -471,6 +655,20 @@ public:
 				LifecycleQueue
 			};
 		}
+		if (PedometerCallbackGate)
+		{
+			FScopeLock GateLock(&PedometerCallbackGate->Mutex);
+			PedometerCallbackGate->Owner = nullptr;
+		}
+		const FOpenMobileSensorOperationResult ShutdownResult =
+			Backend.MapBridgeFailure(
+				EOpenMobileSensorsIOSBridgeFailure::ShuttingDown);
+		const FOpenMobileStepsSensorSample EmptyStepSample;
+		for (FOnOpenMobileNativeStepCountBackendQueryComplete& Completion
+			: PendingStepCompletions)
+		{
+			Completion.ExecuteIfBound(ShutdownResult, EmptyStepSample);
+		}
 		for (NSOperationQueue* Queue : Queues)
 		{
 			if (Queue)
@@ -481,6 +679,7 @@ public:
 		}
 		MotionManager = nil;
 		Altimeter = nil;
+		Pedometer = nil;
 		AccelerometerQueue = nil;
 		GyroscopeQueue = nil;
 		MagnetometerQueue = nil;
@@ -498,7 +697,15 @@ private:
 		FOpenMobileSensorBackendStreamHandle Handle;
 		FOpenMobileSensorPhysicalStreamRequest Request;
 		uint64 RegistrationGeneration = 0;
+		FGuid NativeStepOriginIdentifier;
+		double QueryStartUnixTimeSeconds = 0.0;
 		bool bResetNextSample = false;
+	};
+
+	struct FPendingStepQuery
+	{
+		FOpenMobileNativeStepCountQuery Query;
+		FOnOpenMobileNativeStepCountBackendQueryComplete Completion;
 	};
 
 	bool HasMotionUsageDescription() const
@@ -1032,6 +1239,48 @@ private:
 				EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable
 			};
 		}
+		case EService::Pedometer:
+		{
+			if (@available(iOS 8.0, *))
+			{
+				const uint64 Generation = ++PedometerGeneration;
+				SetRegistrationGenerationLocked(Service, Generation);
+				NSDate* QueryStartDate = [NSDate date];
+				const double QueryStartUnixTimeSeconds =
+					QueryStartDate.timeIntervalSince1970;
+				for (TPair<FGuid, FActiveStream>& Pair : ActiveStreams)
+				{
+					FActiveStream& Active = Pair.Value;
+					if (ServiceForType(Active.Request.Sensor.Type) == Service)
+					{
+						Active.NativeStepOriginIdentifier = FGuid::NewGuid();
+						Active.QueryStartUnixTimeSeconds =
+							QueryStartUnixTimeSeconds;
+					}
+				}
+				FImpl* Self = this;
+				const TSharedPtr<FPedometerCallbackGate, ESPMode::ThreadSafe>
+					Gate = PedometerCallbackGate;
+				[Pedometer
+					startPedometerUpdatesFromDate:QueryStartDate
+					withHandler:^(CMPedometerData* Data, NSError* Error)
+					{
+						FScopeLock GateLock(&Gate->Mutex);
+						if (Gate->Owner == Self)
+						{
+							Self->HandlePedometer(
+								Generation,
+								Data,
+								Error
+							);
+						}
+					}];
+				return {};
+			}
+			return {
+				EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable
+			};
+		}
 		case EService::Unknown:
 		default:
 			return {EOpenMobileSensorsIOSBridgeFailure::InvalidArgument};
@@ -1089,6 +1338,13 @@ private:
 			}
 			[AbsoluteAltitudeQueue cancelAllOperations];
 			break;
+		case EService::Pedometer:
+			++PedometerGeneration;
+			if (@available(iOS 8.0, *))
+			{
+				[Pedometer stopPedometerUpdates];
+			}
+			break;
 		case EService::Proximity:
 			++ProximityGeneration;
 			SetProximityObserverLocked(false);
@@ -1112,6 +1368,7 @@ private:
 		StopServiceLocked(EService::DeviceMotion);
 		StopServiceLocked(EService::RelativeAltitude);
 		StopServiceLocked(EService::AbsoluteAltitude);
+		StopServiceLocked(EService::Pedometer);
 		StopServiceLocked(EService::Proximity);
 	}
 
@@ -1124,12 +1381,14 @@ private:
 		RestartServiceLocked(EService::DeviceMotion);
 		RestartServiceLocked(EService::RelativeAltitude);
 		RestartServiceLocked(EService::AbsoluteAltitude);
+		RestartServiceLocked(EService::Pedometer);
 		RestartServiceLocked(EService::Proximity);
 	}
 
 	void SetApplicationActive(bool bActive)
 	{
 		TArray<FActiveStream> PermissionFailures;
+		TArray<FActiveStream> RestrictedFailures;
 		{
 			FScopeLock Lock(&Mutex);
 			if (bShuttingDown || bApplicationActive == bActive)
@@ -1144,25 +1403,38 @@ private:
 			}
 			if (@available(iOS 11.0, *))
 			{
-				const CMAuthorizationStatus Status =
+				const CMAuthorizationStatus AltimeterStatus =
 					[CMAltimeter authorizationStatus];
-				if (Status == CMAuthorizationStatusDenied
-					|| Status == CMAuthorizationStatusRestricted)
+				const CMAuthorizationStatus PedometerStatus =
+					[CMPedometer authorizationStatus];
+				for (auto Iterator = ActiveStreams.CreateIterator();
+					Iterator;
+					++Iterator)
 				{
-					for (auto Iterator = ActiveStreams.CreateIterator();
-						Iterator;
-						++Iterator)
+					using namespace OpenMobileSensorsIOSBridgePrivate;
+					const EService Service = ServiceForType(
+						Iterator.Value().Request.Sensor.Type
+					);
+					const bool bAltimeter =
+						Service == EService::RelativeAltitude
+						|| Service == EService::AbsoluteAltitude;
+					const bool bPedometer = Service == EService::Pedometer;
+					const CMAuthorizationStatus Status = bPedometer
+						? PedometerStatus
+						: AltimeterStatus;
+					if ((bAltimeter || bPedometer)
+						&& (Status == CMAuthorizationStatusDenied
+							|| Status == CMAuthorizationStatusRestricted))
 					{
-						using namespace OpenMobileSensorsIOSBridgePrivate;
-						const EService Service = ServiceForType(
-							Iterator.Value().Request.Sensor.Type
-						);
-						if (Service == EService::RelativeAltitude
-							|| Service == EService::AbsoluteAltitude)
+						if (Status == CMAuthorizationStatusRestricted)
+						{
+							RestrictedFailures.Add(Iterator.Value());
+						}
+						else
 						{
 							PermissionFailures.Add(Iterator.Value());
-							Iterator.RemoveCurrent();
 						}
+						Iterator.RemoveCurrent();
 					}
 				}
 			}
@@ -1174,6 +1446,16 @@ private:
 				Active.Token,
 				Active.Handle,
 				EOpenMobileSensorsIOSBridgeFailure::PermissionDenied,
+				TEXT("CMErrorDomain"),
+				TEXT("CMErrorNotAuthorized")
+			);
+		}
+		for (const FActiveStream& Active : RestrictedFailures)
+		{
+			Backend.FailPhysicalStreamFromBackend(
+				Active.Token,
+				Active.Handle,
+				EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted,
 				TEXT("CMErrorDomain"),
 				TEXT("CMErrorNotAuthorized")
 			);
@@ -1199,6 +1481,8 @@ private:
 			return AltimeterGeneration;
 		case EService::AbsoluteAltitude:
 			return AbsoluteAltitudeGeneration;
+		case EService::Pedometer:
+			return PedometerGeneration;
 		case EService::Proximity:
 			return ProximityGeneration;
 		case EService::Unknown:
@@ -1641,12 +1925,126 @@ private:
 		}
 	}
 
+	void HandlePedometer(
+		uint64 Generation,
+		CMPedometerData* Data,
+		NSError* Error
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		if (Error)
+		{
+			FailServiceFromCallback(EService::Pedometer, Generation, Error);
+			return;
+		}
+		if (!Data)
+		{
+			return;
+		}
+		const TArray<FActiveStream> Streams =
+			TakeStreamsForCallback(EService::Pedometer, Generation);
+		const double QueryStartUnixTimeSeconds = Data.startDate
+			? Data.startDate.timeIntervalSince1970
+			: 0.0;
+		const double QueryEndUnixTimeSeconds = Data.endDate
+			? Data.endDate.timeIntervalSince1970
+			: 0.0;
+		for (const FActiveStream& Active : Streams)
+		{
+			FOpenMobileStepsSensorSample Sample;
+			Sample.Header = MakeHeader(
+				Active.Request.Sensor,
+				MonotonicTimestampForDate(Data.endDate),
+				Active.bResetNextSample
+			);
+			Sample.Header.bValid &= Data.numberOfSteps != nil;
+			Sample.Count = Data.numberOfSteps
+				? Data.numberOfSteps.longLongValue
+				: -1;
+			Sample.Origin = EOpenMobileStepCountOrigin::QueryInterval;
+			Sample.OriginIdentifier = Active.NativeStepOriginIdentifier;
+			Sample.bHasQueryInterval = true;
+			Sample.QueryStartUnixTimeSeconds = Data.startDate
+				? QueryStartUnixTimeSeconds
+				: Active.QueryStartUnixTimeSeconds;
+			Sample.QueryEndUnixTimeSeconds = QueryEndUnixTimeSeconds;
+			FOpenMobileStepsSensorBatch Batch;
+			Batch.Samples.Reserve(MaximumCallbackBatchSamples);
+			Batch.Samples.Add(MoveTemp(Sample));
+			Backend.PublishStepsBatchFromPedometerQueue(
+				Active.Token,
+				Active.Handle,
+				Batch
+			);
+		}
+	}
+
+	void HandleHistoricalStepQuery(
+		const FGuid& RequestId,
+		CMPedometerData* Data,
+		NSError* Error
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		FPendingStepQuery Pending;
+		{
+			FScopeLock Lock(&Mutex);
+			if (!PendingStepQueries.RemoveAndCopyValue(RequestId, Pending))
+			{
+				return;
+			}
+		}
+		FOpenMobileSensorOperationResult Operation;
+		FOpenMobileStepsSensorSample Sample;
+		if (Error)
+		{
+			Operation = Backend.MapBridgeFailure(
+				FailureFromError(Error),
+				FromNSString(Error.domain),
+				FString::Printf(
+					TEXT("%lld"),
+					static_cast<long long>(Error.code)));
+		}
+		else if (!Data
+			|| !Data.startDate
+			|| !Data.endDate
+			|| !Data.numberOfSteps)
+		{
+			Operation = Backend.MapBridgeFailure(
+				EOpenMobileSensorsIOSBridgeFailure::ManagerError,
+				TEXT("CoreMotion"),
+				TEXT("NilPedometerData"));
+		}
+		else
+		{
+			Operation.Code = EOpenMobileSensorResultCode::Success;
+			FOpenMobileSensorIdentifier Sensor;
+			Sensor.Type = EOpenMobileSensorType::StepCounter;
+			Sensor.InstanceId = TEXT("Default");
+			Sample.Header = MakeHeader(
+				Sensor,
+				MonotonicTimestampForDate(Data.endDate),
+				false);
+			Sample.Count = Data.numberOfSteps.longLongValue;
+			Sample.Origin = EOpenMobileStepCountOrigin::QueryInterval;
+			Sample.OriginIdentifier = RequestId;
+			Sample.bHasQueryInterval = true;
+			Sample.QueryStartUnixTimeSeconds =
+				Data.startDate.timeIntervalSince1970;
+			Sample.QueryEndUnixTimeSeconds =
+				Data.endDate.timeIntervalSince1970;
+		}
+		Pending.Completion.ExecuteIfBound(Operation, Sample);
+	}
+
 	FOpenMobileSensorsIOSBackend& Backend;
 	FCriticalSection Mutex;
 	TMap<FGuid, FActiveStream> ActiveStreams;
+	TMap<FGuid, FPendingStepQuery> PendingStepQueries;
 	FOpenMobileSensorsIOSAvailability Availability;
 	__strong CMMotionManager* MotionManager = nil;
 	__strong CMAltimeter* Altimeter = nil;
+	__strong CMPedometer* Pedometer = nil;
 	__strong NSOperationQueue* AccelerometerQueue = nil;
 	__strong NSOperationQueue* GyroscopeQueue = nil;
 	__strong NSOperationQueue* MagnetometerQueue = nil;
@@ -1659,12 +2057,17 @@ private:
 	__strong id DidBecomeActiveObserver = nil;
 	__strong id ProximityObserver = nil;
 	FOpenMobileProximityMonitoringPolicy ProximityMonitoringPolicy;
+	TSharedPtr<
+		OpenMobileSensorsIOSBridgePrivate::FPedometerCallbackGate,
+		ESPMode::ThreadSafe
+	> PedometerCallbackGate;
 	uint64 AccelerometerGeneration = 0;
 	uint64 GyroscopeGeneration = 0;
 	uint64 MagnetometerGeneration = 0;
 	uint64 DeviceMotionGeneration = 0;
 	uint64 AltimeterGeneration = 0;
 	uint64 AbsoluteAltitudeGeneration = 0;
+	uint64 PedometerGeneration = 0;
 	uint64 ProximityGeneration = 0;
 	bool bApplicationActive = false;
 	bool bProximityServiceActive = false;
@@ -1731,6 +2134,30 @@ FOpenMobileSensorsIOSBridgeResult FOpenMobileSensorsIOSBridge::StopStream(
 		: FOpenMobileSensorsIOSBridgeResult{
 			EOpenMobileSensorsIOSBridgeFailure::ShuttingDown
 		};
+}
+
+FOpenMobileSensorsIOSBridgeResult
+FOpenMobileSensorsIOSBridge::QueryNativeStepCount(
+	const FGuid& RequestId,
+	const FOpenMobileNativeStepCountQuery& Query,
+	FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion
+)
+{
+	return Impl
+		? Impl->QueryNativeStepCount(
+			RequestId,
+			Query,
+			MoveTemp(Completion))
+		: FOpenMobileSensorsIOSBridgeResult{
+			EOpenMobileSensorsIOSBridgeFailure::ShuttingDown
+		};
+}
+
+bool FOpenMobileSensorsIOSBridge::CancelNativeStepCountQuery(
+	const FGuid& RequestId
+)
+{
+	return Impl && Impl->CancelNativeStepCountQuery(RequestId);
 }
 
 void FOpenMobileSensorsIOSBridge::Shutdown()

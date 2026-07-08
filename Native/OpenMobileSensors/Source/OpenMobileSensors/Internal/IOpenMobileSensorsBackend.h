@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
+#include "OpenMobileNativeStepCount.h"
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorsBackendTypes.h"
@@ -10,6 +11,11 @@ DECLARE_DELEGATE_TwoParams(
 	FOnOpenMobileSensorBackendFlushComplete,
 	const FGuid&,
 	const FOpenMobileSensorOperationResult&
+);
+DECLARE_DELEGATE_TwoParams(
+	FOnOpenMobileNativeStepCountBackendQueryComplete,
+	const FOpenMobileSensorOperationResult&,
+	const FOpenMobileStepsSensorSample&
 );
 
 class IOpenMobileSensorsBackend : public IModularFeature
@@ -135,6 +141,34 @@ public:
 			TEXT("OpenMobileSensors")
 		);
 		return Result;
+	}
+
+	virtual FOpenMobileSensorOperationResult QueryNativeStepCount(
+		const FGuid& RequestId,
+		const FOpenMobileNativeStepCountQuery& Query,
+		FOnOpenMobileNativeStepCountBackendQueryComplete&& Completion
+	)
+	{
+		static_cast<void>(RequestId);
+		static_cast<void>(Query);
+		static_cast<void>(Completion);
+		FOpenMobileSensorOperationResult Result;
+		Result.Code = EOpenMobileSensorResultCode::NotSupported;
+		Result.Failure.Reason =
+			EOpenMobileSensorFailureReason::UnsupportedOperation;
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NotSupported,
+			TEXT("The backend does not provide historical step queries."),
+			{},
+			TEXT("OpenMobileSensors")
+		);
+		return Result;
+	}
+
+	virtual bool CancelNativeStepCountQuery(const FGuid& RequestId)
+	{
+		static_cast<void>(RequestId);
+		return false;
 	}
 
 	virtual void BeginShutdown() {}

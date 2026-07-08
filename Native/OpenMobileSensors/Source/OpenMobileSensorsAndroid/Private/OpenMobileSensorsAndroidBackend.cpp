@@ -4,6 +4,7 @@
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorHeading.h"
+#include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorTimestamp.h"
@@ -424,6 +425,14 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 			Descriptor.FifoCapacitySamples > 0;
 		Capability.BackgroundSupport =
 			EOpenMobileSensorBackgroundSupport::Suspended;
+		if (Descriptor.Sensor.Type == EOpenMobileSensorType::StepCounter
+			|| Descriptor.Sensor.Type == EOpenMobileSensorType::StepDetector)
+		{
+			Capability.RequiredPermission =
+				FOpenMobileSensorPermissions::GetPermissionName(
+					EOpenMobileSensorPermission::ActivityRecognition
+				);
+		}
 		if (Descriptor.Sensor.Type == EOpenMobileSensorType::Attitude)
 		{
 			PopulateAttitudeReferenceCapabilities(Capability, Descriptors);
@@ -608,6 +617,22 @@ FOpenMobileSensorsAndroidBackend::StartSensorStream(
 	);
 	const FOpenMobileSensorsBackendToken Token =
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const bool bTrackNativeSteps = Descriptor.Sensor.Type ==
+		EOpenMobileSensorType::StepCounter;
+	if (bTrackNativeSteps)
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		if (NativeStepCounters.Contains(Handle.Identifier))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidRequest
+			);
+		}
+		NativeStepCounters.Add(
+			Handle.Identifier,
+			FOpenMobileNativeStepCounterTracker{}
+		);
+	}
 	const FOpenMobileSensorsAndroidBridgeResult Result =
 		GetBridge().StartStream(
 			Token,
@@ -618,6 +643,11 @@ FOpenMobileSensorsAndroidBackend::StartSensorStream(
 			InOutRequest.bLowLatency,
 			InOutRequest.AttitudeReferenceFrame
 		);
+	if (!Result.IsSuccess() && bTrackNativeSteps)
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Remove(Handle.Identifier);
+	}
 	if (Result.IsSuccess())
 	{
 		OpenMobileSensorsAndroidBackendPrivate::ApplyAttitudeReferenceState(
@@ -701,6 +731,10 @@ void FOpenMobileSensorsAndroidBackend::StopSensorStream(
 	const FOpenMobileSensorBackendStreamHandle& Handle
 )
 {
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Remove(Handle.Identifier);
+	}
 	if (Bridge)
 	{
 		Bridge->StopStream(Handle);
@@ -1040,26 +1074,48 @@ bool FOpenMobileSensorsAndroidBackend::PublishCompactBatchFromHandler(
 	{
 		FOpenMobileStepsSensorBatch Batch;
 		Batch.Samples.Reserve(SampleCount);
-		for (int32 Index = 0; Index < SampleCount; ++Index)
 		{
-			FOpenMobileStepsSensorSample Sample;
-			Sample.Header = MakeHeader(
-				Descriptor,
-				TimestampsNanoseconds[Index],
-				bResetFirstSample && Index == 0
-			);
-			const double Count = ValueAt(Index, 0);
-			Sample.Count = FMath::IsFinite(Count)
-				? FMath::RoundToInt64(Count)
-				: -1;
-			Sample.Origin = Type == EOpenMobileSensorType::StepCounter
-				? EOpenMobileStepCountOrigin::DeviceBoot
-				: EOpenMobileStepCountOrigin::QueryInterval;
-			FOpenMobileSensorUnitConverter::NormalizeStepsSample(
-				EOpenMobileSensorNativePlatform::Android,
-				Sample
-			);
-			Batch.Samples.Add(MoveTemp(Sample));
+			FScopeLock Lock(&NativeStepCountersMutex);
+			FOpenMobileNativeStepCounterTracker* StepCounterTracker =
+				Type == EOpenMobileSensorType::StepCounter
+				? NativeStepCounters.Find(Handle.Identifier)
+				: nullptr;
+			if (Type == EOpenMobileSensorType::StepCounter && !StepCounterTracker)
+			{
+				return false;
+			}
+			for (int32 Index = 0; Index < SampleCount; ++Index)
+			{
+				FOpenMobileStepsSensorSample Sample;
+				Sample.Header = MakeHeader(
+					Descriptor,
+					TimestampsNanoseconds[Index],
+					bResetFirstSample && Index == 0
+				);
+				const double Count = ValueAt(Index, 0);
+				Sample.Header.bValid &=
+					FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(
+						Count,
+						Sample.Count
+					);
+				if (Type == EOpenMobileSensorType::StepCounter)
+				{
+					Sample.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+					FOpenMobileNativeStepCounterTracker& Tracker =
+						*StepCounterTracker;
+					Sample.Header.bValid &= Tracker.Apply(Sample);
+				}
+				else
+				{
+					Sample.Origin = EOpenMobileStepCountOrigin::Session;
+					Sample.OriginIdentifier = Handle.Identifier;
+				}
+				FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+					EOpenMobileSensorNativePlatform::Android,
+					Sample
+				);
+				Batch.Samples.Add(MoveTemp(Sample));
+			}
 		}
 		return FOpenMobileSensorsSampleService::PublishStepsBatchFromBackend(
 			Token,
@@ -1108,6 +1164,10 @@ HandlePhysicalStreamFailureFromHandler(
 	FString NativeCode
 )
 {
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Remove(Handle.Identifier);
+	}
 	const FOpenMobileSensorOperationResult Operation = MapBridgeFailure(
 		Failure,
 		MoveTemp(NativeCode)
@@ -1143,6 +1203,10 @@ void FOpenMobileSensorsAndroidBackend::BeginShutdown()
 	if (bShuttingDown.Exchange(true))
 	{
 		return;
+	}
+	{
+		FScopeLock Lock(&NativeStepCountersMutex);
+		NativeStepCounters.Reset();
 	}
 	if (Bridge)
 	{

@@ -180,9 +180,9 @@ class SensorsAndroidBackendTests(unittest.TestCase):
 		self.assertIn("FOpenMobileSensorsErrorMapper::Map", source)
 		self.assertIn("|| ValueStride > 6", source)
 		count_read = source.index("const double Count = ValueAt(Index, 0);")
-		finite_check = source.index("FMath::IsFinite(Count)", count_read)
-		count_round = source.index("FMath::RoundToInt64(Count)", count_read)
-		self.assertLess(finite_check, count_round)
+		checked_conversion = source.index("TryConvertNativeTotal", count_read)
+		tracker_apply = source.index("Tracker.Apply(Sample)", count_read)
+		self.assertLess(checked_conversion, tracker_apply)
 
 	def test_attitude_frames_report_native_selection_and_dependencies(self):
 		source = (

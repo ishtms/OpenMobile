@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "OpenMobileNativeStepCounter.h"
 #include "OpenMobileSensorUnits.h"
 
 #include <limits>
@@ -195,6 +196,7 @@ bool FOpenMobileSensorsStepsActivityOrientationUnitTest::RunTest(
 		Steps.Header = MakeHeader(EOpenMobileSensorType::Pedometer);
 		Steps.Count = 42;
 		Steps.Origin = EOpenMobileStepCountOrigin::Session;
+		Steps.OriginIdentifier = FGuid::NewGuid();
 		TestTrue(TEXT("Nonnegative steps normalize"),
 			FOpenMobileSensorUnitConverter::NormalizeStepsSample(
 				Platform, Steps));
@@ -217,6 +219,248 @@ bool FOpenMobileSensorsStepsActivityOrientationUnitTest::RunTest(
 		TestEqual(TEXT("Orientation confidence clamps to one"),
 			Orientation.Confidence, 1.0);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsNativeStepOriginRequiredTest,
+	"OpenMobile.Sensors.Steps.Native.OriginRequired",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsNativeStepOriginRequiredTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsUnitTestsPrivate;
+	FOpenMobileStepsSensorSample Steps;
+	Steps.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	Steps.Count = 42;
+	TestFalse(
+		TEXT("A native total without an origin is rejected"),
+		FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+			EOpenMobileSensorNativePlatform::Android,
+			Steps
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsNativeStepSampleContractTest,
+	"OpenMobile.Sensors.Steps.Native.SampleContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsNativeStepSampleContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsUnitTestsPrivate;
+	const FGuid OriginIdentifier = FGuid::NewGuid();
+
+	FOpenMobileStepsSensorSample DeviceBoot;
+	DeviceBoot.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	DeviceBoot.Count = 5000000000LL;
+	DeviceBoot.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	DeviceBoot.OriginIdentifier = OriginIdentifier;
+	DeviceBoot.QueryStartUnixTimeSeconds = 123.0;
+	DeviceBoot.QueryEndUnixTimeSeconds = 456.0;
+	TestTrue(
+		TEXT("A wide device-boot total is valid"),
+		FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+			EOpenMobileSensorNativePlatform::Android,
+			DeviceBoot
+		)
+	);
+	TestEqual(
+		TEXT("The wide total is preserved"),
+		DeviceBoot.Count,
+		5000000000LL
+	);
+	TestEqual(
+		TEXT("An absent query start is canonical"),
+		DeviceBoot.QueryStartUnixTimeSeconds,
+		0.0
+	);
+	TestEqual(
+		TEXT("An absent query end is canonical"),
+		DeviceBoot.QueryEndUnixTimeSeconds,
+		0.0
+	);
+
+	FOpenMobileStepsSensorSample QueryInterval;
+	QueryInterval.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	QueryInterval.Count = 1234;
+	QueryInterval.Origin = EOpenMobileStepCountOrigin::QueryInterval;
+	QueryInterval.OriginIdentifier = OriginIdentifier;
+	QueryInterval.bHasQueryInterval = true;
+	QueryInterval.QueryStartUnixTimeSeconds = 1000.0;
+	QueryInterval.QueryEndUnixTimeSeconds = 1100.0;
+	TestTrue(
+		TEXT("An ordered Apple query interval is valid"),
+		FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+			EOpenMobileSensorNativePlatform::IOS,
+			QueryInterval
+		)
+	);
+
+	FOpenMobileStepsSensorSample Reversed = QueryInterval;
+	Reversed.Header.bUnitsNormalized = false;
+	Reversed.QueryStartUnixTimeSeconds = 1100.0;
+	Reversed.QueryEndUnixTimeSeconds = 1000.0;
+	TestFalse(
+		TEXT("A reversed Apple query interval is rejected"),
+		FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+			EOpenMobileSensorNativePlatform::IOS,
+			Reversed
+		)
+	);
+
+	FOpenMobileStepsSensorSample MissingOrigin = DeviceBoot;
+	MissingOrigin.Header.bUnitsNormalized = false;
+	MissingOrigin.OriginIdentifier.Invalidate();
+	TestFalse(
+		TEXT("A native total needs a stable origin identifier"),
+		FOpenMobileSensorUnitConverter::NormalizeStepsSample(
+			EOpenMobileSensorNativePlatform::Android,
+			MissingOrigin
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsNativeStepDiscontinuityTest,
+	"OpenMobile.Sensors.Steps.Native.Discontinuity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsNativeStepDiscontinuityTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsUnitTestsPrivate;
+	FOpenMobileNativeStepCounterTracker Tracker;
+
+	FOpenMobileStepsSensorSample First;
+	First.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	First.Count = 5000000000LL;
+	First.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	TestTrue(TEXT("The first total is accepted"), Tracker.Apply(First));
+	TestTrue(TEXT("The tracker assigns an origin identifier"),
+		First.OriginIdentifier.IsValid());
+	TestEqual(TEXT("The first sample starts a stream origin"),
+		First.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::StreamStarted);
+	TestTrue(TEXT("The first sample resets stateful consumers"),
+		First.Header.bStatefulProcessingReset);
+
+	FOpenMobileStepsSensorSample Forward;
+	Forward.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	Forward.Count = First.Count + 25;
+	Forward.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	TestTrue(TEXT("A forward total is accepted"), Tracker.Apply(Forward));
+	TestEqual(TEXT("Forward totals keep their origin"),
+		Forward.OriginIdentifier, First.OriginIdentifier);
+	TestEqual(TEXT("Forward totals are continuous"),
+		Forward.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::None);
+	TestFalse(TEXT("Forward totals do not reset state"),
+		Forward.Header.bStatefulProcessingReset);
+
+	FOpenMobileStepsSensorSample Rollback;
+	Rollback.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	Rollback.Count = 3;
+	Rollback.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	TestTrue(TEXT("A reset native total remains publishable"),
+		Tracker.Apply(Rollback));
+	TestNotEqual(TEXT("A rollback receives a new origin identifier"),
+		Rollback.OriginIdentifier, First.OriginIdentifier);
+	TestEqual(TEXT("A rollback is explicit"),
+		Rollback.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::NativeCounterReset);
+	TestTrue(TEXT("A rollback resets stateful consumers"),
+		Rollback.Header.bStatefulProcessingReset);
+
+	FOpenMobileStepsSensorSample Query;
+	Query.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	Query.Count = 10;
+	Query.Origin = EOpenMobileStepCountOrigin::QueryInterval;
+	Query.bHasQueryInterval = true;
+	Query.QueryStartUnixTimeSeconds = 1000.0;
+	Query.QueryEndUnixTimeSeconds = 1010.0;
+	TestTrue(TEXT("A query origin is accepted"), Tracker.Apply(Query));
+	TestEqual(TEXT("Changing origin kind is explicit"),
+		Query.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::OriginChanged);
+	const FGuid QueryOrigin = Query.OriginIdentifier;
+
+	FOpenMobileStepsSensorSample SameQuery = Query;
+	SameQuery.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	SameQuery.Count = 15;
+	SameQuery.QueryEndUnixTimeSeconds = 1020.0;
+	SameQuery.OriginIdentifier.Invalidate();
+	TestTrue(TEXT("A growing query interval is accepted"),
+		Tracker.Apply(SameQuery));
+	TestEqual(TEXT("A growing query interval keeps its origin"),
+		SameQuery.OriginIdentifier, QueryOrigin);
+	TestEqual(TEXT("A growing query interval remains continuous"),
+		SameQuery.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::None);
+
+	FOpenMobileStepsSensorSample NewQuery = SameQuery;
+	NewQuery.Header = MakeHeader(EOpenMobileSensorType::StepCounter);
+	NewQuery.Count = 2;
+	NewQuery.QueryStartUnixTimeSeconds = 1015.0;
+	NewQuery.QueryEndUnixTimeSeconds = 1025.0;
+	NewQuery.OriginIdentifier.Invalidate();
+	TestTrue(TEXT("A new query interval is accepted"),
+		Tracker.Apply(NewQuery));
+	TestNotEqual(TEXT("A new query interval receives a new origin"),
+		NewQuery.OriginIdentifier, QueryOrigin);
+	TestEqual(TEXT("A changed query start is explicit"),
+		NewQuery.Discontinuity,
+		EOpenMobileStepCountDiscontinuity::OriginChanged);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsNativeStepConversionTest,
+	"OpenMobile.Sensors.Steps.Native.Conversion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsNativeStepConversionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	int64 Count = 0;
+	TestTrue(TEXT("A wide native integer converts"),
+		FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(
+			5000000000.0,
+			Count
+		));
+	TestEqual(TEXT("The wide native integer is preserved"),
+		Count, 5000000000LL);
+	TestFalse(TEXT("A negative total is rejected"),
+		FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(-1.0, Count));
+	TestFalse(TEXT("A fractional total is rejected"),
+		FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(1.5, Count));
+	TestFalse(TEXT("A non-finite total is rejected"),
+		FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(
+			std::numeric_limits<double>::infinity(),
+			Count
+		));
+	TestFalse(TEXT("A total outside int64 is rejected"),
+		FOpenMobileNativeStepCounterTracker::TryConvertNativeTotal(
+			9223372036854775808.0,
+			Count
+		));
 	return true;
 }
 

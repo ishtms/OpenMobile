@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileNativeStepCounter.h"
 
 class FOpenMobileSensorsAndroidBridge;
 enum class EOpenMobileSensorsAndroidBridgeFailure : uint8;
@@ -104,6 +105,8 @@ private:
 	) const;
 
 	mutable TUniquePtr<FOpenMobileSensorsAndroidBridge> Bridge;
+	FCriticalSection NativeStepCountersMutex;
+	TMap<FGuid, FOpenMobileNativeStepCounterTracker> NativeStepCounters;
 	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };
