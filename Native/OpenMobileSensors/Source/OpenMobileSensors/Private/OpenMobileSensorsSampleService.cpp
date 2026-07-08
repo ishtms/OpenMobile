@@ -20,6 +20,7 @@
 #include "OpenMobileSensorVectorFilter.h"
 #include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsTrueHeadingService.h"
+#include "OpenMobileStepCountSessionTracker.h"
 
 namespace OpenMobileSensorsSampleServicePrivate
 {
@@ -210,6 +211,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorLinearAccelerationEstimator
 			LinearAccelerationEstimator;
 		FOpenMobileSensorRelativeAltitudeEstimator RelativeAltitudeEstimator;
+		FOpenMobileStepCountSessionTracker StepCountSessionTracker;
 		FOpenMobileSensorOrientationClassifier OrientationClassifier;
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
@@ -222,6 +224,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		bool bHasCalibrationRequiredEventTime = false;
 		bool bHasSourceState = false;
 		bool bHasCanonicalAttitude = false;
+		bool bResettableStepCountSession = false;
 		bool bPendingStatefulProcessingReset = false;
 		int32 LastSourceFlags = 0;
 		int64 NextAccuracySequence = 1;
@@ -1313,6 +1316,28 @@ namespace OpenMobileSensorsSampleServicePrivate
 			return false;
 		}
 		Sample = MoveTemp(RelativeAltitude);
+		return true;
+	}
+
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileStepsSensorSample& Sample
+	)
+	{
+		if (!Slot.bResettableStepCountSession)
+		{
+			return Slot.Sensor == Sample.Header.Sensor;
+		}
+		if (Sample.Header.Sensor.Type != EOpenMobileSensorType::StepCounter)
+		{
+			return false;
+		}
+		FOpenMobileStepsSensorSample SessionSample;
+		if (!Slot.StepCountSessionTracker.Process(Sample, SessionSample))
+		{
+			return false;
+		}
+		Sample = MoveTemp(SessionSample);
 		return true;
 	}
 
@@ -2453,6 +2478,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	const FOpenMobileSensorIdentifier& Sensor,
 	const FOpenMobileSensorIdentifier& PhysicalSensor,
 	const FOpenMobileSensorStreamOptions& Options,
+	bool bResettableStepCountSession,
 	uint64 BackendGeneration
 )
 {
@@ -2489,6 +2515,11 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
+	Slot->bResettableStepCountSession = bResettableStepCountSession;
+	if (bResettableStepCountSession)
+	{
+		Slot->StepCountSessionTracker.Initialize(Handle.GetIdentifier());
+	}
 	if (const UOpenMobileSensorsSettings* Settings =
 		GetDefault<UOpenMobileSensorsSettings>())
 	{
@@ -2962,6 +2993,38 @@ bool FOpenMobileSensorsSampleService::RecenterRelativeAltitude(
 		return false;
 	}
 	Slot.RelativeAltitudeEstimator.Reset();
+	Slot.bHasSample = false;
+	Slot.Family = ELatestSampleFamily::None;
+	Slot.LatestTimestampSeconds = 0.0;
+	Slot.bPendingStatefulProcessingReset = true;
+	ClearPendingEvents(Slot);
+	ClearBufferedStorage(Slot);
+	return true;
+}
+
+bool FOpenMobileSensorsSampleService::ResetStepCountSession(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	using namespace OpenMobileSensorsSampleServicePrivate;
+	FReadScopeLock RegistryLock(SlotsLock);
+	const TUniquePtr<FLatestSlot>* SlotPointer = Slots.Find(Handle);
+	if (!OwnerIdentifier.IsValid() || !Handle.IsValid() || !SlotPointer)
+	{
+		return false;
+	}
+	FScopeLock SlotLock(&(*SlotPointer)->Mutex);
+	FLatestSlot& Slot = **SlotPointer;
+	if (Slot.OwnerIdentifier != OwnerIdentifier
+		|| Slot.Handle != Handle
+		|| !Slot.bResettableStepCountSession
+		|| Slot.Sensor.Type != EOpenMobileSensorType::StepCounter
+		|| Slot.State != EOpenMobileSensorSubscriptionState::Active)
+	{
+		return false;
+	}
+	Slot.StepCountSessionTracker.ResetBaseline();
 	Slot.bHasSample = false;
 	Slot.Family = ELatestSampleFamily::None;
 	Slot.LatestTimestampSeconds = 0.0;

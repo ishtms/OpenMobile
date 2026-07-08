@@ -42,6 +42,10 @@ public:
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+	static FOpenMobileSensorOperationResult ResetStepCountSession(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
 	static FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle

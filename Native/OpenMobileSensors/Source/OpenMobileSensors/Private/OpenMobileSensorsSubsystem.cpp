@@ -626,6 +626,95 @@ UOpenMobileSensorsSubsystem::StopRelativeAltitudeSessionNative(
 	return StopSubscriptionNative(Handle);
 }
 
+FOpenMobileSensorSubscriptionResult
+UOpenMobileSensorsSubsystem::BeginStepCountSessionNative(
+	const FOpenMobileSensorStreamOptions& Options
+)
+{
+	FOpenMobileSensorSubscriptionRequest Request;
+	Request.Sensor.Type = EOpenMobileSensorType::StepCounter;
+	Request.Sensor.InstanceId = TEXT("Default");
+	Request.Options = Options;
+	Request.bResettableStepCountSession = true;
+	return StartSubscriptionNative(Request);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::ResetStepCountSessionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	return FOpenMobileSensorsSubscriptionService::ResetStepCountSession(
+		SubscriptionOwnerIdentifier,
+		Handle
+	);
+}
+
+bool UOpenMobileSensorsSubsystem::ReadStepCountSessionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	int64 LastSeenSequence,
+	FOpenMobileSensorReadResult& OutResult,
+	FOpenMobileStepsSensorSample& OutSample
+) const
+{
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	if (!FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SubscriptionOwnerIdentifier,
+			Handle,
+			State
+		)
+		|| State.Sensor.Type != EOpenMobileSensorType::StepCounter
+		|| !State.bResettableStepCountSession)
+	{
+		OutResult = {};
+		OutResult.Status = EOpenMobileSensorReadStatus::InvalidHandle;
+		OutResult.Error = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle
+		).Error;
+		OutSample = {};
+		return false;
+	}
+	return GetLatestStepsSampleNative(
+		Handle,
+		LastSeenSequence,
+		OutResult,
+		OutSample
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::StopStepCountSessionNative(
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	if (!FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SubscriptionOwnerIdentifier,
+			Handle,
+			State
+		))
+	{
+		return FOpenMobileSensorsSubscriptionService::GetHandleStatus(
+			SubscriptionOwnerIdentifier,
+			Handle
+		);
+	}
+	if (State.Sensor.Type != EOpenMobileSensorType::StepCounter
+		|| !State.bResettableStepCountSession)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
+	return StopSubscriptionNative(Handle);
+}
+
+FOpenMobileStepCountSessionPolicy
+UOpenMobileSensorsSubsystem::GetStepCountSessionPolicyNative() const
+{
+	return {};
+}
+
 FGuid UOpenMobileSensorsSubsystem::QueryNativeStepCountNative(
 	const FOpenMobileNativeStepCountQuery& Query,
 	FOnOpenMobileNativeStepCountQueryComplete&& Completion

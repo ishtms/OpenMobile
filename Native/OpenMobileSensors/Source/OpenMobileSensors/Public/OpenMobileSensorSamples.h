@@ -319,7 +319,8 @@ enum class EOpenMobileStepCountDiscontinuity : uint8
 	None,
 	StreamStarted,
 	NativeCounterReset,
-	OriginChanged
+	OriginChanged,
+	SessionReset
 };
 
 USTRUCT(BlueprintType)
@@ -378,6 +379,9 @@ struct OPENMOBILESENSORS_API FOpenMobileStepsSensorSample
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileStepCountDiscontinuity Discontinuity =
 		EOpenMobileStepCountDiscontinuity::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bCountSaturated = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasQueryInterval = false;

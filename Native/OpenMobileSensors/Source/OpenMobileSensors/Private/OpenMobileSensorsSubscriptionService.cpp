@@ -53,6 +53,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorFailureDetails Failure;
 		double LastDeliveryTimestampSeconds = 0.0;
 		bool bHasDeliveredSample = false;
+		bool bResettableStepCountSession = false;
 	};
 
 	struct FPhysicalStreamEntry
@@ -648,6 +649,74 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			OutPhysicalSensor = Pressure->Sensor;
 			return true;
 		}
+		if (LogicalSensor.Type == EOpenMobileSensorType::StepCounter
+			|| LogicalSensor.Type == EOpenMobileSensorType::StepDetector)
+		{
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* DirectCapability =
+				Snapshot.Sensors.FindByPredicate(
+					[&LogicalSensor](
+						const FOpenMobileSensorCapability& Capability
+					)
+					{
+						return Capability.Sensor.Type ==
+							LogicalSensor.Type
+							&& (LogicalSensor.InstanceId.IsNone()
+								|| Capability.Sensor.InstanceId ==
+									LogicalSensor.InstanceId);
+					}
+				);
+			if (DirectCapability
+				&& DirectCapability->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& DirectCapability->Source !=
+					EOpenMobileSensorAvailabilitySource::Derived)
+			{
+				return true;
+			}
+			if (!DirectCapability
+				|| DirectCapability->Availability.State ==
+					EOpenMobileCapabilityState::Unavailable)
+			{
+				OutFailureReason =
+					EOpenMobileSensorFailureReason::MissingHardware;
+			}
+			else
+			{
+				switch (DirectCapability->Availability.State)
+				{
+				case EOpenMobileCapabilityState::PermissionRequired:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionRequired;
+					break;
+				case EOpenMobileCapabilityState::Denied:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionDenied;
+					break;
+				case EOpenMobileCapabilityState::Restricted:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::PermissionRestricted;
+					break;
+				case EOpenMobileCapabilityState::TemporarilyUnavailable:
+					OutFailureReason = EOpenMobileSensorFailureReason::
+						TemporarilyUnavailable;
+					break;
+				case EOpenMobileCapabilityState::NotConfigured:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::ConfigurationBlocked;
+					break;
+				case EOpenMobileCapabilityState::NotSupported:
+				case EOpenMobileCapabilityState::Available:
+				case EOpenMobileCapabilityState::Unavailable:
+				default:
+					OutFailureReason =
+						EOpenMobileSensorFailureReason::UnsupportedPlatform;
+					break;
+				}
+			}
+			return false;
+		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::AbsoluteAltitude
 			|| LogicalSensor.Type == EOpenMobileSensorType::AmbientLight
 			|| LogicalSensor.Type == EOpenMobileSensorType::Proximity)
@@ -818,6 +887,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorSubscriptionStateSnapshot Snapshot;
 		Snapshot.Handle = Entry.Handle;
 		Snapshot.Sensor = Entry.Request.Sensor;
+		Snapshot.bResettableStepCountSession =
+			Entry.bResettableStepCountSession;
 		Snapshot.State = Entry.State;
 		Snapshot.RequestedOptions = Entry.Request.Options;
 		Snapshot.AppliedOptions = Entry.AppliedOptions;
@@ -1523,6 +1594,15 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		);
 		return Result;
 	}
+	if (Request.bResettableStepCountSession
+		&& Request.Sensor.Type != EOpenMobileSensorType::StepCounter)
+	{
+		Result.AppliedOptions = Request.Options;
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
+		);
+		return Result;
+	}
 	if (!IsFiniteInRange(Request.Options.CustomFrequencyHz, 1.0, 1000.0))
 	{
 		Result.AppliedOptions = Request.Options;
@@ -1599,6 +1679,8 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	Entry.CommonRateAdjustmentReason = RateResolution.AdjustmentReason;
 	Entry.PhysicalKey = MakePhysicalKey(PhysicalSensor, AppliedOptions);
 	Entry.BackendToken = BackendToken;
+	Entry.bResettableStepCountSession =
+		Request.bResettableStepCountSession;
 	Subscriptions.Add(Handle.Identifier, MoveTemp(Entry));
 	FOpenMobileSensorsSampleService::RegisterSubscription(
 		OwnerIdentifier,
@@ -1606,6 +1688,7 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		Request.Sensor,
 		PhysicalSensor,
 		AppliedOptions,
+		Request.bResettableStepCountSession,
 		BackendToken.Generation
 	);
 	SchedulePendingBackendOperations();
@@ -2035,6 +2118,38 @@ FOpenMobileSensorsSubscriptionService::RecenterRelativeAltitude(
 		);
 	}
 	if (!FOpenMobileSensorsSampleService::RecenterRelativeAltitude(
+		OwnerIdentifier,
+		Handle
+	))
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable
+		);
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsSubscriptionService::ResetStepCountSession(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	const FSubscriptionEntry* Entry = FindOwnedEntry(OwnerIdentifier, Handle);
+	if (!Entry)
+	{
+		return MakeHandleFailure(Handle);
+	}
+	if (!Entry->bResettableStepCountSession
+		|| Entry->Request.Sensor.Type != EOpenMobileSensorType::StepCounter)
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::UnsupportedOperation
+		);
+	}
+	if (!FOpenMobileSensorsSampleService::ResetStepCountSession(
 		OwnerIdentifier,
 		Handle
 	))

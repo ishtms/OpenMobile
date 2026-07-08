@@ -11,6 +11,7 @@
 #include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
+#include "OpenMobileStepCountSession.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "OpenMobileSensorsSubsystem.generated.h"
 
@@ -391,6 +392,32 @@ public:
 	FOpenMobileSensorOperationResult StopRelativeAltitudeSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Begin Step Count Session", ToolTip = "Begins an owner-scoped step session whose first accepted native total becomes its baseline."))
+	FOpenMobileSensorSubscriptionResult BeginStepCountSessionNative(
+		const FOpenMobileSensorStreamOptions& Options
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Reset Step Count Session", ToolTip = "Clears one session so its next accepted native total becomes a new zero baseline."))
+	FOpenMobileSensorOperationResult ResetStepCountSessionNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Step Count Session", ToolTip = "Reads the latest nonnegative count for one owned resettable step session."))
+	bool ReadStepCountSessionNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle,
+		int64 LastSeenSequence,
+		FOpenMobileSensorReadResult& OutResult,
+		FOpenMobileStepsSensorSample& OutSample
+	) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop Step Count Session", ToolTip = "Stops one owned session without resetting other sessions or the platform native total."))
+	FOpenMobileSensorOperationResult StopStepCountSessionNative(
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Step Count Session Policy", ToolTip = "Returns the lifetime and discontinuity policy used by resettable step sessions."))
+	FOpenMobileStepCountSessionPolicy GetStepCountSessionPolicyNative() const;
 	FGuid QueryNativeStepCountNative(
 		const FOpenMobileNativeStepCountQuery& Query,
 		FOnOpenMobileNativeStepCountQueryComplete&& Completion

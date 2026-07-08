@@ -81,6 +81,7 @@ public:
 		const FOpenMobileSensorIdentifier& Sensor,
 		const FOpenMobileSensorIdentifier& PhysicalSensor,
 		const FOpenMobileSensorStreamOptions& Options,
+		bool bResettableStepCountSession,
 		uint64 BackendGeneration
 	);
 	static void SetPhysicalStreamHandle(
@@ -121,6 +122,10 @@ public:
 		EOpenMobileSensorRecenterMode Mode
 	);
 	static bool RecenterRelativeAltitude(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionHandle& Handle
+	);
+	static bool ResetStepCountSession(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);

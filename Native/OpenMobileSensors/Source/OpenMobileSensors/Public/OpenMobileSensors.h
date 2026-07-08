@@ -18,6 +18,7 @@
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorStreamOptions.h"
+#include "OpenMobileStepCountSession.h"
 #include "OpenMobileSensorSubscription.h"
 #include "OpenMobileSensorsModule.h"
 #include "OpenMobileSensorsSettings.h"

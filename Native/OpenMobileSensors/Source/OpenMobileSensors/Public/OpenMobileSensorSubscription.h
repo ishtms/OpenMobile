@@ -142,6 +142,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 	FOpenMobileSensorIdentifier Sensor;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bResettableStepCountSession = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorSubscriptionState State =
 		EOpenMobileSensorSubscriptionState::Invalid;
 

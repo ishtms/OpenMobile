@@ -195,6 +195,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionRequest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorStreamOptions Options;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Treats a Step Counter subscription as an independently resettable count since subscription start."))
+	bool bResettableStepCountSession = false;
 };
 
 UCLASS()
