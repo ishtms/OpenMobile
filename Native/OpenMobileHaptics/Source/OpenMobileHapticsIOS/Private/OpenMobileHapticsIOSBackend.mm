@@ -402,12 +402,22 @@ FOpenMobileHapticsIOSBackend::FOpenMobileHapticsIOSBackend()
 	BridgeService->SetEventCallback(
 		[this](EOpenMobileHapticsAppleBridgeEvent Event)
 		{
-			static_cast<void>(Event);
-			ForgetAllAHAPIntensityScales();
-			ReleasePreparedResources();
-			BridgeService->InvalidateEngine();
-			BridgeService->InvalidateHardwareProbe();
-			FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+			EOpenMobileHapticsInterruptionReason Reason =
+				EOpenMobileHapticsInterruptionReason::EngineStopped;
+			if (Event == EOpenMobileHapticsAppleBridgeEvent::EngineReset)
+			{
+				Reason = EOpenMobileHapticsInterruptionReason::EngineReset;
+			}
+			else if (Event
+				== EOpenMobileHapticsAppleBridgeEvent::AudioSessionChanged)
+			{
+				Reason =
+					EOpenMobileHapticsInterruptionReason::AudioSessionChanged;
+			}
+			FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+				GetBackendName(),
+				Reason
+			);
 		}
 	);
 }
@@ -692,6 +702,38 @@ void FOpenMobileHapticsIOSBackend::HandleLifecycleChange()
 {
 	ReleasePreparedResources();
 	BridgeService->InvalidateHardwareProbe();
+}
+
+void FOpenMobileHapticsIOSBackend::HandleInterruption(
+	EOpenMobileHapticsInterruptionReason Reason
+)
+{
+	static_cast<void>(Reason);
+	ForgetAllAHAPIntensityScales();
+	ReleasePreparedResources();
+	BridgeService->InvalidateEngine();
+	BridgeService->InvalidateHardwareProbe();
+}
+
+EOpenMobileHapticsRecoveryResult
+FOpenMobileHapticsIOSBackend::RecoverFromInterruption()
+{
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	if (!Settings->bEnableCustomPlayback || !Settings->IOS.bEnableCoreHaptics)
+	{
+		return EOpenMobileHapticsRecoveryResult::Recovered;
+	}
+	const EOpenMobileHapticsAppleEngineResult Result =
+		BridgeService->EnsureEngine();
+	if (Result == EOpenMobileHapticsAppleEngineResult::Ready
+		|| Result == EOpenMobileHapticsAppleEngineResult::UnsupportedHardware)
+	{
+		return EOpenMobileHapticsRecoveryResult::Recovered;
+	}
+	return Result == EOpenMobileHapticsAppleEngineResult::ShuttingDown
+		? EOpenMobileHapticsRecoveryResult::PermanentFailure
+		: EOpenMobileHapticsRecoveryResult::RetryableFailure;
 }
 
 FOpenMobileHapticsBackendSubmission

@@ -520,13 +520,19 @@ bool FOpenMobileHapticsAppleBridgeCallbackTest::RunTest(
 	TestEqual(TEXT("Native callback is delivered once"), CallbackCount, 1);
 	TestTrue(TEXT("Native callback reaches the game thread"),
 		bCallbackWasOnGameThread);
+	Mock->Emit(EOpenMobileHapticsAppleBridgeEvent::AudioSessionChanged);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+		ENamedThreads::GameThread
+	);
+	TestEqual(TEXT("Audio-session changes use the same relay"),
+		CallbackCount, 2);
 
 	Mock->Emit(EOpenMobileHapticsAppleBridgeEvent::EngineStopped);
 	Service.Shutdown();
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(
 		ENamedThreads::GameThread
 	);
-	TestEqual(TEXT("Shutdown drops queued callbacks"), CallbackCount, 1);
+	TestEqual(TEXT("Shutdown drops queued callbacks"), CallbackCount, 2);
 	return true;
 }
 

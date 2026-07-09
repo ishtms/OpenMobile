@@ -37,6 +37,7 @@
 #include "OpenMobileHapticsAndroidFallbackPolicy.h"
 #include "OpenMobileHapticsAndroidWaveformPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
+#include "OpenMobileHapticsRecoveryPolicy.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
@@ -76,6 +77,24 @@ namespace OpenMobileHapticsTests
 			{
 				Capabilities = CapabilitiesAfterLifecycle;
 			}
+		}
+		virtual void HandleInterruption(
+			EOpenMobileHapticsInterruptionReason Reason
+		) override
+		{
+			++InterruptionCount;
+			LastInterruptionReason = Reason;
+			if (OnHandleInterruption)
+			{
+				OnHandleInterruption();
+			}
+			ReleasePreparedResources();
+		}
+		virtual EOpenMobileHapticsRecoveryResult
+		RecoverFromInterruption() override
+		{
+			++RecoveryAttemptCount;
+			return RecoveryResult;
 		}
 		virtual EOpenMobileHapticPreparationState
 		GetPreparationState() const override
@@ -342,12 +361,19 @@ namespace OpenMobileHapticsTests
 		bool bFailDynamicUpdates = false;
 		bool bFailPlaybackControls = false;
 		bool bApplyCapabilitiesAfterLifecycle = false;
+		EOpenMobileHapticsRecoveryResult RecoveryResult =
+			EOpenMobileHapticsRecoveryResult::Recovered;
+		EOpenMobileHapticsInterruptionReason LastInterruptionReason =
+			EOpenMobileHapticsInterruptionReason::EngineStopped;
+		TFunction<void()> OnHandleInterruption;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
 		int32 OneShotSubmissionCount = 0;
 		int32 NamedSubmissionCount = 0;
 		int32 ShutdownCount = 0;
 		int32 LifecycleChangeCount = 0;
+		int32 InterruptionCount = 0;
+		int32 RecoveryAttemptCount = 0;
 		int32 StopChannelCount = 0;
 		int32 StopAllCount = 0;
 		int32 DynamicUpdateCount = 0;
@@ -5000,6 +5026,15 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 		TEXT("Captured request token starts current"),
 		FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(AlphaToken)
 	);
+	FMockBackend Lower(TEXT("Lower"), -10);
+	TestTrue(
+		TEXT("An unselected backend can register"),
+		FOpenMobileHapticsBackendRegistry::RegisterBackend(Lower)
+	);
+	TestTrue(
+		TEXT("An unselected backend does not stale active request tokens"),
+		FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(AlphaToken)
+	);
 	TestTrue(
 		TEXT("Higher-priority backend registers"),
 		FOpenMobileHapticsBackendRegistry::RegisterBackend(Higher)
@@ -5035,6 +5070,7 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 	FOpenMobileHapticsBackendRegistry::BeginShutdown();
 	TestEqual(TEXT("Alpha shuts down once"), Alpha.ShutdownCount, 1);
 	TestEqual(TEXT("Beta shuts down once"), Beta.ShutdownCount, 1);
+	TestEqual(TEXT("Lower shuts down once"), Lower.ShutdownCount, 1);
 	TestNull(
 		TEXT("No backend resolves during shutdown"),
 		FOpenMobileHapticsBackendRegistry::FindBackend()
@@ -5045,6 +5081,7 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 	);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Alpha);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Beta);
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Lower);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }
@@ -6505,6 +6542,365 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRecoveryPolicyTest,
+	"OpenMobile.Haptics.Recovery.BoundedPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRecoveryPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsRecoveryPolicy Policy;
+	Policy.BeginInterruption(10.0, 2);
+
+	TestEqual(
+		TEXT("Recovery waits before its first native attempt"),
+		Policy.TryBeginAttempt(10.099, true, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Deferred
+	);
+	TestEqual(
+		TEXT("Inactive applications do not consume an attempt"),
+		Policy.TryBeginAttempt(11.0, false, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Inactive
+	);
+	TestEqual(
+		TEXT("Disabled player policy does not consume an attempt"),
+		Policy.TryBeginAttempt(11.0, true, false).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::PolicyBlocked
+	);
+	const FOpenMobileHapticsRecoveryAttempt First =
+		Policy.TryBeginAttempt(10.1, true, true);
+	TestEqual(TEXT("The first eligible attempt starts"), First.Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Started);
+	TestEqual(TEXT("The first attempt is numbered once"),
+		First.AttemptNumber, 1);
+	Policy.CompleteAttempt(false, 10.1);
+
+	Policy.BeginInterruption(10.2, 8);
+	TestEqual(TEXT("Duplicate interruptions do not reset retry ownership"),
+		Policy.GetAttemptCount(), 1);
+	TestEqual(TEXT("Failed recovery uses a bounded backoff"),
+		Policy.TryBeginAttempt(10.349, true, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Deferred);
+	const FOpenMobileHapticsRecoveryAttempt Second =
+		Policy.TryBeginAttempt(10.35, true, true);
+	TestEqual(TEXT("The second bounded attempt starts"), Second.Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Started);
+	TestEqual(TEXT("The second attempt preserves ordering"),
+		Second.AttemptNumber, 2);
+	Policy.CompleteAttempt(false, 10.35);
+	TestEqual(TEXT("The configured boundary is terminal"),
+		Policy.TryBeginAttempt(100.0, true, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Exhausted);
+
+	Policy.Reset();
+	Policy.BeginInterruption(20.0, 1);
+	TestEqual(TEXT("A fresh recovery can start"),
+		Policy.TryBeginAttempt(20.1, true, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::Started);
+	Policy.CompleteAttempt(true, 20.1);
+	TestEqual(TEXT("Successful recovery clears pending state"),
+		Policy.TryBeginAttempt(20.2, true, true).Outcome,
+		EOpenMobileHapticsRecoveryAttemptOutcome::NotRecovering);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRecoveryRetryTest,
+	"OpenMobile.Haptics.Recovery.RegistryRetryBound",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRecoveryRetryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const int32 SavedMaximumAttempts = Settings->MaximumRecoveryAttempts;
+	Settings->MaximumRecoveryAttempts = 2;
+
+	FMockBackend Backend(TEXT("RecoveryRetry"));
+	Backend.RecoveryResult =
+		EOpenMobileHapticsRecoveryResult::RetryableFailure;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::NativeServiceLost
+	);
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
+	TestFalse(TEXT("Recovery remains unavailable while queued"),
+		FOpenMobileHapticsBackendRegistry::RequestRecovery(true));
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 5.0
+	);
+	TestEqual(TEXT("Background state does not consume a native retry"),
+		Backend.RecoveryAttemptCount, 0);
+	FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 5.0
+	);
+	TestEqual(TEXT("The first retry reaches the backend once"),
+		Backend.RecoveryAttemptCount, 1);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 10.0
+	);
+	TestEqual(TEXT("The configured final retry reaches the backend"),
+		Backend.RecoveryAttemptCount, 2);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 20.0
+	);
+	TestEqual(TEXT("Exhaustion prevents an unbounded retry loop"),
+		Backend.RecoveryAttemptCount, 2);
+	TestTrue(TEXT("Exhausted recovery remains unavailable"),
+		FOpenMobileHapticsBackendRegistry::IsRecovering());
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->MaximumRecoveryAttempts = SavedMaximumAttempts;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsInterruptionRecoveryTest,
+	"OpenMobile.Haptics.Recovery.OrderingAndExplicitRestart",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsInterruptionRecoveryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const bool bSavedResume =
+		Settings->bResumeEligiblePlaybackAfterForeground;
+	Settings->NamedLibraries.Reset();
+	Settings->bResumeEligiblePlaybackAfterForeground = true;
+
+	FMockBackend Backend(TEXT("RecoveryOrdering"));
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TArray<FOpenMobileHapticPlaybackEvent> Events;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&Events](const FOpenMobileHapticPlaybackEvent& Event)
+		{
+			Events.Add(Event);
+		}
+	);
+
+	FOpenMobileHapticNamedPatternRequest Request;
+	Request.PatternName = TEXT("RestartableLoop");
+	Request.Options.Loop.bLoop = true;
+	Request.Options.InterruptionPolicy =
+		EOpenMobileHapticInterruptionPolicy::Restart;
+	const FOpenMobileHapticPlaybackResult Original =
+		Subsystem->SubmitNamedPattern(Request);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Started, 1,
+		EOpenMobileHapticEventEvidence::NativeConfirmed);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+
+	bool bInterruptedBeforeBackendCleanup = false;
+	Backend.OnHandleInterruption =
+		[Subsystem, Handle = Original.Handle, &bInterruptedBeforeBackendCleanup]()
+		{
+			bInterruptedBeforeBackendCleanup =
+				Subsystem->GetPlaybackState(Handle)
+				== EOpenMobileHapticPlaybackState::Interrupted;
+		};
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::EngineReset
+	);
+	TestTrue(TEXT("Accepted handles interrupt before backend cleanup"),
+		bInterruptedBeforeBackendCleanup);
+	TestEqual(TEXT("The reset reaches backend cleanup once"),
+		Backend.InterruptionCount, 1);
+	TestEqual(TEXT("The reset preserves its reason"),
+		Backend.LastInterruptionReason,
+		EOpenMobileHapticsInterruptionReason::EngineReset);
+	TestEqual(TEXT("The old handle has one terminal interruption"),
+		Subsystem->GetPlaybackState(Original.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+
+	Backend.Emit(0, EOpenMobileHapticPlaybackState::Completed, 2,
+		EOpenMobileHapticEventEvidence::NativeConfirmed);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("A stale player cannot replace interruption"),
+		Subsystem->GetPlaybackState(Original.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 5.0
+	);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Recovery rebuilds the backend once"),
+		Backend.RecoveryAttemptCount, 1);
+	TestEqual(TEXT("Only the explicit restart policy replays the pattern"),
+		Backend.NamedSubmissionCount, 2);
+	bool bFoundReplacement = false;
+	for (const FOpenMobileHapticPlaybackEvent& Event : Events)
+	{
+		bFoundReplacement = bFoundReplacement
+			|| (Event.State == EOpenMobileHapticPlaybackState::Accepted
+				&& Event.RecoverySourceHandle == Original.Handle
+				&& Event.Handle != Original.Handle);
+	}
+	TestTrue(TEXT("Restarted playback identifies the interrupted handle"),
+		bFoundReplacement);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->bResumeEligiblePlaybackAfterForeground = bSavedResume;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsInterruptionStateTest,
+	"OpenMobile.Haptics.Recovery.StateCoverage",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsInterruptionStateTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("RecoveryStates"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bPause = true;
+	Backend.SubmissionControlSupport.PauseImplementation =
+		EOpenMobileHapticControlImplementation::Native;
+	Backend.SubmissionControlSupport.bHasRepeatPlan = true;
+	Backend.SubmissionControlSupport.RepeatPlan.PatternDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.TotalDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.MaximumDurationSeconds = 30.0;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+
+	FOpenMobileHapticPlaybackOptions ScheduledOptions;
+	ScheduledOptions.Channel = TEXT("Scheduled");
+	ScheduledOptions.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::Relative;
+	ScheduledOptions.Schedule.TimeSeconds = 1.0;
+	const FOpenMobileHapticPlaybackResult Scheduled =
+		Subsystem->VibrateAdvanced(0.05f, 1.0f, ScheduledOptions);
+	const FOpenMobileHapticPlaybackResult Active =
+		Subsystem->PlayNamedPattern(TEXT("Active"));
+	const FOpenMobileHapticPlaybackResult Paused =
+		Subsystem->PlayNamedPattern(TEXT("Paused"));
+	FOpenMobileHapticPlaybackOptions RepeatingOptions;
+	RepeatingOptions.Loop.bLoop = true;
+	const FOpenMobileHapticPlaybackResult Repeating =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("Repeating"), 1.0f, RepeatingOptions);
+	const FOpenMobileHapticPlaybackResult Stopping =
+		Subsystem->PlayNamedPattern(TEXT("Stopping"));
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	Backend.Emit(1, EOpenMobileHapticPlaybackState::Started, 1);
+	Backend.Emit(2, EOpenMobileHapticPlaybackState::Started, 1);
+	Backend.Emit(3, EOpenMobileHapticPlaybackState::Started, 1);
+	Backend.Emit(4, EOpenMobileHapticPlaybackState::Started, 1);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("The paused fixture enters paused state"),
+		Subsystem->PausePlayback(Paused.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("The stopping fixture reaches a terminal state"),
+		Subsystem->StopPlayback(Stopping.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+
+	const FOpenMobileHapticLibraryPreloadHandle Preparing =
+		Subsystem->PreloadNamedLibraries();
+	TestTrue(TEXT("The preparation fixture owns a request"),
+		Preparing.IsValid());
+	TestEqual(TEXT("The preparation fixture is still pending"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Preparing);
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::NativeServiceLost
+	);
+
+	TestEqual(TEXT("Scheduled playback is interrupted"),
+		Subsystem->GetPlaybackState(Scheduled.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("Active playback is interrupted"),
+		Subsystem->GetPlaybackState(Active.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("Paused playback is interrupted"),
+		Subsystem->GetPlaybackState(Paused.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("Repeating playback is interrupted"),
+		Subsystem->GetPlaybackState(Repeating.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("A completed stop is not rewritten"),
+		Subsystem->GetPlaybackState(Stopping.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Interrupted preparation is cancelled"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("A late preparation callback stays cancelled"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
+	TestEqual(TEXT("Default interruption policy never replays"),
+		Backend.NamedSubmissionCount, 4);
+
+	FOpenMobileHapticsBackendRegistry::RequestRecovery(true);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 5.0
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::BeginShutdown();
+	const int32 InterruptionsBeforeShutdown = Backend.InterruptionCount;
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::EngineStopped
+	);
+	TestEqual(TEXT("Shutdown drops native interruption callbacks"),
+		Backend.InterruptionCount, InterruptionsBeforeShutdown);
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
 #if WITH_EDITORONLY_DATA
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -6680,6 +7076,96 @@ bool FOpenMobileHapticsAudioScheduleSubsystemTest::RunTest(
 	Request.Options.Schedule.LatencyOffsetSeconds = 0.02;
 	TestFalse(TEXT("A positive immediate offset still requires scheduling"),
 		Subsystem->SubmitNamedPattern(Request).IsAccepted());
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRecoveryPreparedAssetsTest,
+	"OpenMobile.Haptics.Recovery.LazyPreparedAssets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRecoveryPreparedAssetsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+
+	FMockBackend Backend(TEXT("PreparedRecovery"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.WaveformTiming =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("The recovery pattern builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+	UOpenMobileHapticLibrary* Library = NewObject<UOpenMobileHapticLibrary>();
+	Library->Patterns = {{TEXT("PreparedRecovery"), Pattern}};
+	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
+	LibrarySettings.Name = TEXT("Recovery");
+	LibrarySettings.Asset = FSoftObjectPath(Library);
+	Settings->NamedLibraries = {LibrarySettings};
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TArray<FString> Errors;
+	TestTrue(TEXT("The recovery library prepares"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Initial preparation compiles once"),
+		Backend.PrepareResourcesCount, 1);
+	const FOpenMobileHapticPlaybackResult Playback =
+		Subsystem->PlayNamedPattern(TEXT("PreparedRecovery"));
+	TestTrue(TEXT("Prepared playback is accepted"), Playback.IsAccepted());
+
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::EngineReset
+	);
+	TestEqual(TEXT("Reset releases native prepared ownership"),
+		Backend.ReleasePreparedResourcesCount, 1);
+	TestEqual(TEXT("Resolved library entries remain loaded"),
+		Subsystem->GetNamedPatternStatus(TEXT("PreparedRecovery")),
+		EOpenMobileHapticNamedPatternStatus::Loaded);
+	TestEqual(TEXT("Native readiness becomes unprepared"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared);
+
+	FOpenMobileHapticsBackendRegistry::RequestRecovery(true);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 5.0
+	);
+	TestEqual(TEXT("Engine recovery does not eagerly rebuild assets"),
+		Backend.PrepareResourcesCount, 1);
+	const FOpenMobileHapticPlaybackResult Replayed =
+		Subsystem->PlayNamedPattern(TEXT("PreparedRecovery"));
+	TestTrue(TEXT("The next named request restores preparation"),
+		Replayed.IsAccepted());
+	TestEqual(TEXT("Lazy restoration recompiles exactly once"),
+		Backend.PrepareResourcesCount, 2);
+	TestEqual(TEXT("Lazy restoration keeps the loaded registry"),
+		Subsystem->GetNamedPatternStatus(TEXT("PreparedRecovery")),
+		EOpenMobileHapticNamedPatternStatus::Loaded);
 
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);

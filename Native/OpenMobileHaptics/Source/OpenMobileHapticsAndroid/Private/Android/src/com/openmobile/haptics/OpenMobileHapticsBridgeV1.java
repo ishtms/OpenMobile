@@ -1,11 +1,13 @@
 package com.openmobile.haptics;
 
 import android.app.Activity;
+import android.app.Application;
 import android.content.Context;
 import android.media.AudioAttributes;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
@@ -33,6 +35,8 @@ public final class OpenMobileHapticsBridgeV1 {
     static final int RESULT_DEFAULT_AMPLITUDE = 5;
     static final int RESULT_PENDING = 6;
     static final int RESULT_STALE = 7;
+    private static final int INTERRUPTION_ACTIVITY_REPLACED = 1;
+    private static final int INTERRUPTION_NATIVE_SERVICE_LOST = 2;
     private static final long MAXIMUM_SCHEDULED_DELAY_MILLIS = 60000L;
     private static final long MAXIMUM_CONTROLLED_DURATION_MILLIS = 300000L;
     private static final int CONTROLLED_EVENT_STARTED = 1;
@@ -48,6 +52,47 @@ public final class OpenMobileHapticsBridgeV1 {
     private static final ConcurrentHashMap<Long, Runnable> SCHEDULED_REQUESTS =
         new ConcurrentHashMap<Long, Runnable>();
     private static final Object CONTROLLED_WAVEFORM_LOCK = new Object();
+    private static final Object ACTIVITY_IDENTITY_LOCK = new Object();
+    private static boolean hasActivityIdentity;
+    private static int activityIdentity;
+    private static WeakReference<Activity> currentActivity =
+        new WeakReference<Activity>(null);
+    private static boolean activityCallbacksRegistered;
+    private static final Application.ActivityLifecycleCallbacks
+        ACTIVITY_CALLBACKS = new Application.ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityCreated(Activity activity, Bundle state) {
+                trackActivity(activity);
+            }
+
+            @Override
+            public void onActivityStarted(Activity activity) {
+            }
+
+            @Override
+            public void onActivityResumed(Activity activity) {
+                trackActivity(activity);
+            }
+
+            @Override
+            public void onActivityPaused(Activity activity) {
+            }
+
+            @Override
+            public void onActivityStopped(Activity activity) {
+            }
+
+            @Override
+            public void onActivitySaveInstanceState(
+                Activity activity,
+                Bundle state
+            ) {
+            }
+
+            @Override
+            public void onActivityDestroyed(Activity activity) {
+            }
+        };
     private static ControlledWaveform controlledWaveform;
     private static volatile EnvelopeApi36 envelopeApi36;
     private static final LinkedHashMap<Long, PreparedWaveform>
@@ -1021,6 +1066,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 maxFrequencyMilliHertz
             };
         } catch (Exception exception) {
+            nativeOnInterruption(INTERRUPTION_NATIVE_SERVICE_LOST);
             return new long[] {-1L};
         }
     }
@@ -1627,6 +1673,7 @@ public final class OpenMobileHapticsBridgeV1 {
         } catch (SecurityException exception) {
             return false;
         } catch (Exception exception) {
+            nativeOnInterruption(INTERRUPTION_NATIVE_SERVICE_LOST);
             return false;
         }
     }
@@ -1707,13 +1754,13 @@ public final class OpenMobileHapticsBridgeV1 {
     }
 
     private static boolean isUsable(Activity activity) {
-        return activity != null
+        return trackActivity(activity)
             && !activity.isFinishing()
             && (Build.VERSION.SDK_INT < 17 || !activity.isDestroyed());
     }
 
     private static Context applicationContext(Activity activity) {
-        if (activity == null) {
+        if (!trackActivity(activity)) {
             return null;
         }
         Context context = activity.getApplicationContext();
@@ -1730,9 +1777,55 @@ public final class OpenMobileHapticsBridgeV1 {
                 (VibratorManager)context.getSystemService(
                     Context.VIBRATOR_MANAGER_SERVICE
                 );
-            return manager != null ? manager.getDefaultVibrator() : null;
+            Vibrator result = manager != null
+                ? manager.getDefaultVibrator()
+                : null;
+            if (result == null) {
+                nativeOnInterruption(INTERRUPTION_NATIVE_SERVICE_LOST);
+            }
+            return result;
         }
-        return (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+        Vibrator result =
+            (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+        if (result == null) {
+            nativeOnInterruption(INTERRUPTION_NATIVE_SERVICE_LOST);
+        }
+        return result;
+    }
+
+    private static boolean trackActivity(Activity activity) {
+        if (activity == null) {
+            return false;
+        }
+        registerActivityCallbacks(activity);
+        boolean replaced = false;
+        int identity = System.identityHashCode(activity);
+        synchronized (ACTIVITY_IDENTITY_LOCK) {
+            Activity previous = currentActivity.get();
+            replaced = hasActivityIdentity
+                && (previous != activity || activityIdentity != identity);
+            activityIdentity = identity;
+            hasActivityIdentity = true;
+            currentActivity = new WeakReference<Activity>(activity);
+        }
+        if (replaced) {
+            nativeOnInterruption(INTERRUPTION_ACTIVITY_REPLACED);
+        }
+        return !replaced;
+    }
+
+    private static void registerActivityCallbacks(Activity activity) {
+        Application application = activity.getApplication();
+        if (application == null) {
+            return;
+        }
+        synchronized (ACTIVITY_IDENTITY_LOCK) {
+            if (activityCallbacksRegistered) {
+                return;
+            }
+            activityCallbacksRegistered = true;
+        }
+        application.registerActivityLifecycleCallbacks(ACTIVITY_CALLBACKS);
     }
 
     private static boolean systemHapticsEnabled(Context context) {
@@ -1767,15 +1860,22 @@ public final class OpenMobileHapticsBridgeV1 {
         long durationMillis,
         int purpose
     ) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            vibrator.vibrate(
-                effect,
-                VibrationAttributes.createForUsage(vibrationUsage(purpose))
-            );
-        } else if (Build.VERSION.SDK_INT >= 26) {
-            vibrator.vibrate(effect, audioAttributes(purpose));
-        } else {
-            vibrator.vibrate(durationMillis, audioAttributes(purpose));
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                vibrator.vibrate(
+                    effect,
+                    VibrationAttributes.createForUsage(vibrationUsage(purpose))
+                );
+            } else if (Build.VERSION.SDK_INT >= 26) {
+                vibrator.vibrate(effect, audioAttributes(purpose));
+            } else {
+                vibrator.vibrate(durationMillis, audioAttributes(purpose));
+            }
+        } catch (SecurityException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            nativeOnInterruption(INTERRUPTION_NATIVE_SERVICE_LOST);
+            throw exception;
         }
     }
 
@@ -1928,6 +2028,7 @@ public final class OpenMobileHapticsBridgeV1 {
 
     private static native boolean nativeCanStart(long requestId);
     private static native void nativeOnBridgeResult(long requestId, int result);
+    private static native void nativeOnInterruption(int reason);
     private static native void nativeOnControlledWaveformEvent(
         long requestId,
         long controlRevision,

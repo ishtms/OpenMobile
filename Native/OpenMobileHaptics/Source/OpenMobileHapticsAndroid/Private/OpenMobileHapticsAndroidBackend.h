@@ -50,6 +50,11 @@ public:
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const override;
 	virtual void HandleLifecycleChange() override;
+	virtual void HandleInterruption(
+		EOpenMobileHapticsInterruptionReason Reason
+	) override;
+	virtual EOpenMobileHapticsRecoveryResult
+	RecoverFromInterruption() override;
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,
 		const FOpenMobileHapticsSemanticResolution& Resolution,

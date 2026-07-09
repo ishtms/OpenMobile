@@ -21,6 +21,7 @@ class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsSubsystemState;
+struct FOpenMobileHapticsInterruption;
 struct FOpenMobileHapticsTimingResolution;
 
 struct FOpenMobileHapticsSubsystemStateDeleter
@@ -260,6 +261,7 @@ private:
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
 	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
+	friend class FOpenMobileHapticsRecoveryPreparedAssetsTest;
 
 	enum class EPlaybackCursorControl : uint8
 	{
@@ -276,6 +278,12 @@ private:
 	void HandleBackendCallback(
 		const FOpenMobileHapticsBackendCallback& Callback
 	);
+	void BindRecoveryEvents();
+	void UnbindRecoveryEvents();
+	void HandleInterruption(
+		const FOpenMobileHapticsInterruption& Interruption
+	);
+	void HandleRecovery();
 	void PublishSubmissionEvents(
 		const FOpenMobileHapticPlaybackResult& Result,
 		const FOpenMobileHapticsTimingResolution& Timing
@@ -327,7 +335,10 @@ private:
 		const TArray<UOpenMobileHapticLibrary*>& Libraries,
 		TArray<FString>& Errors
 	);
-	bool PrepareResolvedResources(TArray<FString>& Errors);
+	bool PrepareResolvedResources(
+		TArray<FString>& Errors,
+		bool bPreserveResolvedLibrariesOnNativeFailure = false
+	);
 	void HandleNamedLibrariesLoaded(
 		uint64 Generation,
 		FOpenMobileHapticLibraryPreloadHandle Handle
@@ -355,5 +366,7 @@ private:
 		FOpenMobileHapticsSubsystemState,
 		FOpenMobileHapticsSubsystemStateDeleter
 	> State;
+	FDelegateHandle InterruptionDelegateHandle;
+	FDelegateHandle RecoveryDelegateHandle;
 	bool bDeinitialized = false;
 };

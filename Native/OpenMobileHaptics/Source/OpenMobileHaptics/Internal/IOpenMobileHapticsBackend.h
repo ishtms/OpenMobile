@@ -10,6 +10,23 @@
 
 struct FOpenMobileHapticsPortableTimeline;
 
+enum class EOpenMobileHapticsInterruptionReason : uint8
+{
+	EngineStopped,
+	EngineReset,
+	AudioSessionChanged,
+	ActivityReplaced,
+	NativeServiceLost,
+	BackendReplaced
+};
+
+enum class EOpenMobileHapticsRecoveryResult : uint8
+{
+	Recovered,
+	RetryableFailure,
+	PermanentFailure
+};
+
 struct FOpenMobileHapticsBackendPreparationRequest
 {
 	TArray<TSharedPtr<
@@ -187,6 +204,17 @@ public:
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const = 0;
 	virtual void HandleLifecycleChange() {}
+	virtual void HandleInterruption(
+		EOpenMobileHapticsInterruptionReason Reason
+	)
+	{
+		static_cast<void>(Reason);
+		HandleLifecycleChange();
+	}
+	virtual EOpenMobileHapticsRecoveryResult RecoverFromInterruption()
+	{
+		return EOpenMobileHapticsRecoveryResult::Recovered;
+	}
 
 	virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request,

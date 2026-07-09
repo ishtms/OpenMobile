@@ -121,6 +121,13 @@ enum class EOpenMobileHapticFallbackPolicy : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticInterruptionPolicy : uint8
+{
+	Stop,
+	Restart
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticScheduleMode : uint8
 {
 	Immediate,
@@ -849,6 +856,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticLoopOptions Loop;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticInterruptionPolicy InterruptionPolicy =
+		EOpenMobileHapticInterruptionPolicy::Stop;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float IntensityScale = 1.0f;
 };
@@ -1129,6 +1140,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackEvent
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticPlaybackHandle Handle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticPlaybackHandle RecoverySourceHandle;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticPlaybackState State =

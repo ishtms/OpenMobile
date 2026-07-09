@@ -15,6 +15,7 @@ public class OpenMobileHapticsIOS : ModuleRules
 		PublicFrameworks.AddRange(new[]
 		{
 			"AudioToolbox",
+			"AVFoundation",
 			"CoreHaptics",
 			"Foundation",
 			"UIKit"

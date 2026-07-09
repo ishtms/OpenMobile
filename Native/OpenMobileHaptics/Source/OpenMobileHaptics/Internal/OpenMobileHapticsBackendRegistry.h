@@ -6,6 +6,20 @@
 class IOpenMobileHapticsBackend;
 class FOpenMobileHapticsTimelineManager;
 struct FOpenMobileHapticsBackendRequestToken;
+enum class EOpenMobileHapticsInterruptionReason : uint8;
+
+struct FOpenMobileHapticsInterruption
+{
+	FName BackendName;
+	EOpenMobileHapticsInterruptionReason Reason;
+	uint64 LifecycleGeneration = 0;
+};
+
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticsInterruptionDelegate,
+	const FOpenMobileHapticsInterruption&
+);
+DECLARE_MULTICAST_DELEGATE(FOpenMobileHapticsRecoveryDelegate);
 
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsBackendRegistry final
 {
@@ -29,10 +43,19 @@ public:
 	static uint64 GetLifecycleGeneration();
 	static FOpenMobileHapticsTimelineManager& GetTimelineManager();
 	static void NotifyLifecycleChange();
+	static void NotifyInterruption(
+		FName BackendName,
+		EOpenMobileHapticsInterruptionReason Reason
+	);
+	static bool RequestRecovery(bool bPolicyAllowsRecovery);
+	static bool IsRecovering();
+	static FOpenMobileHapticsInterruptionDelegate& OnInterruption();
+	static FOpenMobileHapticsRecoveryDelegate& OnRecovery();
 	static bool IsShuttingDown();
 	static void BeginShutdown();
 
 #if WITH_DEV_AUTOMATION_TESTS
+	static void RunRecoveryAttemptForTests(double NowSeconds);
 	static void ResetForTests();
 #endif
 };

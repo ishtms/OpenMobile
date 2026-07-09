@@ -1092,6 +1092,31 @@ void FOpenMobileHapticsAndroidBackend::HandleLifecycleChange()
 	ReleasePreparedResources();
 }
 
+void FOpenMobileHapticsAndroidBackend::HandleInterruption(
+	EOpenMobileHapticsInterruptionReason Reason
+)
+{
+	static_cast<void>(Reason);
+	Bridge.StopAll();
+	PlaybackControlStore.Reset();
+	{
+		FScopeLock Lock(&CacheMutex);
+		StableCapabilities.Reset();
+	}
+	ReleasePreparedResources();
+}
+
+EOpenMobileHapticsRecoveryResult
+FOpenMobileHapticsAndroidBackend::RecoverFromInterruption()
+{
+	const FOpenMobileHapticCapabilities Capabilities =
+		ProbeHardwareCapabilities();
+	return Capabilities.Availability
+		== EOpenMobileHapticAvailability::TemporarilyUnavailable
+		? EOpenMobileHapticsRecoveryResult::RetryableFailure
+		: EOpenMobileHapticsRecoveryResult::Recovered;
+}
+
 void FOpenMobileHapticsAndroidBackend::BeginShutdown()
 {
 	Bridge.StopAll();

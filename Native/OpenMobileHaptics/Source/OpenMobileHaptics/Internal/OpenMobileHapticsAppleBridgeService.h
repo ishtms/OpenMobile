@@ -42,7 +42,8 @@ enum class EOpenMobileHapticsAppleSubmissionResult : uint8
 enum class EOpenMobileHapticsAppleBridgeEvent : uint8
 {
 	EngineStopped,
-	EngineReset
+	EngineReset,
+	AudioSessionChanged
 };
 
 using FOpenMobileHapticsAppleBridgeEventCallback =

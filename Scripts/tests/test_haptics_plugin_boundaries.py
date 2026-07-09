@@ -601,12 +601,15 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		)[0]
 		self.assertLess(
 			reset_handler.index("dispatch_async(dispatch_get_main_queue()"),
-			reset_handler.index("failAllPatterns"),
+			reset_handler.index("interruptAllPatterns"),
 		)
 		self.assertLess(
-			reset_handler.index("failAllPatterns"),
+			reset_handler.index("interruptAllPatterns"),
 			reset_handler.index("EngineReset"),
 		)
+		self.assertIn("AVAudioSessionInterruptionNotification", bridge)
+		self.assertIn("AVAudioSessionRouteChangeNotification", bridge)
+		self.assertIn("AVAudioSessionMediaServicesWereResetNotification", bridge)
 
 		self.assertIn("PlayContinuousPattern", backend)
 		self.assertIn("FOpenMobileHapticsAppleContinuousPolicy::Resolve", manager)
@@ -1053,6 +1056,11 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("getDefaultVibrator()", bridge)
 		self.assertNotIn("InputDevice", bridge)
 		self.assertIn("private static native void nativeOnBridgeResult", bridge)
+		self.assertIn("private static native void nativeOnInterruption", bridge)
+		self.assertIn("trackActivity", bridge)
+		self.assertIn("ActivityLifecycleCallbacks", bridge)
+		self.assertIn("INTERRUPTION_ACTIVITY_REPLACED", bridge)
+		self.assertIn("INTERRUPTION_NATIVE_SERVICE_LOST", bridge)
 		self.assertIn("AtomicLong", bridge)
 		self.assertIn("snapshotInstrumentation", bridge)
 
@@ -1075,6 +1083,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("DeleteGlobalRef", native_bridge)
 		self.assertIn("Token.RequestId", native_bridge)
 		self.assertIn("nativeOnBridgeResult", native_bridge)
+		self.assertIn("nativeOnInterruption", native_bridge)
+		self.assertIn("NotifyInterruption", native_bridge)
 		self.assertIn("PendingCallbacks", native_bridge)
 
 		common_callback = (

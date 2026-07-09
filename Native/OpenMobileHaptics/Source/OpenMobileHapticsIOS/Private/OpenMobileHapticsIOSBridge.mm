@@ -6,6 +6,7 @@
 #include "Misc/ScopeLock.h"
 
 #import <AudioToolbox/AudioToolbox.h>
+#import <AVFoundation/AVFoundation.h>
 #import <CoreHaptics/CoreHaptics.h>
 #import <TargetConditionals.h>
 #import <UIKit/UIKit.h>
@@ -762,7 +763,11 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update;
 - (void)completePattern:(uint64)RequestId
 	event:(EOpenMobileHapticsApplePlaybackEvent)Event;
+- (void)completeAllPatternsWithEvent:
+	(EOpenMobileHapticsApplePlaybackEvent)Event;
 - (void)failAllPatterns;
+- (void)interruptAllPatterns;
+- (void)handleAudioSessionChange:(NSNotification*)Notification;
 - (void)setEventCallback:
 	(FOpenMobileHapticsAppleBridgeEventCallback)Callback;
 - (void)releaseObjects;
@@ -783,6 +788,20 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			"com.openmobile.haptics.audio-preparation",
 			DISPATCH_QUEUE_SERIAL
 		);
+		NSNotificationCenter* Notifications =
+			[NSNotificationCenter defaultCenter];
+		[Notifications addObserver:self
+			selector:@selector(handleAudioSessionChange:)
+			name:AVAudioSessionInterruptionNotification
+			object:nil];
+		[Notifications addObserver:self
+			selector:@selector(handleAudioSessionChange:)
+			name:AVAudioSessionRouteChangeNotification
+			object:nil];
+		[Notifications addObserver:self
+			selector:@selector(handleAudioSessionChange:)
+			name:AVAudioSessionMediaServicesWereResetNotification
+			object:nil];
 	}
 	return self;
 }
@@ -1393,17 +1412,21 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		OpenMobileHapticsAppleNativeService* Service = self;
 		Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
 		{
-			static_cast<void>(Reason);
 			dispatch_async(dispatch_get_main_queue(), ^{
-				[Service failAllPatterns];
+				[Service interruptAllPatterns];
 				[Service emitEvent:
-					EOpenMobileHapticsAppleBridgeEvent::EngineStopped];
+					Reason
+						== CHHapticEngineStoppedReasonAudioSessionInterrupt
+							? EOpenMobileHapticsAppleBridgeEvent::
+								AudioSessionChanged
+							: EOpenMobileHapticsAppleBridgeEvent::
+								EngineStopped];
 			});
 		};
 		Engine.resetHandler = ^
 		{
 			dispatch_async(dispatch_get_main_queue(), ^{
-				[Service failAllPatterns];
+				[Service interruptAllPatterns];
 				[Service emitEvent:
 					EOpenMobileHapticsAppleBridgeEvent::EngineReset];
 			});
@@ -1464,13 +1487,14 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 }
 
-- (void)failAllPatterns
+- (void)completeAllPatternsWithEvent:
+	(EOpenMobileHapticsApplePlaybackEvent)Event
 {
 	if (![NSThread isMainThread])
 	{
 		[self retain];
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self failAllPatterns];
+			[self completeAllPatternsWithEvent:Event];
 			[self release];
 		});
 		return;
@@ -1481,7 +1505,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	for (const uint64 RequestId : RequestIds)
 	{
 		[self completePattern:RequestId
-			event:EOpenMobileHapticsApplePlaybackEvent::Failed];
+			event:Event];
 	}
 	RequestIds.Reset();
 	ScheduledStartCallbacks.GetKeys(RequestIds);
@@ -1495,9 +1519,49 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		[self releaseAudioResourcesForRequest:RequestId];
 		if (Callback && *Callback)
 		{
-			(*Callback)(EOpenMobileHapticsApplePlaybackEvent::Failed);
+			(*Callback)(Event);
 		}
 	}
+}
+
+- (void)failAllPatterns
+{
+	[self completeAllPatternsWithEvent:
+		EOpenMobileHapticsApplePlaybackEvent::Failed];
+}
+
+- (void)interruptAllPatterns
+{
+	[self completeAllPatternsWithEvent:
+		EOpenMobileHapticsApplePlaybackEvent::Interrupted];
+}
+
+- (void)handleAudioSessionChange:(NSNotification*)Notification
+{
+	static_cast<void>(Notification);
+	if (![NSThread isMainThread])
+	{
+		[self retain];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self handleAudioSessionChange:nil];
+			[self release];
+		});
+		return;
+	}
+	if (bShuttingDown || !Engine)
+	{
+		return;
+	}
+	Engine.stoppedHandler = ^(CHHapticEngineStoppedReason Reason)
+	{
+		static_cast<void>(Reason);
+	};
+	Engine.resetHandler = ^{};
+	[Engine stopWithCompletionHandler:nil];
+	[Engine release];
+	Engine = nil;
+	[self interruptAllPatterns];
+	[self emitEvent:EOpenMobileHapticsAppleBridgeEvent::AudioSessionChanged];
 }
 
 - (void)releaseAudioResourcesForRequest:(uint64)RequestId
@@ -2587,6 +2651,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 - (void)releaseObjects
 {
 	bShuttingDown = true;
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
 	++ActivityGeneration;
 	++PreparationGeneration;
 	[self setEventCallback:{}];

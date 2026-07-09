@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsAndroidBridge.h"
 
 #include "Android/AndroidApplication.h"
+#include "Async/Async.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticsBackendRegistry.h"
@@ -60,6 +61,26 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnBr
 			static_cast<int32>(Result)
 		);
 	}
+}
+
+JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnInterruption(
+	JNIEnv* Env,
+	jclass Class,
+	jint Reason
+)
+{
+	static_cast<void>(Env);
+	static_cast<void>(Class);
+	const EOpenMobileHapticsInterruptionReason InterruptionReason = Reason == 1
+		? EOpenMobileHapticsInterruptionReason::ActivityReplaced
+		: EOpenMobileHapticsInterruptionReason::NativeServiceLost;
+	AsyncTask(ENamedThreads::GameThread, [InterruptionReason]()
+	{
+		FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+			TEXT("Android"),
+			InterruptionReason
+		);
+	});
 }
 
 JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnControlledWaveformEvent(
