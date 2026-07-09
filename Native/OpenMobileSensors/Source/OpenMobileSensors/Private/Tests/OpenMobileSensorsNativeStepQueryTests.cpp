@@ -83,6 +83,10 @@ namespace OpenMobileSensorsNativeStepQueryTestsPrivate
 			Sample.bHasQueryInterval = true;
 			Sample.QueryStartUnixTimeSeconds = Query.StartUnixTimeSeconds;
 			Sample.QueryEndUnixTimeSeconds = Query.EndUnixTimeSeconds;
+			Sample.Metrics.bHasDistanceMeters = true;
+			Sample.Metrics.DistanceMeters = 250.0;
+			Sample.Metrics.bHasFloorsAscended = true;
+			Sample.Metrics.FloorsAscended = 3;
 			FOpenMobileSensorOperationResult Operation;
 			Operation.Code = EOpenMobileSensorResultCode::Success;
 			Completion.ExecuteIfBound(Operation, Sample);
@@ -172,6 +176,14 @@ bool FOpenMobileSensorsNativeStepHistoricalQueryTest::RunTest(
 		Received.Sample.QueryStartUnixTimeSeconds, 1000.0);
 	TestEqual(TEXT("The query end is preserved"),
 		Received.Sample.QueryEndUnixTimeSeconds, 1100.0);
+	TestTrue(TEXT("Historical distance remains optional and present"),
+		Received.Sample.Metrics.bHasDistanceMeters);
+	TestEqual(TEXT("Historical distance is preserved"),
+		Received.Sample.Metrics.DistanceMeters, 250.0);
+	TestTrue(TEXT("Historical floors remain independently present"),
+		Received.Sample.Metrics.bHasFloorsAscended);
+	TestFalse(TEXT("Unavailable historical cadence stays absent"),
+		Received.Sample.Metrics.bHasCadenceStepsPerSecond);
 	FinishBackend(Backend);
 	return true;
 }

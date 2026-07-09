@@ -272,17 +272,45 @@ bool FOpenMobileSensorUnitConverter::NormalizeStepsSample(
 	{
 		bValid &= IsFiniteNonnegative(Sample.Metrics.DistanceMeters);
 	}
+	else
+	{
+		Sample.Metrics.DistanceMeters = 0.0;
+	}
+	if (Sample.Metrics.bHasFloorsAscended)
+	{
+		bValid &= Sample.Metrics.FloorsAscended >= 0;
+	}
+	else
+	{
+		Sample.Metrics.FloorsAscended = 0;
+	}
+	if (Sample.Metrics.bHasFloorsDescended)
+	{
+		bValid &= Sample.Metrics.FloorsDescended >= 0;
+	}
+	else
+	{
+		Sample.Metrics.FloorsDescended = 0;
+	}
 	if (Sample.Metrics.bHasPaceSecondsPerMeter)
 	{
 		bValid &= IsFiniteNonnegative(
 			Sample.Metrics.PaceSecondsPerMeter
 		);
 	}
+	else
+	{
+		Sample.Metrics.PaceSecondsPerMeter = 0.0;
+	}
 	if (Sample.Metrics.bHasCadenceStepsPerSecond)
 	{
 		bValid &= IsFiniteNonnegative(
 			Sample.Metrics.CadenceStepsPerSecond
 		);
+	}
+	else
+	{
+		Sample.Metrics.CadenceStepsPerSecond = 0.0;
 	}
 	MarkNormalized(Sample.Header, bValid);
 	return bValid;

@@ -71,6 +71,69 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		return Header;
 	}
 
+	bool TryGetPedometerDouble(NSNumber* Value, double& OutValue)
+	{
+		if (!Value)
+		{
+			return false;
+		}
+		const double NativeValue = Value.doubleValue;
+		if (!FMath::IsFinite(NativeValue) || NativeValue < 0.0)
+		{
+			return false;
+		}
+		OutValue = NativeValue;
+		return true;
+	}
+
+	bool TryGetPedometerCount(NSNumber* Value, int64& OutValue)
+	{
+		if (!Value)
+		{
+			return false;
+		}
+		const int64 NativeValue = Value.longLongValue;
+		if (NativeValue < 0)
+		{
+			return false;
+		}
+		OutValue = NativeValue;
+		return true;
+	}
+
+	void PopulatePedometerMetrics(
+		CMPedometerData* Data,
+		FOpenMobileStepsSensorSample& Sample
+	)
+	{
+		Sample.Metrics = {};
+		Sample.Metrics.bHasDistanceMeters = TryGetPedometerDouble(
+			Data.distance,
+			Sample.Metrics.DistanceMeters
+		);
+		Sample.Metrics.bHasFloorsAscended = TryGetPedometerCount(
+			Data.floorsAscended,
+			Sample.Metrics.FloorsAscended
+		);
+		Sample.Metrics.bHasFloorsDescended = TryGetPedometerCount(
+			Data.floorsDescended,
+			Sample.Metrics.FloorsDescended
+		);
+		if (@available(iOS 9.0, *))
+		{
+			Sample.Metrics.bHasPaceSecondsPerMeter =
+				TryGetPedometerDouble(
+					Data.currentPace,
+					Sample.Metrics.PaceSecondsPerMeter
+				);
+			Sample.Metrics.bHasCadenceStepsPerSecond =
+				TryGetPedometerDouble(
+					Data.currentCadence,
+					Sample.Metrics.CadenceStepsPerSecond
+				);
+		}
+	}
+
 	EService ServiceForType(EOpenMobileSensorType Type)
 	{
 		switch (Type)
@@ -1971,6 +2034,7 @@ private:
 				? QueryStartUnixTimeSeconds
 				: Active.QueryStartUnixTimeSeconds;
 			Sample.QueryEndUnixTimeSeconds = QueryEndUnixTimeSeconds;
+			PopulatePedometerMetrics(Data, Sample);
 			FOpenMobileStepsSensorBatch Batch;
 			Batch.Samples.Reserve(MaximumCallbackBatchSamples);
 			Batch.Samples.Add(MoveTemp(Sample));
@@ -2036,6 +2100,7 @@ private:
 				Data.startDate.timeIntervalSince1970;
 			Sample.QueryEndUnixTimeSeconds =
 				Data.endDate.timeIntervalSince1970;
+			PopulatePedometerMetrics(Data, Sample);
 		}
 		Pending.Completion.ExecuteIfBound(Operation, Sample);
 	}
