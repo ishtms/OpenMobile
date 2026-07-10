@@ -385,6 +385,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			|| !IsValidEnum(Requested.LifecyclePolicy)
 			|| !IsValidEnum(Requested.AttitudeReferenceFrame)
 			|| !IsValidEnum(Requested.MinimumCallbackAccuracy)
+			|| !IsValidEnum(Requested.MinimumActivityConfidence)
 			|| !IsFiniteInRange(Requested.CustomFrequencyHz, 1.0, 1000.0)
 			|| !IsFiniteInRange(
 				Requested.MaximumDeliveryLatencySeconds,
@@ -400,6 +401,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			|| Requested.BufferCapacitySamples > 4096
 			|| !FMath::IsFinite(Requested.MinimumScalarEventChange)
 			|| Requested.MinimumScalarEventChange < 0.0
+			|| !IsFiniteInRange(
+				Requested.MinimumActivityStableDurationSeconds,
+				0.0,
+				3600.0
+			)
 			|| !ValidateFilterOptions(Requested.Filters)
 			|| Requested.AttitudeRepresentations == 0
 			|| (Requested.AttitudeRepresentations

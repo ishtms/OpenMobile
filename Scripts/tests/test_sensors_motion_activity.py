@@ -18,12 +18,19 @@ class SensorsMotionActivityTests(unittest.TestCase):
 		)
 		for token in (
 			"MakeMotionActivityCapability",
-			"MotionActivityTrackers",
-			"FOpenMobileMotionActivityTracker",
 			"PublishActivityBatchFromMotionQueue",
 			"EOpenMobileSensorPermission::MotionActivity",
 		):
 			self.assertIn(token, backend)
+		self.assertNotIn("MotionActivityTrackers", backend)
+		common_samples = (
+			SENSORS
+			/ "Source"
+			/ "OpenMobileSensors"
+			/ "Private"
+			/ "OpenMobileSensorsSampleService.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("FOpenMobileActivitySampleFilter ActivityFilter", common_samples)
 		for token in (
 			"CMMotionActivityManager",
 			"isActivityAvailable",

@@ -441,15 +441,6 @@ enum class EOpenMobileMotionActivity : uint8
 };
 
 UENUM(BlueprintType)
-enum class EOpenMobileActivityConfidence : uint8
-{
-	Unknown,
-	Low,
-	Medium,
-	High
-};
-
-UENUM(BlueprintType)
 enum class EOpenMobileActivityTransition : uint8
 {
 	None,

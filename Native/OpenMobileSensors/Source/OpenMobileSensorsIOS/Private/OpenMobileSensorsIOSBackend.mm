@@ -611,8 +611,6 @@ FOpenMobileSensorsIOSBackend::StartSensorStream(
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
 	const bool bTrackNativeSteps = InOutRequest.Sensor.Type ==
 		EOpenMobileSensorType::StepCounter;
-	const bool bTrackMotionActivity = InOutRequest.Sensor.Type ==
-		EOpenMobileSensorType::MotionActivity;
 	if (bTrackNativeSteps)
 	{
 		FScopeLock Lock(&NativeStepCountersMutex);
@@ -627,20 +625,6 @@ FOpenMobileSensorsIOSBackend::StartSensorStream(
 			FOpenMobileNativeStepCounterTracker{}
 		);
 	}
-	if (bTrackMotionActivity)
-	{
-		FScopeLock Lock(&MotionActivityTrackersMutex);
-		if (MotionActivityTrackers.Contains(Handle.Identifier))
-		{
-			return FOpenMobileSensorsErrorMapper::Map(
-				EOpenMobileSensorFailureReason::InvalidRequest
-			);
-		}
-		MotionActivityTrackers.Add(
-			Handle.Identifier,
-			FOpenMobileMotionActivityTracker{}
-		);
-	}
 	const FOpenMobileSensorsIOSBridgeResult Result = GetBridge().StartStream(
 		Token,
 		Handle,
@@ -651,11 +635,6 @@ FOpenMobileSensorsIOSBackend::StartSensorStream(
 		{
 			FScopeLock Lock(&NativeStepCountersMutex);
 			NativeStepCounters.Remove(Handle.Identifier);
-		}
-		if (bTrackMotionActivity)
-		{
-			FScopeLock Lock(&MotionActivityTrackersMutex);
-			MotionActivityTrackers.Remove(Handle.Identifier);
 		}
 		LastBridgeFailure.Store(static_cast<uint8>(Result.Failure));
 		return MapBridgeFailure(
@@ -708,10 +687,6 @@ void FOpenMobileSensorsIOSBackend::StopSensorStream(
 	{
 		FScopeLock Lock(&NativeStepCountersMutex);
 		NativeStepCounters.Remove(Handle.Identifier);
-	}
-	{
-		FScopeLock Lock(&MotionActivityTrackersMutex);
-		MotionActivityTrackers.Remove(Handle.Identifier);
 	}
 	if (Bridge)
 	{
@@ -989,32 +964,20 @@ bool FOpenMobileSensorsIOSBackend::PublishActivityBatchFromMotionQueue(
 	}
 	FOpenMobileActivitySensorBatch NormalizedBatch;
 	NormalizedBatch.Samples.Reserve(Batch.Samples.Num());
+	for (FOpenMobileActivitySensorSample Sample : Batch.Samples)
 	{
-		FScopeLock Lock(&MotionActivityTrackersMutex);
-		FOpenMobileMotionActivityTracker* Tracker =
-			MotionActivityTrackers.Find(Handle.Identifier);
-		if (!Tracker)
+		if (Sample.Header.SourceFlags == 0)
 		{
-			return false;
+			Sample.Header.SourceFlags =
+				FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
+					Sample.Header.Sensor.Type
+				);
 		}
-		for (FOpenMobileActivitySensorSample Sample : Batch.Samples)
-		{
-			if (Sample.Header.SourceFlags == 0)
-			{
-				Sample.Header.SourceFlags =
-					FOpenMobileSensorSourcePolicy::GetIOSNativeSourceFlags(
-						Sample.Header.Sensor.Type
-					);
-			}
-			FOpenMobileSensorUnitConverter::NormalizeActivitySample(
-				EOpenMobileSensorNativePlatform::IOS,
-				Sample
-			);
-			if (Tracker->Accept(Sample))
-			{
-				NormalizedBatch.Samples.Add(MoveTemp(Sample));
-			}
-		}
+		FOpenMobileSensorUnitConverter::NormalizeActivitySample(
+			EOpenMobileSensorNativePlatform::IOS,
+			Sample
+		);
+		NormalizedBatch.Samples.Add(MoveTemp(Sample));
 	}
 	return NormalizedBatch.Samples.IsEmpty()
 		|| FOpenMobileSensorsSampleService::PublishActivityBatchFromBackend(
@@ -1072,10 +1035,6 @@ void FOpenMobileSensorsIOSBackend::FailPhysicalStreamFromBackend(
 		FScopeLock Lock(&NativeStepCountersMutex);
 		NativeStepCounters.Remove(Handle.Identifier);
 	}
-	{
-		FScopeLock Lock(&MotionActivityTrackersMutex);
-		MotionActivityTrackers.Remove(Handle.Identifier);
-	}
 	LastBridgeFailure.Store(static_cast<uint8>(Failure));
 	FOpenMobileSensorOperationResult Result = MapBridgeFailure(
 		Failure,
@@ -1100,10 +1059,6 @@ void FOpenMobileSensorsIOSBackend::BeginShutdown()
 	{
 		FScopeLock Lock(&NativeStepCountersMutex);
 		NativeStepCounters.Reset();
-	}
-	{
-		FScopeLock Lock(&MotionActivityTrackersMutex);
-		MotionActivityTrackers.Reset();
 	}
 	if (Bridge)
 	{

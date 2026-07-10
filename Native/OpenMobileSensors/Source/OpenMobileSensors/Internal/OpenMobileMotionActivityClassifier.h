@@ -20,18 +20,5 @@ public:
 		const FOpenMobileNativeMotionActivityState& Native,
 		FOpenMobileActivitySensorSample& OutSample
 	);
-};
-
-class FOpenMobileMotionActivityTracker
-{
-public:
-	bool Accept(const FOpenMobileActivitySensorSample& Sample);
-	void Reset();
-
-private:
-	EOpenMobileMotionActivity Activity = EOpenMobileMotionActivity::Unknown;
-	EOpenMobileActivityConfidence Confidence =
-		EOpenMobileActivityConfidence::Unknown;
-	TArray<EOpenMobileMotionActivity> ConcurrentActivities;
-	bool bHasState = false;
+	static void NormalizeSample(FOpenMobileActivitySensorSample& Sample);
 };

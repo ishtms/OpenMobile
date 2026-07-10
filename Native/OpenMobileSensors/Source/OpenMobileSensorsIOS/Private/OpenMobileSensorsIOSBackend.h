@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
-#include "OpenMobileMotionActivityClassifier.h"
 #include "OpenMobileNativeStepCounter.h"
 
 struct FOpenMobileSensorsBackendToken;
@@ -124,8 +123,6 @@ private:
 	mutable TUniquePtr<FOpenMobileSensorsIOSBridge> Bridge;
 	FCriticalSection NativeStepCountersMutex;
 	TMap<FGuid, FOpenMobileNativeStepCounterTracker> NativeStepCounters;
-	FCriticalSection MotionActivityTrackersMutex;
-	TMap<FGuid, FOpenMobileMotionActivityTracker> MotionActivityTrackers;
 	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };

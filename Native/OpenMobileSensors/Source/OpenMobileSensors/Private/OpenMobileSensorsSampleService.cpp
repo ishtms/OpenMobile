@@ -4,6 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "Misc/ScopeRWLock.h"
+#include "OpenMobileActivitySampleFilter.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -214,6 +215,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorRelativeAltitudeEstimator RelativeAltitudeEstimator;
 		FOpenMobileStepCountSessionTracker StepCountSessionTracker;
 		FOpenMobileStepDetectionTracker StepDetectionTracker;
+		FOpenMobileActivitySampleFilter ActivityFilter;
 		FOpenMobileSensorOrientationClassifier OrientationClassifier;
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
@@ -310,6 +312,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.LinearAccelerationEstimator.Reset();
 		Slot.RelativeAltitudeEstimator.Reset();
 		Slot.OrientationClassifier.Reset();
+		Slot.ActivityFilter.Reset();
 	}
 
 	template <typename SampleType>
@@ -991,6 +994,29 @@ namespace OpenMobileSensorsSampleServicePrivate
 		return Slot.VectorFilter.Apply(Slot.FilterOptions, Sample);
 	}
 
+	bool ApplySubscriptionFilters(
+		FLatestSlot& Slot,
+		FOpenMobileActivitySensorSample& Sample
+	)
+	{
+		return Slot.ActivityFilter.Process(Sample);
+	}
+
+	template <typename SampleType>
+	bool ShouldResetAfterFilterRejection(const SampleType& Sample)
+	{
+		static_cast<void>(Sample);
+		return true;
+	}
+
+	bool ShouldResetAfterFilterRejection(
+		const FOpenMobileActivitySensorSample& Sample
+	)
+	{
+		static_cast<void>(Sample);
+		return false;
+	}
+
 	bool IsMagneticCalibrationSensor(EOpenMobileSensorType SensorType)
 	{
 		return SensorType == EOpenMobileSensorType::Magnetometer
@@ -1532,7 +1558,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 					UpdateGyroscopeDriftStatistics(Slot, Sample);
 					if (!ApplySubscriptionFilters(Slot, Sample))
 					{
-						Slot.bPendingStatefulProcessingReset = true;
+						if (ShouldResetAfterFilterRejection(Sample))
+						{
+							Slot.bPendingStatefulProcessingReset = true;
+						}
 						continue;
 					}
 					UpdateRateStatistics(
@@ -2527,6 +2556,11 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
+	FOpenMobileActivityFilterConfig ActivityConfig;
+	ActivityConfig.MinimumConfidence = Options.MinimumActivityConfidence;
+	ActivityConfig.MinimumStableDurationSeconds =
+		Options.MinimumActivityStableDurationSeconds;
+	Slot->ActivityFilter.Configure(ActivityConfig);
 	Slot->bResettableStepCountSession = bResettableStepCountSession;
 	if (Sensor.Type == EOpenMobileSensorType::StepDetector)
 	{
@@ -2693,6 +2727,11 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 		Options.AttitudeRepresentations;
 	(*SlotPointer)->FilterOptions = Options.Filters;
 	(*SlotPointer)->VectorFilter.Reset();
+	FOpenMobileActivityFilterConfig ActivityConfig;
+	ActivityConfig.MinimumConfidence = Options.MinimumActivityConfidence;
+	ActivityConfig.MinimumStableDurationSeconds =
+		Options.MinimumActivityStableDurationSeconds;
+	(*SlotPointer)->ActivityFilter.Configure(ActivityConfig);
 	if (bReferenceFrameChanged)
 	{
 		(*SlotPointer)->Recenter = {};

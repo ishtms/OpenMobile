@@ -76,6 +76,15 @@ enum class EOpenMobileSensorLifecyclePolicy : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileActivityConfidence : uint8
+{
+	Unknown,
+	Low,
+	Medium,
+	High
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileAttitudeReferenceFrame : uint8
 {
 	GameRelative,
@@ -141,6 +150,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorAccuracy MinimumCallbackAccuracy =
 		EOpenMobileSensorAccuracy::Unknown;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	EOpenMobileActivityConfidence MinimumActivityConfidence =
+		EOpenMobileActivityConfidence::Unknown;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0"))
+	double MinimumActivityStableDurationSeconds = 0.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorDeliveryMode DeliveryMode =

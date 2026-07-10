@@ -1,5 +1,58 @@
 #include "OpenMobileMotionActivityClassifier.h"
 
+namespace OpenMobileMotionActivityClassifierPrivate
+{
+	bool IsKnownActivity(EOpenMobileMotionActivity Activity)
+	{
+		switch (Activity)
+		{
+		case EOpenMobileMotionActivity::Unknown:
+		case EOpenMobileMotionActivity::Stationary:
+		case EOpenMobileMotionActivity::Walking:
+		case EOpenMobileMotionActivity::Running:
+		case EOpenMobileMotionActivity::Cycling:
+		case EOpenMobileMotionActivity::Automotive:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool IsKnownConfidence(EOpenMobileActivityConfidence Confidence)
+	{
+		switch (Confidence)
+		{
+		case EOpenMobileActivityConfidence::Unknown:
+		case EOpenMobileActivityConfidence::Low:
+		case EOpenMobileActivityConfidence::Medium:
+		case EOpenMobileActivityConfidence::High:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	EOpenMobileMotionActivity ChoosePrimary(
+		const TArray<EOpenMobileMotionActivity>& Activities
+	)
+	{
+		for (const EOpenMobileMotionActivity Candidate : {
+			EOpenMobileMotionActivity::Running,
+			EOpenMobileMotionActivity::Cycling,
+			EOpenMobileMotionActivity::Automotive,
+			EOpenMobileMotionActivity::Walking,
+			EOpenMobileMotionActivity::Stationary
+		})
+		{
+			if (Activities.Contains(Candidate))
+			{
+				return Candidate;
+			}
+		}
+		return EOpenMobileMotionActivity::Unknown;
+	}
+}
+
 void FOpenMobileMotionActivityClassifier::Classify(
 	const FOpenMobileNativeMotionActivityState& Native,
 	FOpenMobileActivitySensorSample& OutSample
@@ -62,38 +115,41 @@ void FOpenMobileMotionActivityClassifier::Classify(
 		OutSample.Confidence = EOpenMobileActivityConfidence::Unknown;
 		break;
 	}
+	NormalizeSample(OutSample);
 }
 
-bool FOpenMobileMotionActivityTracker::Accept(
-	const FOpenMobileActivitySensorSample& Sample
+void FOpenMobileMotionActivityClassifier::NormalizeSample(
+	FOpenMobileActivitySensorSample& Sample
 )
 {
-	if (Sample.Header.Sensor.Type != EOpenMobileSensorType::MotionActivity
-		|| !Sample.Header.bValid
-		|| !FMath::IsFinite(Sample.Header.TimestampSeconds)
-		|| Sample.Header.TimestampSeconds < 0.0)
+	using namespace OpenMobileMotionActivityClassifierPrivate;
+	TArray<EOpenMobileMotionActivity> CanonicalActivities;
+	for (const EOpenMobileMotionActivity Activity
+		: Sample.ConcurrentActivities)
 	{
-		return false;
+		if (Activity != EOpenMobileMotionActivity::Unknown
+			&& IsKnownActivity(Activity))
+		{
+			CanonicalActivities.AddUnique(Activity);
+		}
 	}
-	const bool bChanged = !bHasState
-		|| Sample.Activity != Activity
-		|| Sample.Confidence != Confidence
-		|| Sample.ConcurrentActivities != ConcurrentActivities;
-	if (!bChanged && !Sample.Header.bStatefulProcessingReset)
+	CanonicalActivities.Sort(
+		[](EOpenMobileMotionActivity Left, EOpenMobileMotionActivity Right)
+		{
+			return static_cast<uint8>(Left) < static_cast<uint8>(Right);
+		}
+	);
+	Sample.ConcurrentActivities = MoveTemp(CanonicalActivities);
+	if (!Sample.ConcurrentActivities.IsEmpty())
 	{
-		return false;
+		Sample.Activity = ChoosePrimary(Sample.ConcurrentActivities);
 	}
-	Activity = Sample.Activity;
-	Confidence = Sample.Confidence;
-	ConcurrentActivities = Sample.ConcurrentActivities;
-	bHasState = true;
-	return true;
-}
-
-void FOpenMobileMotionActivityTracker::Reset()
-{
-	Activity = EOpenMobileMotionActivity::Unknown;
-	Confidence = EOpenMobileActivityConfidence::Unknown;
-	ConcurrentActivities.Reset();
-	bHasState = false;
+	else if (!IsKnownActivity(Sample.Activity))
+	{
+		Sample.Activity = EOpenMobileMotionActivity::Unknown;
+	}
+	if (!IsKnownConfidence(Sample.Confidence))
+	{
+		Sample.Confidence = EOpenMobileActivityConfidence::Unknown;
+	}
 }

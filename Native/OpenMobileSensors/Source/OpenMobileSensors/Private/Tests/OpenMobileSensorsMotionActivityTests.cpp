@@ -3,6 +3,7 @@
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileMotionActivityProvider.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileActivitySampleFilter.h"
 #include "OpenMobileMotionActivityClassifier.h"
 #include "OpenMobileMotionActivityProviderResolver.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -181,7 +182,8 @@ bool FOpenMobileSensorsMotionActivityDeduplicationTest::RunTest(
 )
 {
 	static_cast<void>(Parameters);
-	FOpenMobileMotionActivityTracker Tracker;
+	FOpenMobileActivitySampleFilter Filter;
+	Filter.Configure({});
 	FOpenMobileActivitySensorSample Walking;
 	Walking.Header.Sensor.Type = EOpenMobileSensorType::MotionActivity;
 	Walking.Header.Sensor.InstanceId = TEXT("Default");
@@ -190,17 +192,17 @@ bool FOpenMobileSensorsMotionActivityDeduplicationTest::RunTest(
 	Walking.Activity = EOpenMobileMotionActivity::Walking;
 	Walking.Confidence = EOpenMobileActivityConfidence::Medium;
 	Walking.ConcurrentActivities = {EOpenMobileMotionActivity::Walking};
-	TestTrue(TEXT("The first activity state emits"), Tracker.Accept(Walking));
+	TestTrue(TEXT("The first activity state emits"), Filter.Process(Walking));
 	Walking.Header.TimestampSeconds = 2.0;
 	TestFalse(TEXT("A duplicate classification is suppressed"),
-		Tracker.Accept(Walking));
+		Filter.Process(Walking));
 	Walking.Confidence = EOpenMobileActivityConfidence::High;
 	Walking.Header.TimestampSeconds = 3.0;
-	TestTrue(TEXT("A confidence change emits"), Tracker.Accept(Walking));
+	TestTrue(TEXT("A confidence change emits"), Filter.Process(Walking));
 	Walking.Header.bStatefulProcessingReset = true;
 	Walking.Header.TimestampSeconds = 4.0;
 	TestTrue(TEXT("The first state after resume emits"),
-		Tracker.Accept(Walking));
+		Filter.Process(Walking));
 	return true;
 }
 
