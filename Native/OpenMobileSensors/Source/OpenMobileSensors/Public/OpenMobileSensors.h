@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IOpenMobileMotionActivityProvider.h"
 #include "OpenMobileNativeStepCount.h"
 #include "OpenMobileNativeStepCountAsyncAction.h"
 #include "OpenMobileSensorAccuracy.h"

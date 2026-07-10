@@ -5,6 +5,7 @@
 
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileMotionActivityClassifier.h"
 #include "OpenMobileProximityMonitoringPolicy.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -24,6 +25,7 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		RelativeAltitude,
 		AbsoluteAltitude,
 		Pedometer,
+		MotionActivity,
 		Proximity
 	};
 
@@ -158,6 +160,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		case EOpenMobileSensorType::StepCounter:
 		case EOpenMobileSensorType::StepDetector:
 			return EService::Pedometer;
+		case EOpenMobileSensorType::MotionActivity:
+			return EService::MotionActivity;
 		case EOpenMobileSensorType::Proximity:
 			return EService::Proximity;
 		default:
@@ -223,6 +227,12 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			Availability.bStepCounting =
 				[CMPedometer isStepCountingAvailable];
 		}
+		if (@available(iOS 7.0, *))
+		{
+			Availability.bMotionActivityApiSupported = true;
+			Availability.bMotionActivity =
+				[CMMotionActivityManager isActivityAvailable];
+		}
 		if (@available(iOS 11.0, *))
 		{
 			switch ([CMPedometer authorizationStatus])
@@ -242,6 +252,26 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			case CMAuthorizationStatusNotDetermined:
 			default:
 				Availability.PedometerAuthorizationStatus =
+					EOpenMobilePermissionStatus::NotDetermined;
+				break;
+			}
+			switch ([CMMotionActivityManager authorizationStatus])
+			{
+			case CMAuthorizationStatusAuthorized:
+				Availability.MotionActivityAuthorizationStatus =
+					EOpenMobilePermissionStatus::Granted;
+				break;
+			case CMAuthorizationStatusDenied:
+				Availability.MotionActivityAuthorizationStatus =
+					EOpenMobilePermissionStatus::Denied;
+				break;
+			case CMAuthorizationStatusRestricted:
+				Availability.MotionActivityAuthorizationStatus =
+					EOpenMobilePermissionStatus::Restricted;
+				break;
+			case CMAuthorizationStatusNotDetermined:
+			default:
+				Availability.MotionActivityAuthorizationStatus =
 					EOpenMobilePermissionStatus::NotDetermined;
 				break;
 			}
@@ -311,6 +341,8 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		case EOpenMobileSensorType::StepCounter:
 		case EOpenMobileSensorType::StepDetector:
 			return Availability.bStepCounting;
+		case EOpenMobileSensorType::MotionActivity:
+			return Availability.bMotionActivity;
 		case EOpenMobileSensorType::Proximity:
 			return Availability.bProximityApiSupported;
 		default:
@@ -349,6 +381,10 @@ public:
 		: Backend(InBackend)
 	{
 		MotionManager = [[CMMotionManager alloc] init];
+		if (@available(iOS 7.0, *))
+		{
+			ActivityManager = [[CMMotionActivityManager alloc] init];
+		}
 		if (@available(iOS 8.0, *))
 		{
 			Altimeter = [[CMAltimeter alloc] init];
@@ -433,6 +469,26 @@ public:
 			{
 				const CMAuthorizationStatus Status =
 					[CMPedometer authorizationStatus];
+				if (Status == CMAuthorizationStatusRestricted)
+				{
+					return {
+						EOpenMobileSensorsIOSBridgeFailure::PermissionRestricted
+					};
+				}
+				if (Status == CMAuthorizationStatusDenied)
+				{
+					return {
+						EOpenMobileSensorsIOSBridgeFailure::PermissionDenied
+					};
+				}
+			}
+		}
+		if (Request.Sensor.Type == EOpenMobileSensorType::MotionActivity)
+		{
+			if (@available(iOS 11.0, *))
+			{
+				const CMAuthorizationStatus Status =
+					[CMMotionActivityManager authorizationStatus];
 				if (Status == CMAuthorizationStatusRestricted)
 				{
 					return {
@@ -717,6 +773,7 @@ public:
 				DeviceMotionQueue,
 				AltimeterQueue,
 				AbsoluteAltitudeQueue,
+				ActivityQueue,
 				ProximityQueue,
 				LifecycleQueue
 			};
@@ -744,6 +801,7 @@ public:
 			}
 		}
 		MotionManager = nil;
+		ActivityManager = nil;
 		Altimeter = nil;
 		Pedometer = nil;
 		AccelerometerQueue = nil;
@@ -752,6 +810,7 @@ public:
 		DeviceMotionQueue = nil;
 		AltimeterQueue = nil;
 		AbsoluteAltitudeQueue = nil;
+		ActivityQueue = nil;
 		ProximityQueue = nil;
 		LifecycleQueue = nil;
 	}
@@ -1347,6 +1406,30 @@ private:
 				EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable
 			};
 		}
+		case EService::MotionActivity:
+		{
+			if (@available(iOS 7.0, *))
+			{
+				ActivityQueue = ActivityQueue
+					? ActivityQueue
+					: MakeSerialQueue(
+						@"OpenMobileSensorsMotionActivityQueue"
+					);
+				const uint64 Generation = ++MotionActivityGeneration;
+				SetRegistrationGenerationLocked(Service, Generation);
+				FImpl* Self = this;
+				[ActivityManager
+					startActivityUpdatesToQueue:ActivityQueue
+					withHandler:^(CMMotionActivity* Activity)
+					{
+						Self->HandleMotionActivity(Generation, Activity);
+					}];
+				return {};
+			}
+			return {
+				EOpenMobileSensorsIOSBridgeFailure::SensorUnavailable
+			};
+		}
 		case EService::Unknown:
 		default:
 			return {EOpenMobileSensorsIOSBridgeFailure::InvalidArgument};
@@ -1411,6 +1494,14 @@ private:
 				[Pedometer stopPedometerUpdates];
 			}
 			break;
+		case EService::MotionActivity:
+			++MotionActivityGeneration;
+			if (@available(iOS 7.0, *))
+			{
+				[ActivityManager stopActivityUpdates];
+			}
+			[ActivityQueue cancelAllOperations];
+			break;
 		case EService::Proximity:
 			++ProximityGeneration;
 			SetProximityObserverLocked(false);
@@ -1435,6 +1526,7 @@ private:
 		StopServiceLocked(EService::RelativeAltitude);
 		StopServiceLocked(EService::AbsoluteAltitude);
 		StopServiceLocked(EService::Pedometer);
+		StopServiceLocked(EService::MotionActivity);
 		StopServiceLocked(EService::Proximity);
 	}
 
@@ -1448,6 +1540,7 @@ private:
 		RestartServiceLocked(EService::RelativeAltitude);
 		RestartServiceLocked(EService::AbsoluteAltitude);
 		RestartServiceLocked(EService::Pedometer);
+		RestartServiceLocked(EService::MotionActivity);
 		RestartServiceLocked(EService::Proximity);
 	}
 
@@ -1473,6 +1566,8 @@ private:
 					[CMAltimeter authorizationStatus];
 				const CMAuthorizationStatus PedometerStatus =
 					[CMPedometer authorizationStatus];
+				const CMAuthorizationStatus MotionActivityStatus =
+					[CMMotionActivityManager authorizationStatus];
 				for (auto Iterator = ActiveStreams.CreateIterator();
 					Iterator;
 					++Iterator)
@@ -1485,10 +1580,14 @@ private:
 						Service == EService::RelativeAltitude
 						|| Service == EService::AbsoluteAltitude;
 					const bool bPedometer = Service == EService::Pedometer;
+					const bool bMotionActivity =
+						Service == EService::MotionActivity;
 					const CMAuthorizationStatus Status = bPedometer
 						? PedometerStatus
-						: AltimeterStatus;
-					if ((bAltimeter || bPedometer)
+						: bMotionActivity
+							? MotionActivityStatus
+							: AltimeterStatus;
+					if ((bAltimeter || bPedometer || bMotionActivity)
 						&& (Status == CMAuthorizationStatusDenied
 							|| Status == CMAuthorizationStatusRestricted))
 					{
@@ -1549,6 +1648,8 @@ private:
 			return AbsoluteAltitudeGeneration;
 		case EService::Pedometer:
 			return PedometerGeneration;
+		case EService::MotionActivity:
+			return MotionActivityGeneration;
 		case EService::Proximity:
 			return ProximityGeneration;
 		case EService::Unknown:
@@ -2046,6 +2147,49 @@ private:
 		}
 	}
 
+	void HandleMotionActivity(
+		uint64 Generation,
+		CMMotionActivity* Activity
+	)
+	{
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		if (!Activity)
+		{
+			return;
+		}
+		const TArray<FActiveStream> Streams =
+			TakeStreamsForCallback(EService::MotionActivity, Generation);
+		FOpenMobileNativeMotionActivityState Native;
+		Native.bUnknown = Activity.unknown;
+		Native.bStationary = Activity.stationary;
+		Native.bWalking = Activity.walking;
+		Native.bRunning = Activity.running;
+		if (@available(iOS 8.0, *))
+		{
+			Native.bCycling = Activity.cycling;
+		}
+		Native.bAutomotive = Activity.automotive;
+		Native.Confidence = static_cast<int32>(Activity.confidence);
+		for (const FActiveStream& Active : Streams)
+		{
+			FOpenMobileActivitySensorSample Sample;
+			Sample.Header = MakeHeader(
+				Active.Request.Sensor,
+				MonotonicTimestampForDate(Activity.startDate),
+				Active.bResetNextSample
+			);
+			FOpenMobileMotionActivityClassifier::Classify(Native, Sample);
+			FOpenMobileActivitySensorBatch Batch;
+			Batch.Samples.Reserve(MaximumCallbackBatchSamples);
+			Batch.Samples.Add(MoveTemp(Sample));
+			Backend.PublishActivityBatchFromMotionQueue(
+				Active.Token,
+				Active.Handle,
+				Batch
+			);
+		}
+	}
+
 	void HandleHistoricalStepQuery(
 		const FGuid& RequestId,
 		CMPedometerData* Data,
@@ -2111,6 +2255,7 @@ private:
 	TMap<FGuid, FPendingStepQuery> PendingStepQueries;
 	FOpenMobileSensorsIOSAvailability Availability;
 	__strong CMMotionManager* MotionManager = nil;
+	__strong CMMotionActivityManager* ActivityManager = nil;
 	__strong CMAltimeter* Altimeter = nil;
 	__strong CMPedometer* Pedometer = nil;
 	__strong NSOperationQueue* AccelerometerQueue = nil;
@@ -2119,6 +2264,7 @@ private:
 	__strong NSOperationQueue* DeviceMotionQueue = nil;
 	__strong NSOperationQueue* AltimeterQueue = nil;
 	__strong NSOperationQueue* AbsoluteAltitudeQueue = nil;
+	__strong NSOperationQueue* ActivityQueue = nil;
 	__strong NSOperationQueue* ProximityQueue = nil;
 	__strong NSOperationQueue* LifecycleQueue = nil;
 	__strong id WillResignObserver = nil;
@@ -2136,6 +2282,7 @@ private:
 	uint64 AltimeterGeneration = 0;
 	uint64 AbsoluteAltitudeGeneration = 0;
 	uint64 PedometerGeneration = 0;
+	uint64 MotionActivityGeneration = 0;
 	uint64 ProximityGeneration = 0;
 	bool bApplicationActive = false;
 	bool bProximityServiceActive = false;

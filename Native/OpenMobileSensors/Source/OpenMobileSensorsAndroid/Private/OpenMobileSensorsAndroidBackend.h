@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "IOpenMobileMotionActivityProvider.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobileNativeStepCounter.h"
 
@@ -8,6 +9,7 @@ class FOpenMobileSensorsAndroidBridge;
 enum class EOpenMobileSensorsAndroidBridgeFailure : uint8;
 struct FOpenMobileSensorsAndroidSensorDescriptor;
 struct FOpenMobileSensorsBackendToken;
+class IModularFeature;
 
 class FOpenMobileSensorsAndroidBackend final : public IOpenMobileSensorsBackend
 {
@@ -103,10 +105,41 @@ private:
 		int32& OutSamplingPeriodMicroseconds,
 		int32& OutMaximumReportLatencyMicroseconds
 	) const;
+	FOpenMobileSensorOperationResult StartMotionActivityProviderStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	);
+	FOpenMobileSensorOperationResult ReconfigureMotionActivityProviderStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+	);
+	bool StopMotionActivityProviderStream(
+		const FOpenMobileSensorBackendStreamHandle& Handle
+	);
+	void HandleMotionActivityProviderUnregistered(
+		const FName& FeatureName,
+		IModularFeature* Feature
+	);
+	void HandleMotionActivityProviderRegistered(
+		const FName& FeatureName,
+		IModularFeature* Feature
+	);
+
+	struct FActiveMotionActivityProviderStream
+	{
+		IOpenMobileMotionActivityProvider* Provider = nullptr;
+		FOpenMobileMotionActivityProviderStreamHandle ProviderHandle;
+		FOpenMobileSensorBackendStreamHandle BackendHandle;
+	};
 
 	mutable TUniquePtr<FOpenMobileSensorsAndroidBridge> Bridge;
 	FCriticalSection NativeStepCountersMutex;
 	TMap<FGuid, FOpenMobileNativeStepCounterTracker> NativeStepCounters;
+	FCriticalSection MotionActivityProviderStreamsMutex;
+	TMap<FGuid, FActiveMotionActivityProviderStream>
+		MotionActivityProviderStreams;
+	FDelegateHandle MotionActivityProviderUnregisteredHandle;
+	FDelegateHandle MotionActivityProviderRegisteredHandle;
 	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };

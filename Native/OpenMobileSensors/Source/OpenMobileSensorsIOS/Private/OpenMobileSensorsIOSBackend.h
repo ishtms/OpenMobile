@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "OpenMobileMotionActivityClassifier.h"
 #include "OpenMobileNativeStepCounter.h"
 
 struct FOpenMobileSensorsBackendToken;
@@ -81,6 +82,11 @@ public:
 		const FOpenMobileSensorBackendStreamHandle& Handle,
 		const FOpenMobileStepsSensorBatch& Batch
 	);
+	bool PublishActivityBatchFromMotionQueue(
+		const FOpenMobileSensorsBackendToken& Token,
+		const FOpenMobileSensorBackendStreamHandle& Handle,
+		const FOpenMobileActivitySensorBatch& Batch
+	);
 	bool PublishMagneticFieldAccuracyFromMotionQueue(
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& Handle,
@@ -118,6 +124,8 @@ private:
 	mutable TUniquePtr<FOpenMobileSensorsIOSBridge> Bridge;
 	FCriticalSection NativeStepCountersMutex;
 	TMap<FGuid, FOpenMobileNativeStepCounterTracker> NativeStepCounters;
+	FCriticalSection MotionActivityTrackersMutex;
+	TMap<FGuid, FOpenMobileMotionActivityTracker> MotionActivityTrackers;
 	mutable TAtomic<uint8> LastBridgeFailure = 0;
 	TAtomic<bool> bShuttingDown = false;
 };

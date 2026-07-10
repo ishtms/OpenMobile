@@ -650,7 +650,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			return true;
 		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::StepCounter
-			|| LogicalSensor.Type == EOpenMobileSensorType::StepDetector)
+			|| LogicalSensor.Type == EOpenMobileSensorType::StepDetector
+			|| LogicalSensor.Type == EOpenMobileSensorType::MotionActivity)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
 				FOpenMobileSensorsCapabilityService::GetSnapshot();
@@ -670,8 +671,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			if (DirectCapability
 				&& DirectCapability->Availability.State ==
 					EOpenMobileCapabilityState::Available
-				&& DirectCapability->Source !=
-					EOpenMobileSensorAvailabilitySource::Derived)
+				&& (LogicalSensor.Type ==
+						EOpenMobileSensorType::MotionActivity
+					|| DirectCapability->Source !=
+						EOpenMobileSensorAvailabilitySource::Derived))
 			{
 				return true;
 			}

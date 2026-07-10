@@ -36,7 +36,11 @@ struct FOpenMobileSensorsIOSAvailability
 	bool bMagneticNorthReference = false;
 	bool bPedometerApiSupported = false;
 	bool bStepCounting = false;
+	bool bMotionActivityApiSupported = false;
+	bool bMotionActivity = false;
 	EOpenMobilePermissionStatus PedometerAuthorizationStatus =
+		EOpenMobilePermissionStatus::NotDetermined;
+	EOpenMobilePermissionStatus MotionActivityAuthorizationStatus =
 		EOpenMobilePermissionStatus::NotDetermined;
 };
 

@@ -1,6 +1,9 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
+#include "Containers/Ticker.h"
+#include "Features/IModularFeatures.h"
 #include "OpenMobileAsync.h"
+#include "OpenMobileMotionActivityProviderResolver.h"
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorHeading.h"
@@ -294,7 +297,43 @@ namespace OpenMobileSensorsAndroidBackendPrivate
 	}
 }
 
-FOpenMobileSensorsAndroidBackend::FOpenMobileSensorsAndroidBackend() = default;
+FOpenMobileSensorsAndroidBackend::FOpenMobileSensorsAndroidBackend()
+{
+	MotionActivityProviderRegisteredHandle = IModularFeatures::Get()
+		.OnModularFeatureRegistered().AddRaw(
+			this,
+			&FOpenMobileSensorsAndroidBackend::
+				HandleMotionActivityProviderRegistered
+		);
+	MotionActivityProviderUnregisteredHandle = IModularFeatures::Get()
+		.OnModularFeatureUnregistered().AddRaw(
+			this,
+			&FOpenMobileSensorsAndroidBackend::
+				HandleMotionActivityProviderUnregistered
+		);
+}
+
+void FOpenMobileSensorsAndroidBackend::
+HandleMotionActivityProviderRegistered(
+	const FName& FeatureName,
+	IModularFeature* Feature
+)
+{
+	if (FeatureName !=
+		IOpenMobileMotionActivityProvider::GetModularFeatureName()
+		|| !Feature)
+	{
+		return;
+	}
+	ExecuteOnGameThread(
+		TEXT("OpenMobileMotionActivityProviderRegistered"),
+		[]()
+		{
+			FOpenMobileSensorsCapabilityService::
+				HandleBackendGenerationChanged();
+		}
+	);
+}
 
 FOpenMobileSensorsAndroidBackend::~FOpenMobileSensorsAndroidBackend()
 {
@@ -373,7 +412,9 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
 	if (!QuerySensorDescriptors(Descriptors))
 	{
-		return {};
+		return {
+			FOpenMobileMotionActivityProviderResolver::GetCapability()
+		};
 	}
 	TMap<EOpenMobileSensorType, FOpenMobileSensorsAndroidSensorDescriptor>
 		Preferred;
@@ -395,7 +436,7 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 		}
 	}
 	TArray<FOpenMobileSensorCapability> Capabilities;
-	Capabilities.Reserve(Preferred.Num());
+	Capabilities.Reserve(Preferred.Num() + 1);
 	for (const TPair<EOpenMobileSensorType,
 		FOpenMobileSensorsAndroidSensorDescriptor>& Pair : Preferred)
 	{
@@ -439,6 +480,9 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 		}
 		Capabilities.Add(MoveTemp(Capability));
 	}
+	Capabilities.Add(
+		FOpenMobileMotionActivityProviderResolver::GetCapability()
+	);
 	Capabilities.Sort(
 		[](const FOpenMobileSensorCapability& Left,
 			const FOpenMobileSensorCapability& Right)
@@ -580,6 +624,233 @@ bool FOpenMobileSensorsAndroidBackend::HasHighSamplingRateDeclaration() const
 }
 
 FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::StartMotionActivityProviderStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+)
+{
+	IOpenMobileMotionActivityProvider* Provider =
+		FOpenMobileMotionActivityProviderResolver::FindProvider();
+	if (!Provider || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			Provider
+				? EOpenMobileSensorFailureReason::InvalidHandle
+				: EOpenMobileSensorFailureReason::UnsupportedPlatform,
+			TEXT("MotionActivityProvider"),
+			Provider ? TEXT("InvalidHandle") : TEXT("ProviderAbsent")
+		);
+	}
+	FOpenMobileMotionActivityProviderStreamHandle ProviderHandle;
+	ProviderHandle.Identifier = Handle.Identifier;
+	FOpenMobileMotionActivityProviderRequest ProviderRequest;
+	ProviderRequest.RequestedFrequencyHz = InOutRequest.RequestedFrequencyHz;
+	ProviderRequest.MaximumDeliveryLatencySeconds =
+		InOutRequest.MaximumDeliveryLatencySeconds;
+	ProviderRequest.bLowLatency = InOutRequest.bLowLatency;
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	FOpenMobileMotionActivityProviderCallbacks Callbacks;
+	Callbacks.OnBatch = FOnOpenMobileMotionActivityProviderBatch::CreateLambda(
+		[Token, Handle](const FOpenMobileActivitySensorBatch& Batch)
+		{
+			FOpenMobileActivitySensorBatch NormalizedBatch = Batch;
+			for (FOpenMobileActivitySensorSample& Sample
+				: NormalizedBatch.Samples)
+			{
+				if (Sample.Header.SourceFlags == 0)
+				{
+					Sample.Header.SourceFlags = static_cast<int32>(
+						EOpenMobileSensorSourceFlags::PluginDerived
+					);
+				}
+				FOpenMobileSensorUnitConverter::NormalizeActivitySample(
+					EOpenMobileSensorNativePlatform::Android,
+					Sample
+				);
+			}
+			FOpenMobileSensorsSampleService::PublishActivityBatchFromBackend(
+				Token,
+				Handle,
+				NormalizedBatch
+			);
+		}
+	);
+	Callbacks.OnFailure =
+		FOnOpenMobileMotionActivityProviderFailure::CreateLambda(
+			[Token, Handle](const FOpenMobileSensorOperationResult& Result)
+			{
+				OpenMobile::DispatchToGameThread(
+					[Token, Handle, Result]()
+					{
+						FOpenMobileSensorsSubscriptionService::
+							FailPhysicalStreamFromBackend(
+								Token,
+								Handle,
+								Result
+							);
+					}
+				);
+			}
+		);
+	const FOpenMobileSensorOperationResult Result = Provider->StartStream(
+		ProviderHandle,
+		ProviderRequest,
+		MoveTemp(Callbacks)
+	);
+	if (!Result.IsSuccess())
+	{
+		return Result;
+	}
+	FActiveMotionActivityProviderStream Active;
+	Active.Provider = Provider;
+	Active.ProviderHandle = ProviderHandle;
+	Active.BackendHandle = Handle;
+	bool bDuplicate = false;
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		if (MotionActivityProviderStreams.Contains(Handle.Identifier))
+		{
+			bDuplicate = true;
+		}
+		else
+		{
+			MotionActivityProviderStreams.Add(
+				Handle.Identifier,
+				MoveTemp(Active)
+			);
+		}
+	}
+	if (bDuplicate)
+	{
+		Provider->StopStream(ProviderHandle);
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidRequest
+		);
+	}
+	return Result;
+}
+
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsAndroidBackend::ReconfigureMotionActivityProviderStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle,
+	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
+)
+{
+	FActiveMotionActivityProviderStream Active;
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		const FActiveMotionActivityProviderStream* Found =
+			MotionActivityProviderStreams.Find(Handle.Identifier);
+		if (!Found)
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::InvalidHandle
+			);
+		}
+		Active = *Found;
+	}
+	FOpenMobileMotionActivityProviderRequest ProviderRequest;
+	ProviderRequest.RequestedFrequencyHz = InOutRequest.RequestedFrequencyHz;
+	ProviderRequest.MaximumDeliveryLatencySeconds =
+		InOutRequest.MaximumDeliveryLatencySeconds;
+	ProviderRequest.bLowLatency = InOutRequest.bLowLatency;
+	return Active.Provider->ReconfigureStream(
+		Active.ProviderHandle,
+		ProviderRequest
+	);
+}
+
+bool FOpenMobileSensorsAndroidBackend::StopMotionActivityProviderStream(
+	const FOpenMobileSensorBackendStreamHandle& Handle
+)
+{
+	FActiveMotionActivityProviderStream Active;
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		if (!MotionActivityProviderStreams.RemoveAndCopyValue(
+			Handle.Identifier,
+			Active
+		))
+		{
+			return false;
+		}
+	}
+	Active.Provider->StopStream(Active.ProviderHandle);
+	return true;
+}
+
+void FOpenMobileSensorsAndroidBackend::
+HandleMotionActivityProviderUnregistered(
+	const FName& FeatureName,
+	IModularFeature* Feature
+)
+{
+	if (FeatureName !=
+		IOpenMobileMotionActivityProvider::GetModularFeatureName())
+	{
+		return;
+	}
+	IOpenMobileMotionActivityProvider* Provider =
+		static_cast<IOpenMobileMotionActivityProvider*>(Feature);
+	TArray<FActiveMotionActivityProviderStream> Removed;
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		for (auto Iterator = MotionActivityProviderStreams.CreateIterator();
+			Iterator;
+			++Iterator)
+		{
+			if (Iterator.Value().Provider == Provider)
+			{
+				Removed.Add(Iterator.Value());
+				Iterator.RemoveCurrent();
+			}
+		}
+	}
+	for (const FActiveMotionActivityProviderStream& Active : Removed)
+	{
+		Provider->StopStream(Active.ProviderHandle);
+	}
+	if (Removed.IsEmpty())
+	{
+		ExecuteOnGameThread(
+			TEXT("OpenMobileMotionActivityProviderUnregistered"),
+			[]()
+			{
+				FOpenMobileSensorsCapabilityService::
+					HandleBackendGenerationChanged();
+			}
+		);
+		return;
+	}
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FOpenMobileSensorOperationResult Failure =
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable,
+			Provider->GetProviderName().ToString(),
+			TEXT("ProviderUnloaded")
+		);
+	ExecuteOnGameThread(
+		TEXT("OpenMobileMotionActivityProviderUnload"),
+		[Token, Removed = MoveTemp(Removed), Failure]()
+		{
+			for (const FActiveMotionActivityProviderStream& Active : Removed)
+			{
+				FOpenMobileSensorsSubscriptionService::
+					FailPhysicalStreamFromBackend(
+						Token,
+						Active.BackendHandle,
+						Failure
+					);
+			}
+			FOpenMobileSensorsCapabilityService::
+				HandleBackendGenerationChanged();
+		}
+	);
+}
+
+FOpenMobileSensorOperationResult
 FOpenMobileSensorsAndroidBackend::StartSensorStream(
 	const FOpenMobileSensorBackendStreamHandle& Handle,
 	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
@@ -590,6 +861,10 @@ FOpenMobileSensorsAndroidBackend::StartSensorStream(
 		return MapBridgeFailure(
 			EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown
 		);
+	}
+	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity)
+	{
+		return StartMotionActivityProviderStream(Handle, InOutRequest);
 	}
 	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
 	FOpenMobileSensorOperationResult Failure;
@@ -668,6 +943,10 @@ FOpenMobileSensorsAndroidBackend::ReconfigureSensorStream(
 	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
 )
 {
+	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity)
+	{
+		return ReconfigureMotionActivityProviderStream(Handle, InOutRequest);
+	}
 	FOpenMobileSensorsAndroidSensorDescriptor Descriptor;
 	if (!GetBridge().GetActiveSensorDescriptor(Handle, Descriptor))
 	{
@@ -731,6 +1010,10 @@ void FOpenMobileSensorsAndroidBackend::StopSensorStream(
 	const FOpenMobileSensorBackendStreamHandle& Handle
 )
 {
+	if (StopMotionActivityProviderStream(Handle))
+	{
+		return;
+	}
 	{
 		FScopeLock Lock(&NativeStepCountersMutex);
 		NativeStepCounters.Remove(Handle.Identifier);
@@ -748,6 +1031,17 @@ FOpenMobileSensorsAndroidBackend::FlushSensorStream(
 	FOnOpenMobileSensorBackendFlushComplete&& Completion
 )
 {
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		if (MotionActivityProviderStreams.Contains(Handle.Identifier))
+		{
+			return FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::UnsupportedOperation,
+				TEXT("MotionActivityProvider"),
+				TEXT("FlushUnsupported")
+			);
+		}
+	}
 	const FOpenMobileSensorsAndroidBridgeResult Result =
 		GetBridge().FlushStream(
 			Handle,
@@ -1209,6 +1503,30 @@ void FOpenMobileSensorsAndroidBackend::BeginShutdown()
 	if (bShuttingDown.Exchange(true))
 	{
 		return;
+	}
+	if (MotionActivityProviderUnregisteredHandle.IsValid())
+	{
+		IModularFeatures::Get().OnModularFeatureUnregistered().Remove(
+			MotionActivityProviderUnregisteredHandle
+		);
+		MotionActivityProviderUnregisteredHandle.Reset();
+	}
+	if (MotionActivityProviderRegisteredHandle.IsValid())
+	{
+		IModularFeatures::Get().OnModularFeatureRegistered().Remove(
+			MotionActivityProviderRegisteredHandle
+		);
+		MotionActivityProviderRegisteredHandle.Reset();
+	}
+	TArray<FActiveMotionActivityProviderStream> ProviderStreams;
+	{
+		FScopeLock Lock(&MotionActivityProviderStreamsMutex);
+		MotionActivityProviderStreams.GenerateValueArray(ProviderStreams);
+		MotionActivityProviderStreams.Reset();
+	}
+	for (const FActiveMotionActivityProviderStream& Active : ProviderStreams)
+	{
+		Active.Provider->StopStream(Active.ProviderHandle);
 	}
 	{
 		FScopeLock Lock(&NativeStepCountersMutex);

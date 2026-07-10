@@ -423,12 +423,17 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 		MakeAttitudeCapability();
 	StepCounterCapability.Sensor =
 		MakeRequest(EOpenMobileSensorType::StepCounter).Sensor;
+	FOpenMobileSensorCapability ActivityCapability =
+		MakeAttitudeCapability();
+	ActivityCapability.Sensor =
+		MakeRequest(EOpenMobileSensorType::MotionActivity).Sensor;
 	Backend.SetSensorCapabilities({
 		MakeAttitudeCapability(),
 		PhysicalOrientation,
 		Pressure,
 		ProximityCapability,
-		StepCounterCapability
+		StepCounterCapability,
+		ActivityCapability
 	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();
