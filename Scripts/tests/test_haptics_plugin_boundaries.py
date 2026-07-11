@@ -266,6 +266,57 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			module,
 		)
 
+	def test_application_lifecycle_binding_is_process_owned(self) -> None:
+		common_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		module = (
+			common_module / "Private" / "OpenMobileHapticsModule.cpp"
+		).read_text(encoding="utf-8")
+		subsystem = (
+			common_module / "Private" / "OpenMobileHapticsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+
+		for binding in (
+			"ApplicationWillDeactivateDelegate.AddLambda",
+			"ApplicationWillEnterBackgroundDelegate.AddLambda",
+			"ApplicationHasEnteredForegroundDelegate.AddLambda",
+			"ApplicationHasReactivatedDelegate.AddLambda",
+			"GetApplicationWillTerminateDelegate().AddLambda",
+		):
+			self.assertEqual(1, module.count(binding), binding)
+		for event in (
+			"WillDeactivate",
+			"WillEnterBackground",
+			"HasEnteredForeground",
+			"HasReactivated",
+			"WillTerminate",
+		):
+			self.assertIn(f"EOpenMobileHapticsLifecycleEvent::{event}", module)
+		self.assertNotIn("FCoreDelegates", subsystem)
+
+	def test_background_alert_support_matches_platform_contracts(self) -> None:
+		android_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsAndroid"
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+		android_bridge = load_android_bridge()
+
+		self.assertIn("Capabilities.BackgroundAlerts", android_backend)
+		self.assertIn("EOpenMobileHapticSupportState::Supported", android_backend)
+		self.assertIn("VibrationAttributes.USAGE_NOTIFICATION", android_bridge)
+		self.assertIn("AudioAttributes.USAGE_NOTIFICATION_EVENT", android_bridge)
+		self.assertIn("Capabilities.BackgroundAlerts", ios_backend)
+		self.assertIn("EOpenMobileHapticSupportState::Unsupported", ios_backend)
+
 	def test_native_availability_probes_are_side_effect_free(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"
 		android_probe = (

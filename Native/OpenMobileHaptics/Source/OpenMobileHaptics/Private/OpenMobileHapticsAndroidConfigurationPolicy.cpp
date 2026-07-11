@@ -23,6 +23,7 @@ void FOpenMobileHapticsAndroidConfigurationPolicy::ApplyCapabilityMask(
 	Capabilities.FrequencyControl = Unsupported;
 	Capabilities.TransientEvents = Unsupported;
 	Capabilities.ContinuousEvents = Unsupported;
+	Capabilities.BackgroundAlerts = Unsupported;
 	for (FOpenMobileHapticNamedSupport& Entry : Capabilities.PresetSupport)
 	{
 		Entry.Support = Unsupported;

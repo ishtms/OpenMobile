@@ -466,6 +466,8 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 {
 	FOpenMobileHapticCapabilities Capabilities;
 	Capabilities.BackendName = GetBackendName();
+	Capabilities.BackgroundAlerts =
+		EOpenMobileHapticSupportState::Unsupported;
 	const FOpenMobileHapticsAppleHardwareProbe Probe =
 		BridgeService->GetHardwareProbe();
 	if (Probe.RichHaptics
@@ -702,6 +704,30 @@ void FOpenMobileHapticsIOSBackend::HandleLifecycleChange()
 {
 	ReleasePreparedResources();
 	BridgeService->InvalidateHardwareProbe();
+}
+
+void FOpenMobileHapticsIOSBackend::HandleApplicationLifecycle(
+	const FOpenMobileHapticsLifecycleTransition& Transition
+)
+{
+	if (Transition.bInterruptsPlayback)
+	{
+		ForgetAllAHAPIntensityScales();
+		ReleasePreparedResources();
+		BridgeService->InvalidateEngine();
+		BridgeService->InvalidateHardwareProbe();
+	}
+	if (!Transition.bRefreshesNativeServices)
+	{
+		return;
+	}
+	BridgeService->InvalidateHardwareProbe();
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	if (Settings->bEnableCustomPlayback && Settings->IOS.bEnableCoreHaptics)
+	{
+		BridgeService->EnsureEngine();
+	}
 }
 
 void FOpenMobileHapticsIOSBackend::HandleInterruption(

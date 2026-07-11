@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsTypes.h"
 
 class IOpenMobileHapticsBackend;
@@ -20,6 +21,10 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 	const FOpenMobileHapticsInterruption&
 );
 DECLARE_MULTICAST_DELEGATE(FOpenMobileHapticsRecoveryDelegate);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticsApplicationLifecycleDelegate,
+	const FOpenMobileHapticsLifecycleTransition&
+);
 
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsBackendRegistry final
 {
@@ -40,6 +45,10 @@ public:
 	);
 	static void SetApplicationActive(bool bActive);
 	static bool IsApplicationActive();
+	static EOpenMobileHapticsApplicationState GetApplicationState();
+	static void NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent Event
+	);
 	static uint64 GetLifecycleGeneration();
 	static FOpenMobileHapticsTimelineManager& GetTimelineManager();
 	static void NotifyLifecycleChange();
@@ -51,6 +60,8 @@ public:
 	static bool IsRecovering();
 	static FOpenMobileHapticsInterruptionDelegate& OnInterruption();
 	static FOpenMobileHapticsRecoveryDelegate& OnRecovery();
+	static FOpenMobileHapticsApplicationLifecycleDelegate&
+	OnApplicationLifecycle();
 	static bool IsShuttingDown();
 	static void BeginShutdown();
 

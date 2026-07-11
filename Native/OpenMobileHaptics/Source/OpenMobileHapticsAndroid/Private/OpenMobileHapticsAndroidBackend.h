@@ -50,6 +50,9 @@ public:
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const override;
 	virtual void HandleLifecycleChange() override;
+	virtual void HandleApplicationLifecycle(
+		const FOpenMobileHapticsLifecycleTransition& Transition
+	) override;
 	virtual void HandleInterruption(
 		EOpenMobileHapticsInterruptionReason Reason
 	) override;

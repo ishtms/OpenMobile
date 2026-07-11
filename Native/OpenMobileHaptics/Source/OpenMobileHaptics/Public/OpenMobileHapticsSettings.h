@@ -10,7 +10,7 @@ enum class EOpenMobileHapticBackgroundPolicy : uint8
 {
 	StopAll,
 	CriticalOnly,
-	AllowAll
+	AllowAll UMETA(Hidden)
 };
 
 USTRUCT(BlueprintType)
@@ -129,7 +129,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Effects")
 	TArray<FOpenMobileHapticEffectSettings> EffectOverrides;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ToolTip = "StopAll blocks background playback. CriticalOnly permits explicit Critical Alerts only when the active platform reports background alert support. AllowAll is rejected by validation and fails closed at runtime."))
 	EOpenMobileHapticBackgroundPolicy BackgroundPolicy =
 		EOpenMobileHapticBackgroundPolicy::StopAll;
 

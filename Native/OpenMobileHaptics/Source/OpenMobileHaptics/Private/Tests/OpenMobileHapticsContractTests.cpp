@@ -28,6 +28,7 @@
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsLibraryResolver.h"
+#include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
@@ -74,6 +75,26 @@ namespace OpenMobileHapticsTests
 		{
 			++LifecycleChangeCount;
 			if (bApplyCapabilitiesAfterLifecycle)
+			{
+				Capabilities = CapabilitiesAfterLifecycle;
+			}
+		}
+		virtual void HandleApplicationLifecycle(
+			const FOpenMobileHapticsLifecycleTransition& Transition
+		) override
+		{
+			++LifecycleTransitionCount;
+			LastLifecycleTransition = Transition;
+			if (OnHandleApplicationLifecycle)
+			{
+				OnHandleApplicationLifecycle();
+			}
+			if (Transition.bInterruptsPlayback)
+			{
+				ReleasePreparedResources();
+			}
+			if (Transition.bRefreshesNativeServices
+				&& bApplyCapabilitiesAfterLifecycle)
 			{
 				Capabilities = CapabilitiesAfterLifecycle;
 			}
@@ -206,7 +227,9 @@ namespace OpenMobileHapticsTests
 			const FOpenMobileHapticsBackendRequestToken& Token
 		) override
 		{
+			++StopPlaybackCount;
 			LastStoppedToken = Token;
+			StoppedTokens.Add(Token);
 			FOpenMobileHapticControlResult Result;
 			Result.Outcome = ControlSupport.bStop
 				? EOpenMobileHapticControlOutcome::Accepted
@@ -366,16 +389,19 @@ namespace OpenMobileHapticsTests
 		EOpenMobileHapticsInterruptionReason LastInterruptionReason =
 			EOpenMobileHapticsInterruptionReason::EngineStopped;
 		TFunction<void()> OnHandleInterruption;
+		TFunction<void()> OnHandleApplicationLifecycle;
 		double CurrentTimeSeconds = 0.0;
 		int32 SemanticSubmissionCount = 0;
 		int32 OneShotSubmissionCount = 0;
 		int32 NamedSubmissionCount = 0;
 		int32 ShutdownCount = 0;
 		int32 LifecycleChangeCount = 0;
+		int32 LifecycleTransitionCount = 0;
 		int32 InterruptionCount = 0;
 		int32 RecoveryAttemptCount = 0;
 		int32 StopChannelCount = 0;
 		int32 StopAllCount = 0;
+		int32 StopPlaybackCount = 0;
 		int32 DynamicUpdateCount = 0;
 		int32 PauseCount = 0;
 		int32 ResumeCount = 0;
@@ -384,6 +410,8 @@ namespace OpenMobileHapticsTests
 		int32 ReleasePreparedResourcesCount = 0;
 		FOpenMobileHapticsBackendRequestToken LastToken;
 		FOpenMobileHapticsBackendRequestToken LastStoppedToken;
+		TArray<FOpenMobileHapticsBackendRequestToken> StoppedTokens;
+		FOpenMobileHapticsLifecycleTransition LastLifecycleTransition;
 		FOpenMobileHapticsBackendRequestToken LastDynamicToken;
 		FOpenMobileHapticsBackendRequestToken LastControlToken;
 		FOpenMobileHapticsBackendControlCommand LastControlCommand;
@@ -2390,6 +2418,7 @@ bool FOpenMobileHapticsAndroidConfigurationPolicyTest::RunTest(
 	Capabilities.FrequencyControl = EOpenMobileHapticSupportState::Supported;
 	Capabilities.TransientEvents = EOpenMobileHapticSupportState::Supported;
 	Capabilities.ContinuousEvents = EOpenMobileHapticSupportState::Supported;
+	Capabilities.BackgroundAlerts = EOpenMobileHapticSupportState::Supported;
 	Capabilities.PresetSupport = {{
 		TEXT("Click"), EOpenMobileHapticSupportState::Supported
 	}};
@@ -2423,7 +2452,8 @@ bool FOpenMobileHapticsAndroidConfigurationPolicyTest::RunTest(
 		Capabilities.Envelopes,
 		Capabilities.FrequencyControl,
 		Capabilities.TransientEvents,
-		Capabilities.ContinuousEvents
+		Capabilities.ContinuousEvents,
+		Capabilities.BackgroundAlerts
 	})
 	{
 		TestEqual(TEXT("Custom vibration capability is masked"),
@@ -3628,6 +3658,13 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 		MutableSettings->BackgroundPolicy;
 	MutableSettings->BackgroundPolicy =
 		EOpenMobileHapticBackgroundPolicy::CriticalOnly;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.BackgroundAlerts =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
 	FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
 	const FOpenMobileHapticPlaybackResult Background =
 		Subsystem->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Confirm);
@@ -6126,9 +6163,14 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 		Subsystem->GetPlaybackState(Newer.Handle),
 		EOpenMobileHapticPlaybackState::Accepted);
 
+	const int32 StopsBeforeDeinitialize = Backend.StopPlaybackCount;
 	Subsystem->Deinitialize();
-	TestEqual(TEXT("Shutdown stops native playback once more"),
-		Backend.StopAllCount, 2);
+	TestEqual(TEXT("Game Instance teardown avoids process-wide stop-all"),
+		Backend.StopAllCount, 1);
+	TestEqual(TEXT("Game Instance teardown stops its remaining handle"),
+		Backend.StopPlaybackCount, StopsBeforeDeinitialize + 1);
+	TestEqual(TEXT("Game Instance teardown stops the owned token"),
+		Backend.LastStoppedToken.PlaybackHandle, Newer.Handle);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	Settings->NamedLibraries = SavedLibraries;
@@ -7168,6 +7210,488 @@ bool FOpenMobileHapticsRecoveryPreparedAssetsTest::RunTest(
 		EOpenMobileHapticNamedPatternStatus::Loaded);
 
 	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsLifecyclePolicyTest,
+	"OpenMobile.Haptics.Lifecycle.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsLifecyclePolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsLifecyclePolicy Policy;
+	TestEqual(TEXT("Lifecycle starts active"), Policy.GetState(),
+		EOpenMobileHapticsApplicationState::Active);
+
+	const FOpenMobileHapticsLifecycleTransition Deactivated =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::WillDeactivate);
+	TestTrue(TEXT("Deactivation changes process state"),
+		Deactivated.bChanged);
+	TestTrue(TEXT("Deactivation interrupts accepted work"),
+		Deactivated.bInterruptsPlayback);
+	TestEqual(TEXT("Deactivation enters inactive state"),
+		Deactivated.CurrentState,
+		EOpenMobileHapticsApplicationState::Inactive);
+	TestFalse(TEXT("Duplicate deactivation is idempotent"),
+		Policy.Apply(
+			EOpenMobileHapticsLifecycleEvent::WillDeactivate
+		).bChanged);
+
+	FOpenMobileHapticsLifecycleRequestContext Request;
+	Request.BackgroundPolicy =
+		EOpenMobileHapticBackgroundPolicy::CriticalOnly;
+	Request.BackgroundAlerts = EOpenMobileHapticSupportState::Supported;
+	Request.Priority = EOpenMobileHapticChannelPriority::Critical;
+	Request.Category = TEXT("Alerts");
+	Request.Kind = EOpenMobileHapticsLifecycleRequestKind::Semantic;
+	Request.SemanticEffect =
+		EOpenMobileHapticSemanticEffect::NotificationWarning;
+	TestEqual(TEXT("Inactive requests remain suppressed"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Suppressed);
+
+	const FOpenMobileHapticsLifecycleTransition Backgrounded =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::WillEnterBackground);
+	TestTrue(TEXT("Background transition is recorded"),
+		Backgrounded.bChanged);
+	TestEqual(TEXT("Background transition reaches background state"),
+		Policy.GetState(), EOpenMobileHapticsApplicationState::Background);
+	TestEqual(TEXT("Explicit Android-style alert intent is allowed"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::BackgroundAlert);
+
+	Request.Category = TEXT("Gameplay");
+	TestEqual(TEXT("Critical gameplay cannot claim alert intent"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Suppressed);
+	Request.Category = TEXT("Alerts");
+	Request.BackgroundAlerts = EOpenMobileHapticSupportState::Unsupported;
+	TestEqual(TEXT("Unsupported platforms reject background alerts"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Suppressed);
+	Request.BackgroundAlerts = EOpenMobileHapticSupportState::Supported;
+	Request.BackgroundPolicy = EOpenMobileHapticBackgroundPolicy::AllowAll;
+	TestEqual(TEXT("Unsafe unrestricted policy fails closed"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Suppressed);
+	Request.BackgroundPolicy =
+		EOpenMobileHapticBackgroundPolicy::CriticalOnly;
+	Request.Kind = EOpenMobileHapticsLifecycleRequestKind::NamedPattern;
+	Request.bPatternSuitableForBackgroundPlayback = false;
+	TestEqual(TEXT("Unmarked assets cannot play in the background"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Suppressed);
+	Request.bPatternSuitableForBackgroundPlayback = true;
+	TestEqual(TEXT("Marked critical alert assets remain eligible"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::BackgroundAlert);
+
+	const FOpenMobileHapticsLifecycleTransition Foregrounded =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::HasEnteredForeground);
+	TestTrue(TEXT("Foreground transition stops background work"),
+		Foregrounded.bInterruptsPlayback);
+	TestEqual(TEXT("Foreground remains inactive until reactivation"),
+		Policy.GetState(), EOpenMobileHapticsApplicationState::Inactive);
+	const FOpenMobileHapticsLifecycleTransition Reactivated =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::HasReactivated);
+	TestTrue(TEXT("Reactivation refreshes native services"),
+		Reactivated.bRefreshesNativeServices);
+	TestEqual(TEXT("Reactivation restores active state"), Policy.GetState(),
+		EOpenMobileHapticsApplicationState::Active);
+	TestEqual(TEXT("Active requests ignore background policy"),
+		FOpenMobileHapticsLifecyclePolicy::Evaluate(Request, Policy.GetState()),
+		EOpenMobileHapticsLifecycleRequestOutcome::Allowed);
+
+	const FOpenMobileHapticsLifecycleTransition Terminated =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::WillTerminate);
+	TestTrue(TEXT("Termination interrupts remaining work"),
+		Terminated.bInterruptsPlayback);
+	TestEqual(TEXT("Termination is terminal"), Policy.GetState(),
+		EOpenMobileHapticsApplicationState::Terminating);
+	TestFalse(TEXT("Late reactivation cannot escape termination"),
+		Policy.Apply(
+			EOpenMobileHapticsLifecycleEvent::HasReactivated
+		).bChanged);
+	Policy.Reset();
+	const FOpenMobileHapticsLifecycleTransition DirectBackground =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::WillEnterBackground);
+	TestTrue(TEXT("Direct background entry interrupts foreground work"),
+		DirectBackground.bInterruptsPlayback);
+	const FOpenMobileHapticsLifecycleTransition DirectReactivation =
+		Policy.Apply(EOpenMobileHapticsLifecycleEvent::HasReactivated);
+	TestTrue(TEXT("Direct warm resume stops background work"),
+		DirectReactivation.bInterruptsPlayback);
+	TestTrue(TEXT("Direct warm resume refreshes native services"),
+		DirectReactivation.bRefreshesNativeServices);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsApplicationLifecycleTest,
+	"OpenMobile.Haptics.Lifecycle.ProcessTransitions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsApplicationLifecycleTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const EOpenMobileHapticBackgroundPolicy SavedBackgroundPolicy =
+		Settings->BackgroundPolicy;
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->BackgroundPolicy =
+		EOpenMobileHapticBackgroundPolicy::CriticalOnly;
+	Settings->NamedLibraries.Reset();
+
+	FMockBackend Backend(TEXT("ApplicationLifecycle"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.BackgroundAlerts =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bStopAll = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* First =
+		NewObject<UOpenMobileHapticsSubsystem>(FirstGameInstance);
+	UOpenMobileHapticsSubsystem* Second =
+		NewObject<UOpenMobileHapticsSubsystem>(SecondGameInstance);
+	const FOpenMobileHapticPlaybackResult Active =
+		First->PlayNamedPattern(TEXT("ActiveBeforeDeactivate"));
+	FOpenMobileHapticNamedPatternRequest ScheduledRequest;
+	ScheduledRequest.PatternName = TEXT("QueuedBeforeDeactivate");
+	ScheduledRequest.Options.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::Relative;
+	ScheduledRequest.Options.Schedule.TimeSeconds = 10.0;
+	const FOpenMobileHapticPlaybackResult Scheduled =
+		Second->SubmitNamedPattern(ScheduledRequest);
+	TestTrue(TEXT("First PIE instance owns active work"), Active.IsAccepted());
+	TestTrue(TEXT("Second PIE instance owns queued work"),
+		Scheduled.IsAccepted());
+
+	bool bPublicStatePrecedesNativeCleanup = false;
+	Backend.OnHandleApplicationLifecycle = [&]()
+	{
+		bPublicStatePrecedesNativeCleanup =
+			First->GetPlaybackState(Active.Handle)
+				== EOpenMobileHapticPlaybackState::Interrupted
+			&& Second->GetPlaybackState(Scheduled.Handle)
+				== EOpenMobileHapticPlaybackState::Interrupted;
+	};
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillDeactivate
+	);
+	TestTrue(TEXT("Every PIE instance terminates before native cleanup"),
+		bPublicStatePrecedesNativeCleanup);
+	TestEqual(TEXT("The process invokes one native deactivate transition"),
+		Backend.LifecycleTransitionCount, 1);
+	TestFalse(TEXT("Queued playback cannot start after deactivation"),
+		Backend.LastNamedPlaybackParameters.ScheduledStartGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
+		));
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillDeactivate
+	);
+	TestEqual(TEXT("Duplicate deactivate is ignored"),
+		Backend.LifecycleTransitionCount, 1);
+
+	const int32 SemanticBeforeInactive = Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult InactiveGameplay =
+		First->PlaySemanticFeedback(EOpenMobileHapticSemanticEffect::Damage);
+	TestEqual(TEXT("Inactive gameplay is suppressed"),
+		InactiveGameplay.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Inactive gameplay never reaches native code"),
+		Backend.SemanticSubmissionCount, SemanticBeforeInactive);
+
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillEnterBackground
+	);
+	FOpenMobileHapticPlaybackOptions AlertOptions;
+	AlertOptions.Channel = TEXT("CriticalAlerts");
+	AlertOptions.Category = TEXT("Alerts");
+	AlertOptions.Priority = EOpenMobileHapticChannelPriority::Critical;
+	const FOpenMobileHapticPlaybackResult BackgroundAlert =
+		First->SubmitSemantic({
+			EOpenMobileHapticSemanticEffect::NotificationWarning,
+			1.0f,
+			AlertOptions
+		});
+	TestTrue(TEXT("Supported critical alert intent can run in background"),
+		BackgroundAlert.IsAccepted());
+	TestNotEqual(TEXT("Background alert avoids view-only semantic feedback"),
+		Backend.LastSemanticResolution.Path,
+		EOpenMobileHapticsSemanticPath::SystemSemantic);
+	const FOpenMobileHapticPlaybackResult BackgroundGameplay =
+		First->PlayNamedPattern(TEXT("BackgroundGameplay"));
+	TestEqual(TEXT("Named gameplay is suppressed in background"),
+		BackgroundGameplay.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	UOpenMobileHapticPatternAsset* AlertPattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	AlertPattern->bSuitableForBackgroundPlayback = true;
+	FOpenMobileHapticNamedPatternRequest BackgroundPatternRequest;
+	BackgroundPatternRequest.PatternName = TEXT("BackgroundAlertPattern");
+	BackgroundPatternRequest.PatternAsset = FSoftObjectPath(AlertPattern);
+	BackgroundPatternRequest.Options = AlertOptions;
+	const FOpenMobileHapticPlaybackResult BackgroundPattern =
+		First->SubmitNamedPattern(BackgroundPatternRequest);
+	TestTrue(TEXT("Marked critical alert assets can run in background"),
+		BackgroundPattern.IsAccepted());
+
+	FOpenMobileHapticOneShotRequest AlertOneShot;
+	AlertOneShot.DurationSeconds = 0.1f;
+	AlertOneShot.Options = AlertOptions;
+	const FOpenMobileHapticPlaybackResult BackgroundOneShot =
+		Second->SubmitOneShot(AlertOneShot);
+	TestTrue(TEXT("Critical alert one-shot is accepted in background"),
+		BackgroundOneShot.IsAccepted());
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasEnteredForeground
+	);
+	TestEqual(TEXT("Foreground entry stops remaining background work"),
+		Second->GetPlaybackState(BackgroundOneShot.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestEqual(TEXT("Foreground entry stops background alert patterns"),
+		First->GetPlaybackState(BackgroundPattern.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	const int32 TransitionsAtForeground = Backend.LifecycleTransitionCount;
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasEnteredForeground
+	);
+	TestEqual(TEXT("Duplicate foreground entry is ignored"),
+		Backend.LifecycleTransitionCount, TransitionsAtForeground);
+	const int32 OneShotsBeforeReactivation = Backend.OneShotSubmissionCount;
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasReactivated
+	);
+	TestTrue(TEXT("Reactivation refreshes native services once"),
+		Backend.LastLifecycleTransition.bRefreshesNativeServices);
+	TestEqual(TEXT("Reactivation does not replay consumed one-shots"),
+		Backend.OneShotSubmissionCount, OneShotsBeforeReactivation);
+	TestEqual(TEXT("Reactivation restores active process state"),
+		FOpenMobileHapticsBackendRegistry::GetApplicationState(),
+		EOpenMobileHapticsApplicationState::Active);
+	const int32 TransitionsAtReactivation = Backend.LifecycleTransitionCount;
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasReactivated
+	);
+	TestEqual(TEXT("Duplicate reactivation is ignored"),
+		Backend.LifecycleTransitionCount, TransitionsAtReactivation);
+
+	const FOpenMobileHapticPlaybackResult BeforeTermination =
+		First->PlayNamedPattern(TEXT("BeforeTermination"));
+	TestTrue(TEXT("Foreground playback resumes normally"),
+		BeforeTermination.IsAccepted());
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillTerminate
+	);
+	TestEqual(TEXT("Termination interrupts accepted work"),
+		First->GetPlaybackState(BeforeTermination.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	const int32 TransitionsAtTermination = Backend.LifecycleTransitionCount;
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasReactivated
+	);
+	TestEqual(TEXT("Termination rejects late lifecycle changes"),
+		Backend.LifecycleTransitionCount, TransitionsAtTermination);
+	TestEqual(TEXT("Termination rejects new playback"),
+		First->PlaySelectionFeedback().Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	First->Deinitialize();
+	Second->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->BackgroundPolicy = SavedBackgroundPolicy;
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsLifecyclePreparedAssetsTest,
+	"OpenMobile.Haptics.Lifecycle.LazyPreparedAssets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsLifecyclePreparedAssetsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+
+	FMockBackend Backend(TEXT("LifecyclePreparedAssets"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.WaveformTiming =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("Lifecycle pattern builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+	UOpenMobileHapticLibrary* Library = NewObject<UOpenMobileHapticLibrary>();
+	Library->Patterns = {{TEXT("LifecyclePrepared"), Pattern}};
+	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
+	LibrarySettings.Name = TEXT("Lifecycle");
+	LibrarySettings.Asset = FSoftObjectPath(Library);
+	Settings->NamedLibraries = {LibrarySettings};
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TArray<FString> Errors;
+	TestTrue(TEXT("Lifecycle library prepares"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
+	TestEqual(TEXT("Initial lifecycle preparation compiles once"),
+		Backend.PrepareResourcesCount, 1);
+	const FOpenMobileHapticPlaybackResult Original =
+		Subsystem->PlayNamedPattern(TEXT("LifecyclePrepared"));
+	TestTrue(TEXT("Prepared lifecycle playback is accepted"),
+		Original.IsAccepted());
+
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillDeactivate
+	);
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::WillEnterBackground
+	);
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasEnteredForeground
+	);
+	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+		EOpenMobileHapticsLifecycleEvent::HasReactivated
+	);
+	TestEqual(TEXT("Lifecycle transition interrupts the old handle"),
+		Subsystem->GetPlaybackState(Original.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestTrue(TEXT("Background transition releases native prepared state"),
+		Backend.ReleasePreparedResourcesCount >= 1);
+	TestEqual(TEXT("Foreground refresh does not eagerly compile assets"),
+		Backend.PrepareResourcesCount, 1);
+	TestEqual(TEXT("Foreground refresh does not replay named requests"),
+		Backend.NamedSubmissionCount, 1);
+	TestEqual(TEXT("Resolved library remains loaded across background"),
+		Subsystem->GetNamedPatternStatus(TEXT("LifecyclePrepared")),
+		EOpenMobileHapticNamedPatternStatus::Loaded);
+
+	const FOpenMobileHapticPlaybackResult AfterForeground =
+		Subsystem->PlayNamedPattern(TEXT("LifecyclePrepared"));
+	TestTrue(TEXT("Next foreground request is accepted"),
+		AfterForeground.IsAccepted());
+	TestEqual(TEXT("Next foreground request restores native preparation"),
+		Backend.PrepareResourcesCount, 2);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsGameInstanceLifecycleTest,
+	"OpenMobile.Haptics.Lifecycle.GameInstanceIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsGameInstanceLifecycleTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->NamedLibraries.Reset();
+	FMockBackend Backend(TEXT("GameInstanceIsolation"));
+	Backend.ControlSupport.bStop = true;
+	Backend.ControlSupport.bStopAll = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* First =
+		NewObject<UOpenMobileHapticsSubsystem>(FirstGameInstance);
+	UOpenMobileHapticsSubsystem* Second =
+		NewObject<UOpenMobileHapticsSubsystem>(SecondGameInstance);
+	const FOpenMobileHapticPlaybackResult FirstPlayback =
+		First->PlayNamedPattern(TEXT("FirstPIE"));
+	const FOpenMobileHapticPlaybackResult SecondPlayback =
+		Second->PlayNamedPattern(TEXT("SecondPIE"));
+	TestTrue(TEXT("First PIE request is accepted"),
+		FirstPlayback.IsAccepted());
+	TestTrue(TEXT("Second PIE request is accepted"),
+		SecondPlayback.IsAccepted());
+
+	First->Deinitialize();
+	TestEqual(TEXT("Game Instance teardown stops only owned handles"),
+		Backend.StopPlaybackCount, 1);
+	TestEqual(TEXT("Teardown does not call process-wide stop-all"),
+		Backend.StopAllCount, 0);
+	TestEqual(TEXT("The stopped token belongs to the torn-down instance"),
+		Backend.LastStoppedToken.PlaybackHandle,
+		FirstPlayback.Handle);
+	TestEqual(TEXT("The other PIE state remains accepted"),
+		Second->GetPlaybackState(SecondPlayback.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+
+	if (SecondPlayback.IsAccepted())
+	{
+		Backend.Emit(1, EOpenMobileHapticPlaybackState::Started, 1,
+			EOpenMobileHapticEventEvidence::NativeConfirmed);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+			ENamedThreads::GameThread
+		);
+	}
+	TestEqual(TEXT("The surviving PIE callback remains current"),
+		Second->GetPlaybackState(SecondPlayback.Handle),
+		EOpenMobileHapticPlaybackState::Started);
+	Second->Deinitialize();
+	TestEqual(TEXT("Second teardown stops its own handle"),
+		Backend.StopPlaybackCount, 2);
+
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	Settings->NamedLibraries = SavedLibraries;

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Features/IModularFeature.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsTimingPolicy.h"
@@ -204,6 +205,13 @@ public:
 	virtual FOpenMobileHapticsBackendControlSupport
 	GetControlSupport() const = 0;
 	virtual void HandleLifecycleChange() {}
+	virtual void HandleApplicationLifecycle(
+		const FOpenMobileHapticsLifecycleTransition& Transition
+	)
+	{
+		static_cast<void>(Transition);
+		HandleLifecycleChange();
+	}
 	virtual void HandleInterruption(
 		EOpenMobileHapticsInterruptionReason Reason
 	)

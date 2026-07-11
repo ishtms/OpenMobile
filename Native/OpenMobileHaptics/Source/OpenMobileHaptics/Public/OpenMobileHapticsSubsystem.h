@@ -22,6 +22,7 @@ class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsSubsystemState;
 struct FOpenMobileHapticsInterruption;
+struct FOpenMobileHapticsLifecycleTransition;
 struct FOpenMobileHapticsTimingResolution;
 
 struct FOpenMobileHapticsSubsystemStateDeleter
@@ -262,6 +263,7 @@ private:
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
 	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
 	friend class FOpenMobileHapticsRecoveryPreparedAssetsTest;
+	friend class FOpenMobileHapticsLifecyclePreparedAssetsTest;
 
 	enum class EPlaybackCursorControl : uint8
 	{
@@ -284,6 +286,9 @@ private:
 		const FOpenMobileHapticsInterruption& Interruption
 	);
 	void HandleRecovery();
+	void HandleApplicationLifecycle(
+		const FOpenMobileHapticsLifecycleTransition& Transition
+	);
 	void PublishSubmissionEvents(
 		const FOpenMobileHapticPlaybackResult& Result,
 		const FOpenMobileHapticsTimingResolution& Timing
@@ -368,5 +373,6 @@ private:
 	> State;
 	FDelegateHandle InterruptionDelegateHandle;
 	FDelegateHandle RecoveryDelegateHandle;
+	FDelegateHandle ApplicationLifecycleDelegateHandle;
 	bool bDeinitialized = false;
 };

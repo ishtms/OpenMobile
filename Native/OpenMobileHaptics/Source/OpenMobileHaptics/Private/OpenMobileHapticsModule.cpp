@@ -9,31 +9,61 @@ public:
 	virtual void StartupModule() override
 	{
 		FOpenMobileHapticsBackendRegistry::Start();
+		DeactivatedHandle =
+			FCoreDelegates::ApplicationWillDeactivateDelegate.AddLambda(
+				[]()
+				{
+					FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+						EOpenMobileHapticsLifecycleEvent::WillDeactivate
+					);
+				}
+			);
 		BackgroundHandle =
 			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddLambda(
 				[]()
 				{
-					FOpenMobileHapticsBackendRegistry::SetApplicationActive(false);
+					FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+						EOpenMobileHapticsLifecycleEvent::WillEnterBackground
+					);
 				}
 			);
 		ForegroundHandle =
 			FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddLambda(
 				[]()
 				{
-					FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+					FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+						EOpenMobileHapticsLifecycleEvent::HasEnteredForeground
+					);
 				}
 			);
 		ReactivatedHandle =
 			FCoreDelegates::ApplicationHasReactivatedDelegate.AddLambda(
 				[]()
 				{
-					FOpenMobileHapticsBackendRegistry::SetApplicationActive(true);
+					FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+						EOpenMobileHapticsLifecycleEvent::HasReactivated
+					);
+				}
+			);
+		TerminationHandle =
+			FCoreDelegates::GetApplicationWillTerminateDelegate().AddLambda(
+				[]()
+				{
+					FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+						EOpenMobileHapticsLifecycleEvent::WillTerminate
+					);
 				}
 			);
 	}
 
 	virtual void ShutdownModule() override
 	{
+		if (DeactivatedHandle.IsValid())
+		{
+			FCoreDelegates::ApplicationWillDeactivateDelegate.Remove(
+				DeactivatedHandle
+			);
+		}
 		if (BackgroundHandle.IsValid())
 		{
 			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Remove(
@@ -52,13 +82,21 @@ public:
 				ReactivatedHandle
 			);
 		}
+		if (TerminationHandle.IsValid())
+		{
+			FCoreDelegates::GetApplicationWillTerminateDelegate().Remove(
+				TerminationHandle
+			);
+		}
 		FOpenMobileHapticsBackendRegistry::BeginShutdown();
 	}
 
 private:
+	FDelegateHandle DeactivatedHandle;
 	FDelegateHandle BackgroundHandle;
 	FDelegateHandle ForegroundHandle;
 	FDelegateHandle ReactivatedHandle;
+	FDelegateHandle TerminationHandle;
 };
 
 IMPLEMENT_MODULE(FOpenMobileHapticsModule, OpenMobileHaptics)

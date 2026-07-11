@@ -889,6 +889,8 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 		Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
 		Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
 		Capabilities.Scheduling = EOpenMobileHapticSupportState::Unsupported;
+		Capabilities.BackgroundAlerts =
+			EOpenMobileHapticSupportState::Unsupported;
 		Capabilities.Pause = EOpenMobileHapticSupportState::Unsupported;
 		Capabilities.Resume = EOpenMobileHapticSupportState::Unsupported;
 		Capabilities.Seek = EOpenMobileHapticSupportState::Unsupported;
@@ -941,6 +943,8 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 	Capabilities.AudioEvents = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.AHAP = EOpenMobileHapticSupportState::Unsupported;
 	Capabilities.Scheduling = EOpenMobileHapticSupportState::Supported;
+	Capabilities.BackgroundAlerts =
+		EOpenMobileHapticSupportState::Supported;
 	AddDetailedSupport(Capabilities, Probe);
 	if (Probe.MaximumControlPointCount >= 0
 		&& Probe.MaximumControlPointCount <= MAX_int32)
@@ -1090,6 +1094,21 @@ void FOpenMobileHapticsAndroidBackend::HandleLifecycleChange()
 		StableCapabilities.Reset();
 	}
 	ReleasePreparedResources();
+}
+
+void FOpenMobileHapticsAndroidBackend::HandleApplicationLifecycle(
+	const FOpenMobileHapticsLifecycleTransition& Transition
+)
+{
+	if (Transition.bInterruptsPlayback)
+	{
+		HandleLifecycleChange();
+	}
+	if (Transition.bRefreshesNativeServices)
+	{
+		FScopeLock Lock(&CacheMutex);
+		StableCapabilities.Reset();
+	}
 }
 
 void FOpenMobileHapticsAndroidBackend::HandleInterruption(

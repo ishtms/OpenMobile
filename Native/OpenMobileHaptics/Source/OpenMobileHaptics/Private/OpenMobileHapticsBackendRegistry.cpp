@@ -21,11 +21,13 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 	FCriticalSection CapabilityMutex;
 	FOpenMobileHapticCapabilities CapabilitySnapshot;
 	FOpenMobileHapticsRecoveryPolicy RecoveryPolicy;
+	FOpenMobileHapticsLifecyclePolicy LifecyclePolicy;
 	FName RecoveryBackendName;
 	bool bRecoveryRequested = false;
 	FTSTicker::FDelegateHandle RecoveryTickerHandle;
 	FOpenMobileHapticsInterruptionDelegate InterruptionDelegate;
 	FOpenMobileHapticsRecoveryDelegate RecoveryDelegate;
+	FOpenMobileHapticsApplicationLifecycleDelegate LifecycleDelegate;
 
 	FOpenMobileHapticsTimelineManager& TimelineManager()
 	{
@@ -263,6 +265,8 @@ void FOpenMobileHapticsBackendRegistry::Start()
 		ShutdownBackends.Reset();
 		CancelRecoveryTicker();
 		RecoveryPolicy.Reset();
+		LifecyclePolicy.Reset();
+		bApplicationActive.Store(true);
 		RecoveryBackendName = NAME_None;
 		bRecoveryRequested = false;
 		AdvanceGeneration();
@@ -466,17 +470,64 @@ void FOpenMobileHapticsBackendRegistry::NotifyLifecycleChange()
 
 void FOpenMobileHapticsBackendRegistry::SetApplicationActive(bool bActive)
 {
-	OpenMobileHapticsBackendRegistryPrivate::bApplicationActive.Store(bActive);
-	NotifyLifecycleChange();
-	if (bActive)
-	{
-		OpenMobileHapticsBackendRegistryPrivate::ScheduleRecoveryAttempt();
-	}
+	NotifyApplicationLifecycle(
+		bActive
+			? EOpenMobileHapticsLifecycleEvent::HasReactivated
+			: EOpenMobileHapticsLifecycleEvent::WillEnterBackground
+	);
 }
 
 bool FOpenMobileHapticsBackendRegistry::IsApplicationActive()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bApplicationActive.Load();
+}
+
+EOpenMobileHapticsApplicationState
+FOpenMobileHapticsBackendRegistry::GetApplicationState()
+{
+	check(IsInGameThread());
+	return OpenMobileHapticsBackendRegistryPrivate::LifecyclePolicy.GetState();
+}
+
+void FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+	EOpenMobileHapticsLifecycleEvent Event
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileHapticsBackendRegistryPrivate;
+	if (bShuttingDown.Load())
+	{
+		return;
+	}
+	const FOpenMobileHapticsLifecycleTransition Transition =
+		LifecyclePolicy.Apply(Event);
+	if (!Transition.bChanged)
+	{
+		return;
+	}
+	bApplicationActive.Store(
+		Transition.CurrentState
+			== EOpenMobileHapticsApplicationState::Active
+	);
+	if (Transition.bInterruptsPlayback)
+	{
+		AdvanceGeneration();
+		AdvanceLifecycleGeneration();
+		TimelineManager().Clear();
+	}
+	LifecycleDelegate.Broadcast(Transition);
+	for (IOpenMobileHapticsBackend* Backend : GetBackends())
+	{
+		if (Backend)
+		{
+			Backend->HandleApplicationLifecycle(Transition);
+		}
+	}
+	PublishCapabilities();
+	if (Transition.bRefreshesNativeServices)
+	{
+		ScheduleRecoveryAttempt();
+	}
 }
 
 uint64 FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
@@ -578,6 +629,12 @@ FOpenMobileHapticsBackendRegistry::OnRecovery()
 	return OpenMobileHapticsBackendRegistryPrivate::RecoveryDelegate;
 }
 
+FOpenMobileHapticsApplicationLifecycleDelegate&
+FOpenMobileHapticsBackendRegistry::OnApplicationLifecycle()
+{
+	return OpenMobileHapticsBackendRegistryPrivate::LifecycleDelegate;
+}
+
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bShuttingDown.Load();
@@ -593,6 +650,10 @@ void FOpenMobileHapticsBackendRegistry::BeginShutdown()
 	}
 	CancelRecoveryTicker();
 	RecoveryPolicy.Reset();
+	LifecyclePolicy.Apply(
+		EOpenMobileHapticsLifecycleEvent::WillTerminate
+	);
+	bApplicationActive.Store(false);
 	RecoveryBackendName = NAME_None;
 	bRecoveryRequested = false;
 
@@ -627,10 +688,12 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	bApplicationActive.Store(true);
 	CancelRecoveryTicker();
 	RecoveryPolicy.Reset();
+	LifecyclePolicy.Reset();
 	RecoveryBackendName = NAME_None;
 	bRecoveryRequested = false;
 	InterruptionDelegate.Clear();
 	RecoveryDelegate.Clear();
+	LifecycleDelegate.Clear();
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
 	AdvanceLifecycleGeneration();
