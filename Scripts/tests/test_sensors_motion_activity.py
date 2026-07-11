@@ -84,7 +84,7 @@ class SensorsMotionActivityTests(unittest.TestCase):
 			/ "Public"
 			/ "OpenMobileSensors.h"
 		).read_text(encoding="utf-8")
-		self.assertIn("InterfaceVersion = 1", spi)
+		self.assertIn("InterfaceVersion = 2", spi)
 		self.assertIn("IOpenMobileMotionActivityProvider.h", umbrella)
 
 

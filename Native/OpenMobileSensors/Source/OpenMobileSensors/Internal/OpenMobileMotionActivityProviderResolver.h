@@ -7,4 +7,5 @@ class FOpenMobileMotionActivityProviderResolver
 public:
 	static IOpenMobileMotionActivityProvider* FindProvider();
 	static FOpenMobileSensorCapability GetCapability();
+	static FOpenMobileSensorCapability GetTransitionCapability();
 };

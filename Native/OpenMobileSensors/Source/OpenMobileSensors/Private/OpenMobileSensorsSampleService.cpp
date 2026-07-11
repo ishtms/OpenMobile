@@ -5,6 +5,7 @@
 #include "Misc/ScopeLock.h"
 #include "Misc/ScopeRWLock.h"
 #include "OpenMobileActivitySampleFilter.h"
+#include "OpenMobileActivityTransitionTracker.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -216,6 +217,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileStepCountSessionTracker StepCountSessionTracker;
 		FOpenMobileStepDetectionTracker StepDetectionTracker;
 		FOpenMobileActivitySampleFilter ActivityFilter;
+		FOpenMobileActivityTransitionEventFilter ActivityTransitionFilter;
 		FOpenMobileSensorOrientationClassifier OrientationClassifier;
 		FOpenMobileSensorOrientationClassifierConfig OrientationConfig;
 		bool bHasSample = false;
@@ -283,6 +285,16 @@ namespace OpenMobileSensorsSampleServicePrivate
 	FOnOpenMobileProximitySensorBatchReady ProximityBatchEvent;
 	FOnOpenMobileSensorAccuracyChangedReady AccuracyChangedEvent;
 	FOnOpenMobileSensorCalibrationChangedReady CalibrationChangedEvent;
+	struct FBackendActivityTransitionTrackerState
+	{
+		uint64 BackendGeneration = 0;
+		FOpenMobileActivityTransitionTracker Tracker;
+	};
+	FCriticalSection ActivityTransitionTrackersMutex;
+	TMap<FGuid, FBackendActivityTransitionTrackerState>
+		BackendActivityTransitionTrackers;
+	FOpenMobileActivityTransitionTracker DirectActivityTransitionTracker;
+	bool bDirectActivityTransitionTrackerConfigured = false;
 
 	void EnsureEventTicker();
 
@@ -999,6 +1011,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileActivitySensorSample& Sample
 	)
 	{
+		if (Slot.Sensor.Type == EOpenMobileSensorType::ActivityTransition)
+		{
+			return Slot.ActivityTransitionFilter.Process(Sample);
+		}
 		return Slot.ActivityFilter.Process(Sample);
 	}
 
@@ -1015,6 +1031,28 @@ namespace OpenMobileSensorsSampleServicePrivate
 	{
 		static_cast<void>(Sample);
 		return false;
+	}
+
+	template <typename SampleType>
+	bool IsDistinctTransitionAtSameTimestamp(
+		const FLatestSlot& Slot,
+		const SampleType& Sample
+	)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+		return false;
+	}
+
+	bool IsDistinctTransitionAtSameTimestamp(
+		const FLatestSlot& Slot,
+		const FOpenMobileActivitySensorSample& Sample
+	)
+	{
+		return Slot.Sensor.Type == EOpenMobileSensorType::ActivityTransition
+			&& Sample.Transition != EOpenMobileActivityTransition::None
+			&& (Sample.Activity != Slot.Activity.Activity
+				|| Sample.Transition != Slot.Activity.Transition);
 	}
 
 	bool IsMagneticCalibrationSensor(EOpenMobileSensorType SensorType)
@@ -1379,6 +1417,22 @@ namespace OpenMobileSensorsSampleServicePrivate
 		return true;
 	}
 
+	bool PrepareSampleForSlot(
+		FLatestSlot& Slot,
+		FOpenMobileActivitySensorSample& Sample
+	)
+	{
+		if (Slot.Sensor.Type == EOpenMobileSensorType::ActivityTransition)
+		{
+			return Sample.Transition != EOpenMobileActivityTransition::None
+				&& (Sample.Header.Sensor.Type ==
+						EOpenMobileSensorType::MotionActivity
+					|| Sample.Header.Sensor.Type ==
+						EOpenMobileSensorType::ActivityTransition);
+		}
+		return Slot.Sensor == Sample.Header.Sensor;
+	}
+
 	template <typename SampleType>
 	void ApplyPostValidationTransforms(FLatestSlot& Slot, SampleType& Sample)
 	{
@@ -1469,7 +1523,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 		TArray<SampleType> FLatestSlot::* PendingMember,
 		TFixedSampleRingBuffer<SampleType> FLatestSlot::* BufferedMember,
 		uint64 RequiredBackendGeneration,
-		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream,
+		EOpenMobileSensorType RequiredLogicalSensorType =
+			EOpenMobileSensorType::Unknown
 	)
 	{
 		if (bShuttingDown.Load()
@@ -1491,6 +1547,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				FScopeLock SlotLock(&Slot.Mutex);
 				if (Slot.State != EOpenMobileSensorSubscriptionState::Active
 					|| Slot.ExpectedFamily != Family
+					|| (RequiredLogicalSensorType !=
+							EOpenMobileSensorType::Unknown
+						&& Slot.Sensor.Type != RequiredLogicalSensorType)
 					|| (RequiredBackendGeneration != 0
 						&& (Slot.BackendGeneration != RequiredBackendGeneration
 							|| !RequiredPhysicalStream
@@ -1516,9 +1575,18 @@ namespace OpenMobileSensorsSampleServicePrivate
 						);
 						continue;
 					}
+					const bool bDistinctTransitionAtSameTimestamp =
+						Slot.bHasSample
+						&& Sample.Header.TimestampSeconds ==
+							Slot.LatestTimestampSeconds
+						&& IsDistinctTransitionAtSameTimestamp(
+							Slot,
+							Sample
+						);
 					if (Slot.bHasSample
 						&& Sample.Header.TimestampSeconds <=
-							Slot.LatestTimestampSeconds)
+							Slot.LatestTimestampSeconds
+						&& !bDistinctTransitionAtSameTimestamp)
 					{
 						RecordTimestampIssue(
 							Slot,
@@ -1607,6 +1675,188 @@ namespace OpenMobileSensorsSampleServicePrivate
 			EnsureEventTicker();
 		}
 		return RequiredBackendGeneration == 0 || bMatchedStream;
+	}
+
+	bool HasMatchingActivityTransitionSubscription(
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
+	)
+	{
+		FReadScopeLock RegistryLock(SlotsLock);
+		for (const TPair<
+			FOpenMobileSensorSubscriptionHandle,
+			TUniquePtr<FLatestSlot>
+		>& Pair : Slots)
+		{
+			FLatestSlot& Slot = *Pair.Value;
+			FScopeLock SlotLock(&Slot.Mutex);
+			if (Slot.State == EOpenMobileSensorSubscriptionState::Active
+				&& Slot.Sensor.Type ==
+					EOpenMobileSensorType::ActivityTransition
+				&& Slot.PhysicalSensor.Type ==
+					EOpenMobileSensorType::MotionActivity
+				&& (RequiredBackendGeneration == 0
+					|| (RequiredPhysicalStream
+						&& Slot.BackendGeneration ==
+							RequiredBackendGeneration
+						&& Slot.PhysicalStreamHandle ==
+							*RequiredPhysicalStream)))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool BuildDerivedActivityTransitions(
+		const FOpenMobileActivitySensorSample* Samples,
+		int32 SampleCount,
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream,
+		FOpenMobileActivitySensorBatch& OutBatch
+	)
+	{
+		OutBatch.Samples.Reset();
+		if (!HasMatchingActivityTransitionSubscription(
+			RequiredBackendGeneration,
+			RequiredPhysicalStream
+		))
+		{
+			return false;
+		}
+		FScopeLock Lock(&ActivityTransitionTrackersMutex);
+		FOpenMobileActivityTransitionTracker* Tracker = nullptr;
+		if (RequiredBackendGeneration == 0)
+		{
+			if (!bDirectActivityTransitionTrackerConfigured)
+			{
+				DirectActivityTransitionTracker.Configure(0.25);
+				bDirectActivityTransitionTrackerConfigured = true;
+			}
+			Tracker = &DirectActivityTransitionTracker;
+		}
+		else if (RequiredPhysicalStream)
+		{
+			FBackendActivityTransitionTrackerState& State =
+				BackendActivityTransitionTrackers.FindOrAdd(
+					RequiredPhysicalStream->Identifier
+				);
+			if (State.BackendGeneration != RequiredBackendGeneration)
+			{
+				State.BackendGeneration = RequiredBackendGeneration;
+				State.Tracker.Configure(0.25);
+			}
+			Tracker = &State.Tracker;
+		}
+		if (!Tracker)
+		{
+			return false;
+		}
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			if (Samples[Index].Header.Sensor.Type !=
+				EOpenMobileSensorType::MotionActivity)
+			{
+				continue;
+			}
+			FOpenMobileActivitySensorBatch Derived;
+			if (Tracker->Process(Samples[Index], Derived))
+			{
+				OutBatch.Samples.Append(MoveTemp(Derived.Samples));
+			}
+		}
+		return !OutBatch.Samples.IsEmpty();
+	}
+
+	void ResetActivityTransitionTrackers()
+	{
+		FScopeLock Lock(&ActivityTransitionTrackersMutex);
+		BackendActivityTransitionTrackers.Reset();
+		DirectActivityTransitionTracker.Reset();
+		bDirectActivityTransitionTrackerConfigured = false;
+	}
+
+	bool PublishActivitySamples(
+		const FOpenMobileActivitySensorSample* Samples,
+		int32 SampleCount,
+		uint64 RequiredBackendGeneration,
+		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream
+	)
+	{
+		if (bShuttingDown.Load()
+			|| SampleCount < 0
+			|| SampleCount > 4096)
+		{
+			return false;
+		}
+		TArray<FOpenMobileActivitySensorSample> Classifications;
+		TArray<FOpenMobileActivitySensorSample> NativeTransitions;
+		Classifications.Reserve(SampleCount);
+		NativeTransitions.Reserve(SampleCount);
+		for (int32 Index = 0; Index < SampleCount; ++Index)
+		{
+			if (Samples[Index].Header.Sensor.Type ==
+				EOpenMobileSensorType::MotionActivity)
+			{
+				Classifications.Add(Samples[Index]);
+			}
+			else if (Samples[Index].Header.Sensor.Type ==
+				EOpenMobileSensorType::ActivityTransition)
+			{
+				NativeTransitions.Add(Samples[Index]);
+			}
+		}
+		bool bPublished = false;
+		if (!Classifications.IsEmpty())
+		{
+			bPublished |= PublishSamples(
+				Classifications.GetData(),
+				Classifications.Num(),
+				ELatestSampleFamily::Activity,
+				&FLatestSlot::Activity,
+				&FLatestSlot::PendingActivity,
+				&FLatestSlot::BufferedActivity,
+				RequiredBackendGeneration,
+				RequiredPhysicalStream,
+				EOpenMobileSensorType::MotionActivity
+			);
+			FOpenMobileActivitySensorBatch Derived;
+			if (BuildDerivedActivityTransitions(
+				Classifications.GetData(),
+				Classifications.Num(),
+				RequiredBackendGeneration,
+				RequiredPhysicalStream,
+				Derived
+			))
+			{
+				bPublished |= PublishSamples(
+					Derived.Samples.GetData(),
+					Derived.Samples.Num(),
+					ELatestSampleFamily::Activity,
+					&FLatestSlot::Activity,
+					&FLatestSlot::PendingActivity,
+					&FLatestSlot::BufferedActivity,
+					RequiredBackendGeneration,
+					RequiredPhysicalStream,
+					EOpenMobileSensorType::ActivityTransition
+				);
+			}
+		}
+		if (!NativeTransitions.IsEmpty())
+		{
+			bPublished |= PublishSamples(
+				NativeTransitions.GetData(),
+				NativeTransitions.Num(),
+				ELatestSampleFamily::Activity,
+				&FLatestSlot::Activity,
+				&FLatestSlot::PendingActivity,
+				&FLatestSlot::BufferedActivity,
+				RequiredBackendGeneration,
+				RequiredPhysicalStream,
+				EOpenMobileSensorType::ActivityTransition
+			);
+		}
+		return bPublished;
 	}
 
 	bool PublishDerivedOrientationSamples(
@@ -2493,6 +2743,7 @@ void FOpenMobileSensorsSampleService::Start()
 	OpenMobileSensorsSampleServicePrivate::bShuttingDown.Store(false);
 	OpenMobileSensorsSampleServicePrivate::CancelEventTicker();
 	UnregisterAll();
+	OpenMobileSensorsSampleServicePrivate::ResetActivityTransitionTrackers();
 }
 
 void FOpenMobileSensorsSampleService::BeginShutdown()
@@ -2501,6 +2752,7 @@ void FOpenMobileSensorsSampleService::BeginShutdown()
 	bShuttingDown.Store(true);
 	CancelEventTicker();
 	UnregisterAll();
+	ResetActivityTransitionTrackers();
 	VectorBatchEvent.Clear();
 	AttitudeBatchEvent.Clear();
 	ScalarBatchEvent.Clear();
@@ -2561,6 +2813,9 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	ActivityConfig.MinimumStableDurationSeconds =
 		Options.MinimumActivityStableDurationSeconds;
 	Slot->ActivityFilter.Configure(ActivityConfig);
+	Slot->ActivityTransitionFilter.Configure(
+		Options.MinimumActivityConfidence
+	);
 	Slot->bResettableStepCountSession = bResettableStepCountSession;
 	if (Sensor.Type == EOpenMobileSensorType::StepDetector)
 	{
@@ -2732,6 +2987,9 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 	ActivityConfig.MinimumStableDurationSeconds =
 		Options.MinimumActivityStableDurationSeconds;
 	(*SlotPointer)->ActivityFilter.Configure(ActivityConfig);
+	(*SlotPointer)->ActivityTransitionFilter.Configure(
+		Options.MinimumActivityConfidence
+	);
 	if (bReferenceFrameChanged)
 	{
 		(*SlotPointer)->Recenter = {};
@@ -3139,14 +3397,6 @@ OPENMOBILE_IMPLEMENT_PUBLISH(
 	BufferedSteps
 )
 OPENMOBILE_IMPLEMENT_PUBLISH(
-	PublishActivity,
-	FOpenMobileActivitySensorSample,
-	Activity,
-	Activity,
-	PendingActivity,
-	BufferedActivity
-)
-OPENMOBILE_IMPLEMENT_PUBLISH(
 	PublishOrientation,
 	FOpenMobileOrientationSensorSample,
 	Orientation,
@@ -3164,6 +3414,18 @@ OPENMOBILE_IMPLEMENT_PUBLISH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH
+
+void FOpenMobileSensorsSampleService::PublishActivity(
+	const FOpenMobileActivitySensorSample& Sample
+)
+{
+	OpenMobileSensorsSampleServicePrivate::PublishActivitySamples(
+		&Sample,
+		1,
+		0,
+		nullptr
+	);
+}
 
 void FOpenMobileSensorsSampleService::PublishVector(
 	const FOpenMobileVectorSensorSample& Sample
@@ -3251,15 +3513,6 @@ OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 	BufferedSteps
 )
 OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
-	PublishActivityBatch,
-	FOpenMobileActivitySensorBatch,
-	FOpenMobileActivitySensorSample,
-	Activity,
-	Activity,
-	PendingActivity,
-	BufferedActivity
-)
-OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 	PublishOrientationBatch,
 	FOpenMobileOrientationSensorBatch,
 	FOpenMobileOrientationSensorSample,
@@ -3279,6 +3532,18 @@ OPENMOBILE_IMPLEMENT_PUBLISH_BATCH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_PUBLISH_BATCH
+
+bool FOpenMobileSensorsSampleService::PublishActivityBatch(
+	const FOpenMobileActivitySensorBatch& Batch
+)
+{
+	return OpenMobileSensorsSampleServicePrivate::PublishActivitySamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		0,
+		nullptr
+	);
+}
 
 bool FOpenMobileSensorsSampleService::PublishVectorBatch(
 	const FOpenMobileVectorSensorBatch& Batch
@@ -3370,15 +3635,6 @@ OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 	BufferedSteps
 )
 OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
-	PublishActivityBatchFromBackend,
-	FOpenMobileActivitySensorBatch,
-	FOpenMobileActivitySensorSample,
-	Activity,
-	Activity,
-	PendingActivity,
-	BufferedActivity
-)
-OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 	PublishOrientationBatchFromBackend,
 	FOpenMobileOrientationSensorBatch,
 	FOpenMobileOrientationSensorSample,
@@ -3398,6 +3654,25 @@ OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH(
 )
 
 #undef OPENMOBILE_IMPLEMENT_BACKEND_PUBLISH_BATCH
+
+bool FOpenMobileSensorsSampleService::PublishActivityBatchFromBackend(
+	const FOpenMobileSensorsBackendToken& Token,
+	const FOpenMobileSensorBackendStreamHandle& PhysicalStreamHandle,
+	const FOpenMobileActivitySensorBatch& Batch
+)
+{
+	if (!FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token)
+		|| !PhysicalStreamHandle.IsValid())
+	{
+		return false;
+	}
+	return OpenMobileSensorsSampleServicePrivate::PublishActivitySamples(
+		Batch.Samples.GetData(),
+		Batch.Samples.Num(),
+		Token.Generation,
+		&PhysicalStreamHandle
+	);
+}
 
 bool FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
 	const FOpenMobileSensorsBackendToken& Token,
@@ -3679,6 +3954,7 @@ void FOpenMobileSensorsSampleService::ResetForTests()
 	bShuttingDown.Store(false);
 	CancelEventTicker();
 	UnregisterAll();
+	ResetActivityTransitionTrackers();
 	VectorBatchEvent.Clear();
 	AttitudeBatchEvent.Clear();
 	ScalarBatchEvent.Clear();

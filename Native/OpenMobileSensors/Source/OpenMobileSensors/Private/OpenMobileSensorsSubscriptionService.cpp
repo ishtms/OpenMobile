@@ -657,7 +657,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::StepCounter
 			|| LogicalSensor.Type == EOpenMobileSensorType::StepDetector
-			|| LogicalSensor.Type == EOpenMobileSensorType::MotionActivity)
+			|| LogicalSensor.Type == EOpenMobileSensorType::MotionActivity
+			|| LogicalSensor.Type == EOpenMobileSensorType::ActivityTransition)
 		{
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
 				FOpenMobileSensorsCapabilityService::GetSnapshot();
@@ -674,6 +675,35 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 									LogicalSensor.InstanceId);
 					}
 				);
+			if (LogicalSensor.Type ==
+					EOpenMobileSensorType::ActivityTransition
+				&& DirectCapability
+				&& DirectCapability->Availability.State ==
+					EOpenMobileCapabilityState::Available
+				&& DirectCapability->Source ==
+					EOpenMobileSensorAvailabilitySource::Derived)
+			{
+				if (!Options.bAllowDerivedFallback)
+				{
+					return false;
+				}
+				const FOpenMobileSensorCapability* Activity =
+					Snapshot.Sensors.FindByPredicate(
+						[](const FOpenMobileSensorCapability& Capability)
+						{
+							return Capability.Sensor.Type ==
+								EOpenMobileSensorType::MotionActivity
+								&& Capability.Availability.State ==
+									EOpenMobileCapabilityState::Available;
+						}
+					);
+				if (!Activity)
+				{
+					return false;
+				}
+				OutPhysicalSensor = Activity->Sensor;
+				return true;
+			}
 			if (DirectCapability
 				&& DirectCapability->Availability.State ==
 					EOpenMobileCapabilityState::Available

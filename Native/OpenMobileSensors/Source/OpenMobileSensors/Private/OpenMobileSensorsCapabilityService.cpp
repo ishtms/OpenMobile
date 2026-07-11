@@ -485,6 +485,76 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		RelativeAltitude->BackgroundSupport = Pressure->BackgroundSupport;
 	}
 
+	void ApplyActivityTransitionFallback(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot
+	)
+	{
+		FOpenMobileSensorCapability* Transition =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::ActivityTransition;
+				}
+			);
+		const FOpenMobileSensorCapability* Activity =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::MotionActivity;
+				}
+			);
+		if (!Transition)
+		{
+			return;
+		}
+		Transition->Fallback.bImplemented = true;
+		Transition->Fallback.RequiredInputs = {
+			EOpenMobileSensorType::MotionActivity
+		};
+		Transition->Fallback.ExpectedQuality =
+			EOpenMobileSensorFusionQuality::Nominal;
+		Transition->Fallback.PowerCost =
+			EOpenMobileSensorFallbackPowerCost::Low;
+		Transition->Fallback.CpuBudgetMicrosecondsPerSample = 20.0;
+		Transition->Fallback.UnsupportedConditionFlags =
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					PermissionUnavailable
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::
+					LifecycleUnavailable
+			);
+		const bool bActivityAvailable = Activity
+			&& Activity->Availability.State ==
+				EOpenMobileCapabilityState::Available;
+		Transition->Fallback.bAvailable = bActivityAvailable;
+		const bool bDirectAvailable = Transition->Availability.State ==
+				EOpenMobileCapabilityState::Available
+			&& Transition->Source !=
+				EOpenMobileSensorAvailabilitySource::Derived;
+		if (bDirectAvailable || !bActivityAvailable)
+		{
+			return;
+		}
+		Transition->Availability.State =
+			EOpenMobileCapabilityState::Available;
+		Transition->Availability.Detail =
+			TEXT("Activity transitions are derived from debounced classification changes.");
+		Transition->Source = EOpenMobileSensorAvailabilitySource::Derived;
+		Transition->ActiveRestriction = EOpenMobileSensorRestriction::None;
+		Transition->RequiredPermission = Activity->RequiredPermission;
+		Transition->MinimumFrequencyHz = Activity->MinimumFrequencyHz;
+		Transition->MaximumFrequencyHz = Activity->MaximumFrequencyHz;
+		Transition->bSupportsNativeBatching = false;
+		Transition->BackgroundSupport = Activity->BackgroundSupport;
+	}
+
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
 	{
 		RefreshBackendBase();
@@ -542,6 +612,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		);
 		ApplyTrueHeadingFallback(Snapshot);
 		ApplyRelativeAltitudeFallback(Snapshot);
+		ApplyActivityTransitionFallback(Snapshot);
 		if (FOpenMobileSensorCapability* TrueHeading =
 			Snapshot.Sensors.FindByPredicate(
 				[](const FOpenMobileSensorCapability& Capability)

@@ -2179,6 +2179,7 @@ private:
 				Active.bResetNextSample
 			);
 			FOpenMobileMotionActivityClassifier::Classify(Native, Sample);
+			Sample.ActivityProvider = TEXT("CoreMotion");
 			FOpenMobileActivitySensorBatch Batch;
 			Batch.Samples.Reserve(MaximumCallbackBatchSamples);
 			Batch.Samples.Add(MoveTemp(Sample));

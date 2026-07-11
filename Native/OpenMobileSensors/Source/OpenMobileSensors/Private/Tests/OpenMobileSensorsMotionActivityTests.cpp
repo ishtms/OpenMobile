@@ -18,10 +18,12 @@ namespace OpenMobileSensorsMotionActivityTestsPrivate
 	public:
 		FProvider(
 			FName InName = TEXT("TestActivityProvider"),
-			uint32 InVersion = InterfaceVersion
+			uint32 InVersion = InterfaceVersion,
+			bool bInNativeTransitions = false
 		)
 			: Name(InName)
 			, Version(InVersion)
+			, bNativeTransitions(bInNativeTransitions)
 		{
 		}
 
@@ -44,6 +46,21 @@ namespace OpenMobileSensorsMotionActivityTestsPrivate
 			Capability.Availability.State =
 				EOpenMobileCapabilityState::Available;
 			Capability.Source = EOpenMobileSensorAvailabilitySource::Derived;
+			return Capability;
+		}
+
+		virtual FOpenMobileSensorCapability
+		GetTransitionCapability() const override
+		{
+			FOpenMobileSensorCapability Capability;
+			Capability.Sensor.Type =
+				EOpenMobileSensorType::ActivityTransition;
+			Capability.Sensor.InstanceId = TEXT("Default");
+			Capability.Availability.Name = TEXT("ActivityTransition");
+			Capability.Availability.State = bNativeTransitions
+				? EOpenMobileCapabilityState::Available
+				: EOpenMobileCapabilityState::NotSupported;
+			Capability.Source = EOpenMobileSensorAvailabilitySource::Native;
 			return Capability;
 		}
 
@@ -79,6 +96,7 @@ namespace OpenMobileSensorsMotionActivityTestsPrivate
 	private:
 		FName Name;
 		uint32 Version = InterfaceVersion;
+		bool bNativeTransitions = false;
 	};
 
 	FOpenMobileSensorCapability MakeCapability(
@@ -218,14 +236,14 @@ bool FOpenMobileSensorsMotionActivityProviderTest::RunTest(
 {
 	static_cast<void>(Parameters);
 	using namespace OpenMobileSensorsMotionActivityTestsPrivate;
-	TestEqual(TEXT("The activity provider SPI is version one"),
-		IOpenMobileMotionActivityProvider::InterfaceVersion, 1u);
+	TestEqual(TEXT("The activity provider SPI is version two"),
+		IOpenMobileMotionActivityProvider::InterfaceVersion, 2u);
 	const FOpenMobileSensorCapability Missing =
 		FOpenMobileMotionActivityProviderResolver::GetCapability();
 	TestEqual(TEXT("No Android provider is reported as unsupported"),
 		Missing.Availability.State,
 		EOpenMobileCapabilityState::NotSupported);
-	FProvider Incompatible(TEXT("IncompatibleProvider"), 2);
+	FProvider Incompatible(TEXT("IncompatibleProvider"), 1);
 	IModularFeatures::Get().RegisterModularFeature(
 		IOpenMobileMotionActivityProvider::GetModularFeatureName(),
 		&Incompatible
@@ -264,6 +282,27 @@ bool FOpenMobileSensorsMotionActivityProviderTest::RunTest(
 	);
 	TestNull(TEXT("Provider unload removes the implementation"),
 		FOpenMobileMotionActivityProviderResolver::FindProvider());
+	TestEqual(TEXT("No provider means no native transitions"),
+		FOpenMobileMotionActivityProviderResolver::GetTransitionCapability()
+			.Availability.State,
+		EOpenMobileCapabilityState::NotSupported);
+	FProvider TransitionProvider(
+		TEXT("TransitionProvider"),
+		IOpenMobileMotionActivityProvider::InterfaceVersion,
+		true
+	);
+	IModularFeatures::Get().RegisterModularFeature(
+		IOpenMobileMotionActivityProvider::GetModularFeatureName(),
+		&TransitionProvider
+	);
+	TestEqual(TEXT("A provider can advertise native transitions"),
+		FOpenMobileMotionActivityProviderResolver::GetTransitionCapability()
+			.Availability.State,
+		EOpenMobileCapabilityState::Available);
+	IModularFeatures::Get().UnregisterModularFeature(
+		IOpenMobileMotionActivityProvider::GetModularFeatureName(),
+		&TransitionProvider
+	);
 	return true;
 }
 

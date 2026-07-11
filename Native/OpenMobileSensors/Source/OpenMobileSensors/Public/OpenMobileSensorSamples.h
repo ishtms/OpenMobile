@@ -448,6 +448,14 @@ enum class EOpenMobileActivityTransition : uint8
 	Stopped
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileActivityTransitionOrigin : uint8
+{
+	Unknown,
+	Native,
+	Derived
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileActivitySensorSample
 {
@@ -466,6 +474,13 @@ struct OPENMOBILESENSORS_API FOpenMobileActivitySensorSample
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileActivityTransition Transition =
 		EOpenMobileActivityTransition::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileActivityTransitionOrigin TransitionOrigin =
+		EOpenMobileActivityTransitionOrigin::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FName ActivityProvider;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<EOpenMobileMotionActivity> ConcurrentActivities;

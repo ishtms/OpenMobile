@@ -25,6 +25,7 @@ struct OPENMOBILESENSORS_API FOpenMobileMotionActivityProviderStreamHandle
 
 struct OPENMOBILESENSORS_API FOpenMobileMotionActivityProviderRequest
 {
+	FOpenMobileSensorIdentifier Sensor;
 	double RequestedFrequencyHz = 1.0;
 	double MaximumDeliveryLatencySeconds = 0.0;
 	bool bLowLatency = false;
@@ -49,12 +50,13 @@ class OPENMOBILESENSORS_API IOpenMobileMotionActivityProvider
 	: public IModularFeature
 {
 public:
-	static constexpr uint32 InterfaceVersion = 1;
+	static constexpr uint32 InterfaceVersion = 2;
 	static FName GetModularFeatureName();
 
 	virtual uint32 GetInterfaceVersion() const = 0;
 	virtual FName GetProviderName() const = 0;
 	virtual FOpenMobileSensorCapability GetCapability() const = 0;
+	virtual FOpenMobileSensorCapability GetTransitionCapability() const;
 	virtual FOpenMobileSensorOperationResult StartStream(
 		const FOpenMobileMotionActivityProviderStreamHandle& Handle,
 		const FOpenMobileMotionActivityProviderRequest& Request,

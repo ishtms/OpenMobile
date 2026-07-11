@@ -413,7 +413,9 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 	if (!QuerySensorDescriptors(Descriptors))
 	{
 		return {
-			FOpenMobileMotionActivityProviderResolver::GetCapability()
+			FOpenMobileMotionActivityProviderResolver::GetCapability(),
+			FOpenMobileMotionActivityProviderResolver::
+				GetTransitionCapability()
 		};
 	}
 	TMap<EOpenMobileSensorType, FOpenMobileSensorsAndroidSensorDescriptor>
@@ -436,7 +438,7 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 		}
 	}
 	TArray<FOpenMobileSensorCapability> Capabilities;
-	Capabilities.Reserve(Preferred.Num() + 1);
+	Capabilities.Reserve(Preferred.Num() + 2);
 	for (const TPair<EOpenMobileSensorType,
 		FOpenMobileSensorsAndroidSensorDescriptor>& Pair : Preferred)
 	{
@@ -482,6 +484,9 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 	}
 	Capabilities.Add(
 		FOpenMobileMotionActivityProviderResolver::GetCapability()
+	);
+	Capabilities.Add(
+		FOpenMobileMotionActivityProviderResolver::GetTransitionCapability()
 	);
 	Capabilities.Sort(
 		[](const FOpenMobileSensorCapability& Left,
@@ -644,20 +649,48 @@ FOpenMobileSensorsAndroidBackend::StartMotionActivityProviderStream(
 	FOpenMobileMotionActivityProviderStreamHandle ProviderHandle;
 	ProviderHandle.Identifier = Handle.Identifier;
 	FOpenMobileMotionActivityProviderRequest ProviderRequest;
+	ProviderRequest.Sensor = InOutRequest.Sensor;
 	ProviderRequest.RequestedFrequencyHz = InOutRequest.RequestedFrequencyHz;
 	ProviderRequest.MaximumDeliveryLatencySeconds =
 		InOutRequest.MaximumDeliveryLatencySeconds;
 	ProviderRequest.bLowLatency = InOutRequest.bLowLatency;
 	const FOpenMobileSensorsBackendToken Token =
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FName ProviderName = Provider->GetProviderName();
+	const FOpenMobileSensorIdentifier RequestedSensor = InOutRequest.Sensor;
 	FOpenMobileMotionActivityProviderCallbacks Callbacks;
 	Callbacks.OnBatch = FOnOpenMobileMotionActivityProviderBatch::CreateLambda(
-		[Token, Handle](const FOpenMobileActivitySensorBatch& Batch)
+		[Token, Handle, ProviderName, RequestedSensor](
+			const FOpenMobileActivitySensorBatch& Batch
+		)
 		{
-			FOpenMobileActivitySensorBatch NormalizedBatch = Batch;
-			for (FOpenMobileActivitySensorSample& Sample
-				: NormalizedBatch.Samples)
+			FOpenMobileActivitySensorBatch NormalizedBatch;
+			NormalizedBatch.Samples.Reserve(Batch.Samples.Num());
+			for (FOpenMobileActivitySensorSample Sample : Batch.Samples)
 			{
+				if (Sample.Header.Sensor.Type != RequestedSensor.Type)
+				{
+					continue;
+				}
+				if (Sample.ActivityProvider.IsNone())
+				{
+					Sample.ActivityProvider = ProviderName;
+				}
+				if (RequestedSensor.Type ==
+						EOpenMobileSensorType::ActivityTransition)
+				{
+					if (Sample.Transition ==
+						EOpenMobileActivityTransition::None)
+					{
+						continue;
+					}
+					if (Sample.TransitionOrigin ==
+						EOpenMobileActivityTransitionOrigin::Unknown)
+					{
+						Sample.TransitionOrigin =
+							EOpenMobileActivityTransitionOrigin::Native;
+					}
+				}
 				if (Sample.Header.SourceFlags == 0)
 				{
 					Sample.Header.SourceFlags = static_cast<int32>(
@@ -668,6 +701,7 @@ FOpenMobileSensorsAndroidBackend::StartMotionActivityProviderStream(
 					EOpenMobileSensorNativePlatform::Android,
 					Sample
 				);
+				NormalizedBatch.Samples.Add(MoveTemp(Sample));
 			}
 			FOpenMobileSensorsSampleService::PublishActivityBatchFromBackend(
 				Token,
@@ -751,6 +785,7 @@ FOpenMobileSensorsAndroidBackend::ReconfigureMotionActivityProviderStream(
 		Active = *Found;
 	}
 	FOpenMobileMotionActivityProviderRequest ProviderRequest;
+	ProviderRequest.Sensor = InOutRequest.Sensor;
 	ProviderRequest.RequestedFrequencyHz = InOutRequest.RequestedFrequencyHz;
 	ProviderRequest.MaximumDeliveryLatencySeconds =
 		InOutRequest.MaximumDeliveryLatencySeconds;
@@ -862,7 +897,9 @@ FOpenMobileSensorsAndroidBackend::StartSensorStream(
 			EOpenMobileSensorsAndroidBridgeFailure::ShuttingDown
 		);
 	}
-	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity)
+	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity
+		|| InOutRequest.Sensor.Type ==
+			EOpenMobileSensorType::ActivityTransition)
 	{
 		return StartMotionActivityProviderStream(Handle, InOutRequest);
 	}
@@ -943,7 +980,9 @@ FOpenMobileSensorsAndroidBackend::ReconfigureSensorStream(
 	FOpenMobileSensorPhysicalStreamRequest& InOutRequest
 )
 {
-	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity)
+	if (InOutRequest.Sensor.Type == EOpenMobileSensorType::MotionActivity
+		|| InOutRequest.Sensor.Type ==
+			EOpenMobileSensorType::ActivityTransition)
 	{
 		return ReconfigureMotionActivityProviderStream(Handle, InOutRequest);
 	}
