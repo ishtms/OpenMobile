@@ -327,6 +327,41 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.ActivityFilter.Reset();
 	}
 
+	double GetLongGapSeconds(const FLatestSlot& Slot)
+	{
+		return FMath::Max(
+			5.0,
+			Slot.AppliedSampleFrequencyHz > 0.0
+				? 10.0 / Slot.AppliedSampleFrequencyHz
+				: 5.0
+		);
+	}
+
+	template <typename SampleType>
+	void ApplyLongGapReset(FLatestSlot& Slot, SampleType& Sample)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+	}
+
+	void ApplyLongGapReset(
+		FLatestSlot& Slot,
+		FOpenMobileVectorSensorSample& Sample
+	)
+	{
+		if (!Slot.bHasSample
+			|| Sample.Header.TimestampSeconds - Slot.LatestTimestampSeconds <=
+				GetLongGapSeconds(Slot))
+		{
+			return;
+		}
+		ResetRateStatistics(Slot);
+		ResetGyroscopeDriftStatistics(Slot);
+		Slot.VectorFilter.Reset();
+		ResetDerivedEstimators(Slot);
+		Sample.Header.bStatefulProcessingReset = true;
+	}
+
 	template <typename SampleType>
 	void UpdateGyroscopeDriftStatistics(
 		FLatestSlot& Slot,
@@ -346,16 +381,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			return;
 		}
-		const double LongGapSeconds = FMath::Max(
-			5.0,
-			Slot.AppliedSampleFrequencyHz > 0.0
-				? 10.0 / Slot.AppliedSampleFrequencyHz
-				: 5.0
-		);
 		if (Sample.Header.bStatefulProcessingReset
 			|| (Slot.GyroscopeSampleCount > 0
 				&& Sample.Header.TimestampSeconds -
-					Slot.LastGyroscopeTimestampSeconds > LongGapSeconds))
+					Slot.LastGyroscopeTimestampSeconds >
+						GetLongGapSeconds(Slot)))
 		{
 			ResetGyroscopeDriftStatistics(Slot);
 		}
@@ -401,13 +431,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			ResetRateStatistics(Slot);
 			return;
 		}
-		const double LongGapSeconds = FMath::Max(
-			5.0,
-			Slot.AppliedSampleFrequencyHz > 0.0
-				? 10.0 / Slot.AppliedSampleFrequencyHz
-				: 5.0
-		);
-		if (IntervalSeconds > LongGapSeconds)
+		if (IntervalSeconds > GetLongGapSeconds(Slot))
 		{
 			ResetRateStatistics(Slot);
 			Slot.LastRateTimestampSeconds = TimestampSeconds;
@@ -1597,6 +1621,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						);
 						continue;
 					}
+					ApplyLongGapReset(Slot, Sample);
 					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
 					if (!PrepareSampleForSlot(Slot, Sample))
 					{
@@ -3252,6 +3277,7 @@ bool FOpenMobileSensorsSampleService::RecenterAttitude(
 	Slot.bHasSample = false;
 	Slot.Family = ELatestSampleFamily::None;
 	Slot.LatestTimestampSeconds = 0.0;
+	Slot.VectorFilter.Reset();
 	Slot.bPendingStatefulProcessingReset = true;
 	ClearPendingEvents(Slot);
 	ClearBufferedStorage(Slot);

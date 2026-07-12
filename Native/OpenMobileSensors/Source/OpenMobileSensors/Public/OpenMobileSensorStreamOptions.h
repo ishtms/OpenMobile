@@ -111,7 +111,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFilterOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	bool bEnableLowPass = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
 	double LowPassTimeConstantSeconds = 0.1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")

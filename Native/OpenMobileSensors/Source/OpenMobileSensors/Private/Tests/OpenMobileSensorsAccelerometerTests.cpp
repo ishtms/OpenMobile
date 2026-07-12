@@ -42,7 +42,9 @@ namespace OpenMobileSensorsAccelerometerTestsPrivate
 
 	FOpenMobileVectorSensorSample MakeSample(
 		double TimestampSeconds,
-		double Value
+		double Value,
+		EOpenMobileSensorSourceFlags Source =
+			EOpenMobileSensorSourceFlags::CalibratedNative
 	)
 	{
 		FOpenMobileVectorSensorSample Sample;
@@ -50,7 +52,7 @@ namespace OpenMobileSensorsAccelerometerTestsPrivate
 		Sample.Header.TimestampSeconds = TimestampSeconds;
 		Sample.Header.bValid = true;
 		Sample.Header.SourceFlags = static_cast<int32>(
-			EOpenMobileSensorSourceFlags::CalibratedNative
+			Source
 		);
 		Sample.Value = FVector(Value, 0.0, 0.0);
 		return Sample;
@@ -129,6 +131,12 @@ bool FOpenMobileSensorsAccelerometerLowPassTest::RunTest(
 		Filter.Apply(Options, Sample));
 	TestEqual(TEXT("One-second input uses a one-half low-pass alpha"),
 		Sample.Value, FVector(5.0, 0.0, 0.0));
+	Sample.Header.TimestampSeconds = 1.5;
+	Sample.Value = FVector(10.0, 0.0, 0.0);
+	TestTrue(TEXT("A variable sample interval remains valid"),
+		Filter.Apply(Options, Sample));
+	TestTrue(TEXT("The variable interval uses elapsed time"),
+		FMath::IsNearlyEqual(Sample.Value.X, 20.0 / 3.0, 1e-9));
 	Sample.Header.TimestampSeconds = 2.0;
 	Sample.Header.bStatefulProcessingReset = true;
 	Sample.Value = FVector(10.0, 0.0, 0.0);
@@ -136,6 +144,26 @@ bool FOpenMobileSensorsAccelerometerLowPassTest::RunTest(
 		Filter.Apply(Options, Sample));
 	TestEqual(TEXT("Reset does not blend across a discontinuity"),
 		Sample.Value, FVector(10.0, 0.0, 0.0));
+	Sample.Header.TimestampSeconds = 2.5;
+	Sample.Header.bValid = false;
+	TestFalse(TEXT("Invalid input is rejected"),
+		Filter.Apply(Options, Sample));
+	Sample.Header.TimestampSeconds = 3.0;
+	Sample.Header.bValid = true;
+	Sample.Header.bStatefulProcessingReset = false;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	TestTrue(TEXT("Valid input after invalid data is accepted"),
+		Filter.Apply(Options, Sample));
+	TestEqual(TEXT("Invalid input clears prior low-pass state"),
+		Sample.Value, FVector(4.0, 0.0, 0.0));
+	Options = {};
+	Sample.Header.TimestampSeconds = 4.0;
+	Sample.Header.bStatefulProcessingReset = false;
+	Sample.Value = FVector(-7.0, 2.0, 4.0);
+	TestTrue(TEXT("Disabled filtering accepts valid input"),
+		Filter.Apply(Options, Sample));
+	TestEqual(TEXT("Disabled filtering is an identity"),
+		Sample.Value, FVector(-7.0, 2.0, 4.0));
 	return true;
 }
 
@@ -238,6 +266,57 @@ bool FOpenMobileSensorsAccelerometerPerSubscriptionFilterTest::RunTest(
 		FilteredSample.Header.SourceFlags,
 		static_cast<int32>(
 			EOpenMobileSensorSourceFlags::CalibratedNative));
+	FOpenMobileSensorsSampleService::PublishVector(MakeSample(20.0, 20.0));
+	TestTrue(TEXT("The filtered subscription accepts after a long gap"),
+		FOpenMobileSensorsSampleService::ReadLatestVector(
+			FilteredOwner,
+			Filtered.Handle,
+			0,
+			20.0,
+			Read,
+			FilteredSample));
+	TestEqual(TEXT("A long gap starts a fresh low-pass state"),
+		FilteredSample.Value, FVector(20.0, 0.0, 0.0));
+	TestTrue(TEXT("The long-gap reset is observable"),
+		FilteredSample.Header.bStatefulProcessingReset);
+	FOpenMobileSensorsSampleService::SetSubscriptionState(
+		Filtered.Handle,
+		EOpenMobileSensorSubscriptionState::Paused
+	);
+	FOpenMobileSensorsSampleService::SetSubscriptionState(
+		Filtered.Handle,
+		EOpenMobileSensorSubscriptionState::Active
+	);
+	FOpenMobileSensorsSampleService::PublishVector(MakeSample(21.0, 30.0));
+	TestTrue(TEXT("The resumed subscription has a sample"),
+		FOpenMobileSensorsSampleService::ReadLatestVector(
+			FilteredOwner,
+			Filtered.Handle,
+			0,
+			21.0,
+			Read,
+			FilteredSample
+		));
+	TestEqual(TEXT("Lifecycle resume starts a fresh low-pass state"),
+		FilteredSample.Value, FVector(30.0, 0.0, 0.0));
+	FOpenMobileSensorsSampleService::PublishVector(MakeSample(
+		22.0,
+		40.0,
+		EOpenMobileSensorSourceFlags::Raw
+	));
+	TestTrue(TEXT("The source-changed subscription has a sample"),
+		FOpenMobileSensorsSampleService::ReadLatestVector(
+			FilteredOwner,
+			Filtered.Handle,
+			0,
+			22.0,
+			Read,
+			FilteredSample
+		));
+	TestEqual(TEXT("A source change starts a fresh low-pass state"),
+		FilteredSample.Value, FVector(40.0, 0.0, 0.0));
+	TestTrue(TEXT("The source reset is observable"),
+		FilteredSample.Header.bStatefulProcessingReset);
 	FinishBackend(Backend);
 	return true;
 }
