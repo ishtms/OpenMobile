@@ -131,6 +131,27 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFilterOptions
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileShakeDetectionOptions
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.1", ClampMax = "1000.0", Units = "m/s^2"))
+	double StrengthThresholdMetresPerSecondSquared = 12.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 MinimumImpulses = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.01", ClampMax = "10.0", Units = "s"))
+	double DurationWindowSeconds = 0.5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "5.0", Units = "s"))
+	double QuietResetSeconds = 0.05;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "60.0", Units = "s"))
+	double CooldownSeconds = 1.0;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 {
 	GENERATED_BODY()
@@ -178,6 +199,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorFilterOptions Filters;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	FOpenMobileShakeDetectionOptions ShakeDetection;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorLifecyclePolicy LifecyclePolicy =

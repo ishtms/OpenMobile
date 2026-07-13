@@ -160,6 +160,34 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			&& Filters.DeadZone >= 0.0;
 	}
 
+	bool ValidateShakeDetectionOptions(
+		const FOpenMobileShakeDetectionOptions& Options
+	)
+	{
+		return IsFiniteInRange(
+				Options.StrengthThresholdMetresPerSecondSquared,
+				0.1,
+				1000.0
+			)
+			&& Options.MinimumImpulses >= 1
+			&& Options.MinimumImpulses <= 32
+			&& IsFiniteInRange(
+				Options.DurationWindowSeconds,
+				0.01,
+				10.0
+			)
+			&& IsFiniteInRange(
+				Options.QuietResetSeconds,
+				0.0,
+				5.0
+			)
+			&& IsFiniteInRange(
+				Options.CooldownSeconds,
+				0.0,
+				60.0
+			);
+	}
+
 	bool ResolvePreset(
 		const FOpenMobileSensorStreamOptions& Requested,
 		const UOpenMobileSensorsSettings& Settings,
@@ -407,6 +435,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				3600.0
 			)
 			|| !ValidateFilterOptions(Requested.Filters)
+			|| !ValidateShakeDetectionOptions(Requested.ShakeDetection)
 			|| Requested.AttitudeRepresentations == 0
 			|| (Requested.AttitudeRepresentations
 				& ~AllowedAttitudeRepresentations) != 0)
@@ -477,6 +506,77 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		OutPhysicalSensor = LogicalSensor;
 		OutFailureReason =
 			EOpenMobileSensorFailureReason::DerivedInputUnavailable;
+		if (LogicalSensor.Type == EOpenMobileSensorType::Shake)
+		{
+			if (!Options.bAllowDerivedFallback)
+			{
+				return false;
+			}
+			const FOpenMobileSensorCapabilitySnapshot Snapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			const FOpenMobileSensorCapability* Shake =
+				Snapshot.Sensors.FindByPredicate(
+					[](const FOpenMobileSensorCapability& Capability)
+					{
+						return Capability.Sensor.Type ==
+							EOpenMobileSensorType::Shake;
+					}
+				);
+			if (!Shake
+				|| Shake->Availability.State !=
+					EOpenMobileCapabilityState::Available
+				|| !Shake->Fallback.bAvailable
+				|| Shake->Fallback.RequiredInputs.Num() != 1)
+			{
+				if (Shake)
+				{
+					switch (Shake->Availability.State)
+					{
+					case EOpenMobileCapabilityState::PermissionRequired:
+						OutFailureReason = EOpenMobileSensorFailureReason::
+							PermissionRequired;
+						break;
+					case EOpenMobileCapabilityState::Denied:
+						OutFailureReason = EOpenMobileSensorFailureReason::
+							PermissionDenied;
+						break;
+					case EOpenMobileCapabilityState::Restricted:
+						OutFailureReason = EOpenMobileSensorFailureReason::
+							PermissionRestricted;
+						break;
+					case EOpenMobileCapabilityState::TemporarilyUnavailable:
+						OutFailureReason = EOpenMobileSensorFailureReason::
+							TemporarilyUnavailable;
+						break;
+					case EOpenMobileCapabilityState::Unavailable:
+						OutFailureReason =
+							EOpenMobileSensorFailureReason::MissingHardware;
+						break;
+					default:
+						break;
+					}
+				}
+				return false;
+			}
+			const EOpenMobileSensorType InputType =
+				Shake->Fallback.RequiredInputs[0];
+			const FOpenMobileSensorCapability* Input =
+				Snapshot.Sensors.FindByPredicate(
+					[InputType](const FOpenMobileSensorCapability& Capability)
+					{
+						return Capability.Sensor.Type == InputType
+							&& Capability.Availability.State ==
+								EOpenMobileCapabilityState::Available;
+					}
+				);
+			if (!Input)
+			{
+				return false;
+			}
+			OutPhysicalSensor = Input->Sensor;
+			OutFailureReason = EOpenMobileSensorFailureReason::None;
+			return true;
+		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::TrueHeading)
 		{
 			FOpenMobileSensorLocationInput LocationInput;

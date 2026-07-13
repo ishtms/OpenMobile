@@ -24,7 +24,8 @@ const TArray<EOpenMobileSensorType>& FOpenMobileSensorTypes::GetAll()
 		EOpenMobileSensorType::Pedometer,
 		EOpenMobileSensorType::MotionActivity,
 		EOpenMobileSensorType::ActivityTransition,
-		EOpenMobileSensorType::PhysicalOrientation
+		EOpenMobileSensorType::PhysicalOrientation,
+		EOpenMobileSensorType::Shake
 	};
 	return Types;
 }
@@ -77,6 +78,8 @@ FName FOpenMobileSensorTypes::GetStableName(EOpenMobileSensorType Type)
 		return TEXT("OpenMobile.Sensors.ActivityTransition");
 	case EOpenMobileSensorType::PhysicalOrientation:
 		return TEXT("OpenMobile.Sensors.PhysicalOrientation");
+	case EOpenMobileSensorType::Shake:
+		return TEXT("OpenMobile.Sensors.Shake");
 	case EOpenMobileSensorType::Unknown:
 	default:
 		return NAME_None;

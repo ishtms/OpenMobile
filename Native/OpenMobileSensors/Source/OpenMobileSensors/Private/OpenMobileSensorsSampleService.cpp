@@ -18,6 +18,7 @@
 #include "OpenMobileSensorFusionQuality.h"
 #include "OpenMobileSensorCoordinates.h"
 #include "OpenMobileSensorScreenRotationService.h"
+#include "OpenMobileSensorShakeDetector.h"
 #include "OpenMobileSensorSourcePolicy.h"
 #include "OpenMobileSensorValidity.h"
 #include "OpenMobileSensorVectorFilter.h"
@@ -214,6 +215,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
 		FOpenMobileSensorHeadingFilter HeadingFilter;
+		FOpenMobileSensorShakeDetector ShakeDetector;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
 		FOpenMobileSensorLinearAccelerationEstimator
 			LinearAccelerationEstimator;
@@ -330,6 +332,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.OrientationClassifier.Reset();
 		Slot.ActivityFilter.Reset();
 		Slot.HeadingFilter.Reset();
+		Slot.ShakeDetector.Reset();
 	}
 
 	double GetLongGapSeconds(const FLatestSlot& Slot)
@@ -507,6 +510,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		case EOpenMobileSensorType::MagnetometerUncalibrated:
 		case EOpenMobileSensorType::Gravity:
 		case EOpenMobileSensorType::LinearAcceleration:
+		case EOpenMobileSensorType::Shake:
 			return ELatestSampleFamily::Vector;
 		case EOpenMobileSensorType::Attitude:
 			return ELatestSampleFamily::Attitude;
@@ -1564,6 +1568,43 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileVectorSensorSample& Sample
 	)
 	{
+		if (Slot.Sensor.Type == EOpenMobileSensorType::Shake)
+		{
+			const FOpenMobileSensorIdentifier PhysicalSource =
+				Sample.Header.Sensor;
+			FOpenMobileVectorSensorSample Motion = Sample;
+			if (PhysicalSource.Type == EOpenMobileSensorType::Accelerometer)
+			{
+				FOpenMobileSensorIdentifier LinearAccelerationSensor;
+				LinearAccelerationSensor.Type =
+					EOpenMobileSensorType::LinearAcceleration;
+				LinearAccelerationSensor.InstanceId =
+					PhysicalSource.InstanceId;
+				if (!Slot.LinearAccelerationEstimator.Process(
+					Sample,
+					LinearAccelerationSensor,
+					Motion
+				))
+				{
+					Slot.ShakeDetector.Reset();
+					return false;
+				}
+			}
+			else if (PhysicalSource.Type !=
+				EOpenMobileSensorType::LinearAcceleration)
+			{
+				Slot.ShakeDetector.Reset();
+				return false;
+			}
+			FOpenMobileVectorSensorSample Event;
+			if (!Slot.ShakeDetector.Process(Motion, Event))
+			{
+				return false;
+			}
+			Event.ShakeEvent.SourceSensor = PhysicalSource;
+			Sample = MoveTemp(Event);
+			return true;
+		}
 		if (Slot.Sensor == Sample.Header.Sensor)
 		{
 			return true;
@@ -1609,6 +1650,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 		}
 		Sample = MoveTemp(Derived);
 		return true;
+	}
+
+	bool ShouldResetAfterPreparationRejection(const FLatestSlot& Slot)
+	{
+		return Slot.Sensor.Type != EOpenMobileSensorType::Shake;
 	}
 
 	template <typename SampleType>
@@ -1698,7 +1744,10 @@ namespace OpenMobileSensorsSampleServicePrivate
 					bQueuedEvent |= ApplyAccuracyState(Slot, Sample);
 					if (!PrepareSampleForSlot(Slot, Sample))
 					{
-						Slot.bPendingStatefulProcessingReset = true;
+						if (ShouldResetAfterPreparationRejection(Slot))
+						{
+							Slot.bPendingStatefulProcessingReset = true;
+						}
 						continue;
 					}
 					if (!ValidateSourceAndFusion(Sample))
@@ -2907,6 +2956,7 @@ void FOpenMobileSensorsSampleService::RegisterSubscription(
 	Slot->AttitudeReferenceFrame = Options.AttitudeReferenceFrame;
 	Slot->AttitudeRepresentations = Options.AttitudeRepresentations;
 	Slot->FilterOptions = Options.Filters;
+	Slot->ShakeDetector.Configure(Options.ShakeDetection);
 	FOpenMobileActivityFilterConfig ActivityConfig;
 	ActivityConfig.MinimumConfidence = Options.MinimumActivityConfidence;
 	ActivityConfig.MinimumStableDurationSeconds =
@@ -3081,6 +3131,7 @@ void FOpenMobileSensorsSampleService::UpdateSubscriptionOptions(
 		Options.AttitudeRepresentations;
 	(*SlotPointer)->FilterOptions = Options.Filters;
 	(*SlotPointer)->VectorFilter.Reset();
+	(*SlotPointer)->ShakeDetector.Configure(Options.ShakeDetection);
 	FOpenMobileActivityFilterConfig ActivityConfig;
 	ActivityConfig.MinimumConfidence = Options.MinimumActivityConfidence;
 	ActivityConfig.MinimumStableDurationSeconds =

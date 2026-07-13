@@ -95,15 +95,28 @@ bool FOpenMobileSensorsFullySupportedMatrixTest::RunTest(
 		TestEqual(TEXT("Fully supported sensor is available"),
 			Capability.Availability.State,
 			EOpenMobileCapabilityState::Available);
-		TestEqual(TEXT("Fully supported sensor is native"),
-			Capability.Source,
-			EOpenMobileSensorAvailabilitySource::Native);
+		if (Capability.Sensor.Type == EOpenMobileSensorType::Shake)
+		{
+			TestEqual(TEXT("Shake remains a derived logical event"),
+				Capability.Source,
+				EOpenMobileSensorAvailabilitySource::Derived);
+			TestTrue(TEXT("Shake fallback is available"),
+				Capability.Fallback.bAvailable);
+			TestFalse(TEXT("Shake does not claim native batching"),
+				Capability.bSupportsNativeBatching);
+		}
+		else
+		{
+			TestEqual(TEXT("Fully supported sensor is native"),
+				Capability.Source,
+				EOpenMobileSensorAvailabilitySource::Native);
+			TestTrue(TEXT("Native batching is reported"),
+				Capability.bSupportsNativeBatching);
+		}
 		TestTrue(TEXT("Supported rates are ordered"),
 			Capability.MinimumFrequencyHz > 0.0
 				&& Capability.MaximumFrequencyHz >=
 					Capability.MinimumFrequencyHz);
-		TestTrue(TEXT("Native batching is reported"),
-			Capability.bSupportsNativeBatching);
 		StableNames.Add(Capability.Availability.Name);
 	}
 	TestEqual(TEXT("Stable capability names are unique"),

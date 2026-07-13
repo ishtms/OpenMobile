@@ -555,6 +555,144 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		Transition->BackgroundSupport = Activity->BackgroundSupport;
 	}
 
+	void ApplyShakeFallback(FOpenMobileSensorCapabilitySnapshot& Snapshot)
+	{
+		FOpenMobileSensorCapability* Shake =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::Shake;
+				}
+			);
+		const FOpenMobileSensorCapability* LinearAcceleration =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::LinearAcceleration;
+				}
+			);
+		const FOpenMobileSensorCapability* Accelerometer =
+			Snapshot.Sensors.FindByPredicate(
+				[](const FOpenMobileSensorCapability& Capability)
+				{
+					return Capability.Sensor.Type ==
+						EOpenMobileSensorType::Accelerometer;
+				}
+			);
+		if (!Shake)
+		{
+			return;
+		}
+		constexpr double MinimumInputFrequencyHz = 15.0;
+		auto IsAvailableAtRequiredRate =
+			[](const FOpenMobileSensorCapability* Capability)
+			{
+				return Capability
+					&& Capability->Availability.State ==
+						EOpenMobileCapabilityState::Available
+					&& (Capability->MaximumFrequencyHz <= 0.0
+						|| Capability->MaximumFrequencyHz >=
+							MinimumInputFrequencyHz);
+			};
+		const bool bNativeLinearAvailable =
+			LinearAcceleration
+			&& LinearAcceleration->Source !=
+				EOpenMobileSensorAvailabilitySource::Derived
+			&& IsAvailableAtRequiredRate(LinearAcceleration);
+		const FOpenMobileSensorCapability* Input = bNativeLinearAvailable
+			? LinearAcceleration
+			: IsAvailableAtRequiredRate(Accelerometer)
+				? Accelerometer
+				: nullptr;
+		if (!Input
+			&& LinearAcceleration
+			&& LinearAcceleration->Source !=
+				EOpenMobileSensorAvailabilitySource::Derived
+			&& LinearAcceleration->ActiveRestriction !=
+				EOpenMobileSensorRestriction::MissingHardware)
+		{
+			Input = LinearAcceleration;
+		}
+		if (!Input && Accelerometer
+			&& Accelerometer->ActiveRestriction !=
+				EOpenMobileSensorRestriction::MissingHardware)
+		{
+			Input = Accelerometer;
+		}
+		Shake->Source = EOpenMobileSensorAvailabilitySource::Derived;
+		Shake->Fallback.bImplemented = true;
+		Shake->Fallback.bAvailable =
+			IsAvailableAtRequiredRate(Input);
+		Shake->Fallback.MinimumInputFrequencyHz = MinimumInputFrequencyHz;
+		Shake->Fallback.PowerCost =
+			EOpenMobileSensorFallbackPowerCost::Low;
+		Shake->Fallback.UnsupportedConditionFlags =
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::InsufficientRate
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::PermissionUnavailable
+			)
+			| static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::LifecycleUnavailable
+			);
+		if (!Input)
+		{
+			Shake->Fallback.RequiredInputs = {
+				EOpenMobileSensorType::LinearAcceleration,
+				EOpenMobileSensorType::Accelerometer
+			};
+			Shake->Availability.Detail =
+				TEXT("Shake detection requires linear acceleration or calibrated acceleration input.");
+			return;
+		}
+		Shake->Fallback.RequiredInputs = {Input->Sensor.Type};
+		const bool bUsesAccelerometer = Input->Sensor.Type ==
+			EOpenMobileSensorType::Accelerometer;
+		Shake->Fallback.bRequiresCalibratedInput = bUsesAccelerometer;
+		Shake->Fallback.ExpectedQuality = bUsesAccelerometer
+			? EOpenMobileSensorFusionQuality::Degraded
+			: EOpenMobileSensorFusionQuality::Nominal;
+		Shake->Fallback.CpuBudgetMicrosecondsPerSample =
+			bUsesAccelerometer ? 80.0 : 25.0;
+		if (bUsesAccelerometer)
+		{
+			Shake->Fallback.UnsupportedConditionFlags |=
+				static_cast<int32>(
+					EOpenMobileSensorFallbackUnsupportedCondition::UncalibratedInput
+				);
+		}
+		Shake->Availability.State = Input->Availability.State;
+		Shake->Availability.Detail =
+			Shake->Fallback.bAvailable
+			? TEXT("Shake events are derived from a shared motion stream using configurable impulse detection.")
+			: Input->Availability.Detail;
+		Shake->ActiveRestriction = Input->ActiveRestriction;
+		if (Input->Availability.State == EOpenMobileCapabilityState::Available
+			&& !Shake->Fallback.bAvailable)
+		{
+			Shake->Availability.State =
+				EOpenMobileCapabilityState::TemporarilyUnavailable;
+			Shake->Availability.Detail =
+				TEXT("The available motion input cannot meet the minimum shake detection rate.");
+			Shake->ActiveRestriction =
+				EOpenMobileSensorRestriction::RateLimited;
+		}
+		Shake->RequiredPermission = Input->RequiredPermission;
+		Shake->MinimumFrequencyHz = FMath::Max(
+			MinimumInputFrequencyHz,
+			Input->MinimumFrequencyHz
+		);
+		Shake->MaximumFrequencyHz = Input->MaximumFrequencyHz;
+		Shake->bSupportsNativeBatching = false;
+		Shake->BackgroundSupport = Input->BackgroundSupport;
+	}
+
 	FOpenMobileSensorCapabilitySnapshot BuildSnapshot()
 	{
 		RefreshBackendBase();
@@ -613,6 +751,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		ApplyTrueHeadingFallback(Snapshot);
 		ApplyRelativeAltitudeFallback(Snapshot);
 		ApplyActivityTransitionFallback(Snapshot);
+		ApplyShakeFallback(Snapshot);
 		if (FOpenMobileSensorCapability* TrueHeading =
 			Snapshot.Sensors.FindByPredicate(
 				[](const FOpenMobileSensorCapability& Capability)

@@ -93,6 +93,27 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleHeader
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileShakeEventData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double StrengthMetresPerSecondSquared = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double DurationSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double TimestampSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 ImpulseCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorIdentifier SourceSensor;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileVectorSensorSample
 {
 	GENERATED_BODY()
@@ -120,6 +141,12 @@ struct OPENMOBILESENSORS_API FOpenMobileVectorSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bDeadZoneSuppressed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasShakeEvent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileShakeEventData ShakeEvent;
 };
 
 USTRUCT(BlueprintType)

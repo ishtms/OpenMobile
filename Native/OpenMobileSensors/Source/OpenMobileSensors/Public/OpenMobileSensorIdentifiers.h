@@ -28,7 +28,8 @@ enum class EOpenMobileSensorType : uint8
 	Pedometer,
 	MotionActivity,
 	ActivityTransition,
-	PhysicalOrientation
+	PhysicalOrientation,
+	Shake
 };
 
 class OPENMOBILESENSORS_API FOpenMobileSensorTypes final
