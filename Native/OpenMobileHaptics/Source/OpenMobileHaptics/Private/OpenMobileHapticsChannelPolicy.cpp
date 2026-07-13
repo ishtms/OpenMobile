@@ -34,6 +34,8 @@ FOpenMobileHapticsResolvedChannel FOpenMobileHapticsChannelPolicy::Resolve(
 	}
 
 	Result.bConfigured = true;
+	Result.UnsupportedMixFallbackPolicy =
+		ConfiguredChannel->UnsupportedMixFallbackPolicy;
 	if (OpenMobileHapticsChannelPolicyPrivate::PriorityValue(
 		ConfiguredChannel->Priority
 	) > OpenMobileHapticsChannelPolicyPrivate::PriorityValue(RequestPriority))
@@ -80,13 +82,18 @@ FOpenMobileHapticsChannelArbiter::TryReserve(
 )
 {
 	FOpenMobileHapticsChannelAdmissionResult Result;
-	if (Reservations.Contains(Request.RequestId))
+	const FOpenMobileHapticsChannelAdmissionRequest* ExistingReservation =
+		Reservations.Find(Request.RequestId);
+	const bool bPromotingOverlapWait = ExistingReservation
+		&& ExistingReservation->bWaitingForOverlap
+		&& !Request.bWaitingForOverlap;
+	if (ExistingReservation && !bPromotingOverlapWait)
 	{
 		Result.Outcome = EOpenMobileHapticsChannelAdmissionOutcome::Admitted;
 		return Result;
 	}
 
-	if (Request.bQueued)
+	if (!ExistingReservation && Request.bQueued)
 	{
 		const int32 ChannelLimit = FMath::Clamp(
 			Request.MaximumQueueDepth,
@@ -114,10 +121,10 @@ FOpenMobileHapticsChannelArbiter::TryReserve(
 		0,
 		Limits.MaximumActiveHandles
 	);
-	const bool bChannelAtCapacity =
-		ActiveCountsByChannel.FindRef(Request.Channel) >= ChannelActiveLimit;
-	const bool bGlobalAtCapacity =
-		Reservations.Num() >= Limits.MaximumActiveHandles;
+	const bool bChannelAtCapacity = !Request.bWaitingForOverlap
+		&& ActiveCountsByChannel.FindRef(Request.Channel) >= ChannelActiveLimit;
+	const bool bGlobalAtCapacity = !Request.bWaitingForOverlap
+		&& ActiveCount >= Limits.MaximumActiveHandles;
 	if (bChannelAtCapacity || bGlobalAtCapacity)
 	{
 		const int32 IncomingPriority =
@@ -131,7 +138,8 @@ FOpenMobileHapticsChannelArbiter::TryReserve(
 			{
 				const FOpenMobileHapticsChannelAdmissionRequest& Existing =
 					Pair.Value;
-				if ((bChannelAtCapacity
+				if (Existing.bWaitingForOverlap
+					|| (bChannelAtCapacity
 						&& Existing.Channel != Request.Channel)
 					|| !Existing.bRepeating
 					|| OpenMobileHapticsChannelPolicyPrivate::PriorityValue(
@@ -178,12 +186,38 @@ FOpenMobileHapticsChannelArbiter::TryReserve(
 		return Result;
 	}
 
-	Reservations.Add(Request.RequestId, Request);
-	++ActiveCountsByChannel.FindOrAdd(Request.Channel);
-	if (Request.bQueued)
+	if (bPromotingOverlapWait)
 	{
-		++QueuedCount;
-		++QueuedCountsByChannel.FindOrAdd(Request.Channel);
+		const bool bWasQueued = ExistingReservation->bQueued;
+		Reservations.Add(Request.RequestId, Request);
+		if (bWasQueued && !Request.bQueued)
+		{
+			QueuedCount = FMath::Max(0, QueuedCount - 1);
+			int32* ChannelQueuedCount =
+				QueuedCountsByChannel.Find(Request.Channel);
+			if (ChannelQueuedCount)
+			{
+				--(*ChannelQueuedCount);
+				if (*ChannelQueuedCount <= 0)
+				{
+					QueuedCountsByChannel.Remove(Request.Channel);
+				}
+			}
+		}
+	}
+	else
+	{
+		Reservations.Add(Request.RequestId, Request);
+		if (Request.bQueued)
+		{
+			++QueuedCount;
+			++QueuedCountsByChannel.FindOrAdd(Request.Channel);
+		}
+	}
+	if (!Request.bWaitingForOverlap)
+	{
+		++ActiveCount;
+		++ActiveCountsByChannel.FindOrAdd(Request.Channel);
 	}
 	Result.Outcome = EOpenMobileHapticsChannelAdmissionOutcome::Admitted;
 	return Result;
@@ -196,13 +230,17 @@ void FOpenMobileHapticsChannelArbiter::Release(uint64 RequestId)
 	{
 		return;
 	}
-	int32* ActiveCount = ActiveCountsByChannel.Find(Removed.Channel);
-	if (ActiveCount)
+	if (!Removed.bWaitingForOverlap)
 	{
-		--(*ActiveCount);
-		if (*ActiveCount <= 0)
+		ActiveCount = FMath::Max(0, ActiveCount - 1);
+		int32* ChannelActiveCount = ActiveCountsByChannel.Find(Removed.Channel);
+		if (ChannelActiveCount)
 		{
-			ActiveCountsByChannel.Remove(Removed.Channel);
+			--(*ChannelActiveCount);
+			if (*ChannelActiveCount <= 0)
+			{
+				ActiveCountsByChannel.Remove(Removed.Channel);
+			}
 		}
 	}
 	if (!Removed.bQueued)
@@ -228,5 +266,6 @@ void FOpenMobileHapticsChannelArbiter::Reset()
 	Reservations.Reset();
 	ActiveCountsByChannel.Reset();
 	QueuedCountsByChannel.Reset();
+	ActiveCount = 0;
 	QueuedCount = 0;
 }

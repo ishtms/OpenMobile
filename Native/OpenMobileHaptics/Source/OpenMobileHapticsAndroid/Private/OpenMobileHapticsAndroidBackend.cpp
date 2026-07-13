@@ -852,6 +852,7 @@ FOpenMobileHapticsAndroidBackend::ProbeHardwareCapabilities() const
 	using namespace OpenMobileHapticsAndroidBackendPrivate;
 	FOpenMobileHapticCapabilities Capabilities;
 	Capabilities.BackendName = GetBackendName();
+	Capabilities.Mixing = EOpenMobileHapticSupportState::Unsupported;
 	const FOpenMobileHapticsAndroidHardwareProbe Probe = Bridge.QueryHardware();
 	if (Probe.Flags == ProbeUnavailable)
 	{

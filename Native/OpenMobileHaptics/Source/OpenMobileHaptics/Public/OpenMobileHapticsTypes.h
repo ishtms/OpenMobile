@@ -605,6 +605,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 		EOpenMobileHapticSupportState::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSupportState Mixing =
+		EOpenMobileHapticSupportState::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticSupportState BackgroundAlerts =
 		EOpenMobileHapticSupportState::Unknown;
 

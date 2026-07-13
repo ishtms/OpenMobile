@@ -18,6 +18,7 @@
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsOverlapPolicy.h"
 #include "OpenMobileHapticsPlaybackControlPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
@@ -34,6 +35,8 @@ struct FOpenMobileHapticsSubsystemRequestState
 	FName Effect;
 	FName ResolvedPath;
 	TArray<FName> FallbackAttempts;
+	EOpenMobileHapticChannelPriority Priority =
+		EOpenMobileHapticChannelPriority::Normal;
 	EOpenMobileHapticPlaybackState LastPublishedState =
 		EOpenMobileHapticPlaybackState::Invalid;
 	EOpenMobileHapticPlaybackState SubmissionState =
@@ -45,6 +48,14 @@ struct FOpenMobileHapticsSubsystemRequestState
 	float RuntimeSharpness = 0.5f;
 	bool bSupportsDynamicParameters = false;
 	bool bRequiresPreparedAsset = false;
+	bool bWaitingForOverlap = false;
+	bool bPromotedFromOverlapQueue = false;
+	bool bFireAndForgetAfterOverlapPromotion = false;
+	double OverlapEnqueuedAtSeconds = 0.0;
+	TOptional<FOpenMobileHapticSemanticRequest> QueuedSemanticRequest;
+	TOptional<FOpenMobileHapticOneShotRequest> QueuedOneShotRequest;
+	TOptional<FOpenMobileHapticNamedPatternRequest> QueuedNamedRequest;
+	FName QueuedSemanticPatternOverride;
 	TOptional<FOpenMobileHapticNamedPatternRequest> RecoveryRequest;
 	FOpenMobileHapticPlaybackHandle RecoverySourceHandle;
 	FOpenMobileHapticsBackendPlaybackControlSupport PlaybackControlSupport;
@@ -55,6 +66,7 @@ struct FOpenMobileHapticsSubsystemRequestState
 	> ScheduledStartGuard;
 	FTSTicker::FDelegateHandle EstimatedStartTickerHandle;
 	FTSTicker::FDelegateHandle TerminalWatchdogTickerHandle;
+	FTSTicker::FDelegateHandle OverlapQueueExpiryTickerHandle;
 };
 
 struct FOpenMobileHapticsPendingRecoveryPlayback
@@ -93,6 +105,7 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticsChannelArbiter ChannelArbiter;
 	TArray<FOpenMobileHapticsPendingRecoveryPlayback> PendingRecoveryPlaybacks;
 	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
+	bool bOverlapQueueDrainScheduled = false;
 };
 
 void FOpenMobileHapticsSubsystemStateDeleter::operator()(
@@ -643,6 +656,12 @@ namespace OpenMobileHapticsSubsystemPrivate
 					Request->TerminalWatchdogTickerHandle
 				);
 			}
+			if (Request->OverlapQueueExpiryTickerHandle.IsValid())
+			{
+				FTSTicker::GetCoreTicker().RemoveTicker(
+					Request->OverlapQueueExpiryTickerHandle
+				);
+			}
 			if (Request->ScheduledStartGuard)
 			{
 				Request->ScheduledStartGuard->Invalidate();
@@ -657,6 +676,34 @@ namespace OpenMobileHapticsSubsystemPrivate
 		State.Requests.Remove(RequestId);
 	}
 
+	void PreserveOverlapQueueLifecycle(
+		FOpenMobileHapticsSubsystemState& State,
+		uint64 RequestId,
+		FOpenMobileHapticsSubsystemRequestState& RequestState
+	)
+	{
+		const FOpenMobileHapticsSubsystemRequestState* Existing =
+			State.Requests.Find(RequestId);
+		if (!Existing || !Existing->bWaitingForOverlap)
+		{
+			return;
+		}
+		if (Existing->OverlapQueueExpiryTickerHandle.IsValid())
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(
+				Existing->OverlapQueueExpiryTickerHandle
+			);
+		}
+		RequestState.LastPublishedState = Existing->LastPublishedState;
+		RequestState.LastEventTimestampSeconds =
+			Existing->LastEventTimestampSeconds;
+		RequestState.SubmissionState = Existing->SubmissionState;
+		RequestState.SubmissionTimestampSeconds =
+			Existing->SubmissionTimestampSeconds;
+		RequestState.RecoverySourceHandle = Existing->RecoverySourceHandle;
+		RequestState.bPromotedFromOverlapQueue = true;
+	}
+
 	FOpenMobileHapticPlaybackResult FinalizeSubmission(
 		FOpenMobileHapticsSubsystemState& State,
 		const FOpenMobileHapticsBackendRequestToken& Token,
@@ -666,22 +713,36 @@ namespace OpenMobileHapticsSubsystemPrivate
 	{
 		FOpenMobileHapticPlaybackResult Result = MoveTemp(Submission.Result);
 		Result.Channel = Channel;
+		FOpenMobileHapticsSubsystemRequestState* ExistingRequest =
+			State.Requests.Find(Token.RequestId);
+		const bool bPromotedFromOverlapQueue = ExistingRequest
+			&& ExistingRequest->bPromotedFromOverlapQueue;
 		State.LastResolvedPath = Result.ResolvedPath;
 		State.LastFallbackAttempts = Result.FallbackAttempts;
 		if (Result.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed)
 		{
-			Result.Handle = {};
+			Result.Handle = bPromotedFromOverlapQueue
+				? Token.PlaybackHandle
+				: FOpenMobileHapticPlaybackHandle{};
 			if (Result.State == EOpenMobileHapticPlaybackState::Invalid)
 			{
 				Result.State = EOpenMobileHapticPlaybackState::Completed;
 			}
-			RemoveRequest(State, Token.RequestId);
+			if (!bPromotedFromOverlapQueue)
+			{
+				RemoveRequest(State, Token.RequestId);
+			}
 			return Result;
 		}
 		if (!Result.IsAccepted())
 		{
-			Result.Handle = {};
-			RemoveRequest(State, Token.RequestId);
+			Result.Handle = bPromotedFromOverlapQueue
+				? Token.PlaybackHandle
+				: FOpenMobileHapticPlaybackHandle{};
+			if (!bPromotedFromOverlapQueue)
+			{
+				RemoveRequest(State, Token.RequestId);
+			}
 			FOpenMobileHapticsErrorContext Context;
 			Context.Reason =
 				EOpenMobileHapticsFailureReason::NativeEngineFailure;
@@ -700,7 +761,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 				&& (!Token.PlaybackHandle.IsValid()
 					|| !Submission.bExpectsCallbacks)))
 		{
-			RemoveRequest(State, Token.RequestId);
+			if (!bPromotedFromOverlapQueue)
+			{
+				RemoveRequest(State, Token.RequestId);
+			}
 			FOpenMobileHapticsErrorContext Context;
 			Context.Reason = EOpenMobileHapticsFailureReason::Internal;
 			Context.Stage = EOpenMobileHapticFailureStage::NativeSubmission;
@@ -709,6 +773,9 @@ namespace OpenMobileHapticsSubsystemPrivate
 			Result = FOpenMobileHapticPlaybackResult::MakeRejected(
 				FOpenMobileHapticsErrorMapper::Map(Context)
 			);
+			Result.Handle = bPromotedFromOverlapQueue
+				? Token.PlaybackHandle
+				: FOpenMobileHapticPlaybackHandle{};
 			State.LastError = Result.Error;
 			return Result;
 		}
@@ -748,9 +815,26 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 		else
 		{
-			Result.Handle = {};
+			if (bPromotedFromOverlapQueue)
+			{
+				Result.Handle = Token.PlaybackHandle;
+				State.RequestByHandle.Add(
+					Token.PlaybackHandle,
+					Token.RequestId
+				);
+				State.PlaybackStates.Add(Token.PlaybackHandle, Result.State);
+				if (FOpenMobileHapticsSubsystemRequestState* Request =
+					State.Requests.Find(Token.RequestId))
+				{
+					Request->bFireAndForgetAfterOverlapPromotion = true;
+				}
+			}
+			else
+			{
+				Result.Handle = {};
+			}
 		}
-		if (!Submission.bExpectsCallbacks)
+		if (!Submission.bExpectsCallbacks && !bPromotedFromOverlapQueue)
 		{
 			RemoveRequest(State, Token.RequestId);
 		}
@@ -810,7 +894,8 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 				FOpenMobileHapticsSubsystemRequestState
 			>& Pair : State->Requests)
 			{
-				if (Pair.Value.Token.PlaybackHandle.IsValid()
+				if (!Pair.Value.bWaitingForOverlap
+					&& Pair.Value.Token.PlaybackHandle.IsValid()
 					&& Pair.Value.Token.BackendName
 						== Backend->GetBackendName())
 				{
@@ -1762,6 +1847,7 @@ bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
 	int32 MaximumActiveHandles,
 	int32 MaximumQueueDepth,
 	bool bQueued,
+	bool bWaitingForOverlap,
 	bool bRepeating,
 	FName Effect,
 	FOpenMobileHapticPlaybackResult& OutRejection
@@ -1789,6 +1875,7 @@ bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
 	AdmissionRequest.MaximumActiveHandles = MaximumActiveHandles;
 	AdmissionRequest.MaximumQueueDepth = MaximumQueueDepth;
 	AdmissionRequest.bQueued = bQueued;
+	AdmissionRequest.bWaitingForOverlap = bWaitingForOverlap;
 	AdmissionRequest.bRepeating = bRepeating;
 
 	const int32 MaximumAttempts = FMath::Clamp(
@@ -1866,6 +1953,652 @@ bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
 	return false;
 }
 
+bool UOpenMobileHapticsSubsystem::ResolveAndApplyOverlap(
+	const FOpenMobileHapticPlaybackOptions& Options,
+	FName Effect,
+	uint64 ExcludedRequestId,
+	FOpenMobileHapticPlaybackResult& OutResult,
+	bool& bOutShouldQueue,
+	bool& bOutUsedMixFallback
+)
+{
+	bOutShouldQueue = false;
+	bOutUsedMixFallback = false;
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	const int32 MaximumAttempts = FMath::Clamp(
+		Settings->MaximumActiveHandles + Settings->MaximumQueuedHandles + 1,
+		1,
+		385
+	);
+	for (int32 Attempt = 0; Attempt < MaximumAttempts; ++Attempt)
+	{
+		if (bDeinitialized || !State)
+		{
+			OutResult =
+				OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+					EOpenMobileHapticsFailureReason::BackendUnavailable,
+					EOpenMobileHapticFailureStage::Channel,
+					Effect,
+					Options.Channel
+				);
+			return false;
+		}
+
+		TArray<FOpenMobileHapticsOverlapConflict> Conflicts;
+		Conflicts.Reserve(State->Requests.Num());
+		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+			State->Requests)
+		{
+			if (Pair.Key == ExcludedRequestId
+				|| (ExcludedRequestId != 0
+					&& Pair.Value.bWaitingForOverlap)
+				|| !Pair.Value.Token.PlaybackHandle.IsValid())
+			{
+				continue;
+			}
+			FOpenMobileHapticsOverlapConflict Conflict;
+			Conflict.RequestId = Pair.Key;
+			Conflict.Channel = Pair.Value.Channel;
+			Conflict.Priority = Pair.Value.Priority;
+			Conflict.bQueued = Pair.Value.bWaitingForOverlap;
+			Conflicts.Add(Conflict);
+		}
+
+		const FOpenMobileHapticsResolvedChannel ResolvedChannel =
+			FOpenMobileHapticsChannelPolicy::Resolve(
+				Options.Channel,
+				Options.Priority,
+				Settings->Channels,
+				Settings->MaximumActiveHandles,
+				Settings->MaximumQueueDepthPerChannel
+			);
+		FOpenMobileHapticsOverlapRequest OverlapRequest;
+		OverlapRequest.Channel = Options.Channel;
+		OverlapRequest.Priority = ResolvedChannel.EffectivePriority;
+		OverlapRequest.Policy = Options.OverlapPolicy;
+		OverlapRequest.Mixing =
+			FOpenMobileHapticsBackendRegistry::GetCapabilitySnapshot().Mixing;
+		OverlapRequest.UnsupportedMixFallback =
+			ResolvedChannel.UnsupportedMixFallbackPolicy;
+		FOpenMobileHapticsOverlapResolution Resolution =
+			FOpenMobileHapticsOverlapPolicy::Resolve(
+				OverlapRequest,
+				Conflicts
+			);
+		bOutUsedMixFallback = bOutUsedMixFallback
+			|| Resolution.bUsedMixFallback;
+		if (Resolution.Outcome == EOpenMobileHapticsOverlapOutcome::Submit)
+		{
+			return true;
+		}
+		if (Resolution.Outcome == EOpenMobileHapticsOverlapOutcome::Queue)
+		{
+			bOutShouldQueue = true;
+			return true;
+		}
+		if (Resolution.Outcome == EOpenMobileHapticsOverlapOutcome::Suppress)
+		{
+			const FName Reason = Resolution.ResolvedPolicy
+				== EOpenMobileHapticOverlapPolicy::Ignore
+					? FName(TEXT("OverlapIgnored"))
+					: FName(TEXT("OverlapPriority"));
+			OutResult =
+				OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+					Options.Channel,
+					Reason
+				);
+			return false;
+		}
+
+		for (const uint64 RequestId : Resolution.TerminalRequestIds)
+		{
+			if (bDeinitialized || !State)
+			{
+				break;
+			}
+			FOpenMobileHapticsSubsystemRequestState* Existing =
+				State->Requests.Find(RequestId);
+			if (!Existing)
+			{
+				continue;
+			}
+			FOpenMobileHapticControlResult EndResult;
+			if (Existing->bWaitingForOverlap)
+			{
+				CompleteControlledRequest(
+					RequestId,
+					EOpenMobileHapticPlaybackState::Cancelled
+				);
+				EndResult.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+			}
+			else
+			{
+				const FOpenMobileHapticPlaybackHandle ExistingHandle =
+					Existing->Token.PlaybackHandle;
+				EndResult = EndPlaybackNative(
+					ExistingHandle,
+					EOpenMobileHapticPlaybackState::Interrupted
+				);
+			}
+			if (EndResult.Outcome != EOpenMobileHapticControlOutcome::Accepted
+				&& State && State->Requests.Contains(RequestId))
+			{
+				OutResult =
+					OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+						EOpenMobileHapticsFailureReason::BusyChannel,
+						EOpenMobileHapticFailureStage::Channel,
+						Effect,
+						Options.Channel
+					);
+				State->LastError = OutResult.Error;
+				return false;
+			}
+		}
+	}
+
+	OutResult = OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+		EOpenMobileHapticsFailureReason::BusyChannel,
+		EOpenMobileHapticFailureStage::Channel,
+		Effect,
+		Options.Channel
+	);
+	if (State)
+	{
+		State->LastError = OutResult.Error;
+	}
+	return false;
+}
+
+FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::QueueOverlapRequest(
+	const FOpenMobileHapticPlaybackOptions& Options,
+	const FOpenMobileHapticsResolvedChannel& ResolvedChannel,
+	FName Effect,
+	bool bRepeating,
+	bool bUsedMixFallback,
+	const FOpenMobileHapticsBackendRequestToken* ExistingToken,
+	const FOpenMobileHapticSemanticRequest* SemanticRequest,
+	const FOpenMobileHapticOneShotRequest* OneShotRequest,
+	const FOpenMobileHapticNamedPatternRequest* NamedRequest,
+	FName SemanticPatternOverride
+)
+{
+	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	if (ExistingToken)
+	{
+		const FOpenMobileHapticsSubsystemRequestState* Existing =
+			LocalState.Requests.Find(ExistingToken->RequestId);
+		if (!Existing || !Existing->bWaitingForOverlap)
+		{
+			return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::BackendUnavailable,
+				EOpenMobileHapticFailureStage::Channel,
+				Effect,
+				Options.Channel
+			);
+		}
+		FOpenMobileHapticPlaybackResult Result;
+		Result.Outcome = bUsedMixFallback
+			? EOpenMobileHapticPlaybackOutcome::Fallback
+			: EOpenMobileHapticPlaybackOutcome::Accepted;
+		Result.State = EOpenMobileHapticPlaybackState::Scheduled;
+		Result.Handle = ExistingToken->PlaybackHandle;
+		Result.Channel = Options.Channel;
+		Result.ResolvedPath = Existing->ResolvedPath;
+		return Result;
+	}
+
+	IOpenMobileHapticsBackend* Backend = bDeinitialized
+		? nullptr
+		: FOpenMobileHapticsBackendRegistry::FindBackend();
+	if (!Backend)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedPlaybackResult();
+	}
+	const FOpenMobileHapticsBackendRequestToken Token =
+		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+	if (!Token.IsValid() || !Token.PlaybackHandle.IsValid())
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::BackendUnavailable,
+			EOpenMobileHapticFailureStage::Channel,
+			Effect,
+			Options.Channel
+		);
+	}
+	FOpenMobileHapticPlaybackResult AdmissionRejection;
+	if (!AdmitChannelRequest(
+		Token,
+		Options,
+		ResolvedChannel.MaximumActiveHandles,
+		ResolvedChannel.MaximumQueueDepth,
+		true,
+		true,
+		bRepeating,
+		Effect,
+		AdmissionRejection
+	))
+	{
+		return AdmissionRejection;
+	}
+
+	const double NowSeconds = FPlatformTime::Seconds();
+	FOpenMobileHapticsSubsystemRequestState RequestState;
+	RequestState.Token = Token;
+	RequestState.Channel = Options.Channel;
+	RequestState.Category = Options.Category;
+	RequestState.Effect = Effect;
+	RequestState.Priority = ResolvedChannel.EffectivePriority;
+	RequestState.ResolvedPath = bUsedMixFallback
+		? FName(TEXT("MixFallbackQueue"))
+		: FName(TEXT("OverlapQueue"));
+	RequestState.SubmissionState = EOpenMobileHapticPlaybackState::Scheduled;
+	RequestState.SubmissionTimestampSeconds = NowSeconds;
+	RequestState.OverlapEnqueuedAtSeconds = NowSeconds;
+	RequestState.bWaitingForOverlap = true;
+	if (SemanticRequest)
+	{
+		RequestState.QueuedSemanticRequest = *SemanticRequest;
+		RequestState.QueuedSemanticPatternOverride = SemanticPatternOverride;
+	}
+	if (OneShotRequest)
+	{
+		RequestState.QueuedOneShotRequest = *OneShotRequest;
+	}
+	if (NamedRequest)
+	{
+		RequestState.QueuedNamedRequest = *NamedRequest;
+	}
+	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	LocalState.RequestByHandle.Add(Token.PlaybackHandle, Token.RequestId);
+	LocalState.PlaybackStates.Add(
+		Token.PlaybackHandle,
+		EOpenMobileHapticPlaybackState::Scheduled
+	);
+
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	AsyncTask(
+		ENamedThreads::GameThread,
+		[WeakSubsystem, RequestId = Token.RequestId]()
+		{
+			if (UOpenMobileHapticsSubsystem* Subsystem = WeakSubsystem.Get())
+			{
+				Subsystem->PublishDeferredSubmissionEvents(RequestId);
+			}
+		}
+	);
+	ScheduleOverlapQueueExpiry(
+		Token.RequestId,
+		GetDefault<UOpenMobileHapticsSettings>()
+			->MaximumQueuedRequestAgeSeconds
+	);
+
+	FOpenMobileHapticPlaybackResult Result;
+	Result.Outcome = bUsedMixFallback
+		? EOpenMobileHapticPlaybackOutcome::Fallback
+		: EOpenMobileHapticPlaybackOutcome::Accepted;
+	Result.State = EOpenMobileHapticPlaybackState::Scheduled;
+	Result.Handle = Token.PlaybackHandle;
+	Result.Channel = Options.Channel;
+	Result.ResolvedPath = bUsedMixFallback
+		? FName(TEXT("MixFallbackQueue"))
+		: FName(TEXT("OverlapQueue"));
+	return Result;
+}
+
+void UOpenMobileHapticsSubsystem::ScheduleOverlapQueueExpiry(
+	uint64 RequestId,
+	double DelaySeconds
+)
+{
+	if (bDeinitialized || RequestId == 0)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		GetOrCreateState().Requests.Find(RequestId);
+	if (!Request || !Request->bWaitingForOverlap
+		|| Request->OverlapQueueExpiryTickerHandle.IsValid())
+	{
+		return;
+	}
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	Request->OverlapQueueExpiryTickerHandle =
+		FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda(
+				[WeakSubsystem, RequestId](float)
+				{
+					if (UOpenMobileHapticsSubsystem* Subsystem =
+						WeakSubsystem.Get())
+					{
+						Subsystem->ExpireOverlapQueue(RequestId);
+					}
+					return false;
+				}
+			),
+			static_cast<float>(FMath::Clamp(DelaySeconds, 0.001, 30.001))
+		);
+}
+
+void UOpenMobileHapticsSubsystem::ExpireOverlapQueue(uint64 RequestId)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request || !Request->bWaitingForOverlap)
+	{
+		return;
+	}
+	Request->OverlapQueueExpiryTickerHandle.Reset();
+	const double NowSeconds = FPlatformTime::Seconds();
+	const double MaximumAgeSeconds = FMath::Clamp<double>(
+		GetDefault<UOpenMobileHapticsSettings>()
+			->MaximumQueuedRequestAgeSeconds,
+		0.01,
+		30.0
+	);
+	if (!FOpenMobileHapticsOverlapPolicy::IsExpired(
+		Request->OverlapEnqueuedAtSeconds,
+		NowSeconds,
+		MaximumAgeSeconds
+	))
+	{
+		const double RemainingSeconds = FMath::Max(
+			0.001,
+			Request->OverlapEnqueuedAtSeconds + MaximumAgeSeconds
+				- NowSeconds + 0.001
+		);
+		ScheduleOverlapQueueExpiry(RequestId, RemainingSeconds);
+		return;
+	}
+	Request->ResolvedPath = TEXT("OverlapQueueExpired");
+	CompleteControlledRequest(
+		RequestId,
+		EOpenMobileHapticPlaybackState::Cancelled
+	);
+}
+
+void UOpenMobileHapticsSubsystem::ScheduleOverlapQueueDrain()
+{
+	if (bDeinitialized || !State || State->bOverlapQueueDrainScheduled)
+	{
+		return;
+	}
+	State->bOverlapQueueDrainScheduled = true;
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
+	AsyncTask(
+		ENamedThreads::GameThread,
+		[WeakSubsystem]()
+		{
+			UOpenMobileHapticsSubsystem* Subsystem = WeakSubsystem.Get();
+			if (!Subsystem || Subsystem->bDeinitialized || !Subsystem->State)
+			{
+				return;
+			}
+			Subsystem->State->bOverlapQueueDrainScheduled = false;
+			Subsystem->DrainOverlapQueues(FPlatformTime::Seconds());
+		}
+	);
+}
+
+void UOpenMobileHapticsSubsystem::DrainOverlapQueues(double NowSeconds)
+{
+	check(IsInGameThread());
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	const int32 MaximumAttempts = FMath::Clamp(
+		GetDefault<UOpenMobileHapticsSettings>()->MaximumQueuedHandles,
+		1,
+		256
+	);
+	for (int32 Attempt = 0; Attempt < MaximumAttempts; ++Attempt)
+	{
+		TArray<FOpenMobileHapticsOverlapQueueEntry> Queue;
+		TSet<FName> ActiveChannels;
+		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+			State->Requests)
+		{
+			if (Pair.Value.bWaitingForOverlap)
+			{
+				FOpenMobileHapticsOverlapQueueEntry Entry;
+				Entry.RequestId = Pair.Key;
+				Entry.Channel = Pair.Value.Channel;
+				Entry.Priority = Pair.Value.Priority;
+				Entry.EnqueuedAtSeconds =
+					Pair.Value.OverlapEnqueuedAtSeconds;
+				Queue.Add(Entry);
+			}
+			else
+			{
+				ActiveChannels.Add(Pair.Value.Channel);
+			}
+		}
+		if (Queue.IsEmpty())
+		{
+			return;
+		}
+		const double MaximumAgeSeconds = FMath::Clamp<double>(
+			GetDefault<UOpenMobileHapticsSettings>()
+				->MaximumQueuedRequestAgeSeconds,
+			0.01,
+			30.0
+		);
+		bool bExpiredRequest = false;
+		for (const FOpenMobileHapticsOverlapQueueEntry& Entry : Queue)
+		{
+			if (!FOpenMobileHapticsOverlapPolicy::IsExpired(
+				Entry.EnqueuedAtSeconds,
+				NowSeconds,
+				MaximumAgeSeconds
+			))
+			{
+				continue;
+			}
+			if (FOpenMobileHapticsSubsystemRequestState* Current =
+				State->Requests.Find(Entry.RequestId))
+			{
+				Current->ResolvedPath = TEXT("OverlapQueueExpired");
+			}
+			CompleteControlledRequest(
+				Entry.RequestId,
+				EOpenMobileHapticPlaybackState::Cancelled
+			);
+			bExpiredRequest = true;
+		}
+		if (bExpiredRequest)
+		{
+			continue;
+		}
+
+		TSet<FName> QueuedChannels;
+		for (const FOpenMobileHapticsOverlapQueueEntry& Entry : Queue)
+		{
+			QueuedChannels.Add(Entry.Channel);
+		}
+		uint64 SelectedRequestId = 0;
+		EOpenMobileHapticChannelPriority SelectedPriority =
+			EOpenMobileHapticChannelPriority::Low;
+		for (const FName Channel : QueuedChannels)
+		{
+			if (ActiveChannels.Contains(Channel))
+			{
+				continue;
+			}
+			const uint64 CandidateId =
+				FOpenMobileHapticsOverlapPolicy::SelectNext(Channel, Queue);
+			const FOpenMobileHapticsSubsystemRequestState* Candidate =
+				State->Requests.Find(CandidateId);
+			if (!Candidate)
+			{
+				continue;
+			}
+			if (SelectedRequestId == 0
+				|| static_cast<uint8>(Candidate->Priority)
+					> static_cast<uint8>(SelectedPriority)
+				|| (Candidate->Priority == SelectedPriority
+					&& CandidateId < SelectedRequestId))
+			{
+				SelectedRequestId = CandidateId;
+				SelectedPriority = Candidate->Priority;
+			}
+		}
+		if (SelectedRequestId == 0)
+		{
+			return;
+		}
+
+		FOpenMobileHapticsSubsystemRequestState QueuedRequest =
+			State->Requests.FindChecked(SelectedRequestId);
+		if (FOpenMobileHapticsOverlapPolicy::IsExpired(
+			QueuedRequest.OverlapEnqueuedAtSeconds,
+			NowSeconds,
+			MaximumAgeSeconds
+		))
+		{
+			if (FOpenMobileHapticsSubsystemRequestState* Current =
+				State->Requests.Find(SelectedRequestId))
+			{
+				Current->ResolvedPath = TEXT("OverlapQueueExpired");
+			}
+			CompleteControlledRequest(
+				SelectedRequestId,
+				EOpenMobileHapticPlaybackState::Cancelled
+			);
+			continue;
+		}
+		IOpenMobileHapticsBackend* Backend =
+			FOpenMobileHapticsBackendRegistry::FindBackend();
+		if (!Backend
+			|| Backend->GetBackendName() != QueuedRequest.Token.BackendName
+			|| !FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(
+				QueuedRequest.Token
+			))
+		{
+			const FOpenMobileHapticPlaybackResult Result =
+				OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+					EOpenMobileHapticsFailureReason::BackendUnavailable,
+					EOpenMobileHapticFailureStage::Channel,
+					QueuedRequest.Effect,
+					QueuedRequest.Channel
+				);
+			FinishPromotedOverlapRequest(SelectedRequestId, Result);
+			continue;
+		}
+
+		FOpenMobileHapticPlaybackResult Result;
+		if (QueuedRequest.QueuedSemanticRequest.IsSet())
+		{
+			Result = SubmitSemanticOrOverride(
+				QueuedRequest.QueuedSemanticRequest.GetValue(),
+				QueuedRequest.QueuedSemanticPatternOverride,
+				&QueuedRequest.Token
+			);
+		}
+		else if (QueuedRequest.QueuedOneShotRequest.IsSet())
+		{
+			Result = SubmitOneShotInternal(
+				QueuedRequest.QueuedOneShotRequest.GetValue(),
+				&QueuedRequest.Token
+			);
+		}
+		else if (QueuedRequest.QueuedNamedRequest.IsSet())
+		{
+			Result = SubmitNamedPatternInternal(
+				QueuedRequest.QueuedNamedRequest.GetValue(),
+				&QueuedRequest.Token
+			);
+		}
+		else
+		{
+			Result =
+				OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+					EOpenMobileHapticsFailureReason::Internal,
+					EOpenMobileHapticFailureStage::Channel,
+					QueuedRequest.Effect,
+					QueuedRequest.Channel
+				);
+		}
+		FinishPromotedOverlapRequest(SelectedRequestId, Result);
+		if (State)
+		{
+			const FOpenMobileHapticsSubsystemRequestState* Current =
+				State->Requests.Find(SelectedRequestId);
+			if (Current && Current->bWaitingForOverlap)
+			{
+				return;
+			}
+		}
+	}
+}
+
+void UOpenMobileHapticsSubsystem::FinishPromotedOverlapRequest(
+	uint64 RequestId,
+	const FOpenMobileHapticPlaybackResult& Result
+)
+{
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	FOpenMobileHapticsSubsystemRequestState* Request =
+		State->Requests.Find(RequestId);
+	if (!Request)
+	{
+		return;
+	}
+	if (Result.IsAccepted())
+	{
+		if (Request->bWaitingForOverlap)
+		{
+			return;
+		}
+		if (!Result.ResolvedPath.IsNone())
+		{
+			Request->ResolvedPath = Result.ResolvedPath;
+		}
+		if (Request->bFireAndForgetAfterOverlapPromotion)
+		{
+			FOpenMobileHapticPlaybackEvent Started;
+			Started.State = EOpenMobileHapticPlaybackState::Started;
+			Started.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+			Started.TimestampSeconds = FPlatformTime::Seconds();
+			PublishPlaybackEvent(RequestId, MoveTemp(Started));
+			if (State && State->Requests.Contains(RequestId))
+			{
+				FOpenMobileHapticPlaybackEvent Completed;
+				Completed.State = EOpenMobileHapticPlaybackState::Completed;
+				Completed.Evidence = EOpenMobileHapticEventEvidence::Estimated;
+				Completed.TimestampSeconds = FPlatformTime::Seconds();
+				PublishPlaybackEvent(RequestId, MoveTemp(Completed));
+			}
+		}
+		return;
+	}
+	if (Request->bWaitingForOverlap
+		&& Result.Error.Code == EOpenMobileHapticErrorCode::ChannelBusy)
+	{
+		return;
+	}
+	Request->ResolvedPath = Result.ResolvedPath.IsNone()
+		? FName(TEXT("OverlapQueueRejected"))
+		: Result.ResolvedPath;
+	Request->FallbackAttempts = Result.FallbackAttempts;
+	FOpenMobileHapticPlaybackEvent Event;
+	Event.State = Result.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed
+		? EOpenMobileHapticPlaybackState::Cancelled
+		: EOpenMobileHapticPlaybackState::Failed;
+	Event.Evidence = EOpenMobileHapticEventEvidence::SchedulerConfirmed;
+	Event.TimestampSeconds = FPlatformTime::Seconds();
+	Event.Error = Result.Error;
+	PublishPlaybackEvent(RequestId, MoveTemp(Event));
+}
+
 FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request
 )
@@ -1876,7 +2609,8 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	const FOpenMobileHapticSemanticRequest& Request,
-	FName PatternOverride
+	FName PatternOverride,
+	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
 	check(IsInGameThread());
@@ -1894,6 +2628,8 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		|| Request.Options.Category.IsNone()
 		|| static_cast<uint8>(Request.Options.Priority)
 			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
+		|| static_cast<uint8>(Request.Options.OverlapPolicy)
+			> static_cast<uint8>(EOpenMobileHapticOverlapPolicy::MixWhenSupported)
 		|| static_cast<uint8>(Request.Options.InterruptionPolicy)
 			> static_cast<uint8>(
 				EOpenMobileHapticInterruptionPolicy::Restart
@@ -2049,7 +2785,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		);
 	const bool bSelection = Descriptor.Behavior
 		== EOpenMobileHapticsSemanticBehavior::Selection;
-	if (LocalState.RateLimiter.ShouldSuppress(
+	if (!ExistingToken && LocalState.RateLimiter.ShouldSuppress(
 		Request.Options.Channel,
 		bSelection,
 		FPlatformTime::Seconds(),
@@ -2061,6 +2797,35 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 			Request.Options.Channel,
 			TEXT("RateLimited")
+		);
+	}
+	FOpenMobileHapticPlaybackResult OverlapResult;
+	bool bShouldQueueForOverlap = false;
+	bool bUsedMixFallback = false;
+	if (!ResolveAndApplyOverlap(
+		AdjustedRequest.Options,
+		Descriptor.Name,
+		ExistingToken ? ExistingToken->RequestId : 0,
+		OverlapResult,
+		bShouldQueueForOverlap,
+		bUsedMixFallback
+	))
+	{
+		return OverlapResult;
+	}
+	if (bShouldQueueForOverlap)
+	{
+		return QueueOverlapRequest(
+			AdjustedRequest.Options,
+			ResolvedChannel,
+			Descriptor.Name,
+			AdjustedRequest.Options.Loop.bLoop,
+			bUsedMixFallback,
+			ExistingToken,
+			&Request,
+			nullptr,
+			nullptr,
+			PatternOverride
 		);
 	}
 
@@ -2086,7 +2851,12 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		PlaybackParameters.InitialDynamicParameters.Intensity =
 			MutablePolicyScale;
 		const FOpenMobileHapticsBackendRequestToken OverrideToken =
-			FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+			ExistingToken
+				? *ExistingToken
+				: FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+					*Backend,
+					true
+				);
 		FOpenMobileHapticPlaybackResult AdmissionRejection;
 		if (!AdmitChannelRequest(
 			OverrideToken,
@@ -2094,6 +2864,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			ResolvedChannel.MaximumActiveHandles,
 			ResolvedChannel.MaximumQueueDepth,
 			PlaybackParameters.ScheduledStartGuard.IsValid(),
+			false,
 			AdjustedRequest.Options.Loop.bLoop,
 			Descriptor.Name,
 			AdmissionRejection
@@ -2106,11 +2877,17 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		OverrideState.Channel = Request.Options.Channel;
 		OverrideState.Category = Request.Options.Category;
 		OverrideState.Effect = Descriptor.Name;
+		OverrideState.Priority = ResolvedChannel.EffectivePriority;
 		OverrideState.bSupportsDynamicParameters =
 			bSupportsDynamicParameters;
 		OverrideState.bRequiresPreparedAsset = true;
 		OverrideState.ScheduledStartGuard =
 			PlaybackParameters.ScheduledStartGuard;
+		OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
+			LocalState,
+			OverrideToken.RequestId,
+			OverrideState
+		);
 		LocalState.Requests.Add(OverrideToken.RequestId, OverrideState);
 		FOpenMobileHapticPlaybackResult OverrideResult =
 			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
@@ -2138,6 +2915,11 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 				OverrideResult.Intensity.Requested = Request.Intensity;
 				OverrideResult.Intensity.Resolved = AdjustedRequest.Intensity;
 				LocalState.LastIntensity = OverrideResult.Intensity;
+				if (bUsedMixFallback)
+				{
+					OverrideResult.Outcome =
+						EOpenMobileHapticPlaybackOutcome::Fallback;
+				}
 			}
 			PublishSubmissionEvents(OverrideResult, Timing);
 			return OverrideResult;
@@ -2218,10 +3000,12 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
 	const bool bScheduled = PlaybackParameters.ScheduledStartGuard.IsValid();
 	const FOpenMobileHapticsBackendRequestToken Token =
-		FOpenMobileHapticsBackendRegistry::CreateRequestToken(
-			*Backend,
-			bScheduled
-		);
+		ExistingToken
+			? *ExistingToken
+			: FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+				*Backend,
+				bScheduled
+			);
 	FOpenMobileHapticPlaybackResult AdmissionRejection;
 	if (!AdmitChannelRequest(
 		Token,
@@ -2229,6 +3013,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		ResolvedChannel.MaximumActiveHandles,
 		ResolvedChannel.MaximumQueueDepth,
 		bScheduled,
+		false,
 		AdjustedRequest.Options.Loop.bLoop,
 		Descriptor.Name,
 		AdmissionRejection
@@ -2241,8 +3026,14 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	RequestState.Channel = Request.Options.Channel;
 	RequestState.Category = Request.Options.Category;
 	RequestState.Effect = Descriptor.Name;
+	RequestState.Priority = ResolvedChannel.EffectivePriority;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
+	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
+		LocalState,
+		Token.RequestId,
+		RequestState
+	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
@@ -2283,6 +3074,10 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		{
 			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
 		}
+		if (bUsedMixFallback)
+		{
+			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		}
 		if (bOverrideFailed)
 		{
 			LocalState.LastError = {};
@@ -2298,6 +3093,14 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 
 FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	const FOpenMobileHapticOneShotRequest& Request
+)
+{
+	return SubmitOneShotInternal(Request, nullptr);
+}
+
+FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotInternal(
+	const FOpenMobileHapticOneShotRequest& Request,
+	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
 	check(IsInGameThread());
@@ -2526,7 +3329,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			Request.Options.Channel
 		);
 	}
-	if (LocalState.RateLimiter.ShouldSuppress(
+	if (!ExistingToken && LocalState.RateLimiter.ShouldSuppress(
 		Request.Options.Channel,
 		false,
 		FPlatformTime::Seconds(),
@@ -2540,11 +3343,41 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			TEXT("RateLimited")
 		);
 	}
-	const FOpenMobileHapticsBackendRequestToken Token =
-		FOpenMobileHapticsBackendRegistry::CreateRequestToken(
-			*Backend,
-			true
+	FOpenMobileHapticPlaybackResult OverlapResult;
+	bool bShouldQueueForOverlap = false;
+	bool bUsedMixFallback = false;
+	if (!ResolveAndApplyOverlap(
+		AdjustedRequest.Options,
+		TEXT("OneShot"),
+		ExistingToken ? ExistingToken->RequestId : 0,
+		OverlapResult,
+		bShouldQueueForOverlap,
+		bUsedMixFallback
+	))
+	{
+		return OverlapResult;
+	}
+	if (bShouldQueueForOverlap)
+	{
+		return QueueOverlapRequest(
+			AdjustedRequest.Options,
+			ResolvedChannel,
+			TEXT("OneShot"),
+			AdjustedRequest.Options.Loop.bLoop,
+			bUsedMixFallback,
+			ExistingToken,
+			nullptr,
+			&Request,
+			nullptr
 		);
+	}
+	const FOpenMobileHapticsBackendRequestToken Token =
+		ExistingToken
+			? *ExistingToken
+			: FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+				*Backend,
+				true
+			);
 	FOpenMobileHapticsBackendPlaybackParameters PlaybackParameters;
 	PlaybackParameters.Timing = Timing;
 	PlaybackParameters.ScheduledStartGuard =
@@ -2556,6 +3389,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		ResolvedChannel.MaximumActiveHandles,
 		ResolvedChannel.MaximumQueueDepth,
 		PlaybackParameters.ScheduledStartGuard.IsValid(),
+		false,
 		AdjustedRequest.Options.Loop.bLoop,
 		TEXT("OneShot"),
 		AdmissionRejection
@@ -2568,8 +3402,14 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	RequestState.Channel = Request.Options.Channel;
 	RequestState.Category = Request.Options.Category;
 	RequestState.Effect = TEXT("OneShot");
+	RequestState.Priority = ResolvedChannel.EffectivePriority;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
+	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
+		LocalState,
+		Token.RequestId,
+		RequestState
+	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
@@ -2609,6 +3449,10 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		}
 		LocalState.LastDuration = Result.Duration;
 		LocalState.LastIntensity = Result.Intensity;
+		if (bUsedMixFallback)
+		{
+			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		}
 	}
 	PublishSubmissionEvents(Result, Timing);
 	return Result;
@@ -2617,6 +3461,15 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	const FOpenMobileHapticNamedPatternRequest& Request
+)
+{
+	return SubmitNamedPatternInternal(Request, nullptr);
+}
+
+FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
+	const FOpenMobileHapticNamedPatternRequest& Request,
+	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
 	check(IsInGameThread());
@@ -2712,6 +3565,19 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	if (!Backend)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedPlaybackResult();
+	}
+	if (!Request.PatternAsset.IsNull()
+		&& !Request.PatternAsset.ResolveObject())
+	{
+		FOpenMobileHapticPlaybackResult Result =
+			OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+				EOpenMobileHapticsFailureReason::InvalidPattern,
+				EOpenMobileHapticFailureStage::Preparation,
+				Request.PatternName,
+				Request.Options.Channel
+			);
+		LocalState.LastError = Result.Error;
+		return Result;
 	}
 
 	float ProjectScale = 1.0f;
@@ -2886,9 +3752,42 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 				FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()
 			).Timeline;
 	}
+	FOpenMobileHapticPlaybackResult OverlapResult;
+	bool bShouldQueueForOverlap = false;
+	bool bUsedMixFallback = false;
+	if (!ResolveAndApplyOverlap(
+		ResolvedRequest.Options,
+		ResolvedRequest.PatternName,
+		ExistingToken ? ExistingToken->RequestId : 0,
+		OverlapResult,
+		bShouldQueueForOverlap,
+		bUsedMixFallback
+	))
+	{
+		return OverlapResult;
+	}
+	if (bShouldQueueForOverlap)
+	{
+		return QueueOverlapRequest(
+			ResolvedRequest.Options,
+			ResolvedChannel,
+			ResolvedRequest.PatternName,
+			bRepeating,
+			bUsedMixFallback,
+			ExistingToken,
+			nullptr,
+			nullptr,
+			&Request
+		);
+	}
 
 	const FOpenMobileHapticsBackendRequestToken Token =
-		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+		ExistingToken
+			? *ExistingToken
+			: FOpenMobileHapticsBackendRegistry::CreateRequestToken(
+				*Backend,
+				true
+			);
 	FOpenMobileHapticPlaybackResult AdmissionRejection;
 	if (!AdmitChannelRequest(
 		Token,
@@ -2896,6 +3795,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		ResolvedChannel.MaximumActiveHandles,
 		ResolvedChannel.MaximumQueueDepth,
 		PlaybackParameters.ScheduledStartGuard.IsValid(),
+		false,
 		bRepeating,
 		ResolvedRequest.PatternName,
 		AdmissionRejection
@@ -2908,11 +3808,17 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	RequestState.Channel = ResolvedRequest.Options.Channel;
 	RequestState.Category = ResolvedRequest.Options.Category;
 	RequestState.Effect = ResolvedRequest.PatternName;
+	RequestState.Priority = ResolvedChannel.EffectivePriority;
 	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
 	RequestState.bRequiresPreparedAsset = !Settings->NamedLibraries.IsEmpty();
 	RequestState.RecoveryRequest = Request;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
+	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
+		LocalState,
+		Token.RequestId,
+		RequestState
+	);
 	LocalState.Requests.Add(Token.RequestId, RequestState);
 	FOpenMobileHapticsBackendSubmission Submission =
 		Backend->SubmitNamedPattern(
@@ -2937,6 +3843,10 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		Result.Intensity.Requested = Request.Intensity;
 		Result.Intensity.Resolved = StaticIntensity * MutablePolicyScale;
 		LocalState.LastIntensity = Result.Intensity;
+		if (bUsedMixFallback)
+		{
+			Result.Outcome = EOpenMobileHapticPlaybackOutcome::Fallback;
+		}
 	}
 	PublishSubmissionEvents(Result, Timing);
 	return Result;
@@ -3002,6 +3912,14 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::EndPlaybackNative(
 				FOpenMobileHapticsErrorMapper::Map(Context)
 			);
 		Result.Outcome = EOpenMobileHapticControlOutcome::StaleHandle;
+		return Result;
+	}
+	if (Request->bWaitingForOverlap)
+	{
+		const uint64 OwnedRequestId = Request->Token.RequestId;
+		CompleteControlledRequest(OwnedRequestId, TerminalState);
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 		return Result;
 	}
 	if (!Backend
@@ -3673,6 +4591,29 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 
 	UserPolicy = Policy;
 	bUserPolicyEnabled.Store(Policy.bEnabled);
+	if (State && !Policy.bEnabled)
+	{
+		TArray<uint64> QueuedRequestIds;
+		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+			State->Requests)
+		{
+			if (Pair.Value.bWaitingForOverlap)
+			{
+				QueuedRequestIds.Add(Pair.Key);
+			}
+		}
+		QueuedRequestIds.Sort();
+		for (const uint64 RequestId : QueuedRequestIds)
+		{
+			if (State && State->Requests.Contains(RequestId))
+			{
+				CompleteControlledRequest(
+					RequestId,
+					EOpenMobileHapticPlaybackState::Cancelled
+				);
+			}
+		}
+	}
 	if (State)
 	{
 		OpenMobileHapticsSubsystemPrivate::InvalidateScheduledStarts(*State);
@@ -3713,7 +4654,8 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 	Diagnostics.Capabilities = GetCapabilitiesNative();
 	if (State)
 	{
-		Diagnostics.ActivePlaybackCount = State->Requests.Num();
+		Diagnostics.ActivePlaybackCount = State->ChannelArbiter.GetActiveCount();
+		Diagnostics.QueuedPlaybackCount = State->ChannelArbiter.GetQueuedCount();
 		Diagnostics.LastError = State->LastError;
 		Diagnostics.LastDuration = State->LastDuration;
 		Diagnostics.LastIntensity = State->LastIntensity;
@@ -4376,13 +5318,19 @@ void UOpenMobileHapticsSubsystem::PublishPlaybackEvent(
 		State->LastError = Event.Error;
 	}
 	OpenMobileHapticsSubsystemPrivate::AppendEventHistory(*State, Event);
-	if (OpenMobileHapticsSubsystemPrivate::IsTerminalState(Event.State))
+	const bool bTerminal =
+		OpenMobileHapticsSubsystemPrivate::IsTerminalState(Event.State);
+	if (bTerminal)
 	{
 		OpenMobileHapticsSubsystemPrivate::RemoveRequest(*State, RequestId);
 	}
 
 	OnPlaybackEvent.Broadcast(Event);
 	NativePlaybackEvent.Broadcast(Event);
+	if (bTerminal)
+	{
+		ScheduleOverlapQueueDrain();
+	}
 }
 
 TFunction<void(const FOpenMobileHapticsBackendCallback&)>

@@ -31,6 +31,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelSettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0", ClampMax = "64"))
 	int32 MaximumQueueDepth = 4;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel")
+	EOpenMobileHapticOverlapPolicy UnsupportedMixFallbackPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float MinimumIntervalSeconds = 0.02f;
 
@@ -150,6 +154,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Queue Limits", meta = (ClampMin = "1", ClampMax = "64"))
 	int32 MaximumQueueDepthPerChannel = 8;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Queue Limits", meta = (ClampMin = "0.01", ClampMax = "30.0", Units = "s"))
+	float MaximumQueuedRequestAgeSeconds = 1.0f;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Queue Limits", meta = (ClampMin = "1", ClampMax = "128"))
 	int32 MaximumPreparedPatterns = 32;

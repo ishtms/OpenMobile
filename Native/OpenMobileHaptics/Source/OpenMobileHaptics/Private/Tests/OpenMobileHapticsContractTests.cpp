@@ -31,6 +31,7 @@
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
+#include "OpenMobileHapticsOverlapPolicy.h"
 #include "OpenMobileHapticsPlatformOverridePolicy.h"
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
@@ -360,6 +361,11 @@ namespace OpenMobileHapticsTests
 				Callback.Event.Handle = Callback.Token.PlaybackHandle;
 			}
 			PendingCallbacks[PendingIndex].Callback(Callback);
+		}
+
+		int32 GetPendingCallbackCount() const
+		{
+			return PendingCallbacks.Num();
 		}
 
 		FOpenMobileHapticCapabilities Capabilities;
@@ -4649,6 +4655,9 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 			Settings->Channels[Index].MaximumActiveHandles > 0);
 		TestTrue(TEXT("Default channel has queued capacity"),
 			Settings->Channels[Index].MaximumQueueDepth > 0);
+		TestTrue(TEXT("Default mix fallback cannot recurse"),
+			Settings->Channels[Index].UnsupportedMixFallbackPolicy
+				!= EOpenMobileHapticOverlapPolicy::MixWhenSupported);
 	}
 	TestEqual(
 		TEXT("Default channel is Gameplay"),
@@ -4679,6 +4688,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->MaximumPreparedPatternMemoryKilobytes, 4096);
 	TestEqual(TEXT("Prepared patterns have a finite idle lifetime"),
 		Settings->PreparedPatternIdleLifetimeSeconds, 30.0f);
+	TestEqual(TEXT("Overlap queues have a finite default maximum age"),
+		Settings->MaximumQueuedRequestAgeSeconds, 1.0f);
 	const FIntProperty* CurveCountProperty = FindFProperty<FIntProperty>(
 		UOpenMobileHapticsSettings::StaticClass(),
 		GET_MEMBER_NAME_CHECKED(
@@ -4726,6 +4737,18 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Channel active capacity cannot exceed the global bound"),
 		Settings->Validate(Errors));
 	Settings->Channels[0].MaximumActiveHandles = 4;
+	Settings->Channels[0].UnsupportedMixFallbackPolicy =
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported;
+	TestFalse(TEXT("Mix fallback cannot select itself"),
+		Settings->Validate(Errors));
+	Settings->Channels[0].UnsupportedMixFallbackPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
+	Settings->MaximumQueuedRequestAgeSeconds =
+		std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("Queue age must be finite"), Settings->Validate(Errors));
+	Settings->MaximumQueuedRequestAgeSeconds = 0.0f;
+	TestFalse(TEXT("Queue age must be positive"), Settings->Validate(Errors));
+	Settings->MaximumQueuedRequestAgeSeconds = 1.0f;
 
 	FOpenMobileHapticEffectSettings Effect;
 	Effect.Name = TEXT("Confirm");
@@ -4786,7 +4809,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->DefaultMasterIntensity = 0.75f;
 	Settings->DefaultChannel = TEXT("UI");
 	Settings->MaximumQueuedHandles = 12;
+	Settings->MaximumQueuedRequestAgeSeconds = 2.5f;
 	Settings->Channels[0].MaximumActiveHandles = 3;
+	Settings->Channels[0].UnsupportedMixFallbackPolicy =
+		EOpenMobileHapticOverlapPolicy::Queue;
 	Settings->MaximumPatternCurveCount = 12;
 	Settings->MaximumPatternCurvePointCount = 192;
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 90;
@@ -4821,8 +4847,13 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Loaded->MaximumQueuedHandles,
 		12
 	);
+	TestEqual(TEXT("Queue age survives editor restart serialization"),
+		Loaded->MaximumQueuedRequestAgeSeconds, 2.5f);
 	TestEqual(TEXT("Channel active limit survives serialization"),
 		Loaded->Channels[0].MaximumActiveHandles, 3);
+	TestEqual(TEXT("Channel mix fallback survives serialization"),
+		Loaded->Channels[0].UnsupportedMixFallbackPolicy,
+		EOpenMobileHapticOverlapPolicy::Queue);
 	TestEqual(
 		TEXT("Curve limit survives editor restart serialization"),
 		Loaded->MaximumPatternCurveCount,
@@ -6123,6 +6154,8 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 	Backend.ControlSupport.bStop = true;
 	Backend.ControlSupport.bStopChannel = true;
 	Backend.ControlSupport.bStopAll = true;
+	Backend.Capabilities.Mixing =
+		EOpenMobileHapticSupportState::Supported;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileHapticsSubsystem* Subsystem =
@@ -6142,6 +6175,7 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 	);
 	FOpenMobileHapticPlaybackOptions AOptions;
 	AOptions.Channel = TEXT("A");
+	AOptions.OverlapPolicy = EOpenMobileHapticOverlapPolicy::MixWhenSupported;
 	FOpenMobileHapticPlaybackOptions BOptions;
 	BOptions.Channel = TEXT("B");
 	const FOpenMobileHapticPlaybackResult A1 =
@@ -6882,6 +6916,8 @@ bool FOpenMobileHapticsInterruptionStateTest::RunTest(
 		EOpenMobileHapticSupportState::Supported;
 	Backend.Capabilities.Scheduling =
 		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Mixing =
+		EOpenMobileHapticSupportState::Supported;
 	Backend.ControlSupport.bStop = true;
 	Backend.ControlSupport.bPause = true;
 	Backend.SubmissionControlSupport.PauseImplementation =
@@ -6902,17 +6938,23 @@ bool FOpenMobileHapticsInterruptionStateTest::RunTest(
 	ScheduledOptions.Schedule.TimeSeconds = 1.0;
 	const FOpenMobileHapticPlaybackResult Scheduled =
 		Subsystem->VibrateAdvanced(0.05f, 1.0f, ScheduledOptions);
+	FOpenMobileHapticPlaybackOptions ConcurrentOptions;
+	ConcurrentOptions.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported;
 	const FOpenMobileHapticPlaybackResult Active =
-		Subsystem->PlayNamedPattern(TEXT("Active"));
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("Active"), 1.0f, ConcurrentOptions);
 	const FOpenMobileHapticPlaybackResult Paused =
-		Subsystem->PlayNamedPattern(TEXT("Paused"));
-	FOpenMobileHapticPlaybackOptions RepeatingOptions;
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("Paused"), 1.0f, ConcurrentOptions);
+	FOpenMobileHapticPlaybackOptions RepeatingOptions = ConcurrentOptions;
 	RepeatingOptions.Loop.bLoop = true;
 	const FOpenMobileHapticPlaybackResult Repeating =
 		Subsystem->PlayNamedPatternAdvanced(
 			TEXT("Repeating"), 1.0f, RepeatingOptions);
 	const FOpenMobileHapticPlaybackResult Stopping =
-		Subsystem->PlayNamedPattern(TEXT("Stopping"));
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("Stopping"), 1.0f, ConcurrentOptions);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
 	Backend.Emit(1, EOpenMobileHapticPlaybackState::Started, 1);
 	Backend.Emit(2, EOpenMobileHapticPlaybackState::Started, 1);
@@ -7659,6 +7701,190 @@ bool FOpenMobileHapticsChannelPolicyTest::RunTest(
 		QueueArbiter.GetActiveCount(), 0);
 	TestEqual(TEXT("Teardown releases all queued reservations"),
 		QueueArbiter.GetQueuedCount(), 0);
+
+	FOpenMobileHapticsChannelArbiter WaitingArbiter;
+	WaitingArbiter.Configure({1, 2, 2});
+	TestEqual(TEXT("Waiting test owns its active slot"),
+		WaitingArbiter.TryReserve(MakeRequest(
+			30, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Normal,
+			false, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	FOpenMobileHapticsChannelAdmissionRequest Waiting = MakeRequest(
+		31, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::High,
+		true, false
+	);
+	Waiting.bWaitingForOverlap = true;
+	TestEqual(TEXT("Overlap wait uses queue capacity without an active slot"),
+		WaitingArbiter.TryReserve(Waiting).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Overlap wait does not inflate active diagnostics"),
+		WaitingArbiter.GetActiveCount(), 1);
+	TestEqual(TEXT("Overlap wait is visible in queued diagnostics"),
+		WaitingArbiter.GetQueuedCount(), 1);
+	FOpenMobileHapticsChannelAdmissionRequest Promotion = Waiting;
+	Promotion.bWaitingForOverlap = false;
+	Promotion.bQueued = false;
+	TestEqual(TEXT("Promotion waits while active capacity remains full"),
+		WaitingArbiter.TryReserve(Promotion).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::ChannelActiveCapacityReached);
+	WaitingArbiter.Release(30);
+	TestEqual(TEXT("Promotion converts the existing reservation atomically"),
+		WaitingArbiter.TryReserve(Promotion).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Promotion consumes one active slot"),
+		WaitingArbiter.GetActiveCount(), 1);
+	TestEqual(TEXT("Promotion releases its overlap queue slot"),
+		WaitingArbiter.GetQueuedCount(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsOverlapPolicyTest,
+	"OpenMobile.Haptics.Overlap.Policy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsOverlapPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const FOpenMobileHapticCapabilities UnknownCapabilities;
+	TestEqual(TEXT("Mixing support is unknown until a backend reports it"),
+		UnknownCapabilities.Mixing,
+		EOpenMobileHapticSupportState::Unknown);
+	auto MakeConflict = [](
+		uint64 RequestId,
+		FName Channel,
+		EOpenMobileHapticChannelPriority Priority,
+		bool bQueued = false
+	)
+	{
+		FOpenMobileHapticsOverlapConflict Conflict;
+		Conflict.RequestId = RequestId;
+		Conflict.Channel = Channel;
+		Conflict.Priority = Priority;
+		Conflict.bQueued = bQueued;
+		return Conflict;
+	};
+	const TArray<FOpenMobileHapticsOverlapConflict> Conflicts = {
+		MakeConflict(
+			10,
+			TEXT("Gameplay"),
+			EOpenMobileHapticChannelPriority::Low
+		),
+		MakeConflict(
+			11,
+			TEXT("Gameplay"),
+			EOpenMobileHapticChannelPriority::Normal,
+			true
+		),
+		MakeConflict(
+			12,
+			TEXT("UI"),
+			EOpenMobileHapticChannelPriority::Critical
+		)
+	};
+	auto Resolve = [&Conflicts](
+		EOpenMobileHapticOverlapPolicy Policy,
+		EOpenMobileHapticChannelPriority Priority =
+			EOpenMobileHapticChannelPriority::High,
+		EOpenMobileHapticSupportState Mixing =
+			EOpenMobileHapticSupportState::Unsupported,
+		EOpenMobileHapticOverlapPolicy MixFallback =
+			EOpenMobileHapticOverlapPolicy::Replace
+	)
+	{
+		FOpenMobileHapticsOverlapRequest Request;
+		Request.Channel = TEXT("Gameplay");
+		Request.Priority = Priority;
+		Request.Policy = Policy;
+		Request.Mixing = Mixing;
+		Request.UnsupportedMixFallback = MixFallback;
+		return FOpenMobileHapticsOverlapPolicy::Resolve(Request, Conflicts);
+	};
+
+	const FOpenMobileHapticsOverlapResolution Replace = Resolve(
+		EOpenMobileHapticOverlapPolicy::Replace
+	);
+	TestEqual(TEXT("Replace submits after ending same-channel work"),
+		Replace.Outcome,
+		EOpenMobileHapticsOverlapOutcome::InterruptThenSubmit);
+	TestEqual(TEXT("Replace affects active and queued same-channel work"),
+		Replace.TerminalRequestIds,
+		TArray<uint64>({10, 11}));
+	TestEqual(TEXT("Replace does not affect another channel"),
+		Replace.TerminalRequestIds.Contains(12), false);
+	TestEqual(TEXT("Ignore suppresses the incoming request"),
+		Resolve(EOpenMobileHapticOverlapPolicy::Ignore).Outcome,
+		EOpenMobileHapticsOverlapOutcome::Suppress);
+	TestEqual(TEXT("Queue retains the incoming request"),
+		Resolve(EOpenMobileHapticOverlapPolicy::Queue).Outcome,
+		EOpenMobileHapticsOverlapOutcome::Queue);
+	TestEqual(TEXT("Higher priority interrupts lower same-channel work"),
+		Resolve(EOpenMobileHapticOverlapPolicy::InterruptLowerPriority).Outcome,
+		EOpenMobileHapticsOverlapOutcome::InterruptThenSubmit);
+	TestEqual(TEXT("Equal priority blocks interruption atomically"),
+		Resolve(
+			EOpenMobileHapticOverlapPolicy::InterruptLowerPriority,
+			EOpenMobileHapticChannelPriority::Normal
+		).Outcome,
+		EOpenMobileHapticsOverlapOutcome::Suppress);
+	const FOpenMobileHapticsOverlapResolution SupportedMix = Resolve(
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported,
+		EOpenMobileHapticChannelPriority::Normal,
+		EOpenMobileHapticSupportState::Supported
+	);
+	TestEqual(TEXT("Supported mixing permits concurrent submission"),
+		SupportedMix.Outcome,
+		EOpenMobileHapticsOverlapOutcome::Submit);
+	TestFalse(TEXT("Supported mixing does not use its fallback"),
+		SupportedMix.bUsedMixFallback);
+	const FOpenMobileHapticsOverlapResolution UnknownMix = Resolve(
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported,
+		EOpenMobileHapticChannelPriority::High,
+		EOpenMobileHapticSupportState::Unknown,
+		EOpenMobileHapticOverlapPolicy::Queue
+	);
+	TestEqual(TEXT("Unknown mixing support follows configured fallback"),
+		UnknownMix.Outcome,
+		EOpenMobileHapticsOverlapOutcome::Queue);
+	TestTrue(TEXT("Mix fallback remains explicit"),
+		UnknownMix.bUsedMixFallback);
+	TestEqual(TEXT("Mix fallback reports its resolved policy"),
+		UnknownMix.ResolvedPolicy,
+		EOpenMobileHapticOverlapPolicy::Queue);
+
+	FOpenMobileHapticsOverlapRequest Independent;
+	Independent.Channel = TEXT("Cinematic");
+	Independent.Priority = EOpenMobileHapticChannelPriority::Low;
+	Independent.Policy = EOpenMobileHapticOverlapPolicy::Ignore;
+	TestEqual(TEXT("Different channels do not collide"),
+		FOpenMobileHapticsOverlapPolicy::Resolve(
+			Independent,
+			Conflicts
+		).Outcome,
+		EOpenMobileHapticsOverlapOutcome::Submit);
+
+	TArray<FOpenMobileHapticsOverlapQueueEntry> Queue = {
+		{20, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Normal, 1.0},
+		{21, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::High, 1.1},
+		{22, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::High, 1.1},
+		{23, TEXT("UI"), EOpenMobileHapticChannelPriority::Critical, 0.5}
+	};
+	TestEqual(TEXT("Queue selects highest priority then oldest request ID"),
+		FOpenMobileHapticsOverlapPolicy::SelectNext(
+			TEXT("Gameplay"),
+			Queue
+		),
+		static_cast<uint64>(21));
+	TestFalse(TEXT("Queue age is inclusive at its exact boundary"),
+		FOpenMobileHapticsOverlapPolicy::IsExpired(1.0, 2.0, 1.0));
+	TestTrue(TEXT("Queue age expires stale requests"),
+		FOpenMobileHapticsOverlapPolicy::IsExpired(1.0, 2.001, 1.0));
+	TestFalse(TEXT("Backward clocks do not expire queued requests"),
+		FOpenMobileHapticsOverlapPolicy::IsExpired(2.0, 1.0, 1.0));
 	return true;
 }
 
@@ -7704,6 +7930,8 @@ bool FOpenMobileHapticsChannelSubsystemTest::RunTest(
 	Backend.Capabilities.SemanticEffects =
 		EOpenMobileHapticSupportState::Supported;
 	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Mixing =
 		EOpenMobileHapticSupportState::Supported;
 	Backend.ControlSupport.bStop = true;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
@@ -7822,6 +8050,8 @@ bool FOpenMobileHapticsChannelSubsystemTest::RunTest(
 	FOpenMobileHapticNamedPatternRequest ChannelCapacityRequest;
 	ChannelCapacityRequest.PatternName = TEXT("CriticalChannelOverflow");
 	ChannelCapacityRequest.Options.Channel = TEXT("Critical");
+	ChannelCapacityRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported;
 	const FOpenMobileHapticPlaybackResult ChannelCapacityRejected =
 		Subsystem->SubmitNamedPattern(ChannelCapacityRequest);
 	TestEqual(TEXT("Per-channel active capacity is typed"),
@@ -7835,6 +8065,8 @@ bool FOpenMobileHapticsChannelSubsystemTest::RunTest(
 	ScheduledRequest.Options.Schedule.Mode =
 		EOpenMobileHapticScheduleMode::Relative;
 	ScheduledRequest.Options.Schedule.TimeSeconds = 5.0;
+	ScheduledRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::MixWhenSupported;
 	const FOpenMobileHapticPlaybackResult ScheduledCinematic =
 		Subsystem->SubmitNamedPattern(ScheduledRequest);
 	TestTrue(TEXT("First delayed channel request is accepted"),
@@ -7970,6 +8202,438 @@ bool FOpenMobileHapticsChannelSubsystemTest::RunTest(
 	Settings->MaximumQueuedHandles = SavedMaximumQueuedHandles;
 	Settings->MaximumQueueDepthPerChannel =
 		SavedMaximumQueueDepthPerChannel;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsOverlapSubsystemTest,
+	"OpenMobile.Haptics.Overlap.SubsystemPolicies",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsOverlapSubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const TArray<FOpenMobileHapticChannelSettings> SavedChannels =
+		Settings->Channels;
+	const int32 SavedMaximumActiveHandles = Settings->MaximumActiveHandles;
+	const int32 SavedMaximumQueuedHandles = Settings->MaximumQueuedHandles;
+	const int32 SavedMaximumQueueDepthPerChannel =
+		Settings->MaximumQueueDepthPerChannel;
+	const float SavedMaximumQueuedRequestAgeSeconds =
+		Settings->MaximumQueuedRequestAgeSeconds;
+	Settings->NamedLibraries.Reset();
+	Settings->MaximumActiveHandles = 16;
+	Settings->MaximumQueuedHandles = 8;
+	Settings->MaximumQueueDepthPerChannel = 4;
+	Settings->MaximumQueuedRequestAgeSeconds = 1.0f;
+	for (FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
+	{
+		Channel.Priority = EOpenMobileHapticChannelPriority::Low;
+		Channel.MaximumActiveHandles = 8;
+		Channel.MaximumQueueDepth = 4;
+		Channel.MinimumIntervalSeconds = 0.0f;
+		Channel.UnsupportedMixFallbackPolicy =
+			EOpenMobileHapticOverlapPolicy::Replace;
+	}
+
+	FMockBackend Backend(TEXT("Overlap"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Mixing =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	auto NewSubsystem = []()
+	{
+		UGameInstance* GameInstance = NewObject<UGameInstance>();
+		return NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	};
+	auto MakeRequest = [](
+		FName Channel,
+		EOpenMobileHapticOverlapPolicy Policy,
+		EOpenMobileHapticChannelPriority Priority
+	)
+	{
+		FOpenMobileHapticOneShotRequest Request;
+		Request.DurationSeconds = 0.03f;
+		Request.Options.Channel = Channel;
+		Request.Options.OverlapPolicy = Policy;
+		Request.Options.Priority = Priority;
+		return Request;
+	};
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const FOpenMobileHapticPlaybackResult Gameplay = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Independent = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("UI"), EOpenMobileHapticOverlapPolicy::Ignore,
+				EOpenMobileHapticChannelPriority::Low)
+		);
+		TestTrue(TEXT("Ignore does not collide across channels"),
+			Gameplay.IsAccepted() && Independent.IsAccepted());
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 SubmissionsBefore = Backend.OneShotSubmissionCount;
+		const FOpenMobileHapticPlaybackResult Existing = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Ignored = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Ignore,
+				EOpenMobileHapticChannelPriority::Critical)
+		);
+		TestEqual(TEXT("Ignore suppresses the simultaneous request"),
+			Ignored.Outcome, EOpenMobileHapticPlaybackOutcome::Suppressed);
+		TestFalse(TEXT("Ignored work has no playback handle"),
+			Ignored.Handle.IsValid());
+		TestEqual(TEXT("Ignored work never reaches native submission"),
+			Backend.OneShotSubmissionCount, SubmissionsBefore + 1);
+		TestTrue(TEXT("Ignore preserves existing plugin-owned work"),
+			Subsystem->GetPlaybackState(Existing.Handle)
+				!= EOpenMobileHapticPlaybackState::Interrupted);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 StopsBefore = Backend.StopPlaybackCount;
+		const FOpenMobileHapticPlaybackResult Existing = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Replacement =
+			Subsystem->SubmitOneShot(MakeRequest(
+				TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Low));
+		TestTrue(TEXT("Replace accepts the incoming request"),
+			Replacement.IsAccepted());
+		TestEqual(TEXT("Replace interrupts existing work before submission"),
+			Subsystem->GetPlaybackState(Existing.Handle),
+			EOpenMobileHapticPlaybackState::Interrupted);
+		TestEqual(TEXT("Replace stops exactly one owned native request"),
+			Backend.StopPlaybackCount, StopsBefore + 1);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 StopsBefore = Backend.StopPlaybackCount;
+		const FOpenMobileHapticPlaybackResult Lower = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Low)
+		);
+		const FOpenMobileHapticPlaybackResult Higher = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"),
+				EOpenMobileHapticOverlapPolicy::InterruptLowerPriority,
+				EOpenMobileHapticChannelPriority::High)
+		);
+		TestTrue(TEXT("Higher priority interrupts and submits"),
+			Higher.IsAccepted());
+		TestEqual(TEXT("Lower priority receives an interrupted outcome"),
+			Subsystem->GetPlaybackState(Lower.Handle),
+			EOpenMobileHapticPlaybackState::Interrupted);
+		const FOpenMobileHapticPlaybackResult Equal = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"),
+				EOpenMobileHapticOverlapPolicy::InterruptLowerPriority,
+				EOpenMobileHapticChannelPriority::High)
+		);
+		TestEqual(TEXT("Equal priority suppresses atomically"), Equal.Outcome,
+			EOpenMobileHapticPlaybackOutcome::Suppressed);
+		TestEqual(TEXT("Blocked interruption does not stop the equal request"),
+			Backend.StopPlaybackCount, StopsBefore + 1);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 StopsBefore = Backend.StopPlaybackCount;
+		const FOpenMobileHapticPlaybackResult Existing = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Mixed = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"),
+				EOpenMobileHapticOverlapPolicy::MixWhenSupported,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		TestTrue(TEXT("Supported plugin-owned mixing submits concurrently"),
+			Mixed.IsAccepted());
+		TestEqual(TEXT("Mixing leaves existing native work untouched"),
+			Backend.StopPlaybackCount, StopsBefore);
+		TestTrue(TEXT("Mixed work retains both active handles"),
+			Subsystem->GetDiagnostics().ActivePlaybackCount == 2
+				&& Existing.Handle.IsValid() && Mixed.Handle.IsValid());
+		Subsystem->Deinitialize();
+	}
+
+	{
+		Backend.Capabilities.Mixing =
+			EOpenMobileHapticSupportState::Unsupported;
+		FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+		FOpenMobileHapticChannelSettings* GameplayChannel =
+			Settings->Channels.FindByPredicate(
+				[](const FOpenMobileHapticChannelSettings& Channel)
+				{
+					return Channel.Name == TEXT("Gameplay");
+				}
+			);
+		TestNotNull(TEXT("Gameplay overlap settings are available"),
+			GameplayChannel);
+		if (GameplayChannel)
+		{
+			GameplayChannel->UnsupportedMixFallbackPolicy =
+				EOpenMobileHapticOverlapPolicy::Queue;
+			GameplayChannel->MaximumQueueDepth = 2;
+		}
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 ActiveCallback = Backend.GetPendingCallbackCount();
+		const int32 SubmissionsBefore = Backend.OneShotSubmissionCount;
+		const FOpenMobileHapticPlaybackResult Active = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult QueuedLow = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Low)
+		);
+		const FOpenMobileHapticPlaybackResult QueuedHigh = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"),
+				EOpenMobileHapticOverlapPolicy::MixWhenSupported,
+				EOpenMobileHapticChannelPriority::High)
+		);
+		TestTrue(TEXT("Queue returns stable accepted handles"),
+			QueuedLow.IsAccepted() && QueuedLow.Handle.IsValid()
+				&& QueuedHigh.IsAccepted() && QueuedHigh.Handle.IsValid());
+		TestEqual(TEXT("Unsupported mix reports the configured fallback"),
+			QueuedHigh.Outcome, EOpenMobileHapticPlaybackOutcome::Fallback);
+		TestEqual(TEXT("Queued requests do not reach native code early"),
+			Backend.OneShotSubmissionCount, SubmissionsBefore + 1);
+		TestEqual(TEXT("Diagnostics separate active and queued work"),
+			Subsystem->GetDiagnostics().ActivePlaybackCount, 1);
+		TestEqual(TEXT("Diagnostics report both overlap queue entries"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 2);
+		const FOpenMobileHapticPlaybackResult Overflow = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Critical)
+		);
+		TestEqual(TEXT("Overlap queue depth is bounded"), Overflow.Error.Code,
+			EOpenMobileHapticErrorCode::ChannelBusy);
+
+		Backend.Emit(ActiveCallback,
+			EOpenMobileHapticPlaybackState::Completed, 1);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+			ENamedThreads::GameThread);
+		TestEqual(TEXT("Highest priority queued request starts first"),
+			Backend.LastToken.PlaybackHandle, QueuedHigh.Handle);
+		TestEqual(TEXT("One queued request remains after promotion"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 1);
+		const int32 HighCallback = Backend.GetPendingCallbackCount() - 1;
+		Backend.Emit(HighCallback,
+			EOpenMobileHapticPlaybackState::Completed, 1);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+			ENamedThreads::GameThread);
+		TestEqual(TEXT("Equal-channel queue eventually promotes older work"),
+			Backend.LastToken.PlaybackHandle, QueuedLow.Handle);
+		TestEqual(TEXT("Promoted queue is no longer counted as queued"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+		TestEqual(TEXT("The original active request completed cleanly"),
+			Subsystem->GetPlaybackState(Active.Handle),
+			EOpenMobileHapticPlaybackState::Completed);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 NativeStopsBefore = Backend.StopPlaybackCount;
+		Subsystem->SubmitOneShot(MakeRequest(
+			TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+			EOpenMobileHapticChannelPriority::Normal));
+		const FOpenMobileHapticPlaybackResult Queued = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		TestEqual(TEXT("Queued work can be cancelled locally"),
+			Subsystem->CancelPlayback(Queued.Handle).Outcome,
+			EOpenMobileHapticControlOutcome::Accepted);
+		TestEqual(TEXT("Queue cancellation has a clear terminal state"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Cancelled);
+		TestEqual(TEXT("Queue cancellation never stops unrelated native work"),
+			Backend.StopPlaybackCount, NativeStopsBefore);
+		TestEqual(TEXT("Cancelled queue capacity is released"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const FOpenMobileHapticPlaybackResult Active = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Queued = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		const FOpenMobileHapticPlaybackResult Replacement =
+			Subsystem->SubmitOneShot(MakeRequest(
+				TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+				EOpenMobileHapticChannelPriority::Low));
+		TestTrue(TEXT("Replace submits after clearing active and queued work"),
+			Replacement.IsAccepted());
+		TestEqual(TEXT("Replace interrupts active same-channel work"),
+			Subsystem->GetPlaybackState(Active.Handle),
+			EOpenMobileHapticPlaybackState::Interrupted);
+		TestEqual(TEXT("Replace cancels deferred same-channel work"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Cancelled);
+		TestEqual(TEXT("Replace leaves no deferred same-channel work"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		Subsystem->SubmitOneShot(MakeRequest(
+			TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+			EOpenMobileHapticChannelPriority::Normal));
+		const FOpenMobileHapticPlaybackResult Queued = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		Subsystem->DrainOverlapQueues(
+			std::numeric_limits<double>::max() / 2.0);
+		TestEqual(TEXT("Stale overlap queues expire deterministically"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Cancelled);
+		TestEqual(TEXT("Expired queues release their bounded reservation"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		Subsystem->SubmitOneShot(MakeRequest(
+			TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+			EOpenMobileHapticChannelPriority::Normal));
+		const FOpenMobileHapticPlaybackResult Queued = Subsystem->SubmitOneShot(
+			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
+				EOpenMobileHapticChannelPriority::Normal)
+		);
+		FOpenMobileHapticUserPolicy DisabledPolicy = Subsystem->GetUserPolicy();
+		DisabledPolicy.bEnabled = false;
+		TestEqual(TEXT("User policy changes are accepted while work is queued"),
+			Subsystem->SetUserPolicy(DisabledPolicy).Outcome,
+			EOpenMobileHapticControlOutcome::Accepted);
+		TestEqual(TEXT("Disabling haptics cancels queued overlap work"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Cancelled);
+		TestEqual(TEXT("Disabled policy leaves no queued work"),
+			Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 ActiveCallback = Backend.GetPendingCallbackCount();
+		Subsystem->SubmitOneShot(MakeRequest(
+			TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+			EOpenMobileHapticChannelPriority::Normal));
+		UOpenMobileHapticPatternAsset* QueuedAsset =
+			NewObject<UOpenMobileHapticPatternAsset>(
+				GetTransientPackage(),
+				TEXT("QueuedOverlapAsset")
+			);
+		FOpenMobileHapticNamedPatternRequest NamedRequest;
+		NamedRequest.PatternName = TEXT("QueuedAssetPattern");
+		NamedRequest.PatternAsset = FSoftObjectPath(QueuedAsset);
+		NamedRequest.Options.Channel = TEXT("Gameplay");
+		NamedRequest.Options.OverlapPolicy =
+			EOpenMobileHapticOverlapPolicy::Queue;
+		const int32 NamedSubmissionsBefore = Backend.NamedSubmissionCount;
+		const FOpenMobileHapticPlaybackResult Queued =
+			Subsystem->SubmitNamedPattern(NamedRequest);
+		TestTrue(TEXT("Loaded direct assets can enter the overlap queue"),
+			Queued.IsAccepted());
+		QueuedAsset->Rename(
+			TEXT("RenamedQueuedOverlapAsset"),
+			GetTransientPackage(),
+			REN_DontCreateRedirectors | REN_NonTransactional
+		);
+		Backend.Emit(ActiveCallback,
+			EOpenMobileHapticPlaybackState::Completed, 1);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+			ENamedThreads::GameThread);
+		TestEqual(TEXT("Unloaded queued assets fail before native submission"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Failed);
+		TestEqual(TEXT("Invalidated queued assets never reach native code"),
+			Backend.NamedSubmissionCount, NamedSubmissionsBefore);
+		Subsystem->Deinitialize();
+	}
+
+	{
+		Backend.Capabilities.SemanticEffects =
+			EOpenMobileHapticSupportState::Supported;
+		FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+		UOpenMobileHapticsSubsystem* Subsystem = NewSubsystem();
+		const int32 ActiveCallback = Backend.GetPendingCallbackCount();
+		Subsystem->SubmitOneShot(MakeRequest(
+			TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Replace,
+			EOpenMobileHapticChannelPriority::Normal));
+		FOpenMobileHapticSemanticRequest SemanticRequest;
+		SemanticRequest.Effect = EOpenMobileHapticSemanticEffect::Click;
+		SemanticRequest.Options.Channel = TEXT("Gameplay");
+		SemanticRequest.Options.OverlapPolicy =
+			EOpenMobileHapticOverlapPolicy::Queue;
+		const int32 SemanticSubmissionsBefore =
+			Backend.SemanticSubmissionCount;
+		const FOpenMobileHapticPlaybackResult Queued =
+			Subsystem->SubmitSemantic(SemanticRequest);
+		TestTrue(TEXT("Fire-and-forget semantics receive a queued handle"),
+			Queued.IsAccepted() && Queued.Handle.IsValid());
+		Backend.Emit(ActiveCallback,
+			EOpenMobileHapticPlaybackState::Completed, 1);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(
+			ENamedThreads::GameThread);
+		TestEqual(TEXT("Queued semantic feedback submits after promotion"),
+			Backend.SemanticSubmissionCount, SemanticSubmissionsBefore + 1);
+		TestEqual(TEXT("Promoted fire-and-forget work terminates clearly"),
+			Subsystem->GetPlaybackState(Queued.Handle),
+			EOpenMobileHapticPlaybackState::Completed);
+		Subsystem->Deinitialize();
+	}
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->Channels = SavedChannels;
+	Settings->MaximumActiveHandles = SavedMaximumActiveHandles;
+	Settings->MaximumQueuedHandles = SavedMaximumQueuedHandles;
+	Settings->MaximumQueueDepthPerChannel =
+		SavedMaximumQueueDepthPerChannel;
+	Settings->MaximumQueuedRequestAgeSeconds =
+		SavedMaximumQueuedRequestAgeSeconds;
 	return true;
 }
 

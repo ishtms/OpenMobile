@@ -312,7 +312,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertTrue(policy_source.is_file())
 		for channel in ("UI", "Gameplay", "Alerts", "Cinematic", "Critical"):
 			self.assertIn(f'TEXT("{channel}")', settings)
-		self.assertEqual(5, subsystem.count("AdmitChannelRequest("))
+		self.assertEqual(6, subsystem.count("AdmitChannelRequest("))
 		self.assertIn("State.ChannelArbiter.Release(RequestId)", subsystem)
 		self.assertNotIn(
 			"IOpenMobileHapticsBackend",
@@ -342,6 +342,34 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 		self.assertIn("AudioAttributes.USAGE_NOTIFICATION_EVENT", android_bridge)
 		self.assertIn("Capabilities.BackgroundAlerts", ios_backend)
 		self.assertIn("EOpenMobileHapticSupportState::Unsupported", ios_backend)
+
+	def test_mixing_capability_matches_plugin_owned_platform_paths(self) -> None:
+		android_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsAndroid"
+			/ "Private"
+			/ "OpenMobileHapticsAndroidBackend.cpp"
+		).read_text(encoding="utf-8")
+		ios_backend = (
+			HAPTICS_PLUGIN
+			/ "Source"
+			/ "OpenMobileHapticsIOS"
+			/ "Private"
+			/ "OpenMobileHapticsIOSBackend.mm"
+		).read_text(encoding="utf-8")
+
+		self.assertIn(
+			"Capabilities.Mixing = EOpenMobileHapticSupportState::Unsupported",
+			android_backend,
+		)
+		self.assertIn("Capabilities.Mixing = bCoreHapticsEnabled", ios_backend)
+		for path in HAPTICS_PLUGIN.rglob("*"):
+			if not path.is_file() or path.suffix not in {".cpp", ".h", ".mm"}:
+				continue
+			contents = path.read_text(encoding="utf-8")
+			self.assertNotIn("IForceFeedbackSystem", contents, str(path))
+			self.assertNotIn("SetForceFeedbackChannelValues", contents, str(path))
 
 	def test_native_availability_probes_are_side_effect_free(self) -> None:
 		android_root = HAPTICS_PLUGIN / "Source" / "OpenMobileHapticsAndroid"

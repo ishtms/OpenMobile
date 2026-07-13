@@ -115,6 +115,14 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 		{
 			AddError(TEXT("Channel queue depth exceeds the project channel limit."));
 		}
+		if (static_cast<uint8>(Channel.UnsupportedMixFallbackPolicy)
+			> static_cast<uint8>(
+				EOpenMobileHapticOverlapPolicy::MixWhenSupported)
+			|| Channel.UnsupportedMixFallbackPolicy
+				== EOpenMobileHapticOverlapPolicy::MixWhenSupported)
+		{
+			AddError(TEXT("Channel mix fallback must use a non-mixing overlap policy."));
+		}
 		if (!IsFiniteRange(Channel.MinimumIntervalSeconds, 0.0f, 1.0f))
 		{
 			AddError(TEXT("Channel minimum intervals must be finite and between 0 and 1 second."));
@@ -198,6 +206,10 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 		|| MaximumQueueDepthPerChannel > MaximumQueuedHandles)
 	{
 		AddError(TEXT("Per-channel queue depth must fit within the global queue limit."));
+	}
+	if (!IsFiniteRange(MaximumQueuedRequestAgeSeconds, 0.01f, 30.0f))
+	{
+		AddError(TEXT("Maximum queued request age must be finite and between 0.01 and 30 seconds."));
 	}
 	if (MaximumPreparedPatterns < 1 || MaximumPreparedPatterns > 128)
 	{

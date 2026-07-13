@@ -504,6 +504,7 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 		Capabilities.AudioEvents = Unsupported;
 		Capabilities.AHAP = Unsupported;
 		Capabilities.Scheduling = Unsupported;
+		Capabilities.Mixing = Unsupported;
 		Capabilities.Pause = Unsupported;
 		Capabilities.Resume = Unsupported;
 		Capabilities.Seek = Unsupported;
@@ -558,6 +559,7 @@ FOpenMobileHapticsIOSBackend::ProbeHardwareCapabilities() const
 	Capabilities.Scheduling = bSemanticEnabled || bCoreHapticsEnabled
 		? Supported
 		: Unsupported;
+	Capabilities.Mixing = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Pause = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Resume = bCoreHapticsEnabled ? Supported : Unsupported;
 	Capabilities.Seek = bCoreHapticsEnabled ? Supported : Unsupported;

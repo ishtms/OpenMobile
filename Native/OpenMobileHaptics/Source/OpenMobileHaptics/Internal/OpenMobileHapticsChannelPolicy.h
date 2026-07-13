@@ -7,6 +7,8 @@ struct FOpenMobileHapticsResolvedChannel
 {
 	EOpenMobileHapticChannelPriority EffectivePriority =
 		EOpenMobileHapticChannelPriority::Normal;
+	EOpenMobileHapticOverlapPolicy UnsupportedMixFallbackPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
 	int32 MaximumActiveHandles = 0;
 	int32 MaximumQueueDepth = 0;
 	bool bConfigured = false;
@@ -40,6 +42,7 @@ struct FOpenMobileHapticsChannelAdmissionRequest
 	int32 MaximumActiveHandles = 0;
 	int32 MaximumQueueDepth = 0;
 	bool bQueued = false;
+	bool bWaitingForOverlap = false;
 	bool bRepeating = false;
 };
 
@@ -70,7 +73,7 @@ public:
 	void Release(uint64 RequestId);
 	void Reset();
 
-	int32 GetActiveCount() const { return Reservations.Num(); }
+	int32 GetActiveCount() const { return ActiveCount; }
 	int32 GetQueuedCount() const { return QueuedCount; }
 
 private:
@@ -78,5 +81,6 @@ private:
 	TMap<uint64, FOpenMobileHapticsChannelAdmissionRequest> Reservations;
 	TMap<FName, int32> ActiveCountsByChannel;
 	TMap<FName, int32> QueuedCountsByChannel;
+	int32 ActiveCount = 0;
 	int32 QueuedCount = 0;
 };

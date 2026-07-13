@@ -25,6 +25,7 @@ struct FOpenMobileHapticsSubsystemState;
 struct FOpenMobileHapticsInterruption;
 struct FOpenMobileHapticsLifecycleTransition;
 struct FOpenMobileHapticsTimingResolution;
+struct FOpenMobileHapticsResolvedChannel;
 
 struct FOpenMobileHapticsSubsystemStateDeleter
 {
@@ -265,6 +266,7 @@ private:
 	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
 	friend class FOpenMobileHapticsRecoveryPreparedAssetsTest;
 	friend class FOpenMobileHapticsLifecyclePreparedAssetsTest;
+	friend class FOpenMobileHapticsOverlapSubsystemTest;
 
 	enum class EPlaybackCursorControl : uint8
 	{
@@ -335,7 +337,44 @@ private:
 	bool TickDynamicParameterUpdates(float DeltaTime);
 	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
 		const FOpenMobileHapticSemanticRequest& Request,
-		FName PatternOverride
+		FName PatternOverride,
+		const FOpenMobileHapticsBackendRequestToken* ExistingToken = nullptr
+	);
+	FOpenMobileHapticPlaybackResult SubmitOneShotInternal(
+		const FOpenMobileHapticOneShotRequest& Request,
+		const FOpenMobileHapticsBackendRequestToken* ExistingToken
+	);
+	FOpenMobileHapticPlaybackResult SubmitNamedPatternInternal(
+		const FOpenMobileHapticNamedPatternRequest& Request,
+		const FOpenMobileHapticsBackendRequestToken* ExistingToken
+	);
+	bool ResolveAndApplyOverlap(
+		const FOpenMobileHapticPlaybackOptions& Options,
+		FName Effect,
+		uint64 ExcludedRequestId,
+		FOpenMobileHapticPlaybackResult& OutResult,
+		bool& bOutShouldQueue,
+		bool& bOutUsedMixFallback
+	);
+	FOpenMobileHapticPlaybackResult QueueOverlapRequest(
+		const FOpenMobileHapticPlaybackOptions& Options,
+		const FOpenMobileHapticsResolvedChannel& ResolvedChannel,
+		FName Effect,
+		bool bRepeating,
+		bool bUsedMixFallback,
+		const FOpenMobileHapticsBackendRequestToken* ExistingToken,
+		const FOpenMobileHapticSemanticRequest* SemanticRequest,
+		const FOpenMobileHapticOneShotRequest* OneShotRequest,
+		const FOpenMobileHapticNamedPatternRequest* NamedRequest,
+		FName SemanticPatternOverride = NAME_None
+	);
+	void ScheduleOverlapQueueExpiry(uint64 RequestId, double DelaySeconds);
+	void ExpireOverlapQueue(uint64 RequestId);
+	void ScheduleOverlapQueueDrain();
+	void DrainOverlapQueues(double NowSeconds);
+	void FinishPromotedOverlapRequest(
+		uint64 RequestId,
+		const FOpenMobileHapticPlaybackResult& Result
 	);
 	bool AdmitChannelRequest(
 		const FOpenMobileHapticsBackendRequestToken& Token,
@@ -343,6 +382,7 @@ private:
 		int32 MaximumActiveHandles,
 		int32 MaximumQueueDepth,
 		bool bQueued,
+		bool bWaitingForOverlap,
 		bool bRepeating,
 		FName Effect,
 		FOpenMobileHapticPlaybackResult& OutRejection
