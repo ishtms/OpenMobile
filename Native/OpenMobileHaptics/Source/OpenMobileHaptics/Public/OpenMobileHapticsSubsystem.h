@@ -20,6 +20,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
+struct FOpenMobileHapticsBackendRequestToken;
 struct FOpenMobileHapticsSubsystemState;
 struct FOpenMobileHapticsInterruption;
 struct FOpenMobileHapticsLifecycleTransition;
@@ -335,6 +336,16 @@ private:
 	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
 		const FOpenMobileHapticSemanticRequest& Request,
 		FName PatternOverride
+	);
+	bool AdmitChannelRequest(
+		const FOpenMobileHapticsBackendRequestToken& Token,
+		const FOpenMobileHapticPlaybackOptions& Options,
+		int32 MaximumActiveHandles,
+		int32 MaximumQueueDepth,
+		bool bQueued,
+		bool bRepeating,
+		FName Effect,
+		FOpenMobileHapticPlaybackResult& OutRejection
 	);
 	bool PrepareLoadedNamedLibraries(
 		const TArray<UOpenMobileHapticLibrary*>& Libraries,

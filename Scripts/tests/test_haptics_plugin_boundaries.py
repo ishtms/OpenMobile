@@ -293,6 +293,32 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			self.assertIn(f"EOpenMobileHapticsLifecycleEvent::{event}", module)
 		self.assertNotIn("FCoreDelegates", subsystem)
 
+	def test_channel_admission_covers_controllable_submission_paths(self) -> None:
+		common_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		policy_header = (
+			common_module / "Internal" / "OpenMobileHapticsChannelPolicy.h"
+		)
+		policy_source = (
+			common_module / "Private" / "OpenMobileHapticsChannelPolicy.cpp"
+		)
+		settings = (
+			common_module / "Private" / "OpenMobileHapticsSettings.cpp"
+		).read_text(encoding="utf-8")
+		subsystem = (
+			common_module / "Private" / "OpenMobileHapticsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+
+		self.assertTrue(policy_header.is_file())
+		self.assertTrue(policy_source.is_file())
+		for channel in ("UI", "Gameplay", "Alerts", "Cinematic", "Critical"):
+			self.assertIn(f'TEXT("{channel}")', settings)
+		self.assertEqual(5, subsystem.count("AdmitChannelRequest("))
+		self.assertIn("State.ChannelArbiter.Release(RequestId)", subsystem)
+		self.assertNotIn(
+			"IOpenMobileHapticsBackend",
+			policy_header.read_text(encoding="utf-8"),
+		)
+
 	def test_background_alert_support_matches_platform_contracts(self) -> None:
 		android_backend = (
 			HAPTICS_PLUGIN

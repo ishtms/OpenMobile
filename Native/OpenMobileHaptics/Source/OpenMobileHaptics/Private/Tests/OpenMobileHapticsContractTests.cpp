@@ -15,6 +15,7 @@
 #include "Serialization/ObjectAndNameAsStringProxyArchive.h"
 #include "UObject/CoreRedirects.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsChannelPolicy.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsDynamicParameterPolicy.h"
 #include "OpenMobileHapticsAHAPPolicy.h"
@@ -4623,6 +4624,32 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		1.0f
 	);
 	TestEqual(TEXT("Five default channels are present"), Settings->Channels.Num(), 5);
+	const FName ExpectedChannelNames[] = {
+		TEXT("UI"),
+		TEXT("Gameplay"),
+		TEXT("Alerts"),
+		TEXT("Cinematic"),
+		TEXT("Critical")
+	};
+	const EOpenMobileHapticChannelPriority ExpectedChannelPriorities[] = {
+		EOpenMobileHapticChannelPriority::Normal,
+		EOpenMobileHapticChannelPriority::Normal,
+		EOpenMobileHapticChannelPriority::High,
+		EOpenMobileHapticChannelPriority::Normal,
+		EOpenMobileHapticChannelPriority::Critical
+	};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ExpectedChannelNames); ++Index)
+	{
+		TestEqual(TEXT("Default channel name is stable"),
+			Settings->Channels[Index].Name, ExpectedChannelNames[Index]);
+		TestEqual(TEXT("Default channel priority is stable"),
+			Settings->Channels[Index].Priority,
+			ExpectedChannelPriorities[Index]);
+		TestTrue(TEXT("Default channel has active capacity"),
+			Settings->Channels[Index].MaximumActiveHandles > 0);
+		TestTrue(TEXT("Default channel has queued capacity"),
+			Settings->Channels[Index].MaximumQueueDepth > 0);
+	}
 	TestEqual(
 		TEXT("Default channel is Gameplay"),
 		Settings->DefaultChannel,
@@ -4689,6 +4716,16 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->Channels.Add(DuplicateChannel);
 	TestFalse(TEXT("Case-conflicting channels are invalid"), Settings->Validate(Errors));
 	Settings->Channels.Pop();
+	Settings->Channels[0].Priority =
+		static_cast<EOpenMobileHapticChannelPriority>(MAX_uint8);
+	TestFalse(TEXT("Unknown channel priorities are invalid"),
+		Settings->Validate(Errors));
+	Settings->Channels[0].Priority = EOpenMobileHapticChannelPriority::Normal;
+	Settings->Channels[0].MaximumActiveHandles =
+		Settings->MaximumActiveHandles + 1;
+	TestFalse(TEXT("Channel active capacity cannot exceed the global bound"),
+		Settings->Validate(Errors));
+	Settings->Channels[0].MaximumActiveHandles = 4;
 
 	FOpenMobileHapticEffectSettings Effect;
 	Effect.Name = TEXT("Confirm");
@@ -4749,6 +4786,7 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->DefaultMasterIntensity = 0.75f;
 	Settings->DefaultChannel = TEXT("UI");
 	Settings->MaximumQueuedHandles = 12;
+	Settings->Channels[0].MaximumActiveHandles = 3;
 	Settings->MaximumPatternCurveCount = 12;
 	Settings->MaximumPatternCurvePointCount = 192;
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 90;
@@ -4783,6 +4821,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Loaded->MaximumQueuedHandles,
 		12
 	);
+	TestEqual(TEXT("Channel active limit survives serialization"),
+		Loaded->Channels[0].MaximumActiveHandles, 3);
 	TestEqual(
 		TEXT("Curve limit survives editor restart serialization"),
 		Loaded->MaximumPatternCurveCount,
@@ -7331,6 +7371,605 @@ bool FOpenMobileHapticsLifecyclePolicyTest::RunTest(
 		DirectReactivation.bInterruptsPlayback);
 	TestTrue(TEXT("Direct warm resume refreshes native services"),
 		DirectReactivation.bRefreshesNativeServices);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsChannelPolicyTest,
+	"OpenMobile.Haptics.Channels.PolicyAndCapacity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsChannelPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileHapticsSettings* Settings =
+		NewObject<UOpenMobileHapticsSettings>();
+	const FOpenMobileHapticsResolvedChannel UI =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			TEXT("UI"),
+			EOpenMobileHapticChannelPriority::High,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	TestTrue(TEXT("Built-in UI channel is configured"), UI.bConfigured);
+	TestEqual(TEXT("Request priority can raise a channel baseline"),
+		UI.EffectivePriority, EOpenMobileHapticChannelPriority::High);
+	const FOpenMobileHapticsResolvedChannel Alerts =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			TEXT("Alerts"),
+			EOpenMobileHapticChannelPriority::Low,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	TestEqual(TEXT("Request priority cannot lower an Alerts baseline"),
+		Alerts.EffectivePriority, EOpenMobileHapticChannelPriority::High);
+
+	FOpenMobileHapticChannelSettings Custom;
+	Custom.Name = TEXT("VehicleCabin");
+	Custom.Priority = EOpenMobileHapticChannelPriority::High;
+	Custom.MaximumActiveHandles = 2;
+	Custom.MaximumQueueDepth = 3;
+	Settings->Channels.Add(Custom);
+	const FOpenMobileHapticsResolvedChannel CustomResolution =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			TEXT("VehicleCabin"),
+			EOpenMobileHapticChannelPriority::Normal,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	TestTrue(TEXT("Project channels resolve without native objects"),
+		CustomResolution.bConfigured);
+	TestEqual(TEXT("Project channel priority is applied"),
+		CustomResolution.EffectivePriority,
+		EOpenMobileHapticChannelPriority::High);
+	TestEqual(TEXT("Project channel queue depth is applied"),
+		CustomResolution.MaximumQueueDepth, 3);
+	TestEqual(TEXT("Project channel active limit is applied"),
+		CustomResolution.MaximumActiveHandles, 2);
+	const FOpenMobileHapticsResolvedChannel Unconfigured =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			TEXT("RuntimeOnly"),
+			EOpenMobileHapticChannelPriority::Normal,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	TestFalse(TEXT("Unconfigured names remain explicit"),
+		Unconfigured.bConfigured);
+	TestEqual(TEXT("Unconfigured names use the bounded global depth"),
+		Unconfigured.MaximumQueueDepth,
+		Settings->MaximumQueueDepthPerChannel);
+	TestEqual(TEXT("Unconfigured names use the global active bound"),
+		Unconfigured.MaximumActiveHandles,
+		Settings->MaximumActiveHandles);
+
+	FOpenMobileHapticsChannelArbiter Arbiter;
+	FOpenMobileHapticsChannelLimits Limits;
+	Limits.MaximumActiveHandles = 2;
+	Limits.MaximumQueuedHandles = 3;
+	Limits.MaximumQueueDepthPerChannel = 2;
+	Arbiter.Configure(Limits);
+	auto MakeRequest = [](
+		uint64 RequestId,
+		FName Channel,
+		EOpenMobileHapticChannelPriority Priority,
+		bool bQueued,
+		bool bRepeating,
+		int32 MaximumQueueDepth = 2,
+		int32 MaximumActiveHandles = 2
+	)
+	{
+		FOpenMobileHapticsChannelAdmissionRequest Request;
+		Request.RequestId = RequestId;
+		Request.Channel = Channel;
+		Request.Priority = Priority;
+		Request.bQueued = bQueued;
+		Request.bRepeating = bRepeating;
+		Request.MaximumQueueDepth = MaximumQueueDepth;
+		Request.MaximumActiveHandles = MaximumActiveHandles;
+		return Request;
+	};
+	TestEqual(TEXT("First active handle is admitted"),
+		Arbiter.TryReserve(MakeRequest(
+			1, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Low,
+			false, true
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Independent channel uses the second active slot"),
+		Arbiter.TryReserve(MakeRequest(
+			2, TEXT("UI"), EOpenMobileHapticChannelPriority::Normal,
+			false, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	const FOpenMobileHapticsChannelAdmissionResult HighPriority =
+		Arbiter.TryReserve(MakeRequest(
+			3, TEXT("Alerts"), EOpenMobileHapticChannelPriority::High,
+			false, false
+		));
+	TestEqual(TEXT("High priority requests can displace a lower repeat"),
+		HighPriority.Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::PreemptRequired);
+	TestEqual(TEXT("The lower repeated handle is selected"),
+		HighPriority.PreemptRequestId, static_cast<uint64>(1));
+	Arbiter.Release(1);
+	TestEqual(TEXT("High priority request enters the released slot"),
+		Arbiter.TryReserve(MakeRequest(
+			3, TEXT("Alerts"), EOpenMobileHapticChannelPriority::High,
+			false, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Equal or lower priority cannot invert capacity"),
+		Arbiter.TryReserve(MakeRequest(
+			4, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Low,
+			false, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::ActiveCapacityReached);
+
+	FOpenMobileHapticsChannelLimits PerChannelLimits = Limits;
+	PerChannelLimits.MaximumActiveHandles = 4;
+	FOpenMobileHapticsChannelArbiter PerChannelArbiter;
+	PerChannelArbiter.Configure(PerChannelLimits);
+	TestEqual(TEXT("First same-channel active handle is admitted"),
+		PerChannelArbiter.TryReserve(MakeRequest(
+			5, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Normal,
+			false, false, 2, 1
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Per-channel active capacity is enforced"),
+		PerChannelArbiter.TryReserve(MakeRequest(
+			6, TEXT("Gameplay"), EOpenMobileHapticChannelPriority::Normal,
+			false, false, 2, 1
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::
+			ChannelActiveCapacityReached);
+	TestEqual(TEXT("Another channel keeps independent active capacity"),
+		PerChannelArbiter.TryReserve(MakeRequest(
+			7, TEXT("UI"), EOpenMobileHapticChannelPriority::Normal,
+			false, false, 2, 1
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+
+	FOpenMobileHapticsChannelArbiter TieForward;
+	FOpenMobileHapticsChannelArbiter TieReverse;
+	TieForward.Configure(Limits);
+	TieReverse.Configure(Limits);
+	const FOpenMobileHapticsChannelAdmissionRequest Older = MakeRequest(
+		10, TEXT("A"), EOpenMobileHapticChannelPriority::Low, false, true
+	);
+	const FOpenMobileHapticsChannelAdmissionRequest Newer = MakeRequest(
+		11, TEXT("B"), EOpenMobileHapticChannelPriority::Low, false, true
+	);
+	TieForward.TryReserve(Older);
+	TieForward.TryReserve(Newer);
+	TieReverse.TryReserve(Newer);
+	TieReverse.TryReserve(Older);
+	const FOpenMobileHapticsChannelAdmissionRequest Incoming = MakeRequest(
+		12, TEXT("Critical"), EOpenMobileHapticChannelPriority::Critical,
+		false, false
+	);
+	TestEqual(TEXT("Tie-break selects the newest equal-priority repeat"),
+		TieForward.TryReserve(Incoming).PreemptRequestId,
+		static_cast<uint64>(11));
+	TestEqual(TEXT("Tie-break ignores insertion and callback order"),
+		TieReverse.TryReserve(Incoming).PreemptRequestId,
+		static_cast<uint64>(11));
+	const FOpenMobileHapticsChannelAdmissionRequest RepeatingIncoming =
+		MakeRequest(
+			13,
+			TEXT("Critical"),
+			EOpenMobileHapticChannelPriority::Critical,
+			false,
+			true
+		);
+	TestEqual(TEXT("Repeated work cannot use the starvation exception"),
+		TieForward.TryReserve(RepeatingIncoming).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::ActiveCapacityReached);
+
+	FOpenMobileHapticsChannelLimits UntrustedLimits;
+	UntrustedLimits.MaximumActiveHandles = MAX_int32;
+	UntrustedLimits.MaximumQueuedHandles = MAX_int32;
+	UntrustedLimits.MaximumQueueDepthPerChannel = MAX_int32;
+	FOpenMobileHapticsChannelArbiter HardBoundArbiter;
+	HardBoundArbiter.Configure(UntrustedLimits);
+	for (uint64 RequestId = 100; RequestId < 228; ++RequestId)
+	{
+		TestEqual(TEXT("Hard active bound admits a safe slot"),
+			HardBoundArbiter.TryReserve(MakeRequest(
+				RequestId,
+				FName(*FString::FromInt(static_cast<int32>(RequestId))),
+				EOpenMobileHapticChannelPriority::Normal,
+				false,
+				false,
+				MAX_int32,
+				MAX_int32
+			)).Outcome,
+			EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	}
+	TestEqual(TEXT("Invalid settings cannot exceed the hard active bound"),
+		HardBoundArbiter.TryReserve(MakeRequest(
+			228, TEXT("Overflow"), EOpenMobileHapticChannelPriority::Normal,
+			false, false, MAX_int32, MAX_int32
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::ActiveCapacityReached);
+	HardBoundArbiter.Reset();
+	for (uint64 RequestId = 300; RequestId < 364; ++RequestId)
+	{
+		TestEqual(TEXT("Hard channel queue bound admits a safe slot"),
+			HardBoundArbiter.TryReserve(MakeRequest(
+				RequestId,
+				TEXT("Queued"),
+				EOpenMobileHapticChannelPriority::Normal,
+				true,
+				false,
+				MAX_int32,
+				MAX_int32
+			)).Outcome,
+			EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	}
+	TestEqual(TEXT("Invalid settings cannot exceed the hard queue bound"),
+		HardBoundArbiter.TryReserve(MakeRequest(
+			364, TEXT("Queued"), EOpenMobileHapticChannelPriority::Normal,
+			true, false, MAX_int32, MAX_int32
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::
+			ChannelQueueCapacityReached);
+
+	FOpenMobileHapticsChannelArbiter QueueArbiter;
+	FOpenMobileHapticsChannelLimits QueueLimits = Limits;
+	QueueLimits.MaximumActiveHandles = 4;
+	QueueArbiter.Configure(QueueLimits);
+	TestEqual(TEXT("First scheduled handle is queued"),
+		QueueArbiter.TryReserve(MakeRequest(
+			20, TEXT("Cinematic"), EOpenMobileHapticChannelPriority::Normal,
+			true, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Second scheduled handle fits its channel"),
+		QueueArbiter.TryReserve(MakeRequest(
+			21, TEXT("Cinematic"), EOpenMobileHapticChannelPriority::Normal,
+			true, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Per-channel queue depth is enforced"),
+		QueueArbiter.TryReserve(MakeRequest(
+			22, TEXT("Cinematic"), EOpenMobileHapticChannelPriority::High,
+			true, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::ChannelQueueCapacityReached);
+	TestEqual(TEXT("Independent queued channel uses global capacity"),
+		QueueArbiter.TryReserve(MakeRequest(
+			23, TEXT("Alerts"), EOpenMobileHapticChannelPriority::High,
+			true, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::Admitted);
+	TestEqual(TEXT("Global queued capacity is enforced"),
+		QueueArbiter.TryReserve(MakeRequest(
+			24, TEXT("UI"), EOpenMobileHapticChannelPriority::Normal,
+			true, false
+		)).Outcome,
+		EOpenMobileHapticsChannelAdmissionOutcome::GlobalQueueCapacityReached);
+	QueueArbiter.Reset();
+	TestEqual(TEXT("Teardown releases all active reservations"),
+		QueueArbiter.GetActiveCount(), 0);
+	TestEqual(TEXT("Teardown releases all queued reservations"),
+		QueueArbiter.GetQueuedCount(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsChannelSubsystemTest,
+	"OpenMobile.Haptics.Channels.SubsystemAdmission",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsChannelSubsystemTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const TArray<FOpenMobileHapticChannelSettings> SavedChannels =
+		Settings->Channels;
+	const int32 SavedMaximumActiveHandles = Settings->MaximumActiveHandles;
+	const int32 SavedMaximumQueuedHandles = Settings->MaximumQueuedHandles;
+	const int32 SavedMaximumQueueDepthPerChannel =
+		Settings->MaximumQueueDepthPerChannel;
+	Settings->NamedLibraries.Reset();
+	Settings->MaximumActiveHandles = 2;
+	Settings->MaximumQueuedHandles = 2;
+	Settings->MaximumQueueDepthPerChannel = 1;
+	for (FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
+	{
+		Channel.MaximumActiveHandles = 2;
+		Channel.MaximumQueueDepth = 1;
+		Channel.MinimumIntervalSeconds = 0.0f;
+	}
+
+	FMockBackend Backend(TEXT("Channels"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	FOpenMobileHapticNamedPatternRequest InvalidPriorityRequest;
+	InvalidPriorityRequest.PatternName = TEXT("InvalidPriority");
+	InvalidPriorityRequest.Options.Priority =
+		static_cast<EOpenMobileHapticChannelPriority>(MAX_uint8);
+	const FOpenMobileHapticPlaybackResult InvalidPriority =
+		Subsystem->SubmitNamedPattern(InvalidPriorityRequest);
+	TestEqual(TEXT("Invalid priority values are rejected before admission"),
+		InvalidPriority.Error.Code,
+		EOpenMobileHapticErrorCode::InvalidRequest);
+	TestEqual(TEXT("Invalid priorities never reach the backend"),
+		Backend.NamedSubmissionCount, 0);
+	FOpenMobileHapticNamedPatternRequest LowRepeatRequest;
+	LowRepeatRequest.PatternName = TEXT("LowRepeat");
+	LowRepeatRequest.Options.Channel = TEXT("Gameplay");
+	LowRepeatRequest.Options.Priority = EOpenMobileHapticChannelPriority::Low;
+	LowRepeatRequest.Options.Loop.bLoop = true;
+	const FOpenMobileHapticPlaybackResult LowRepeat =
+		Subsystem->SubmitNamedPattern(LowRepeatRequest);
+	TestTrue(TEXT("Low repeated gameplay is initially accepted"),
+		LowRepeat.IsAccepted());
+	TestEqual(TEXT("Gameplay baseline raises the backend request priority"),
+		Backend.LastNamedRequest.Options.Priority,
+		EOpenMobileHapticChannelPriority::Normal);
+	const FOpenMobileHapticsBackendRequestToken LowRepeatToken =
+		Backend.LastToken;
+
+	FOpenMobileHapticNamedPatternRequest IndependentRequest;
+	IndependentRequest.PatternName = TEXT("IndependentUI");
+	IndependentRequest.Options.Channel = TEXT("UI");
+	IndependentRequest.Options.Priority = EOpenMobileHapticChannelPriority::Low;
+	const FOpenMobileHapticPlaybackResult Independent =
+		Subsystem->SubmitNamedPattern(IndependentRequest);
+	TestTrue(TEXT("Independent UI channel uses remaining capacity"),
+		Independent.IsAccepted());
+
+	bool bInterruptedBeforeIncomingSubmission = false;
+	Subsystem->OnPlaybackEventNative().AddLambda(
+		[&Backend, &LowRepeat, &bInterruptedBeforeIncomingSubmission](
+			const FOpenMobileHapticPlaybackEvent& Event
+		)
+		{
+			if (Event.Handle == LowRepeat.Handle
+				&& Event.State
+					== EOpenMobileHapticPlaybackState::Interrupted)
+			{
+				bInterruptedBeforeIncomingSubmission =
+					Backend.OneShotSubmissionCount == 0;
+			}
+		}
+	);
+	FOpenMobileHapticOneShotRequest CriticalRequest;
+	CriticalRequest.DurationSeconds = 0.03f;
+	CriticalRequest.Options.Channel = TEXT("Critical");
+	CriticalRequest.Options.Category = TEXT("Alerts");
+	CriticalRequest.Options.Priority = EOpenMobileHapticChannelPriority::Low;
+	const FOpenMobileHapticPlaybackResult Critical =
+		Subsystem->SubmitOneShot(CriticalRequest);
+	TestTrue(TEXT("Short critical feedback is not starved"),
+		Critical.IsAccepted());
+	TestEqual(TEXT("Critical baseline reaches the backend"),
+		Backend.LastOneShotRequest.Options.Priority,
+		EOpenMobileHapticChannelPriority::Critical);
+	TestEqual(TEXT("Only the lower repeated request is stopped"),
+		Backend.StopPlaybackCount, 1);
+	TestEqual(TEXT("Preemption preserves the selected request identity"),
+		Backend.LastStoppedToken.RequestId, LowRepeatToken.RequestId);
+	TestEqual(TEXT("Preempted feedback has an interrupted terminal state"),
+		Subsystem->GetPlaybackState(LowRepeat.Handle),
+		EOpenMobileHapticPlaybackState::Interrupted);
+	TestTrue(TEXT("Interruption is published before incoming submission"),
+		bInterruptedBeforeIncomingSubmission);
+
+	const int32 NamedBeforeCapacityRejection = Backend.NamedSubmissionCount;
+	FOpenMobileHapticNamedPatternRequest CapacityRequest;
+	CapacityRequest.PatternName = TEXT("CapacityRejected");
+	CapacityRequest.Options.Channel = TEXT("Alerts");
+	const FOpenMobileHapticPlaybackResult CapacityRejected =
+		Subsystem->SubmitNamedPattern(CapacityRequest);
+	TestEqual(TEXT("Full active capacity returns a typed channel error"),
+		CapacityRejected.Error.Code,
+		EOpenMobileHapticErrorCode::ChannelBusy);
+	TestEqual(TEXT("Capacity rejection is assigned to channel policy"),
+		CapacityRejected.Error.Stage,
+		EOpenMobileHapticFailureStage::Channel);
+	TestEqual(TEXT("Capacity rejection never reaches the backend"),
+		Backend.NamedSubmissionCount, NamedBeforeCapacityRejection);
+
+	TestEqual(TEXT("Stopping an independent handle releases capacity"),
+		Subsystem->StopPlayback(Independent.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Settings->MaximumActiveHandles = 8;
+	for (FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
+	{
+		Channel.MaximumActiveHandles = 4;
+	}
+	FOpenMobileHapticChannelSettings* CriticalChannel =
+		Settings->Channels.FindByPredicate(
+			[](const FOpenMobileHapticChannelSettings& Channel)
+			{
+				return Channel.Name == TEXT("Critical");
+			}
+		);
+	TestNotNull(TEXT("Critical channel remains configured"), CriticalChannel);
+	if (CriticalChannel)
+	{
+		CriticalChannel->MaximumActiveHandles = 1;
+	}
+	const int32 NamedBeforeChannelCapacity = Backend.NamedSubmissionCount;
+	FOpenMobileHapticNamedPatternRequest ChannelCapacityRequest;
+	ChannelCapacityRequest.PatternName = TEXT("CriticalChannelOverflow");
+	ChannelCapacityRequest.Options.Channel = TEXT("Critical");
+	const FOpenMobileHapticPlaybackResult ChannelCapacityRejected =
+		Subsystem->SubmitNamedPattern(ChannelCapacityRequest);
+	TestEqual(TEXT("Per-channel active capacity is typed"),
+		ChannelCapacityRejected.Error.Code,
+		EOpenMobileHapticErrorCode::ChannelBusy);
+	TestEqual(TEXT("Per-channel active rejection stays pre-submission"),
+		Backend.NamedSubmissionCount, NamedBeforeChannelCapacity);
+	FOpenMobileHapticNamedPatternRequest ScheduledRequest;
+	ScheduledRequest.PatternName = TEXT("ScheduledCinematic");
+	ScheduledRequest.Options.Channel = TEXT("Cinematic");
+	ScheduledRequest.Options.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::Relative;
+	ScheduledRequest.Options.Schedule.TimeSeconds = 5.0;
+	const FOpenMobileHapticPlaybackResult ScheduledCinematic =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestTrue(TEXT("First delayed channel request is accepted"),
+		ScheduledCinematic.IsAccepted());
+	const int32 NamedAfterFirstScheduled = Backend.NamedSubmissionCount;
+	ScheduledRequest.PatternName = TEXT("SameChannelQueueOverflow");
+	const FOpenMobileHapticPlaybackResult ChannelQueueRejected =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestEqual(TEXT("Per-channel queued capacity is typed"),
+		ChannelQueueRejected.Error.Code,
+		EOpenMobileHapticErrorCode::ChannelBusy);
+	TestEqual(TEXT("Per-channel queued rejection stays pre-submission"),
+		Backend.NamedSubmissionCount, NamedAfterFirstScheduled);
+
+	ScheduledRequest.PatternName = TEXT("ScheduledAlert");
+	ScheduledRequest.Options.Channel = TEXT("Alerts");
+	const FOpenMobileHapticPlaybackResult ScheduledAlert =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestTrue(TEXT("Independent channel uses remaining queued capacity"),
+		ScheduledAlert.IsAccepted());
+	const int32 NamedAtGlobalQueueCapacity = Backend.NamedSubmissionCount;
+	ScheduledRequest.PatternName = TEXT("GlobalQueueOverflow");
+	ScheduledRequest.Options.Channel = TEXT("UI");
+	const FOpenMobileHapticPlaybackResult GlobalQueueRejected =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestEqual(TEXT("Global queued capacity is typed"),
+		GlobalQueueRejected.Error.Code,
+		EOpenMobileHapticErrorCode::ChannelBusy);
+	TestEqual(TEXT("Global queued rejection never reaches native code"),
+		Backend.NamedSubmissionCount, NamedAtGlobalQueueCapacity);
+	FOpenMobileHapticSemanticRequest ScheduledSemantic;
+	ScheduledSemantic.Effect = EOpenMobileHapticSemanticEffect::Click;
+	ScheduledSemantic.Options.Channel = TEXT("UI");
+	ScheduledSemantic.Options.Schedule = ScheduledRequest.Options.Schedule;
+	const int32 SemanticsBeforeQueueRejection =
+		Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult SemanticQueueRejected =
+		Subsystem->SubmitSemantic(ScheduledSemantic);
+	TestEqual(TEXT("Scheduled semantic feedback shares queued capacity"),
+		SemanticQueueRejected.Error.Code,
+		EOpenMobileHapticErrorCode::ChannelBusy);
+	TestEqual(TEXT("Semantic queue rejection stays pre-submission"),
+		Backend.SemanticSubmissionCount,
+		SemanticsBeforeQueueRejection);
+
+	TestEqual(TEXT("Cancelling delayed work releases its queued slot"),
+		Subsystem->CancelPlayback(ScheduledCinematic.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	const FOpenMobileHapticPlaybackResult ReusedQueueSlot =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestTrue(TEXT("A released queued slot can be reused"),
+		ReusedQueueSlot.IsAccepted());
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticChannelSettings ProjectChannel;
+	ProjectChannel.Name = TEXT("VehicleCabin");
+	ProjectChannel.Priority = EOpenMobileHapticChannelPriority::High;
+	ProjectChannel.MaximumActiveHandles = 1;
+	ProjectChannel.MaximumQueueDepth = 1;
+	ProjectChannel.MinimumIntervalSeconds = 0.0f;
+	Settings->Channels.Add(ProjectChannel);
+	Settings->MaximumActiveHandles = 1;
+	UGameInstance* ReplacementGameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Replacement =
+		NewObject<UOpenMobileHapticsSubsystem>(ReplacementGameInstance);
+	FOpenMobileHapticNamedPatternRequest ProjectRequest;
+	ProjectRequest.PatternName = TEXT("VehiclePulse");
+	ProjectRequest.Options.Channel = TEXT("VehicleCabin");
+	ProjectRequest.Options.Priority = EOpenMobileHapticChannelPriority::Low;
+	const FOpenMobileHapticPlaybackResult ProjectResult =
+		Replacement->SubmitNamedPattern(ProjectRequest);
+	TestTrue(TEXT("Teardown leaves a clean admission state"),
+		ProjectResult.IsAccepted());
+	TestEqual(TEXT("Project channel priority reaches native submission"),
+		Backend.LastNamedRequest.Options.Priority,
+		EOpenMobileHapticChannelPriority::High);
+	TestEqual(TEXT("Project playback can release its only active slot"),
+		Replacement->StopPlayback(ProjectResult.Handle).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Backend.bFailNamedSubmissions = true;
+	const FOpenMobileHapticPlaybackResult FailedSubmission =
+		Replacement->SubmitNamedPattern(ProjectRequest);
+	TestFalse(TEXT("Rejected backend submission is not accepted"),
+		FailedSubmission.IsAccepted());
+	Backend.bFailNamedSubmissions = false;
+	TestTrue(TEXT("Rejected native submission releases channel capacity"),
+		Replacement->SubmitNamedPattern(ProjectRequest).IsAccepted());
+
+	Replacement->Deinitialize();
+	UGameInstance* ReentrantGameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Reentrant =
+		NewObject<UOpenMobileHapticsSubsystem>(ReentrantGameInstance);
+	FOpenMobileHapticNamedPatternRequest ReentrantRepeatRequest = ProjectRequest;
+	ReentrantRepeatRequest.PatternName = TEXT("ReentrantRepeat");
+	ReentrantRepeatRequest.Options.Loop.bLoop = true;
+	const FOpenMobileHapticPlaybackResult ReentrantRepeat =
+		Reentrant->SubmitNamedPattern(ReentrantRepeatRequest);
+	TestTrue(TEXT("Reentrant teardown setup owns repeated work"),
+		ReentrantRepeat.IsAccepted());
+	bool bToreDownDuringPreemption = false;
+	Reentrant->OnPlaybackEventNative().AddLambda(
+		[Reentrant, &ReentrantRepeat, &bToreDownDuringPreemption](
+			const FOpenMobileHapticPlaybackEvent& Event
+		)
+		{
+			if (Event.Handle == ReentrantRepeat.Handle
+				&& Event.State
+					== EOpenMobileHapticPlaybackState::Interrupted)
+			{
+				bToreDownDuringPreemption = true;
+				Reentrant->Deinitialize();
+			}
+		}
+	);
+	const int32 OneShotsBeforeReentrantTeardown =
+		Backend.OneShotSubmissionCount;
+	const FOpenMobileHapticPlaybackResult ReentrantRejection =
+		Reentrant->SubmitOneShot(CriticalRequest);
+	TestTrue(TEXT("Preemption tolerates synchronous subsystem teardown"),
+		bToreDownDuringPreemption);
+	TestEqual(TEXT("Teardown rejects the pending incoming request"),
+		ReentrantRejection.Error.Code,
+		EOpenMobileHapticErrorCode::BackendUnavailable);
+	TestEqual(TEXT("Teardown prevents late native submission"),
+		Backend.OneShotSubmissionCount,
+		OneShotsBeforeReentrantTeardown);
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->Channels = SavedChannels;
+	Settings->MaximumActiveHandles = SavedMaximumActiveHandles;
+	Settings->MaximumQueuedHandles = SavedMaximumQueuedHandles;
+	Settings->MaximumQueueDepthPerChannel =
+		SavedMaximumQueueDepthPerChannel;
 	return true;
 }
 

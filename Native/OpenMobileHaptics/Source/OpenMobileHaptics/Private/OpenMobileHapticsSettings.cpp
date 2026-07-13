@@ -28,14 +28,15 @@ UOpenMobileHapticsSettings::UOpenMobileHapticsSettings()
 	auto AddChannel = [this](
 		FName Name,
 		EOpenMobileHapticChannelPriority Priority,
-		int32 MaximumQueueDepth,
+		int32 Capacity,
 		float MinimumIntervalSeconds
 	)
 	{
 		FOpenMobileHapticChannelSettings Channel;
 		Channel.Name = Name;
 		Channel.Priority = Priority;
-		Channel.MaximumQueueDepth = MaximumQueueDepth;
+		Channel.MaximumActiveHandles = Capacity;
+		Channel.MaximumQueueDepth = Capacity;
 		Channel.MinimumIntervalSeconds = MinimumIntervalSeconds;
 		Channels.Add(MoveTemp(Channel));
 	};
@@ -98,6 +99,16 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 		else
 		{
 			ChannelNames.Add(Channel.Name);
+		}
+		if (static_cast<uint8>(Channel.Priority)
+			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical))
+		{
+			AddError(TEXT("Channel priorities must use a known priority value."));
+		}
+		if (Channel.MaximumActiveHandles < 0
+			|| Channel.MaximumActiveHandles > MaximumActiveHandles)
+		{
+			AddError(TEXT("Channel active capacity exceeds the project handle limit."));
 		}
 		if (Channel.MaximumQueueDepth < 0
 			|| Channel.MaximumQueueDepth > MaximumQueueDepthPerChannel)

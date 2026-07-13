@@ -10,6 +10,7 @@
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsChannelPolicy.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsDynamicParameterPolicy.h"
 #include "OpenMobileHapticsErrorMapper.h"
@@ -89,6 +90,7 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticsRateLimiter RateLimiter;
 	FOpenMobileHapticsDynamicParameterPolicy DynamicParameterPolicy;
 	FOpenMobileHapticsTimingPolicy TimingPolicy;
+	FOpenMobileHapticsChannelArbiter ChannelArbiter;
 	TArray<FOpenMobileHapticsPendingRecoveryPlayback> PendingRecoveryPlaybacks;
 	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
 };
@@ -651,6 +653,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 			}
 		}
 		State.DynamicParameterPolicy.RemovePlayback(RequestId);
+		State.ChannelArbiter.Release(RequestId);
 		State.Requests.Remove(RequestId);
 	}
 
@@ -1753,6 +1756,116 @@ UOpenMobileHapticsSubsystem::GetCapabilitiesNative() const
 	return Capabilities;
 }
 
+bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
+	const FOpenMobileHapticsBackendRequestToken& Token,
+	const FOpenMobileHapticPlaybackOptions& Options,
+	int32 MaximumActiveHandles,
+	int32 MaximumQueueDepth,
+	bool bQueued,
+	bool bRepeating,
+	FName Effect,
+	FOpenMobileHapticPlaybackResult& OutRejection
+)
+{
+	if (!Token.PlaybackHandle.IsValid())
+	{
+		return true;
+	}
+
+	FOpenMobileHapticsSubsystemState* LocalState = &GetOrCreateState();
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticsChannelLimits Limits;
+	Limits.MaximumActiveHandles = Settings->MaximumActiveHandles;
+	Limits.MaximumQueuedHandles = Settings->MaximumQueuedHandles;
+	Limits.MaximumQueueDepthPerChannel =
+		Settings->MaximumQueueDepthPerChannel;
+	LocalState->ChannelArbiter.Configure(Limits);
+
+	FOpenMobileHapticsChannelAdmissionRequest AdmissionRequest;
+	AdmissionRequest.RequestId = Token.RequestId;
+	AdmissionRequest.Channel = Options.Channel;
+	AdmissionRequest.Priority = Options.Priority;
+	AdmissionRequest.MaximumActiveHandles = MaximumActiveHandles;
+	AdmissionRequest.MaximumQueueDepth = MaximumQueueDepth;
+	AdmissionRequest.bQueued = bQueued;
+	AdmissionRequest.bRepeating = bRepeating;
+
+	const int32 MaximumAttempts = FMath::Clamp(
+		Settings->MaximumActiveHandles,
+		1,
+		128
+	) + 1;
+	for (int32 Attempt = 0; Attempt < MaximumAttempts; ++Attempt)
+	{
+		const FOpenMobileHapticsChannelAdmissionResult Admission =
+			LocalState->ChannelArbiter.TryReserve(AdmissionRequest);
+		if (Admission.Outcome
+			== EOpenMobileHapticsChannelAdmissionOutcome::Admitted)
+		{
+			return true;
+		}
+		if (Admission.Outcome
+			!= EOpenMobileHapticsChannelAdmissionOutcome::PreemptRequired)
+		{
+			break;
+		}
+
+		FOpenMobileHapticsSubsystemRequestState* Existing =
+			LocalState->Requests.Find(Admission.PreemptRequestId);
+		if (!Existing)
+		{
+			LocalState->ChannelArbiter.Release(Admission.PreemptRequestId);
+			continue;
+		}
+		if (!Existing->Token.PlaybackHandle.IsValid())
+		{
+			break;
+		}
+
+		EndPlaybackNative(
+			Existing->Token.PlaybackHandle,
+			EOpenMobileHapticPlaybackState::Interrupted
+		);
+		IOpenMobileHapticsBackend* CurrentBackend = bDeinitialized
+			? nullptr
+			: FOpenMobileHapticsBackendRegistry::FindBackend();
+		if (bDeinitialized
+			|| !State
+			|| !CurrentBackend
+			|| CurrentBackend->GetBackendName() != Token.BackendName)
+		{
+			OutRejection =
+				OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+					EOpenMobileHapticsFailureReason::BackendUnavailable,
+					EOpenMobileHapticFailureStage::Channel,
+					Effect,
+					Options.Channel
+				);
+			return false;
+		}
+		LocalState = State.Get();
+		if (!LocalState->Requests.Contains(Admission.PreemptRequestId))
+		{
+			continue;
+		}
+		break;
+	}
+
+	OutRejection =
+		OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
+			EOpenMobileHapticsFailureReason::BusyChannel,
+			EOpenMobileHapticFailureStage::Channel,
+			Effect,
+			Options.Channel
+		);
+	if (State)
+	{
+		State->LastError = OutRejection.Error;
+	}
+	return false;
+}
+
 FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request
 )
@@ -1779,6 +1892,8 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
 		|| Request.Options.Category.IsNone()
+		|| static_cast<uint8>(Request.Options.Priority)
+			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.InterruptionPolicy)
 			> static_cast<uint8>(
 				EOpenMobileHapticInterruptionPolicy::Restart
@@ -1801,9 +1916,19 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticSemanticRequest AdjustedRequest = Request;
+	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			Request.Options.Channel,
+			Request.Options.Priority,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	AdjustedRequest.Options.Priority = ResolvedChannel.EffectivePriority;
 	const EOpenMobileHapticsLifecycleRequestOutcome LifecycleOutcome =
 		OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
-			Request.Options,
+			AdjustedRequest.Options,
 			EOpenMobileHapticsLifecycleRequestKind::Semantic,
 			Request.Effect
 		);
@@ -1830,7 +1955,6 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		);
 	}
 
-	FOpenMobileHapticSemanticRequest AdjustedRequest = Request;
 	float ProjectScale = 1.0f;
 	double MinimumIntervalSeconds = Settings->DefaultMinimumIntervalSeconds;
 	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
@@ -1963,6 +2087,20 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			MutablePolicyScale;
 		const FOpenMobileHapticsBackendRequestToken OverrideToken =
 			FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+		FOpenMobileHapticPlaybackResult AdmissionRejection;
+		if (!AdmitChannelRequest(
+			OverrideToken,
+			AdjustedRequest.Options,
+			ResolvedChannel.MaximumActiveHandles,
+			ResolvedChannel.MaximumQueueDepth,
+			PlaybackParameters.ScheduledStartGuard.IsValid(),
+			AdjustedRequest.Options.Loop.bLoop,
+			Descriptor.Name,
+			AdmissionRejection
+		))
+		{
+			return AdmissionRejection;
+		}
 		FOpenMobileHapticsSubsystemRequestState OverrideState;
 		OverrideState.Token = OverrideToken;
 		OverrideState.Channel = Request.Options.Channel;
@@ -2084,6 +2222,20 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			*Backend,
 			bScheduled
 		);
+	FOpenMobileHapticPlaybackResult AdmissionRejection;
+	if (!AdmitChannelRequest(
+		Token,
+		AdjustedRequest.Options,
+		ResolvedChannel.MaximumActiveHandles,
+		ResolvedChannel.MaximumQueueDepth,
+		bScheduled,
+		AdjustedRequest.Options.Loop.bLoop,
+		Descriptor.Name,
+		AdmissionRejection
+	))
+	{
+		return AdmissionRejection;
+	}
 	FOpenMobileHapticsSubsystemRequestState RequestState;
 	RequestState.Token = Token;
 	RequestState.Channel = Request.Options.Channel;
@@ -2167,6 +2319,8 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
 		|| Request.Options.Category.IsNone()
+		|| static_cast<uint8>(Request.Options.Priority)
+			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.OverlapPolicy)
 			> static_cast<uint8>(EOpenMobileHapticOverlapPolicy::MixWhenSupported)
 		|| static_cast<uint8>(Request.Options.InterruptionPolicy)
@@ -2195,8 +2349,18 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 			Reason
 		);
 	}
+	FOpenMobileHapticOneShotRequest AdjustedRequest = Request;
+	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			Request.Options.Channel,
+			Request.Options.Priority,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	AdjustedRequest.Options.Priority = ResolvedChannel.EffectivePriority;
 	if (OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
-		Request.Options,
+		AdjustedRequest.Options,
 		EOpenMobileHapticsLifecycleRequestKind::OneShot
 	) == EOpenMobileHapticsLifecycleRequestOutcome::Suppressed)
 	{
@@ -2215,7 +2379,6 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 		);
 	}
 
-	FOpenMobileHapticOneShotRequest AdjustedRequest = Request;
 	float ProjectScale = 1.0f;
 	double MinimumIntervalSeconds = Settings->DefaultMinimumIntervalSeconds;
 	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
@@ -2386,6 +2549,20 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	PlaybackParameters.Timing = Timing;
 	PlaybackParameters.ScheduledStartGuard =
 		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
+	FOpenMobileHapticPlaybackResult AdmissionRejection;
+	if (!AdmitChannelRequest(
+		Token,
+		AdjustedRequest.Options,
+		ResolvedChannel.MaximumActiveHandles,
+		ResolvedChannel.MaximumQueueDepth,
+		PlaybackParameters.ScheduledStartGuard.IsValid(),
+		AdjustedRequest.Options.Loop.bLoop,
+		TEXT("OneShot"),
+		AdmissionRejection
+	))
+	{
+		return AdmissionRejection;
+	}
 	FOpenMobileHapticsSubsystemRequestState RequestState;
 	RequestState.Token = Token;
 	RequestState.Channel = Request.Options.Channel;
@@ -2453,6 +2630,8 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
 		|| Request.Options.Category.IsNone()
+		|| static_cast<uint8>(Request.Options.Priority)
+			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.OverlapPolicy)
 			> static_cast<uint8>(EOpenMobileHapticOverlapPolicy::MixWhenSupported)
 		|| static_cast<uint8>(Request.Options.InterruptionPolicy)
@@ -2479,6 +2658,16 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
+	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
+		FOpenMobileHapticsChannelPolicy::Resolve(
+			Request.Options.Channel,
+			Request.Options.Priority,
+			Settings->Channels,
+			Settings->MaximumActiveHandles,
+			Settings->MaximumQueueDepthPerChannel
+		);
+	ResolvedRequest.Options.Priority = ResolvedChannel.EffectivePriority;
 	FSoftObjectPath LifecyclePatternPath = Request.PatternAsset;
 	if (Settings->NamedLibraries.Num() > 0
 		&& !LocalState.LibraryResolver.Find(
@@ -2493,7 +2682,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 			LifecyclePatternPath.ResolveObject()
 		);
 	if (OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
-		Request.Options,
+		ResolvedRequest.Options,
 		EOpenMobileHapticsLifecycleRequestKind::NamedPattern,
 		EOpenMobileHapticSemanticEffect::Selection,
 		LifecyclePattern
@@ -2525,7 +2714,6 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		return OpenMobileHapticsSubsystemPrivate::MakeUnsupportedPlaybackResult();
 	}
 
-	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
 	float ProjectScale = 1.0f;
 	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
 	{
@@ -2673,6 +2861,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		Cast<UOpenMobileHapticPatternAsset>(
 			ResolvedRequest.PatternAsset.ResolveObject()
 		);
+	bool bRepeating = ResolvedRequest.Options.Loop.bLoop;
 	if (PortablePattern)
 	{
 		FOpenMobileHapticLoopOptions EffectiveLoop = PortablePattern->Loop;
@@ -2680,6 +2869,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 		{
 			EffectiveLoop = ResolvedRequest.Options.Loop;
 		}
+		bRepeating = EffectiveLoop.bLoop;
 		FOpenMobileHapticsTimelineManager& TimelineManager =
 			FOpenMobileHapticsBackendRegistry::GetTimelineManager();
 		TimelineManager.SetLimits(
@@ -2699,6 +2889,20 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 
 	const FOpenMobileHapticsBackendRequestToken Token =
 		FOpenMobileHapticsBackendRegistry::CreateRequestToken(*Backend, true);
+	FOpenMobileHapticPlaybackResult AdmissionRejection;
+	if (!AdmitChannelRequest(
+		Token,
+		ResolvedRequest.Options,
+		ResolvedChannel.MaximumActiveHandles,
+		ResolvedChannel.MaximumQueueDepth,
+		PlaybackParameters.ScheduledStartGuard.IsValid(),
+		bRepeating,
+		ResolvedRequest.PatternName,
+		AdmissionRejection
+	))
+	{
+		return AdmissionRejection;
+	}
 	FOpenMobileHapticsSubsystemRequestState RequestState;
 	RequestState.Token = Token;
 	RequestState.Channel = ResolvedRequest.Options.Channel;

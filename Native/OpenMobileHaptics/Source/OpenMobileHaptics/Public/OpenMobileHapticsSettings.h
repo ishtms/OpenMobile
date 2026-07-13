@@ -25,6 +25,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelSettings
 	EOpenMobileHapticChannelPriority Priority =
 		EOpenMobileHapticChannelPriority::Normal;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0", ClampMax = "128"))
+	int32 MaximumActiveHandles = 4;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0", ClampMax = "64"))
 	int32 MaximumQueueDepth = 4;
 
