@@ -3,7 +3,9 @@
 #include "OpenMobileSensorAccuracyMapper.h"
 #include "OpenMobileSensorDeclination.h"
 #include "OpenMobileSensorHeading.h"
+#include "OpenMobileSensorHeadingFilter.h"
 #include "OpenMobileSensorPermissions.h"
+#include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorsTrueHeadingService.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
@@ -685,6 +687,73 @@ bool FOpenMobileSensorsMagneticHeadingInterferenceQualityTest::RunTest(
 		EOpenMobileSensorAccuracy::High);
 	TestFalse(TEXT("Recovered magnetic input clears calibration"),
 		Recovery.bCalibrationRequired);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsHeadingSmoothingTest,
+	"OpenMobile.Sensors.Heading.Filtering.WrapAndDeadZone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsHeadingSmoothingTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileSensorFilterOptions Options;
+	Options.bEnableExponentialSmoothing = true;
+	Options.SmoothingTimeConstantSeconds = 1.0;
+	FOpenMobileSensorHeadingFilter Filter;
+	FOpenMobileHeadingSensorSample Sample;
+	Sample.Header.bValid = true;
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.HeadingDegrees = 359.0;
+	TestTrue(TEXT("The first heading initializes smoothing"),
+		Filter.Apply(Options, Sample));
+	TestEqual(TEXT("The first heading remains unchanged"),
+		Sample.HeadingDegrees, 359.0);
+	Sample.Header.TimestampSeconds = 1.0;
+	Sample.HeadingDegrees = 1.0;
+	TestTrue(TEXT("The wrapped heading is smoothed"),
+		Filter.Apply(Options, Sample));
+	TestTrue(TEXT("Smoothing follows the shortest wrapped arc"),
+		FMath::IsNearlyZero(Sample.HeadingDegrees, 1.e-9));
+	TestTrue(TEXT("Heading smoothing is explicit"),
+		Sample.bExponentiallySmoothed);
+	Options = {};
+	Options.DeadZone = 2.0;
+	Filter.Reset();
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.HeadingDegrees = 359.0;
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Heading dead zones wrap around north"),
+		Sample.HeadingDegrees, 0.0);
+	TestTrue(TEXT("Suppressed heading output is marked"),
+		Sample.bDeadZoneSuppressed);
+	Sample.Header.TimestampSeconds = 1.0;
+	Sample.HeadingDegrees = 2.0;
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Heading dead-zone equality is suppressed"),
+		Sample.HeadingDegrees, 0.0);
+	Sample.Header.TimestampSeconds = 2.0;
+	Sample.HeadingDegrees = 3.0;
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Heading outside the dead zone remains visible"),
+		Sample.HeadingDegrees, 3.0);
+	TestFalse(TEXT("Visible heading output is not marked suppressed"),
+		Sample.bDeadZoneSuppressed);
+	Options = {};
+	Filter.Reset();
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.HeadingDegrees = 271.0;
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Disabled heading filtering is an identity"),
+		Sample.HeadingDegrees, 271.0);
+	TestFalse(TEXT("Disabled heading smoothing is not reported"),
+		Sample.bExponentiallySmoothed);
+	TestFalse(TEXT("Disabled heading dead zone is not reported"),
+		Sample.bDeadZoneSuppressed);
 	return true;
 }
 

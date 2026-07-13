@@ -10,6 +10,7 @@
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorGravityEstimator.h"
+#include "OpenMobileSensorHeadingFilter.h"
 #include "OpenMobileSensorHeadingQuality.h"
 #include "OpenMobileSensorLinearAccelerationEstimator.h"
 #include "OpenMobileSensorOrientationClassifier.h"
@@ -191,6 +192,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 GyroscopeSampleCount = 0;
 		int32 EventHighWaterMark = 0;
 		int64 EventDroppedSamples = 0;
+		int64 FilteredSamples = 0;
+		int64 SuppressedSamples = 0;
 		int32 PendingTimestampIssueFlags = 0;
 		int32 MaximumPendingSamples = 128;
 		EOpenMobileSensorDeliveryMode DeliveryMode =
@@ -210,6 +213,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FQuat LatestCanonicalAttitude = FQuat::Identity;
 		FOpenMobileSensorFilterOptions FilterOptions;
 		FOpenMobileSensorVectorFilter VectorFilter;
+		FOpenMobileSensorHeadingFilter HeadingFilter;
 		FOpenMobileSensorGravityEstimator GravityEstimator;
 		FOpenMobileSensorLinearAccelerationEstimator
 			LinearAccelerationEstimator;
@@ -325,6 +329,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		Slot.RelativeAltitudeEstimator.Reset();
 		Slot.OrientationClassifier.Reset();
 		Slot.ActivityFilter.Reset();
+		Slot.HeadingFilter.Reset();
 	}
 
 	double GetLongGapSeconds(const FLatestSlot& Slot)
@@ -358,6 +363,22 @@ namespace OpenMobileSensorsSampleServicePrivate
 		ResetRateStatistics(Slot);
 		ResetGyroscopeDriftStatistics(Slot);
 		Slot.VectorFilter.Reset();
+		ResetDerivedEstimators(Slot);
+		Sample.Header.bStatefulProcessingReset = true;
+	}
+
+	void ApplyLongGapReset(
+		FLatestSlot& Slot,
+		FOpenMobileHeadingSensorSample& Sample
+	)
+	{
+		if (!Slot.bHasSample
+			|| Sample.Header.TimestampSeconds - Slot.LatestTimestampSeconds <=
+				GetLongGapSeconds(Slot))
+		{
+			return;
+		}
+		ResetRateStatistics(Slot);
 		ResetDerivedEstimators(Slot);
 		Sample.Header.bStatefulProcessingReset = true;
 	}
@@ -1032,6 +1053,58 @@ namespace OpenMobileSensorsSampleServicePrivate
 
 	bool ApplySubscriptionFilters(
 		FLatestSlot& Slot,
+		FOpenMobileHeadingSensorSample& Sample
+	)
+	{
+		return Slot.HeadingFilter.Apply(Slot.FilterOptions, Sample);
+	}
+
+	template <typename SampleType>
+	void RecordFilterDiagnostics(
+		FLatestSlot& Slot,
+		const SampleType& Sample
+	)
+	{
+		static_cast<void>(Slot);
+		static_cast<void>(Sample);
+	}
+
+	void RecordFilterDiagnostics(
+		FLatestSlot& Slot,
+		const FOpenMobileVectorSensorSample& Sample
+	)
+	{
+		if (Slot.FilterOptions.bEnableLowPass
+			|| Slot.FilterOptions.bEnableHighPass
+			|| Slot.FilterOptions.bEnableExponentialSmoothing
+			|| Slot.FilterOptions.DeadZone > 0.0)
+		{
+			++Slot.FilteredSamples;
+		}
+		if (Sample.bDeadZoneSuppressed)
+		{
+			++Slot.SuppressedSamples;
+		}
+	}
+
+	void RecordFilterDiagnostics(
+		FLatestSlot& Slot,
+		const FOpenMobileHeadingSensorSample& Sample
+	)
+	{
+		if (Slot.FilterOptions.bEnableExponentialSmoothing
+			|| Slot.FilterOptions.DeadZone > 0.0)
+		{
+			++Slot.FilteredSamples;
+		}
+		if (Sample.bDeadZoneSuppressed)
+		{
+			++Slot.SuppressedSamples;
+		}
+	}
+
+	bool ApplySubscriptionFilters(
+		FLatestSlot& Slot,
 		FOpenMobileActivitySensorSample& Sample
 	)
 	{
@@ -1657,6 +1730,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 						}
 						continue;
 					}
+					RecordFilterDiagnostics(Slot, Sample);
 					UpdateRateStatistics(
 						Slot,
 						Sample.Header.TimestampSeconds
@@ -3164,6 +3238,8 @@ bool FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
 	OutDiagnostics.QueueDepth = GetPluginSampleCount(Slot);
 	OutDiagnostics.BufferHighWaterMark = GetPluginHighWaterMark(Slot);
 	OutDiagnostics.DroppedSamples = GetPluginDroppedSamples(Slot);
+	OutDiagnostics.FilteredSamples = Slot.FilteredSamples;
+	OutDiagnostics.SuppressedSamples = Slot.SuppressedSamples;
 	OutDiagnostics.LatestSampleAgeSeconds = Slot.bHasSample
 		? FMath::Max(0.0, NowSeconds - Slot.LatestTimestampSeconds)
 		: 0.0;

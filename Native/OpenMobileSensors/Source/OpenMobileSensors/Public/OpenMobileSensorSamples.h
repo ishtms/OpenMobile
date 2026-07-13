@@ -114,6 +114,12 @@ struct OPENMOBILESENSORS_API FOpenMobileVectorSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHighPassFilterWarmingUp = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bExponentiallySmoothed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bDeadZoneSuppressed = false;
 };
 
 USTRUCT(BlueprintType)
@@ -308,6 +314,12 @@ struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bCalibrationRequired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bExponentiallySmoothed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bDeadZoneSuppressed = false;
 };
 
 UENUM(BlueprintType)

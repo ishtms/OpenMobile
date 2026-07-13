@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorValidity.h"
 #include "OpenMobileSensorVectorFilter.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -293,6 +294,106 @@ bool FOpenMobileSensorsAccelerometerFilterChainTest::RunTest(
 	Filter.Apply(Options, Sample);
 	TestEqual(TEXT("Exponential smoothing uses elapsed time"),
 		Sample.Value, FVector(5.0, 0.0, 0.0));
+	Sample.Header.TimestampSeconds = 1.5;
+	Sample.Value = FVector(10.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestTrue(TEXT("Smoothing supports variable sample intervals"),
+		FMath::IsNearlyEqual(Sample.Value.X, 20.0 / 3.0, 1.e-9));
+
+	Options.bEnableLowPass = true;
+	Options.LowPassTimeConstantSeconds = 1.0;
+	Filter.Reset();
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.Value = FVector::ZeroVector;
+	Filter.Apply(Options, Sample);
+	Sample.Header.TimestampSeconds = 1.0;
+	Sample.Value = FVector(10.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Low-pass runs before exponential smoothing"),
+		Sample.Value, FVector(2.5, 0.0, 0.0));
+
+	Options = {};
+	Options.DeadZone = 1.0;
+	Filter.Reset();
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.Value = FVector(0.8, 0.8, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Vector dead zones use magnitude, not components"),
+		Sample.Value, FVector(0.8, 0.8, 0.0));
+	TestFalse(TEXT("A vector above the magnitude boundary is retained"),
+		Sample.bDeadZoneSuppressed);
+	Sample.Header.TimestampSeconds = 1.0;
+	Sample.Value = FVector(0.6, 0.8, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Vector dead-zone equality is suppressed"),
+		Sample.Value, FVector::ZeroVector);
+	TestTrue(TEXT("Suppressed vector output is marked"),
+		Sample.bDeadZoneSuppressed);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsFilterDiagnosticsTest,
+	"OpenMobile.Sensors.Accelerometer.FilterDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsFilterDiagnosticsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsAccelerometerTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("FilterDiagnostics"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid RawOwner = FGuid::NewGuid();
+	const FGuid FilteredOwner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Raw =
+		StartActive(RawOwner, false);
+	FOpenMobileSensorSubscriptionRequest FilteredRequest =
+		MakeRequest(false);
+	FilteredRequest.Options.Filters.DeadZone = 1.0;
+	const FOpenMobileSensorSubscriptionResult Filtered =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			FilteredOwner,
+			FilteredRequest
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestEqual(TEXT("The raw subscription starts"),
+		Raw.Operation.Code, EOpenMobileSensorResultCode::Accepted);
+	TestEqual(TEXT("The dead-zone subscription starts"),
+		Filtered.Operation.Code, EOpenMobileSensorResultCode::Accepted);
+	FOpenMobileVectorSensorSample Boundary = MakeSample(1.0, 0.0);
+	Boundary.Value = FVector(0.6, 0.8, 0.0);
+	FOpenMobileSensorsSampleService::PublishVector(Boundary);
+	FOpenMobileSensorsSampleService::PublishVector(MakeSample(2.0, 2.0));
+	const TArray<FOpenMobileSensorStreamDiagnostics> RawDiagnostics =
+		FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(RawOwner);
+	const TArray<FOpenMobileSensorStreamDiagnostics> FilteredDiagnostics =
+		FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
+			FilteredOwner
+		);
+	TestEqual(TEXT("Raw diagnostics contain one stream"),
+		RawDiagnostics.Num(), 1);
+	TestEqual(TEXT("Filtered diagnostics contain one stream"),
+		FilteredDiagnostics.Num(), 1);
+	if (RawDiagnostics.Num() == 1 && FilteredDiagnostics.Num() == 1)
+	{
+		TestEqual(TEXT("Raw samples are not counted as filtered"),
+			RawDiagnostics[0].FilteredSamples, 0ll);
+		TestEqual(TEXT("Raw samples are not counted as suppressed"),
+			RawDiagnostics[0].SuppressedSamples, 0ll);
+		TestEqual(TEXT("The filter counts accepted samples"),
+			FilteredDiagnostics[0].FilteredSamples, 2ll);
+		TestEqual(TEXT("The dead zone counts one suppressed sample"),
+			FilteredDiagnostics[0].SuppressedSamples, 1ll);
+		TestEqual(TEXT("Filtering does not change the raw sample count"),
+			FilteredDiagnostics[0].Rate.SampleCount,
+			RawDiagnostics[0].Rate.SampleCount);
+	}
+	FinishBackend(Backend);
 	return true;
 }
 

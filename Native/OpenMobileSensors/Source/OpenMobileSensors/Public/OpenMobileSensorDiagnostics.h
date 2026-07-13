@@ -83,6 +83,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 	int64 DroppedSamples = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int64 FilteredSamples = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int64 SuppressedSamples = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double LatestSampleAgeSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

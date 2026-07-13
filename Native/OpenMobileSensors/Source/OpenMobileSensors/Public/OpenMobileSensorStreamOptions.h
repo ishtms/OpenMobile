@@ -123,10 +123,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFilterOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	bool bEnableExponentialSmoothing = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
 	double SmoothingTimeConstantSeconds = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", ToolTip = "Uses vector magnitude in standardized units, or shortest angular distance to north in degrees for heading samples."))
 	double DeadZone = 0.0;
 };
 

@@ -9,13 +9,22 @@ namespace OpenMobileSensorVectorFilterPrivate
 		return FMath::IsFinite(Value) && Value > 0.0;
 	}
 
-	FVector ApplyDeadZone(const FVector& Value, double DeadZone)
+	FVector ApplyDeadZone(
+		const FVector& Value,
+		double DeadZone,
+		bool& bOutSuppressed
+	)
 	{
-		return FVector(
-			FMath::Abs(Value.X) <= DeadZone ? 0.0 : Value.X,
-			FMath::Abs(Value.Y) <= DeadZone ? 0.0 : Value.Y,
-			FMath::Abs(Value.Z) <= DeadZone ? 0.0 : Value.Z
-		);
+		bOutSuppressed = false;
+		const double MagnitudeSquared = Value.SizeSquared();
+		if (DeadZone > 0.0
+			&& MagnitudeSquared > 0.0
+			&& MagnitudeSquared <= DeadZone * DeadZone)
+		{
+			bOutSuppressed = true;
+			return FVector::ZeroVector;
+		}
+		return Value;
 	}
 }
 
@@ -44,6 +53,9 @@ bool FOpenMobileSensorVectorFilter::Apply(
 
 	Sample.bHighPassFiltered = Options.bEnableHighPass;
 	Sample.bHighPassFilterWarmingUp = false;
+	Sample.bExponentiallySmoothed =
+		Options.bEnableExponentialSmoothing;
+	Sample.bDeadZoneSuppressed = false;
 	const bool bReset = Sample.Header.bStatefulProcessingReset
 		|| !bInitialized
 		|| Sample.Header.TimestampSeconds <= LastTimestampSeconds;
@@ -103,7 +115,11 @@ bool FOpenMobileSensorVectorFilter::Apply(
 	{
 		SmoothingState = Value;
 	}
-	Sample.Value = ApplyDeadZone(Value, Options.DeadZone);
+	Sample.Value = ApplyDeadZone(
+		Value,
+		Options.DeadZone,
+		Sample.bDeadZoneSuppressed
+	);
 	LastTimestampSeconds = Sample.Header.TimestampSeconds;
 	return true;
 }
