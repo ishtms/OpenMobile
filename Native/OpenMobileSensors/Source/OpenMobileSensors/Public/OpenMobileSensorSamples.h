@@ -108,6 +108,12 @@ struct OPENMOBILESENSORS_API FOpenMobileVectorSensorSample
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FVector Bias = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHighPassFiltered = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHighPassFilterWarmingUp = false;
 };
 
 USTRUCT(BlueprintType)

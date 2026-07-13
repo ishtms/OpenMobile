@@ -168,6 +168,87 @@ bool FOpenMobileSensorsAccelerometerLowPassTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsAccelerometerHighPassTest,
+	"OpenMobile.Sensors.Accelerometer.HighPass",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsAccelerometerHighPassTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileSensorFilterOptions Options;
+	Options.bEnableHighPass = true;
+	Options.HighPassTimeConstantSeconds = 1.0;
+	FOpenMobileSensorVectorFilter Filter;
+	FOpenMobileVectorSensorSample Sample;
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.Header.bValid = true;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	TestTrue(TEXT("The baseline sample initializes the high-pass filter"),
+		Filter.Apply(Options, Sample));
+	TestEqual(TEXT("A constant baseline starts at zero"),
+		Sample.Value, FVector::ZeroVector);
+	TestTrue(TEXT("The sample reports high-pass filtering"),
+		Sample.bHighPassFiltered);
+	TestTrue(TEXT("The initial state is warming up"),
+		Sample.bHighPassFilterWarmingUp);
+	Sample.Header.TimestampSeconds = 0.25;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Constant input remains rejected"),
+		Sample.Value, FVector::ZeroVector);
+	TestTrue(TEXT("Warm-up follows elapsed time"),
+		Sample.bHighPassFilterWarmingUp);
+	Sample.Header.TimestampSeconds = 1.0;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestFalse(TEXT("Warm-up ends after one time constant"),
+		Sample.bHighPassFilterWarmingUp);
+	Sample.Header.TimestampSeconds = 2.0;
+	Sample.Value = FVector(14.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("A one-second impulse uses one-half alpha"),
+		Sample.Value, FVector(5.0, 0.0, 0.0));
+	Sample.Header.TimestampSeconds = 2.5;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestTrue(TEXT("Variable intervals preserve the impulse response"),
+		FMath::IsNearlyEqual(Sample.Value.X, -10.0 / 3.0, 1e-9));
+	Sample.Header.TimestampSeconds = 3.0;
+	Sample.Header.bValid = false;
+	TestFalse(TEXT("Invalid high-pass input is rejected"),
+		Filter.Apply(Options, Sample));
+	Sample.Header.TimestampSeconds = 4.0;
+	Sample.Header.bValid = true;
+	Sample.Value = FVector(4.0, 0.0, 0.0);
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Input after a reset starts from zero"),
+		Sample.Value, FVector::ZeroVector);
+	TestTrue(TEXT("Reset restarts warm-up"),
+		Sample.bHighPassFilterWarmingUp);
+	Sample.Header.TimestampSeconds = 1000000000000.0;
+	Sample.Value = FVector(1000000000000.0, 0.0, 0.0);
+	TestTrue(TEXT("A very large valid interval is processed"),
+		Filter.Apply(Options, Sample));
+	TestTrue(TEXT("A very large interval remains finite"),
+		FMath::IsFinite(Sample.Value.X));
+	Filter.Reset();
+	Sample.Header.TimestampSeconds = 0.0;
+	Sample.Value = FVector(7.0, -2.0, 3.0);
+	Options = {};
+	Filter.Apply(Options, Sample);
+	TestEqual(TEXT("Disabled high-pass filtering is an identity"),
+		Sample.Value, FVector(7.0, -2.0, 3.0));
+	TestFalse(TEXT("Disabled samples are not marked filtered"),
+		Sample.bHighPassFiltered);
+	TestFalse(TEXT("Disabled samples are not warming up"),
+		Sample.bHighPassFilterWarmingUp);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsAccelerometerFilterChainTest,
 	"OpenMobile.Sensors.Accelerometer.FilterChain",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

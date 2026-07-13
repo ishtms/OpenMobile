@@ -42,6 +42,8 @@ bool FOpenMobileSensorVectorFilter::Apply(
 		return false;
 	}
 
+	Sample.bHighPassFiltered = Options.bEnableHighPass;
+	Sample.bHighPassFilterWarmingUp = false;
 	const bool bReset = Sample.Header.bStatefulProcessingReset
 		|| !bInitialized
 		|| Sample.Header.TimestampSeconds <= LastTimestampSeconds;
@@ -55,9 +57,11 @@ bool FOpenMobileSensorVectorFilter::Apply(
 		}
 		HighPassPreviousInput = Value;
 		HighPassState = FVector::ZeroVector;
+		HighPassWarmupElapsedSeconds = 0.0;
 		if (Options.bEnableHighPass)
 		{
 			Value = HighPassState;
+			Sample.bHighPassFilterWarmingUp = true;
 		}
 		SmoothingState = Value;
 		bInitialized = true;
@@ -82,6 +86,10 @@ bool FOpenMobileSensorVectorFilter::Apply(
 			);
 			HighPassPreviousInput = Value;
 			Value = HighPassState;
+			HighPassWarmupElapsedSeconds += DeltaSeconds;
+			Sample.bHighPassFilterWarmingUp =
+				HighPassWarmupElapsedSeconds <
+					Options.HighPassTimeConstantSeconds;
 		}
 		if (Options.bEnableExponentialSmoothing)
 		{
@@ -106,6 +114,7 @@ void FOpenMobileSensorVectorFilter::Reset()
 	HighPassPreviousInput = FVector::ZeroVector;
 	HighPassState = FVector::ZeroVector;
 	SmoothingState = FVector::ZeroVector;
+	HighPassWarmupElapsedSeconds = 0.0;
 	LastTimestampSeconds = 0.0;
 	bInitialized = false;
 }

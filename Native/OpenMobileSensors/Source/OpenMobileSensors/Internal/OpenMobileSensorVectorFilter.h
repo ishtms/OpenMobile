@@ -19,6 +19,7 @@ private:
 	FVector HighPassPreviousInput = FVector::ZeroVector;
 	FVector HighPassState = FVector::ZeroVector;
 	FVector SmoothingState = FVector::ZeroVector;
+	double HighPassWarmupElapsedSeconds = 0.0;
 	double LastTimestampSeconds = 0.0;
 	bool bInitialized = false;
 };
