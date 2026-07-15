@@ -383,6 +383,104 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			self.assertEqual(1, path.count("RateLimiter.Evaluate("), start)
 			self.assertIn("MakeRateLimitedPlaybackResult", path)
 
+	def test_performance_budgets_and_hot_paths_are_explicit(self) -> None:
+		common = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		budget = (
+			common / "Internal" / "OpenMobileHapticsBudgetPolicy.h"
+		).read_text(encoding="utf-8")
+		for contract in (
+			"HardMaximumActiveHandles = 128",
+			"HardMaximumQueuedHandles = 256",
+			"HardMaximumQueueDepthPerChannel = 64",
+			"HardMaximumPreparedPatterns = 128",
+			"HardMaximumPreparedPatternBytes =",
+			"64 * 1024 * 1024",
+			"HardMaximumPatternEvents = 4096",
+			"HardMaximumDiagnosticEvents = 512",
+		):
+			self.assertIn(contract, budget)
+
+		dynamic_policy = (
+			common / "Internal" / "OpenMobileHapticsDynamicParameterPolicy.h"
+		).read_text(encoding="utf-8")
+		self.assertIn("TArray<uint64> ScratchRequestIds;", dynamic_policy)
+		dynamic_policy_source = (
+			common / "Private" / "OpenMobileHapticsDynamicParameterPolicy.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("ScratchRequestIds.Reset()", dynamic_policy_source)
+		self.assertNotIn("Playbacks.GetKeys", dynamic_policy_source)
+
+		types = (
+			common / "Public" / "OpenMobileHapticsTypes.h"
+		).read_text(encoding="utf-8")
+		for metric in (
+			"DroppedRequestCount",
+			"PeakQueuedPlaybackCount",
+			"TimelineCacheHitCount",
+			"TimelineCacheMissCount",
+			"TimelineCacheEvictionCount",
+			"TimelineCacheMemoryBytes",
+			"PreparationLatencyMilliseconds",
+			"NativeSubmissionLatencyMilliseconds",
+		):
+			self.assertIn(metric, types)
+
+		subsystem = (
+			common / "Private" / "OpenMobileHapticsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn("DynamicParameterBatch", subsystem)
+		self.assertNotIn(
+			"TArray<FOpenMobileHapticsScheduledDynamicParameterUpdate> Updates;",
+			subsystem,
+		)
+		for trace_scope in (
+			"OpenMobileHaptics_SubmitSemantic",
+			"OpenMobileHaptics_SubmitOneShot",
+			"OpenMobileHaptics_SubmitNamedPattern",
+			"OpenMobileHaptics_ResolveOverlap",
+			"OpenMobileHaptics_PreloadNamedLibraries",
+			"OpenMobileHaptics_ApplicationLifecycle",
+			"OpenMobileHaptics_Shutdown",
+		):
+			self.assertIn(
+				f"TRACE_CPUPROFILER_EVENT_SCOPE({trace_scope})",
+				subsystem,
+			)
+		timeline_manager = (
+			common / "Private" / "OpenMobileHapticsTimelineManager.cpp"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			"TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_ResolveTimeline)",
+			timeline_manager,
+		)
+
+		path_boundaries = (
+			(
+				"UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(",
+				"UOpenMobileHapticsSubsystem::SubmitOneShot(",
+			),
+			(
+				"UOpenMobileHapticsSubsystem::SubmitOneShotInternal(",
+				"UOpenMobileHapticsSubsystem::SubmitNamedPattern(",
+			),
+			(
+				"UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(",
+				"UOpenMobileHapticsSubsystem::CompleteControlledRequest(",
+			),
+		)
+		for start, end in path_boundaries:
+			path = subsystem[subsystem.index(start):subsystem.index(end)]
+			for forbidden_operation in (
+				"LoadSynchronous",
+				"TryLoad",
+				"RequestAsyncLoad",
+				"StaticLoadObject",
+				"LoadObject<",
+				"FFileHelper",
+				"FJsonSerializer",
+			):
+				self.assertNotIn(forbidden_operation, path, start)
+
 	def test_background_alert_support_matches_platform_contracts(self) -> None:
 		android_backend = (
 			HAPTICS_PLUGIN

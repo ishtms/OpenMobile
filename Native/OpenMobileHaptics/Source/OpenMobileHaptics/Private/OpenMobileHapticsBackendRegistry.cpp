@@ -698,6 +698,7 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	AdvanceGeneration();
 	AdvanceLifecycleGeneration();
 	TimelineManager().Clear();
+	TimelineManager().ResetStatistics();
 	PublishCapabilities();
 }
 #endif

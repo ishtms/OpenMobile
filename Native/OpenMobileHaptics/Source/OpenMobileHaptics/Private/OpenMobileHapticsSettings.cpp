@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsSettings.h"
 
 #include "Misc/PackageName.h"
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 
 namespace OpenMobileHapticsSettingsPrivate
@@ -219,16 +220,22 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 		}
 	}
 
-	if (MaximumActiveHandles < 1 || MaximumActiveHandles > 128)
+	if (MaximumActiveHandles < 1
+		|| MaximumActiveHandles
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumActiveHandles)
 	{
 		AddError(TEXT("Maximum active handles must be between 1 and 128."));
 	}
-	if (MaximumQueuedHandles < 1 || MaximumQueuedHandles > 256)
+	if (MaximumQueuedHandles < 1
+		|| MaximumQueuedHandles
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumQueuedHandles)
 	{
 		AddError(TEXT("Maximum queued handles must be between 1 and 256."));
 	}
 	if (MaximumQueueDepthPerChannel < 1
-		|| MaximumQueueDepthPerChannel > 64
+		|| MaximumQueueDepthPerChannel
+			> FOpenMobileHapticsBudgetPolicy::
+				HardMaximumQueueDepthPerChannel
 		|| MaximumQueueDepthPerChannel > MaximumQueuedHandles)
 	{
 		AddError(TEXT("Per-channel queue depth must fit within the global queue limit."));
@@ -237,20 +244,30 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum queued request age must be finite and between 0.01 and 30 seconds."));
 	}
-	if (MaximumPreparedPatterns < 1 || MaximumPreparedPatterns > 128)
+	if (MaximumPreparedPatterns < 1
+		|| MaximumPreparedPatterns
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumPreparedPatterns)
 	{
 		AddError(TEXT("Maximum prepared patterns must be between 1 and 128."));
 	}
 	if (MaximumPreparedPatternMemoryKilobytes < 64
-		|| MaximumPreparedPatternMemoryKilobytes > 65536)
+		|| MaximumPreparedPatternMemoryKilobytes
+			> FOpenMobileHapticsBudgetPolicy::
+				HardMaximumPreparedPatternBytes / 1024)
 	{
 		AddError(TEXT("Prepared pattern memory must be between 64 and 65536 KB."));
 	}
-	if (!IsFiniteRange(PreparedPatternIdleLifetimeSeconds, 1.0f, 300.0f))
+	if (!IsFiniteRange(
+		PreparedPatternIdleLifetimeSeconds,
+		FOpenMobileHapticsBudgetPolicy::HardMinimumPreparedIdleLifetimeSeconds,
+		FOpenMobileHapticsBudgetPolicy::HardMaximumPreparedIdleLifetimeSeconds
+	))
 	{
 		AddError(TEXT("Prepared pattern idle lifetime must be finite and between 1 and 300 seconds."));
 	}
-	if (MaximumDiagnosticEvents < 1 || MaximumDiagnosticEvents > 512)
+	if (MaximumDiagnosticEvents < 1
+		|| MaximumDiagnosticEvents
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumDiagnosticEvents)
 	{
 		AddError(TEXT("Maximum diagnostic events must be between 1 and 512."));
 	}
@@ -268,16 +285,21 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Maximum pattern event duration must be finite, positive, and no greater than the continuous limit."));
 	}
-	if (MaximumPatternEventCount < 1 || MaximumPatternEventCount > 4096)
+	if (MaximumPatternEventCount < 1
+		|| MaximumPatternEventCount
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumPatternEvents)
 	{
 		AddError(TEXT("Maximum pattern event count must be between 1 and 4096."));
 	}
-	if (MaximumPatternCurveCount < 0 || MaximumPatternCurveCount > 128)
+	if (MaximumPatternCurveCount < 0
+		|| MaximumPatternCurveCount
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumPatternCurves)
 	{
 		AddError(TEXT("Maximum pattern curve count must be between 0 and 128."));
 	}
 	if (MaximumPatternCurvePointCount < 1
-		|| MaximumPatternCurvePointCount > 4096)
+		|| MaximumPatternCurvePointCount
+			> FOpenMobileHapticsBudgetPolicy::HardMaximumPatternCurvePoints)
 	{
 		AddError(TEXT("Maximum pattern curve point count must be between 1 and 4096."));
 	}

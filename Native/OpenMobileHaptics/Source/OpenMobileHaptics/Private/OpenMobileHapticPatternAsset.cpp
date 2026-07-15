@@ -1,6 +1,7 @@
 #include "OpenMobileHapticPatternAsset.h"
 
 #include "Misc/Crc.h"
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsPatternCompiler.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSettings.h"
@@ -393,9 +394,24 @@ uint32 UOpenMobileHapticPatternAsset::ComputeSourceHash() const
 	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	HashValue(Hash, Settings->MaximumPatternEventCount);
-	HashValue(Hash, Settings->MaximumPatternCurveCount);
-	HashValue(Hash, Settings->MaximumPatternCurvePointCount);
+	HashValue(
+		Hash,
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			Settings->MaximumPatternEventCount
+		)
+	);
+	HashValue(
+		Hash,
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurves(
+			Settings->MaximumPatternCurveCount
+		)
+	);
+	HashValue(
+		Hash,
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurvePoints(
+			Settings->MaximumPatternCurvePointCount
+		)
+	);
 	HashValue(Hash, Settings->MaximumContinuousDurationSeconds);
 	HashValue(Hash, Settings->MaximumPatternEventDurationSeconds);
 	HashValue(Hash, Settings->MinimumPatternGranularitySeconds);

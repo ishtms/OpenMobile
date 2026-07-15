@@ -1,5 +1,6 @@
 #include "OpenMobileHapticsEnvelopePolicy.h"
 
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
 namespace OpenMobileHapticsEnvelopePolicyPrivate
@@ -100,7 +101,9 @@ FOpenMobileHapticsEnvelopePolicy::Resolve(
 		return Unavailable(FallbackPolicy, TEXT("EnvelopeLimits"));
 	}
 	if (Asset.EnvelopePoints.Num()
-		> GetDefault<UOpenMobileHapticsSettings>()->MaximumPatternEventCount)
+		> FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			GetDefault<UOpenMobileHapticsSettings>()->MaximumPatternEventCount
+		))
 	{
 		return Invalid(TEXT("ConfiguredPointCount"));
 	}

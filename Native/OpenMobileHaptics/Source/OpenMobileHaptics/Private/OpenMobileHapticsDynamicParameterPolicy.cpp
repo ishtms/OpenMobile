@@ -104,10 +104,15 @@ void FOpenMobileHapticsDynamicParameterPolicy::CollectReady(
 		return;
 	}
 
-	TArray<uint64> RequestIds;
-	Playbacks.GetKeys(RequestIds);
-	RequestIds.Sort();
-	for (const uint64 RequestId : RequestIds)
+	ScratchRequestIds.Reset();
+	ScratchRequestIds.Reserve(Playbacks.Num());
+	OutUpdates.Reserve(Playbacks.Num());
+	for (const TPair<uint64, FPlaybackState>& Pair : Playbacks)
+	{
+		ScratchRequestIds.Add(Pair.Key);
+	}
+	ScratchRequestIds.Sort();
+	for (const uint64 RequestId : ScratchRequestIds)
 	{
 		FPlaybackState* State = Playbacks.Find(RequestId);
 		if (!State || !State->bHasPending

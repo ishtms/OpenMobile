@@ -2,6 +2,7 @@
 
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
 namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
@@ -138,7 +139,10 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
 	const int32 Count = Asset.WaveformTimingsMilliseconds.Num();
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	if (Count > Settings->MaximumPatternEventCount)
+	if (Count
+		> FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			Settings->MaximumPatternEventCount
+		))
 	{
 		return Rejected(TEXT("ConfiguredEventCount"));
 	}
@@ -247,7 +251,10 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolvePortable(
 	}
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	if (Cooked.Events.Num() > Settings->MaximumPatternEventCount)
+	if (Cooked.Events.Num()
+		> FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			Settings->MaximumPatternEventCount
+		))
 	{
 		return Rejected(TEXT("ConfiguredEventCount"));
 	}

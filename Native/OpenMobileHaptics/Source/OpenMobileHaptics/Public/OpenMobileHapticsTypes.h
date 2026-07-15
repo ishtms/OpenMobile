@@ -1217,6 +1217,57 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticUserPolicy
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticsPerformanceDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 DroppedRequestCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 PeakQueuedPlaybackCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 TimelineCacheHitCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 TimelineCacheMissCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 TimelineCacheEvictionCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 TimelineCacheEntryCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 TimelineCacheMemoryBytes = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 TimelineCacheMaximumEntryCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 TimelineCacheMaximumMemoryBytes = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 PreparationCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double LastPreparationLatencyMilliseconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double MaximumPreparationLatencyMilliseconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 NativeSubmissionCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double LastNativeSubmissionLatencyMilliseconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	double MaximumNativeSubmissionLatencyMilliseconds = 0.0;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 {
 	GENERATED_BODY()
@@ -1229,6 +1280,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	int32 QueuedPlaybackCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FOpenMobileHapticsPerformanceDiagnostics Performance;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticError LastError;

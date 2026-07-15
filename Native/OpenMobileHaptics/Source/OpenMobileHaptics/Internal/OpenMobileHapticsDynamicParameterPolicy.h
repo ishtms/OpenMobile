@@ -63,4 +63,5 @@ private:
 	);
 
 	TMap<uint64, FPlaybackState> Playbacks;
+	TArray<uint64> ScratchRequestIds;
 };

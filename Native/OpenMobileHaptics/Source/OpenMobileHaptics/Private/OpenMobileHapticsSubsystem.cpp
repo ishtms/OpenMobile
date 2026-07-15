@@ -10,6 +10,7 @@
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsChannelPolicy.h"
 #include "OpenMobileHapticsDurationPolicy.h"
 #include "OpenMobileHapticsDynamicParameterPolicy.h"
@@ -19,12 +20,14 @@
 #include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsOverlapPolicy.h"
+#include "OpenMobileHapticsPerformanceTracker.h"
 #include "OpenMobileHapticsPlaybackControlPolicy.h"
 #include "OpenMobileHapticsRateLimiter.h"
 #include "OpenMobileHapticsSemanticPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsTimingPolicy.h"
 #include "OpenMobileHapticsTimelineManager.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 struct FOpenMobileHapticsSubsystemRequestState
 {
@@ -100,11 +103,15 @@ struct FOpenMobileHapticsSubsystemState
 	EOpenMobileHapticPreparationState PreparationState =
 		EOpenMobileHapticPreparationState::Unprepared;
 	FOpenMobileHapticsRateLimiter RateLimiter;
+	FOpenMobileHapticsPerformanceTracker PerformanceTracker;
 	FOpenMobileHapticsDynamicParameterPolicy DynamicParameterPolicy;
+	TArray<FOpenMobileHapticsScheduledDynamicParameterUpdate>
+		DynamicParameterBatch;
 	FOpenMobileHapticsTimingPolicy TimingPolicy;
 	FOpenMobileHapticsChannelArbiter ChannelArbiter;
 	TArray<FOpenMobileHapticsPendingRecoveryPlayback> PendingRecoveryPlaybacks;
 	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
+	double ActivePreparationStartTimeSeconds = -1.0;
 	bool bOverlapQueueDrainScheduled = false;
 };
 
@@ -117,6 +124,14 @@ void FOpenMobileHapticsSubsystemStateDeleter::operator()(
 
 namespace OpenMobileHapticsSubsystemPrivate
 {
+	int64 ToPublicCounter(uint64 Value)
+	{
+		return static_cast<int64>(FMath::Min<uint64>(
+			Value,
+			static_cast<uint64>(MAX_int64)
+		));
+	}
+
 	FOpenMobileHapticPlaybackResult MakeUnsupportedPlaybackResult()
 	{
 		FOpenMobileHapticsErrorContext Context;
@@ -567,12 +582,21 @@ namespace OpenMobileHapticsSubsystemPrivate
 	)
 	{
 		FOpenMobileHapticsPreparedResourceLimits Limits;
-		Limits.MaximumCount = Settings.MaximumPreparedPatterns;
-		Limits.MaximumBytes = static_cast<int64>(
-			Settings.MaximumPreparedPatternMemoryKilobytes
-		) * 1024;
+		Limits.MaximumCount =
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatterns(
+				Settings.MaximumPreparedPatterns
+			);
+		Limits.MaximumBytes =
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatternBytes(
+				static_cast<int64>(
+					Settings.MaximumPreparedPatternMemoryKilobytes
+				) * 1024
+			);
 		Limits.IdleLifetimeSeconds =
-			Settings.PreparedPatternIdleLifetimeSeconds;
+			FOpenMobileHapticsBudgetPolicy::
+				ResolvePreparedIdleLifetimeSeconds(
+					Settings.PreparedPatternIdleLifetimeSeconds
+				);
 		return Limits;
 	}
 
@@ -777,11 +801,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 		const FOpenMobileHapticPlaybackEvent& Event
 	)
 	{
-		const int32 MaximumEvents = FMath::Clamp(
-			GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents,
-			1,
-			512
-		);
+		const int32 MaximumEvents =
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumDiagnosticEvents(
+				GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents
+			);
 		const int32 Excess = State.RecentPlaybackEvents.Num()
 			- MaximumEvents + 1;
 		if (Excess > 0)
@@ -1016,16 +1039,25 @@ void UOpenMobileHapticsSubsystem::Initialize(
 	UserPolicy.MasterIntensity = Settings->DefaultMasterIntensity;
 	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
-	State->RecentPlaybackEvents.Reserve(FMath::Clamp(
-		Settings->MaximumDiagnosticEvents,
-		1,
-		512
-	));
+	State->RecentPlaybackEvents.Reserve(
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumDiagnosticEvents(
+			Settings->MaximumDiagnosticEvents
+		)
+	);
+	State->DynamicParameterBatch.Reserve(
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumActiveHandles(
+			Settings->MaximumActiveHandles
+		)
+		+ FOpenMobileHapticsBudgetPolicy::ResolveMaximumQueuedHandles(
+			Settings->MaximumQueuedHandles
+		)
+	);
 	BindRecoveryEvents();
 }
 
 void UOpenMobileHapticsSubsystem::Deinitialize()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_Shutdown);
 	if (bDeinitialized)
 	{
 		return;
@@ -1219,11 +1251,13 @@ UOpenMobileHapticsSubsystem::PlayGameFeedbackAdvanced(
 	Request.Options = Options;
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	return SubmitSemanticOrOverride(
-		Request,
-		OpenMobileHapticsSubsystemPrivate::FindLoadedGamePresetOverride(
-			*Settings,
-			Preset
+	return TrackInitialSubmissionResult(
+		SubmitSemanticOrOverride(
+			Request,
+			OpenMobileHapticsSubsystemPrivate::FindLoadedGamePresetOverride(
+				*Settings,
+				Preset
+			)
 		)
 	);
 }
@@ -1327,6 +1361,7 @@ UOpenMobileHapticsSubsystem::CalibrateTimingClock(
 FOpenMobileHapticLibraryPreloadHandle
 UOpenMobileHapticsSubsystem::PreloadNamedLibraries()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_PreloadNamedLibraries);
 	check(IsInGameThread());
 	FOpenMobileHapticLibraryPreloadHandle Handle;
 	if (bDeinitialized)
@@ -1349,6 +1384,7 @@ UOpenMobileHapticsSubsystem::PreloadNamedLibraries()
 	{
 		Handle.Id = FGuid::NewGuid();
 		State->ActiveLibraryPreload = Handle;
+		State->ActivePreparationStartTimeSeconds = FPlatformTime::Seconds();
 		TArray<FString> Errors;
 		const bool bRequiresNativePreparation =
 			FOpenMobileHapticsBackendRegistry::FindBackend()
@@ -1398,6 +1434,7 @@ UOpenMobileHapticsSubsystem::PreloadNamedLibraries()
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	Handle.Id = FGuid::NewGuid();
 	LocalState.ActiveLibraryPreload = Handle;
+	LocalState.ActivePreparationStartTimeSeconds = FPlatformTime::Seconds();
 	const uint64 Generation = LocalState.LibraryResolver.BeginPreparation();
 	LocalState.LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Loading;
@@ -1516,6 +1553,7 @@ bool UOpenMobileHapticsSubsystem::PrepareLoadedNamedLibraries(
 		Errors.Reset();
 		return true;
 	}
+	const double PreparationStartTimeSeconds = FPlatformTime::Seconds();
 	ReleaseNamedLibrariesInternal(false);
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	LocalState.PreparationState =
@@ -1538,6 +1576,9 @@ bool UOpenMobileHapticsSubsystem::PrepareLoadedNamedLibraries(
 	LocalState.LastNamedPatternStatus = bPrepared
 		? EOpenMobileHapticNamedPatternStatus::Loaded
 		: EOpenMobileHapticNamedPatternStatus::Invalid;
+	LocalState.PerformanceTracker.RecordPreparationLatencySeconds(
+		FPlatformTime::Seconds() - PreparationStartTimeSeconds
+	);
 	return bPrepared;
 }
 
@@ -1647,6 +1688,7 @@ void UOpenMobileHapticsSubsystem::HandleNamedLibrariesLoaded(
 	FOpenMobileHapticLibraryPreloadHandle Handle
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_PrepareLoadedLibraries);
 	check(IsInGameThread());
 	if (bDeinitialized || !State
 		|| State->ActiveLibraryPreload != Handle
@@ -1701,6 +1743,7 @@ void UOpenMobileHapticsSubsystem::HandleNamedPatternsLoaded(
 	FOpenMobileHapticLibraryPreloadHandle Handle
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_PrepareLoadedPatterns);
 	check(IsInGameThread());
 	if (bDeinitialized || !State
 		|| State->ActiveLibraryPreload != Handle
@@ -1756,6 +1799,7 @@ void UOpenMobileHapticsSubsystem::HandleNamedOverridesLoaded(
 	FOpenMobileHapticLibraryPreloadHandle Handle
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_PrepareLoadedOverrides);
 	check(IsInGameThread());
 	if (bDeinitialized || !State
 		|| State->ActiveLibraryPreload != Handle
@@ -1808,6 +1852,14 @@ void UOpenMobileHapticsSubsystem::FinishNamedLibraryPreload(
 	{
 		return;
 	}
+	if (State->ActivePreparationStartTimeSeconds >= 0.0)
+	{
+		State->PerformanceTracker.RecordPreparationLatencySeconds(
+			FPlatformTime::Seconds()
+				- State->ActivePreparationStartTimeSeconds
+		);
+		State->ActivePreparationStartTimeSeconds = -1.0;
+	}
 	FOpenMobileHapticLibraryPreloadResult Result;
 	Result.Handle = Handle;
 	Result.Outcome = Outcome;
@@ -1854,6 +1906,15 @@ void UOpenMobileHapticsSubsystem::ReleaseNamedLibrariesInternal(
 	}
 	const FOpenMobileHapticLibraryPreloadHandle ActiveHandle =
 		State->ActiveLibraryPreload;
+	if (ActiveHandle.IsValid()
+		&& State->ActivePreparationStartTimeSeconds >= 0.0)
+	{
+		State->PerformanceTracker.RecordPreparationLatencySeconds(
+			FPlatformTime::Seconds()
+				- State->ActivePreparationStartTimeSeconds
+		);
+	}
+	State->ActivePreparationStartTimeSeconds = -1.0;
 	const EOpenMobileHapticPreparationState PreviousPreparationState =
 		State->PreparationState;
 	OpenMobileHapticsSubsystemPrivate::InvalidateScheduledStarts(*State, true);
@@ -2037,11 +2098,10 @@ bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
 	AdmissionRequest.bWaitingForOverlap = bWaitingForOverlap;
 	AdmissionRequest.bRepeating = bRepeating;
 
-	const int32 MaximumAttempts = FMath::Clamp(
-		Settings->MaximumActiveHandles,
-		1,
-		128
-	) + 1;
+	const int32 MaximumAttempts =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumActiveHandles(
+			Settings->MaximumActiveHandles
+		) + 1;
 	for (int32 Attempt = 0; Attempt < MaximumAttempts; ++Attempt)
 	{
 		const FOpenMobileHapticsChannelAdmissionResult Admission =
@@ -2049,6 +2109,9 @@ bool UOpenMobileHapticsSubsystem::AdmitChannelRequest(
 		if (Admission.Outcome
 			== EOpenMobileHapticsChannelAdmissionOutcome::Admitted)
 		{
+			LocalState->PerformanceTracker.RecordQueueDepth(
+				LocalState->ChannelArbiter.GetQueuedCount()
+			);
 			return true;
 		}
 		if (Admission.Outcome
@@ -2121,15 +2184,19 @@ bool UOpenMobileHapticsSubsystem::ResolveAndApplyOverlap(
 	bool& bOutUsedMixFallback
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_ResolveOverlap);
 	bOutShouldQueue = false;
 	bOutUsedMixFallback = false;
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
-	const int32 MaximumAttempts = FMath::Clamp(
-		Settings->MaximumActiveHandles + Settings->MaximumQueuedHandles + 1,
-		1,
-		385
-	);
+	const int32 MaximumAttempts =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumActiveHandles(
+			Settings->MaximumActiveHandles
+		)
+		+ FOpenMobileHapticsBudgetPolicy::ResolveMaximumQueuedHandles(
+			Settings->MaximumQueuedHandles
+		)
+		+ 1;
 	for (int32 Attempt = 0; Attempt < MaximumAttempts; ++Attempt)
 	{
 		if (bDeinitialized || !State)
@@ -2758,11 +2825,25 @@ void UOpenMobileHapticsSubsystem::FinishPromotedOverlapRequest(
 	PublishPlaybackEvent(RequestId, MoveTemp(Event));
 }
 
+FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::TrackInitialSubmissionResult(
+	FOpenMobileHapticPlaybackResult Result
+)
+{
+	if (State && !Result.IsAccepted())
+	{
+		State->PerformanceTracker.RecordDroppedRequest();
+	}
+	return Result;
+}
+
 FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitSemantic(
 	const FOpenMobileHapticSemanticRequest& Request
 )
 {
-	return SubmitSemanticOrOverride(Request, NAME_None);
+	return TrackInitialSubmissionResult(
+		SubmitSemanticOrOverride(Request, NAME_None)
+	);
 }
 
 FOpenMobileHapticPlaybackResult
@@ -2772,6 +2853,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_SubmitSemantic);
 	check(IsInGameThread());
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
@@ -3066,17 +3148,24 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			OverrideState
 		);
 		LocalState.Requests.Add(OverrideToken.RequestId, OverrideState);
+		const double NativeSubmissionStartTimeSeconds =
+			FPlatformTime::Seconds();
+		FOpenMobileHapticsBackendSubmission OverrideSubmission =
+			Backend->SubmitNamedPattern(
+				NamedRequest,
+				PlaybackParameters,
+				OverrideToken,
+				MakeBackendCallback()
+			);
+		LocalState.PerformanceTracker.RecordNativeSubmissionLatencySeconds(
+			FPlatformTime::Seconds() - NativeSubmissionStartTimeSeconds
+		);
 		FOpenMobileHapticPlaybackResult OverrideResult =
 			OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 				LocalState,
 				OverrideToken,
 				Request.Options.Channel,
-				Backend->SubmitNamedPattern(
-					NamedRequest,
-					PlaybackParameters,
-					OverrideToken,
-					MakeBackendCallback()
-				)
+				MoveTemp(OverrideSubmission)
 			);
 		OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(
 			OverrideResult,
@@ -3212,18 +3301,23 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
+	FOpenMobileHapticsBackendSubmission Submission = Backend->SubmitSemantic(
+		AdjustedRequest,
+		Resolution,
+		PlaybackParameters,
+		Token,
+		MakeBackendCallback()
+	);
+	LocalState.PerformanceTracker.RecordNativeSubmissionLatencySeconds(
+		FPlatformTime::Seconds() - NativeSubmissionStartTimeSeconds
+	);
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
 			LocalState,
-		Token,
-		Request.Options.Channel,
-			Backend->SubmitSemantic(
-				AdjustedRequest,
-				Resolution,
-				PlaybackParameters,
-				Token,
-				MakeBackendCallback()
-			)
+			Token,
+			Request.Options.Channel,
+			MoveTemp(Submission)
 		);
 	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(Result, Timing);
 	if (Result.IsAccepted())
@@ -3272,7 +3366,9 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShot(
 	const FOpenMobileHapticOneShotRequest& Request
 )
 {
-	return SubmitOneShotInternal(Request, nullptr);
+	return TrackInitialSubmissionResult(
+		SubmitOneShotInternal(Request, nullptr)
+	);
 }
 
 FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotInternal(
@@ -3280,6 +3376,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_SubmitOneShot);
 	check(IsInGameThread());
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
@@ -3593,19 +3690,24 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
+	FOpenMobileHapticsBackendSubmission Submission = Backend->SubmitOneShot(
+		AdjustedRequest,
+		Resolution,
+		PlaybackParameters,
+		Token,
+		MakeBackendCallback()
+	);
+	LocalState.PerformanceTracker.RecordNativeSubmissionLatencySeconds(
+		FPlatformTime::Seconds() - NativeSubmissionStartTimeSeconds
+	);
 	FOpenMobileHapticPlaybackResult Result =
 		OpenMobileHapticsSubsystemPrivate::FinalizeSubmission(
-		LocalState,
-		Token,
-		Request.Options.Channel,
-		Backend->SubmitOneShot(
-			AdjustedRequest,
-			Resolution,
-			PlaybackParameters,
+			LocalState,
 			Token,
-			MakeBackendCallback()
-		)
-	);
+			Request.Options.Channel,
+			MoveTemp(Submission)
+		);
 	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(Result, Timing);
 	if (Result.IsAccepted() && Result.ResolvedPath.IsNone())
 	{
@@ -3645,7 +3747,9 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	const FOpenMobileHapticNamedPatternRequest& Request
 )
 {
-	return SubmitNamedPatternInternal(Request, nullptr);
+	return TrackInitialSubmissionResult(
+		SubmitNamedPatternInternal(Request, nullptr)
+	);
 }
 
 FOpenMobileHapticPlaybackResult
@@ -3654,6 +3758,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	const FOpenMobileHapticsBackendRequestToken* ExistingToken
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_SubmitNamedPattern);
 	check(IsInGameThread());
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
 	if (Request.PatternName.IsNone()
@@ -3855,7 +3960,12 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 			!= EOpenMobileHapticPreparationState::Prepared)
 	{
 		TArray<FString> PreparationErrors;
-		if (!PrepareResolvedResources(PreparationErrors, true))
+		const double PreparationStartTimeSeconds = FPlatformTime::Seconds();
+		const bool bPrepared = PrepareResolvedResources(PreparationErrors, true);
+		LocalState.PerformanceTracker.RecordPreparationLatencySeconds(
+			FPlatformTime::Seconds() - PreparationStartTimeSeconds
+		);
+		if (!bPrepared)
 		{
 			FOpenMobileHapticPlaybackResult Result =
 				OpenMobileHapticsSubsystemPrivate::MakeRejectedPlaybackResult(
@@ -4027,6 +4137,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, RequestState);
+	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
 	FOpenMobileHapticsBackendSubmission Submission =
 		Backend->SubmitNamedPattern(
 			ResolvedRequest,
@@ -4034,6 +4145,9 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 			Token,
 			MakeBackendCallback()
 		);
+	LocalState.PerformanceTracker.RecordNativeSubmissionLatencySeconds(
+		FPlatformTime::Seconds() - NativeSubmissionStartTimeSeconds
+	);
 	OpenMobileHapticsSubsystemPrivate::ApplyResolvedTiming(
 		Submission.Result,
 		Timing
@@ -4638,14 +4752,13 @@ void UOpenMobileHapticsSubsystem::FlushDynamicParameterUpdates(
 		GetDefault<UOpenMobileHapticsSettings>();
 	const double MinimumIntervalSeconds =
 		OpenMobileHapticsSubsystemPrivate::DynamicParameterInterval(*Settings);
-	TArray<FOpenMobileHapticsScheduledDynamicParameterUpdate> Updates;
 	State->DynamicParameterPolicy.CollectReady(
 		NowSeconds,
 		MinimumIntervalSeconds,
-		Updates
+		State->DynamicParameterBatch
 	);
 	for (const FOpenMobileHapticsScheduledDynamicParameterUpdate& Update :
-		Updates)
+		State->DynamicParameterBatch)
 	{
 		SubmitDynamicParameterUpdate(
 			Update.RequestId,
@@ -4859,8 +4972,54 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 {
 	FOpenMobileHapticsDiagnostics Diagnostics;
 	Diagnostics.Capabilities = GetCapabilitiesNative();
+	const FOpenMobileHapticsTimelineCacheStatistics CacheStatistics =
+		FOpenMobileHapticsBackendRegistry::GetTimelineManager().GetStatistics();
+	Diagnostics.Performance.TimelineCacheHitCount =
+		OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+			CacheStatistics.HitCount
+		);
+	Diagnostics.Performance.TimelineCacheMissCount =
+		OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+			CacheStatistics.MissCount
+		);
+	Diagnostics.Performance.TimelineCacheEvictionCount =
+		OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+			CacheStatistics.EvictionCount
+		);
+	Diagnostics.Performance.TimelineCacheEntryCount =
+		CacheStatistics.EntryCount;
+	Diagnostics.Performance.TimelineCacheMemoryBytes =
+		CacheStatistics.MemoryBytes;
+	Diagnostics.Performance.TimelineCacheMaximumEntryCount =
+		CacheStatistics.MaximumEntryCount;
+	Diagnostics.Performance.TimelineCacheMaximumMemoryBytes =
+		CacheStatistics.MaximumMemoryBytes;
 	if (State)
 	{
+		const FOpenMobileHapticsPerformanceSnapshot Performance =
+			State->PerformanceTracker.GetSnapshot();
+		Diagnostics.Performance.DroppedRequestCount =
+			OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+				Performance.DroppedRequestCount
+			);
+		Diagnostics.Performance.PeakQueuedPlaybackCount =
+			Performance.PeakQueuedPlaybackCount;
+		Diagnostics.Performance.PreparationCount =
+			OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+				Performance.PreparationCount
+			);
+		Diagnostics.Performance.LastPreparationLatencyMilliseconds =
+			Performance.LastPreparationLatencyMilliseconds;
+		Diagnostics.Performance.MaximumPreparationLatencyMilliseconds =
+			Performance.MaximumPreparationLatencyMilliseconds;
+		Diagnostics.Performance.NativeSubmissionCount =
+			OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+				Performance.NativeSubmissionCount
+			);
+		Diagnostics.Performance.LastNativeSubmissionLatencyMilliseconds =
+			Performance.LastNativeSubmissionLatencyMilliseconds;
+		Diagnostics.Performance.MaximumNativeSubmissionLatencyMilliseconds =
+			Performance.MaximumNativeSubmissionLatencyMilliseconds;
 		Diagnostics.ActivePlaybackCount = State->ChannelArbiter.GetActiveCount();
 		Diagnostics.QueuedPlaybackCount = State->ChannelArbiter.GetQueuedCount();
 		Diagnostics.LastError = State->LastError;
@@ -4873,11 +5032,10 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 		Diagnostics.PreparationState = GetPreparationState();
 		Diagnostics.LastResolvedPath = State->LastResolvedPath;
 		Diagnostics.LastFallbackAttempts = State->LastFallbackAttempts;
-		const int32 MaximumEvents = FMath::Clamp(
-			GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents,
-			1,
-			512
-		);
+		const int32 MaximumEvents =
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumDiagnosticEvents(
+				GetDefault<UOpenMobileHapticsSettings>()->MaximumDiagnosticEvents
+			);
 		const int32 FirstEvent = FMath::Max(
 			0,
 			State->RecentPlaybackEvents.Num() - MaximumEvents
@@ -5089,6 +5247,7 @@ void UOpenMobileHapticsSubsystem::HandleApplicationLifecycle(
 	const FOpenMobileHapticsLifecycleTransition& Transition
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_ApplicationLifecycle);
 	check(IsInGameThread());
 	if (bDeinitialized || !State)
 	{

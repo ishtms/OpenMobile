@@ -3,12 +3,29 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace OpenMobileHapticsTimelineManagerPrivate
 {
 	constexpr uint64 FNVOffset = 14695981039346656037ULL;
 	constexpr uint64 FNVPrime = 1099511628211ULL;
+
+	void IncrementCounter(uint64& Counter)
+	{
+		if (Counter < MAX_uint64)
+		{
+			++Counter;
+		}
+	}
+
+	void AddCounter(uint64& Counter, uint64 Amount)
+	{
+		Counter = Counter > MAX_uint64 - Amount
+			? MAX_uint64
+			: Counter + Amount;
+	}
 
 	template<typename ValueType>
 	void HashValue(uint64& Hash, const ValueType& Value)
@@ -91,8 +108,10 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 			HashValue(Hash, Capabilities.AmplitudeControl);
 			HashValue(
 				Hash,
-				GetDefault<UOpenMobileHapticsSettings>()
-					->MaximumPatternEventCount
+				FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+					GetDefault<UOpenMobileHapticsSettings>()
+						->MaximumPatternEventCount
+				)
 			);
 			return Hash;
 		}
@@ -210,9 +229,20 @@ struct FOpenMobileHapticsTimelineManager::FState
 		int64 InMaximumCacheBytes,
 		double InIdleLifetimeSeconds
 	)
-		: MaximumCacheEntries(FMath::Max(1, InMaximumCacheEntries))
-		, MaximumCacheBytes(FMath::Max<int64>(1, InMaximumCacheBytes))
-		, IdleLifetimeSeconds(FMath::Max(0.001, InIdleLifetimeSeconds))
+		: MaximumCacheEntries(
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatterns(
+				InMaximumCacheEntries
+			)
+		)
+		, MaximumCacheBytes(
+			FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatternBytes(
+				InMaximumCacheBytes
+			)
+		)
+		, IdleLifetimeSeconds(
+			FOpenMobileHapticsBudgetPolicy::
+				ResolvePreparedIdleLifetimeSeconds(InIdleLifetimeSeconds)
+		)
 	{
 	}
 
@@ -223,6 +253,9 @@ struct FOpenMobileHapticsTimelineManager::FState
 	double IdleLifetimeSeconds = 30.0;
 	int64 TotalCacheBytes = 0;
 	uint64 AccessSequence = 0;
+	uint64 HitCount = 0;
+	uint64 MissCount = 0;
+	uint64 EvictionCount = 0;
 };
 
 FOpenMobileHapticsTimelineManager::FOpenMobileHapticsTimelineManager(
@@ -275,6 +308,7 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 	double AccessTimeSeconds
 )
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_ResolveTimeline);
 	using namespace OpenMobileHapticsTimelineManagerPrivate;
 	FOpenMobileHapticsTimelineLookup Lookup;
 	if (BackendName != TEXT("Android") && BackendName != TEXT("IOS"))
@@ -293,6 +327,7 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 				- State->Entries[Index].Timeline->EstimatedBytes
 		);
 		State->Entries.RemoveAt(Index);
+		IncrementCounter(State->EvictionCount);
 	};
 	for (int32 Index = State->Entries.Num() - 1; Index >= 0; --Index)
 	{
@@ -310,6 +345,7 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 	}
 	if (!bDerivedDataCurrent)
 	{
+		IncrementCounter(State->MissCount);
 		TSharedRef<FOpenMobileHapticsPortableTimeline, ESPMode::ThreadSafe>
 			StaleTimeline = MakeShared<
 				FOpenMobileHapticsPortableTimeline,
@@ -358,6 +394,7 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 			&& Entry.CapabilitySignature == CurrentCapabilitySignature
 			&& Entry.LifecycleGeneration == LifecycleGeneration)
 		{
+			IncrementCounter(State->HitCount);
 			Entry.LastAccessSequence = ++State->AccessSequence;
 			Entry.LastAccessTimeSeconds = AccessTimeSeconds;
 			Lookup.Timeline = Entry.Timeline;
@@ -365,6 +402,7 @@ FOpenMobileHapticsTimelineManager::ResolveAtTime(
 			return Lookup;
 		}
 	}
+	IncrementCounter(State->MissCount);
 
 	TSharedRef<FOpenMobileHapticsPortableTimeline, ESPMode::ThreadSafe>
 		Timeline = MakeShared<
@@ -485,9 +523,18 @@ void FOpenMobileHapticsTimelineManager::SetLimits(
 )
 {
 	FScopeLock Lock(&State->Mutex);
-	State->MaximumCacheEntries = FMath::Max(1, Limits.MaximumCount);
-	State->MaximumCacheBytes = FMath::Max<int64>(1, Limits.MaximumBytes);
-	State->IdleLifetimeSeconds = FMath::Max(0.001, Limits.IdleLifetimeSeconds);
+	State->MaximumCacheEntries =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatterns(
+			Limits.MaximumCount
+		);
+	State->MaximumCacheBytes =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPreparedPatternBytes(
+			Limits.MaximumBytes
+		);
+	State->IdleLifetimeSeconds =
+		FOpenMobileHapticsBudgetPolicy::ResolvePreparedIdleLifetimeSeconds(
+			Limits.IdleLifetimeSeconds
+		);
 	while (!State->Entries.IsEmpty()
 		&& (State->Entries.Num() > State->MaximumCacheEntries
 			|| State->TotalCacheBytes > State->MaximumCacheBytes))
@@ -504,6 +551,9 @@ void FOpenMobileHapticsTimelineManager::SetLimits(
 		State->TotalCacheBytes -=
 			State->Entries[EvictionIndex].Timeline->EstimatedBytes;
 		State->Entries.RemoveAt(EvictionIndex);
+		OpenMobileHapticsTimelineManagerPrivate::IncrementCounter(
+			State->EvictionCount
+		);
 	}
 }
 
@@ -520,6 +570,9 @@ void FOpenMobileHapticsTimelineManager::PruneIdle(double CurrentTimeSeconds)
 			State->TotalCacheBytes -=
 				State->Entries[Index].Timeline->EstimatedBytes;
 			State->Entries.RemoveAt(Index);
+			OpenMobileHapticsTimelineManagerPrivate::IncrementCounter(
+				State->EvictionCount
+			);
 		}
 	}
 	State->TotalCacheBytes = FMath::Max<int64>(0, State->TotalCacheBytes);
@@ -528,6 +581,10 @@ void FOpenMobileHapticsTimelineManager::PruneIdle(double CurrentTimeSeconds)
 void FOpenMobileHapticsTimelineManager::Clear()
 {
 	FScopeLock Lock(&State->Mutex);
+	OpenMobileHapticsTimelineManagerPrivate::AddCounter(
+		State->EvictionCount,
+		static_cast<uint64>(State->Entries.Num())
+	);
 	State->Entries.Reset();
 	State->TotalCacheBytes = 0;
 }
@@ -542,4 +599,28 @@ int32 FOpenMobileHapticsTimelineManager::GetCacheEntryCount() const
 {
 	FScopeLock Lock(&State->Mutex);
 	return State->Entries.Num();
+}
+
+FOpenMobileHapticsTimelineCacheStatistics
+FOpenMobileHapticsTimelineManager::GetStatistics() const
+{
+	FScopeLock Lock(&State->Mutex);
+	FOpenMobileHapticsTimelineCacheStatistics Statistics;
+	Statistics.HitCount = State->HitCount;
+	Statistics.MissCount = State->MissCount;
+	Statistics.EvictionCount = State->EvictionCount;
+	Statistics.EntryCount = State->Entries.Num();
+	Statistics.MemoryBytes = State->TotalCacheBytes;
+	Statistics.MaximumEntryCount = State->MaximumCacheEntries;
+	Statistics.MaximumMemoryBytes = State->MaximumCacheBytes;
+	Statistics.IdleLifetimeSeconds = State->IdleLifetimeSeconds;
+	return Statistics;
+}
+
+void FOpenMobileHapticsTimelineManager::ResetStatistics()
+{
+	FScopeLock Lock(&State->Mutex);
+	State->HitCount = 0;
+	State->MissCount = 0;
+	State->EvictionCount = 0;
 }

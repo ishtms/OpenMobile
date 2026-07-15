@@ -1,5 +1,6 @@
 #include "OpenMobileHapticsPrimitiveCompositionPolicy.h"
 
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
 namespace OpenMobileHapticsPrimitiveCompositionPolicyPrivate
@@ -100,12 +101,16 @@ FOpenMobileHapticsPrimitiveCompositionPolicy::Resolve(
 	{
 		return Unavailable(FallbackPolicy, TEXT("PrimitiveSupport"));
 	}
+	const int32 ConfiguredMaximumSteps =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			GetDefault<UOpenMobileHapticsSettings>()->MaximumPatternEventCount
+		);
 	const int32 MaximumSteps = Capabilities.MaximumEventCount.bKnown
 		? FMath::Min(
 			Capabilities.MaximumEventCount.Value,
-			GetDefault<UOpenMobileHapticsSettings>()->MaximumPatternEventCount
+			ConfiguredMaximumSteps
 		)
-		: GetDefault<UOpenMobileHapticsSettings>()->MaximumPatternEventCount;
+		: ConfiguredMaximumSteps;
 	if (Asset.Primitives.Num() > MaximumSteps)
 	{
 		return Invalid(TEXT("StepCount"));

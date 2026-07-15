@@ -1,5 +1,6 @@
 #include "OpenMobileHapticsAppleContinuousPolicy.h"
 
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsRepeatPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
@@ -96,10 +97,18 @@ FOpenMobileHapticsAppleContinuousPolicy::MakeLimits(
 {
 	using namespace OpenMobileHapticsAppleContinuousPolicyPrivate;
 	FOpenMobileHapticsAppleContinuousLimits Limits;
-	Limits.MaximumEventCount = Settings.MaximumPatternEventCount;
-	Limits.MaximumCurveCount = Settings.MaximumPatternCurveCount;
+	Limits.MaximumEventCount =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			Settings.MaximumPatternEventCount
+		);
+	Limits.MaximumCurveCount =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurves(
+			Settings.MaximumPatternCurveCount
+		);
 	Limits.MaximumCurvePointCount =
-		Settings.MaximumPatternCurvePointCount;
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurvePoints(
+			Settings.MaximumPatternCurvePointCount
+		);
 	Limits.MaximumFiniteRepeatCount = Settings.MaximumFiniteRepeatCount;
 	Limits.MaximumDurationSeconds =
 		Settings.MaximumContinuousDurationSeconds;

@@ -1,5 +1,6 @@
 #include "OpenMobileHapticsPatternCompiler.h"
 
+#include "OpenMobileHapticsBudgetPolicy.h"
 #include "OpenMobileHapticsSettings.h"
 
 namespace OpenMobileHapticsPatternCompilerPrivate
@@ -41,10 +42,18 @@ FOpenMobileHapticsPatternCompiler::MakeLimits(
 )
 {
 	FOpenMobileHapticsPatternCompileLimits Limits;
-	Limits.MaximumEventCount = Settings.MaximumPatternEventCount;
-	Limits.MaximumCurveCount = Settings.MaximumPatternCurveCount;
+	Limits.MaximumEventCount =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternEvents(
+			Settings.MaximumPatternEventCount
+		);
+	Limits.MaximumCurveCount =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurves(
+			Settings.MaximumPatternCurveCount
+		);
 	Limits.MaximumCurvePointCount =
-		Settings.MaximumPatternCurvePointCount;
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumPatternCurvePoints(
+			Settings.MaximumPatternCurvePointCount
+		);
 	Limits.MaximumDurationSeconds = Settings.MaximumContinuousDurationSeconds;
 	Limits.MaximumEventDurationSeconds =
 		Settings.MaximumPatternEventDurationSeconds;

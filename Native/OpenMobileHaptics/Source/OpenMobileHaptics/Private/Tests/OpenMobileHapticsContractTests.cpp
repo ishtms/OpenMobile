@@ -1394,6 +1394,9 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 		Unprepared.Error.Code, EOpenMobileHapticErrorCode::NotConfigured);
 	TestEqual(TEXT("Unprepared request never reaches the backend"),
 		Backend.NamedSubmissionCount, 0);
+	TestEqual(TEXT("Unprepared play increments the dropped counter"),
+		Subsystem->GetDiagnostics().Performance.DroppedRequestCount,
+		static_cast<int64>(1));
 
 	TArray<FString> Errors;
 	TestTrue(TEXT("Loaded libraries can complete preparation"),
@@ -1408,6 +1411,16 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 	TestEqual(TEXT("Successful preparation exposes prepared state"),
 		Subsystem->GetPreparationState(),
 		EOpenMobileHapticPreparationState::Prepared);
+	const FOpenMobileHapticsPerformanceDiagnostics PreparedPerformance =
+		Subsystem->GetDiagnostics().Performance;
+	TestEqual(TEXT("Completed preparation is counted"),
+		PreparedPerformance.PreparationCount, static_cast<int64>(1));
+	TestTrue(TEXT("Preparation latency is nonnegative"),
+		PreparedPerformance.LastPreparationLatencyMilliseconds >= 0.0);
+	TestTrue(TEXT("Preparation records a timeline cache miss"),
+		PreparedPerformance.TimelineCacheMissCount >= 1);
+	TestTrue(TEXT("Duplicate prepared identity records a cache hit"),
+		PreparedPerformance.TimelineCacheHitCount >= 1);
 	Errors.Reset();
 	TestTrue(TEXT("Already prepared libraries complete immediately"),
 		Subsystem->PrepareLoadedNamedLibraries({Library}, Errors));
@@ -1425,6 +1438,12 @@ bool FOpenMobileHapticNamedLibrarySubsystemTest::RunTest(
 		Subsystem->PlayNamedPattern(TEXT("Weapon_Recoil"));
 	TestTrue(TEXT("Prepared named request reaches the backend"),
 		Prepared.IsAccepted());
+	TestEqual(TEXT("Native pattern submission is counted"),
+		Subsystem->GetDiagnostics().Performance.NativeSubmissionCount,
+		static_cast<int64>(1));
+	TestTrue(TEXT("Native submission latency is nonnegative"),
+		Subsystem->GetDiagnostics().Performance
+			.LastNativeSubmissionLatencyMilliseconds >= 0.0);
 	TestEqual(TEXT("Prepared request carries the soft asset path"),
 		Backend.LastNamedRequest.PatternAsset,
 		FSoftObjectPath(Pattern));
@@ -3632,6 +3651,12 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	TestEqual(TEXT("Coalescing remains an expected non-error outcome"),
 		CoalescedSelection.Error.Code,
 		EOpenMobileHapticErrorCode::None);
+	const FOpenMobileHapticsPerformanceDiagnostics SelectionPerformance =
+		Subsystem->GetDiagnostics().Performance;
+	TestEqual(TEXT("Coalesced selection increments dropped requests"),
+		SelectionPerformance.DroppedRequestCount, static_cast<int64>(1));
+	TestEqual(TEXT("Only submitted selection reaches native timing"),
+		SelectionPerformance.NativeSubmissionCount, static_cast<int64>(1));
 
 	FOpenMobileHapticUserPolicy Policy;
 	Policy.MasterIntensity = 0.8f;
@@ -9047,12 +9072,17 @@ bool FOpenMobileHapticsOverlapSubsystemTest::RunTest(
 			Subsystem->GetDiagnostics().ActivePlaybackCount, 1);
 		TestEqual(TEXT("Diagnostics report both overlap queue entries"),
 			Subsystem->GetDiagnostics().QueuedPlaybackCount, 2);
+		TestEqual(TEXT("Diagnostics retain peak overlap queue depth"),
+			Subsystem->GetDiagnostics().Performance.PeakQueuedPlaybackCount, 2);
 		const FOpenMobileHapticPlaybackResult Overflow = Subsystem->SubmitOneShot(
 			MakeRequest(TEXT("Gameplay"), EOpenMobileHapticOverlapPolicy::Queue,
 				EOpenMobileHapticChannelPriority::Critical)
 		);
 		TestEqual(TEXT("Overlap queue depth is bounded"), Overflow.Error.Code,
 			EOpenMobileHapticErrorCode::ChannelBusy);
+		TestEqual(TEXT("Queue overflow increments dropped requests"),
+			Subsystem->GetDiagnostics().Performance.DroppedRequestCount,
+			static_cast<int64>(1));
 
 		Backend.Emit(ActiveCallback,
 			EOpenMobileHapticPlaybackState::Completed, 1);

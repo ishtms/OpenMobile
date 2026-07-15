@@ -36,6 +36,18 @@ struct FOpenMobileHapticsTimelineLookup
 	bool bCacheHit = false;
 };
 
+struct FOpenMobileHapticsTimelineCacheStatistics
+{
+	uint64 HitCount = 0;
+	uint64 MissCount = 0;
+	uint64 EvictionCount = 0;
+	int32 EntryCount = 0;
+	int64 MemoryBytes = 0;
+	int32 MaximumEntryCount = 0;
+	int64 MaximumMemoryBytes = 0;
+	double IdleLifetimeSeconds = 0.0;
+};
+
 class FOpenMobileHapticsTimelineManager final
 {
 public:
@@ -70,6 +82,8 @@ public:
 	void Clear();
 	int32 GetCacheEntryCount() const;
 	int64 GetCacheMemoryBytes() const;
+	FOpenMobileHapticsTimelineCacheStatistics GetStatistics() const;
+	void ResetStatistics();
 
 private:
 	struct FState;

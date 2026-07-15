@@ -124,6 +124,16 @@ bool FOpenMobileHapticsTimelineRoutingAndCacheTest::RunTest(
 	TestTrue(TEXT("Identical translation is a cache hit"), Second.bCacheHit);
 	TestTrue(TEXT("Cache hit reuses the immutable timeline"),
 		First.Timeline == Second.Timeline);
+	const FOpenMobileHapticsTimelineCacheStatistics CacheStatistics =
+		Manager.GetStatistics();
+	TestEqual(TEXT("First translation records one cache miss"),
+		CacheStatistics.MissCount, static_cast<uint64>(1));
+	TestEqual(TEXT("Repeated translation records one cache hit"),
+		CacheStatistics.HitCount, static_cast<uint64>(1));
+	TestEqual(TEXT("Cache statistics expose current entry count"),
+		CacheStatistics.EntryCount, 1);
+	TestTrue(TEXT("Cache statistics expose bounded memory ownership"),
+		CacheStatistics.MemoryBytes > 0);
 
 	FOpenMobileHapticLoopOptions FiniteLoop;
 	FiniteLoop.bLoop = true;
@@ -186,6 +196,22 @@ bool FOpenMobileHapticsTimelineResourceBoundsTest::RunTest(
 {
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTimelineManagerTests;
+	FOpenMobileHapticsTimelineManager ExtremeManager;
+	FOpenMobileHapticsPreparedResourceLimits ExtremeLimits;
+	ExtremeLimits.MaximumCount = MAX_int32;
+	ExtremeLimits.MaximumBytes = MAX_int64;
+	ExtremeLimits.IdleLifetimeSeconds = MAX_dbl;
+	ExtremeManager.SetLimits(ExtremeLimits);
+	const FOpenMobileHapticsTimelineCacheStatistics ExtremeStatistics =
+		ExtremeManager.GetStatistics();
+	TestEqual(TEXT("Timeline cache applies the entry hard ceiling"),
+		ExtremeStatistics.MaximumEntryCount, 128);
+	TestEqual(TEXT("Timeline cache applies the byte hard ceiling"),
+		ExtremeStatistics.MaximumMemoryBytes,
+		static_cast<int64>(64 * 1024 * 1024));
+	TestEqual(TEXT("Timeline cache applies the idle hard ceiling"),
+		ExtremeStatistics.IdleLifetimeSeconds, 300.0);
+
 	UOpenMobileHapticPatternAsset* FirstPattern = MakePattern(0.2f);
 	UOpenMobileHapticPatternAsset* SecondPattern = MakePattern(0.8f);
 	TestNotNull(TEXT("First bounded timeline compiles"), FirstPattern);
@@ -332,6 +358,8 @@ bool FOpenMobileHapticsTimelineInvalidationTest::RunTest(
 	Manager.Clear();
 	TestEqual(TEXT("Backend release clears cached representations"),
 		Manager.GetCacheEntryCount(), 0);
+	TestTrue(TEXT("Cache release records evicted representations"),
+		Manager.GetStatistics().EvictionCount > 0);
 	return true;
 }
 

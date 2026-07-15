@@ -1,5 +1,7 @@
 #include "OpenMobileHapticsChannelPolicy.h"
 
+#include "OpenMobileHapticsBudgetPolicy.h"
+
 namespace OpenMobileHapticsChannelPolicyPrivate
 {
 	int32 PriorityValue(EOpenMobileHapticChannelPriority Priority)
@@ -59,21 +61,18 @@ void FOpenMobileHapticsChannelArbiter::Configure(
 	const FOpenMobileHapticsChannelLimits& InLimits
 )
 {
-	Limits.MaximumActiveHandles = FMath::Clamp(
-		InLimits.MaximumActiveHandles,
-		1,
-		128
-	);
-	Limits.MaximumQueuedHandles = FMath::Clamp(
-		InLimits.MaximumQueuedHandles,
-		1,
-		256
-	);
-	Limits.MaximumQueueDepthPerChannel = FMath::Clamp(
-		InLimits.MaximumQueueDepthPerChannel,
-		0,
-		64
-	);
+	Limits.MaximumActiveHandles =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumActiveHandles(
+			InLimits.MaximumActiveHandles
+		);
+	Limits.MaximumQueuedHandles =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumQueuedHandles(
+			InLimits.MaximumQueuedHandles
+		);
+	Limits.MaximumQueueDepthPerChannel =
+		FOpenMobileHapticsBudgetPolicy::ResolveMaximumQueueDepthPerChannel(
+			InLimits.MaximumQueueDepthPerChannel
+		);
 }
 
 FOpenMobileHapticsChannelAdmissionResult

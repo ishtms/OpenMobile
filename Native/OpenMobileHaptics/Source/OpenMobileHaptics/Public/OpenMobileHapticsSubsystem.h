@@ -335,6 +335,9 @@ private:
 		FlushDynamicParameterUpdates(NowSeconds);
 	}
 	bool TickDynamicParameterUpdates(float DeltaTime);
+	FOpenMobileHapticPlaybackResult TrackInitialSubmissionResult(
+		FOpenMobileHapticPlaybackResult Result
+	);
 	FOpenMobileHapticPlaybackResult SubmitSemanticOrOverride(
 		const FOpenMobileHapticSemanticRequest& Request,
 		FName PatternOverride,
