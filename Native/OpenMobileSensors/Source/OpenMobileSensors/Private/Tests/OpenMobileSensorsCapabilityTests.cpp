@@ -2,10 +2,14 @@
 
 #include "Engine/GameInstance.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/CoreDelegates.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsMockBackend.h"
+#include "OpenMobileSensorsSampleService.h"
+#include "OpenMobileSensorsSettings.h"
+#include "OpenMobileSensorsSubscriptionService.h"
 #include "OpenMobileSensorsSubsystem.h"
 #include "OpenMobileSensorsTrueHeadingService.h"
 
@@ -47,6 +51,21 @@ namespace OpenMobileSensorsCapabilityTestsPrivate
 		);
 	}
 
+	const FOpenMobileSensorBackgroundCapability* FindBackgroundOperation(
+		const FOpenMobileSensorCapability& Capability,
+		EOpenMobileSensorBackgroundOperation Operation
+	)
+	{
+		return Capability.BackgroundOperations.FindByPredicate(
+			[Operation](
+				const FOpenMobileSensorBackgroundCapability& Background
+			)
+			{
+				return Background.Operation == Operation;
+			}
+		);
+	}
+
 	void ResetServices()
 	{
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
@@ -61,6 +80,481 @@ namespace OpenMobileSensorsCapabilityTestsPrivate
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 		FOpenMobileSensorsTrueHeadingService::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBackgroundOperationMatrixTest,
+	"OpenMobile.Sensors.Capabilities.Background.OperationMatrix",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBackgroundOperationMatrixTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCapabilityTestsPrivate;
+	ResetServices();
+	UOpenMobileSensorsSettings* Settings =
+		GetMutableDefault<UOpenMobileSensorsSettings>();
+	const bool bPreviousBackgroundOptIn =
+		Settings->bAllowBackgroundSensorDelivery;
+	Settings->bAllowBackgroundSensorDelivery = false;
+	FOpenMobileSensorsMockBackend Backend(TEXT("BackgroundOperations"));
+	FOpenMobileSensorCapability Accelerometer = MakeCapability(
+		EOpenMobileSensorType::Accelerometer
+	);
+	Accelerometer.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::Suspended;
+	FOpenMobileSensorCapability Transition = MakeCapability(
+		EOpenMobileSensorType::ActivityTransition
+	);
+	Transition.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::EventDriven;
+	FOpenMobileSensorCapability Steps = MakeCapability(
+		EOpenMobileSensorType::StepCounter
+	);
+	Steps.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::EventDriven;
+	Backend.SetSensorCapabilities({Accelerometer, Transition, Steps});
+	Backend.SetNativeStepCountQueryBackgroundSupportForTests(
+		EOpenMobileSensorBackgroundSupport::Limited
+	);
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FOpenMobileSensorCapabilitySnapshot Snapshot =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* ReportedAccelerometer =
+		FindCapability(Snapshot, EOpenMobileSensorType::Accelerometer);
+	const FOpenMobileSensorCapability* ReportedTransition =
+		FindCapability(Snapshot, EOpenMobileSensorType::ActivityTransition);
+	const FOpenMobileSensorCapability* ReportedSteps =
+		FindCapability(Snapshot, EOpenMobileSensorType::StepCounter);
+	TestNotNull(
+		TEXT("Accelerometer background operations are reported"),
+		ReportedAccelerometer
+	);
+	TestNotNull(
+		TEXT("Activity-transition background operations are reported"),
+		ReportedTransition
+	);
+	TestNotNull(
+		TEXT("Step background operations are reported"),
+		ReportedSteps
+	);
+	if (ReportedAccelerometer && ReportedTransition && ReportedSteps)
+	{
+		const FOpenMobileSensorBackgroundCapability* RawStream =
+			FindBackgroundOperation(
+				*ReportedAccelerometer,
+				EOpenMobileSensorBackgroundOperation::Stream
+			);
+		const FOpenMobileSensorBackgroundCapability* Recording =
+			FindBackgroundOperation(
+				*ReportedAccelerometer,
+				EOpenMobileSensorBackgroundOperation::Recording
+			);
+		const FOpenMobileSensorBackgroundCapability* TransitionStream =
+			FindBackgroundOperation(
+				*ReportedTransition,
+				EOpenMobileSensorBackgroundOperation::Stream
+			);
+		const FOpenMobileSensorBackgroundCapability* UnsupportedRecording =
+			FindBackgroundOperation(
+				*ReportedTransition,
+				EOpenMobileSensorBackgroundOperation::Recording
+			);
+		const FOpenMobileSensorBackgroundCapability* StepQuery =
+			FindBackgroundOperation(
+				*ReportedSteps,
+				EOpenMobileSensorBackgroundOperation::NativeStepCountQuery
+			);
+		TestNotNull(TEXT("Raw streaming has a distinct report"), RawStream);
+		TestNotNull(TEXT("Recording has a distinct report"), Recording);
+		TestNotNull(
+			TEXT("Activity transitions have a stream report"),
+			TransitionStream
+		);
+		TestNull(
+			TEXT("Unsupported recording pairs are not advertised"),
+			UnsupportedRecording
+		);
+		TestNotNull(
+			TEXT("Native step queries have a distinct report"),
+			StepQuery
+		);
+		if (RawStream && Recording && TransitionStream && StepQuery)
+		{
+			TestEqual(
+				TEXT("Raw platform behavior is suspended"),
+				RawStream->PlatformBehavior,
+				EOpenMobileSensorBackgroundSupport::Suspended
+			);
+			TestEqual(
+				TEXT("Raw effective behavior remains suspended"),
+				RawStream->ExpectedBehavior,
+				EOpenMobileSensorBackgroundSupport::Suspended
+			);
+			TestEqual(
+				TEXT("Raw suspension has a structured reason"),
+				RawStream->Reason,
+				EOpenMobileSensorFailureReason::BackgroundRestricted
+			);
+			TestEqual(
+				TEXT("Recording follows its input stream behavior"),
+				Recording->ExpectedBehavior,
+				EOpenMobileSensorBackgroundSupport::Suspended
+			);
+			TestEqual(
+				TEXT("Transition platform delivery is event-driven"),
+				TransitionStream->PlatformBehavior,
+				EOpenMobileSensorBackgroundSupport::EventDriven
+			);
+			TestEqual(
+				TEXT("Project policy suspends transition delivery"),
+				TransitionStream->ExpectedBehavior,
+				EOpenMobileSensorBackgroundSupport::Suspended
+			);
+			TestEqual(
+				TEXT("Project policy has a structured reason"),
+				TransitionStream->Reason,
+				EOpenMobileSensorFailureReason::ConfigurationBlocked
+			);
+			TestTrue(
+				TEXT("Stream continuation reports its project opt-in"),
+				TransitionStream->bProjectOptInRequired
+					&& !TransitionStream->bProjectOptInEnabled
+			);
+			TestEqual(
+				TEXT("Historical step queries report limited behavior"),
+				StepQuery->ExpectedBehavior,
+				EOpenMobileSensorBackgroundSupport::Limited
+			);
+			TestFalse(
+				TEXT("Historical queries do not claim continuous-delivery policy"),
+				StepQuery->bProjectOptInRequired
+			);
+		}
+	}
+	TestEqual(
+		TEXT("Capability inspection starts no sensor stream"),
+		Backend.GetStartSensorStreamCount(),
+		0
+	);
+	Settings->bAllowBackgroundSensorDelivery = bPreviousBackgroundOptIn;
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBackgroundDynamicStateTest,
+	"OpenMobile.Sensors.Capabilities.Background.DynamicState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBackgroundDynamicStateTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCapabilityTestsPrivate;
+	ResetServices();
+	UOpenMobileSensorsSettings* Settings =
+		GetMutableDefault<UOpenMobileSensorsSettings>();
+	const bool bPreviousBackgroundOptIn =
+		Settings->bAllowBackgroundSensorDelivery;
+	Settings->bAllowBackgroundSensorDelivery = true;
+	FOpenMobileSensorsMockBackend Backend(TEXT("BackgroundDynamicState"));
+	FOpenMobileSensorCapability Transition = MakeCapability(
+		EOpenMobileSensorType::ActivityTransition
+	);
+	Transition.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::EventDriven;
+	Transition.RequiredPermission =
+		FOpenMobileSensorPermissions::GetPermissionName(
+			EOpenMobileSensorPermission::ActivityRecognition
+		);
+	Backend.SetSensorCapabilities({Transition});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	FOpenMobileSensorsCapabilityService::NotifyPermissionStatusChanged(
+		Transition.RequiredPermission,
+		EOpenMobilePermissionStatus::Granted
+	);
+	int32 ChangeCount = 0;
+	const FDelegateHandle ChangeHandle =
+		FOpenMobileSensorsCapabilityService::OnChanged().AddLambda(
+			[&](const FOpenMobileSensorCapabilitySnapshot&)
+			{
+				++ChangeCount;
+			}
+		);
+	auto GetTransitionBackground = [this]()
+	{
+		const FOpenMobileSensorCapabilitySnapshot Snapshot =
+			FOpenMobileSensorsCapabilityService::GetSnapshot();
+		const FOpenMobileSensorCapability* Capability = FindCapability(
+			Snapshot,
+			EOpenMobileSensorType::ActivityTransition
+		);
+		TestNotNull(
+			TEXT("The transition capability remains present"),
+			Capability
+		);
+		const FOpenMobileSensorBackgroundCapability* Background = Capability
+			? FindBackgroundOperation(
+				*Capability,
+				EOpenMobileSensorBackgroundOperation::Stream
+			)
+			: nullptr;
+		TestNotNull(
+			TEXT("The transition stream background report remains present"),
+			Background
+		);
+		return Background
+			? *Background
+			: FOpenMobileSensorBackgroundCapability{};
+	};
+	FOpenMobileSensorBackgroundCapability Background =
+		GetTransitionBackground();
+	TestEqual(
+		TEXT("Granted provider transitions are event-driven"),
+		Background.ExpectedBehavior,
+		EOpenMobileSensorBackgroundSupport::EventDriven
+	);
+	TestEqual(
+		TEXT("Foreground transitions have no active restriction"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::None
+	);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("Event-driven transitions remain available in background"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::None
+	);
+	FOpenMobileSensorsCapabilityService::NotifyPermissionStatusChanged(
+		Transition.RequiredPermission,
+		EOpenMobilePermissionStatus::Denied
+	);
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("Denied authorization removes effective background support"),
+		Background.ExpectedBehavior,
+		EOpenMobileSensorBackgroundSupport::Unsupported
+	);
+	TestEqual(
+		TEXT("Denied authorization is structured"),
+		Background.Reason,
+		EOpenMobileSensorFailureReason::PermissionDenied
+	);
+	TestEqual(
+		TEXT("Denied authorization is the active restriction"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::Permission
+	);
+
+	FOpenMobileSensorsCapabilityService::NotifyPermissionStatusChanged(
+		Transition.RequiredPermission,
+		EOpenMobilePermissionStatus::Granted
+	);
+	Transition.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::Suspended;
+	Backend.SetSensorCapabilities({Transition});
+	FOpenMobileSensorsCapabilityService::HandleBackendGenerationChanged();
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("A provider downgrade is reflected"),
+		Background.ExpectedBehavior,
+		EOpenMobileSensorBackgroundSupport::Suspended
+	);
+	TestEqual(
+		TEXT("A suspended provider is restricted while inactive"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::Background
+	);
+
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("Foreground restores a suspended operation"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::None
+	);
+	Transition.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::EventDriven;
+	Backend.SetSensorCapabilities({Transition});
+	FOpenMobileSensorsCapabilityService::HandleBackendGenerationChanged();
+	Settings->bAllowBackgroundSensorDelivery = false;
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("A runtime project-policy change is reevaluated"),
+		Background.ExpectedBehavior,
+		EOpenMobileSensorBackgroundSupport::Suspended
+	);
+	TestEqual(
+		TEXT("A project-policy change reports configuration"),
+		Background.Reason,
+		EOpenMobileSensorFailureReason::ConfigurationBlocked
+	);
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	Background = GetTransitionBackground();
+	TestEqual(
+		TEXT("Disabled project policy restricts the inactive operation"),
+		Background.ActiveRestriction,
+		EOpenMobileSensorRestriction::Background
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	TestTrue(
+		TEXT("Material background changes are broadcast"),
+		ChangeCount >= 7
+	);
+	TestEqual(
+		TEXT("Capability changes do not start provider work"),
+		Backend.GetStartSensorStreamCount(),
+		0
+	);
+	FOpenMobileSensorsCapabilityService::OnChanged().Remove(ChangeHandle);
+	Settings->bAllowBackgroundSensorDelivery = bPreviousBackgroundOptIn;
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBackgroundDeliveryContractTest,
+	"OpenMobile.Sensors.Capabilities.Background.DeliveryContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBackgroundDeliveryContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCapabilityTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsSampleService::ResetForTests();
+	FOpenMobileSensorsSubscriptionService::ResetForTests();
+	UOpenMobileSensorsSettings* Settings =
+		GetMutableDefault<UOpenMobileSensorsSettings>();
+	const bool bPreviousBackgroundOptIn =
+		Settings->bAllowBackgroundSensorDelivery;
+	Settings->bAllowBackgroundSensorDelivery = true;
+	FOpenMobileSensorsMockBackend Backend(TEXT("BackgroundDeliveryContract"));
+	FOpenMobileSensorCapability Accelerometer = MakeCapability(
+		EOpenMobileSensorType::Accelerometer
+	);
+	Accelerometer.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::Suspended;
+	FOpenMobileSensorCapability Transition = MakeCapability(
+		EOpenMobileSensorType::ActivityTransition
+	);
+	Transition.BackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::EventDriven;
+	Backend.SetSensorCapabilities({Accelerometer, Transition});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	auto Start = [&Owner](EOpenMobileSensorType Type)
+	{
+		FOpenMobileSensorSubscriptionRequest Request;
+		Request.Sensor.Type = Type;
+		Request.Sensor.InstanceId = TEXT("Default");
+		Request.Options.RatePreset = EOpenMobileSensorRatePreset::Custom;
+		Request.Options.CustomFrequencyHz = 10.0;
+		Request.Options.MaximumCallbackFrequencyHz = 10.0;
+		Request.Options.LifecyclePolicy =
+			EOpenMobileSensorLifecyclePolicy::ContinueWhenSupported;
+		return FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			Request
+		);
+	};
+	const FOpenMobileSensorSubscriptionResult Raw = Start(
+		EOpenMobileSensorType::Accelerometer
+	);
+	const FOpenMobileSensorSubscriptionResult Events = Start(
+		EOpenMobileSensorType::ActivityTransition
+	);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorCapabilitySnapshot Snapshot =
+		FOpenMobileSensorsCapabilityService::GetSnapshot();
+	const FOpenMobileSensorCapability* RawCapability = FindCapability(
+		Snapshot,
+		EOpenMobileSensorType::Accelerometer
+	);
+	const FOpenMobileSensorCapability* EventCapability = FindCapability(
+		Snapshot,
+		EOpenMobileSensorType::ActivityTransition
+	);
+	const FOpenMobileSensorBackgroundCapability* RawBackground =
+		RawCapability
+			? FindBackgroundOperation(
+				*RawCapability,
+				EOpenMobileSensorBackgroundOperation::Stream
+			)
+			: nullptr;
+	const FOpenMobileSensorBackgroundCapability* EventBackground =
+		EventCapability
+			? FindBackgroundOperation(
+				*EventCapability,
+				EOpenMobileSensorBackgroundOperation::Stream
+			)
+			: nullptr;
+	TestTrue(
+		TEXT("Capability reports raw suspension before lifecycle change"),
+		RawBackground
+			&& RawBackground->ExpectedBehavior ==
+				EOpenMobileSensorBackgroundSupport::Suspended
+	);
+	TestTrue(
+		TEXT("Capability reports event-driven transition delivery"),
+		EventBackground
+			&& EventBackground->ExpectedBehavior ==
+				EOpenMobileSensorBackgroundSupport::EventDriven
+	);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	FOpenMobileSensorSubscriptionStateSnapshot RawState;
+	FOpenMobileSensorSubscriptionStateSnapshot EventState;
+	TestTrue(
+		TEXT("The raw handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Raw.Handle,
+			RawState
+		)
+	);
+	TestTrue(
+		TEXT("The transition handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Events.Handle,
+			EventState
+		)
+	);
+	TestEqual(
+		TEXT("Reported raw suspension matches delivery behavior"),
+		RawState.State,
+		EOpenMobileSensorSubscriptionState::Paused
+	);
+	TestEqual(
+		TEXT("Reported event delivery matches delivery behavior"),
+		EventState.State,
+		EOpenMobileSensorSubscriptionState::Active
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(Owner);
+	Settings->bAllowBackgroundSensorDelivery = bPreviousBackgroundOptIn;
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileSensorsSubscriptionService::ResetForTests();
+	FOpenMobileSensorsSampleService::ResetForTests();
+	FOpenMobileSensorsCapabilityService::ResetForTests();
+	FOpenMobileSensorsBackendRegistry::ResetForTests();
+	FOpenMobileSensorsTrueHeadingService::ResetForTests();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -346,6 +840,42 @@ bool FOpenMobileSensorsTrueHeadingCapabilityOwnerIsolationTest::RunTest(
 		TestEqual(TEXT("Other owner still sees missing input"),
 			SecondHeading->ActiveRestriction,
 			EOpenMobileSensorRestriction::MissingInput);
+		const FOpenMobileSensorBackgroundCapability* FirstBackground =
+			FindBackgroundOperation(
+				*FirstHeading,
+				EOpenMobileSensorBackgroundOperation::Stream
+			);
+		const FOpenMobileSensorBackgroundCapability* SecondBackground =
+			FindBackgroundOperation(
+				*SecondHeading,
+				EOpenMobileSensorBackgroundOperation::Stream
+			);
+		TestNotNull(
+			TEXT("Supplying owner has a background report"),
+			FirstBackground
+		);
+		TestNotNull(
+			TEXT("Other owner has a background report"),
+			SecondBackground
+		);
+		if (FirstBackground && SecondBackground)
+		{
+			TestTrue(
+				TEXT("Supplying owner is not blocked by missing input"),
+				FirstBackground->Reason !=
+					EOpenMobileSensorFailureReason::MissingLocationInput
+			);
+			TestEqual(
+				TEXT("Other owner reports its missing input"),
+				SecondBackground->Reason,
+				EOpenMobileSensorFailureReason::MissingLocationInput
+			);
+			TestEqual(
+				TEXT("Missing input removes effective background support"),
+				SecondBackground->ExpectedBehavior,
+				EOpenMobileSensorBackgroundSupport::Unsupported
+			);
+		}
 	}
 	First->Deinitialize();
 	Second->Deinitialize();

@@ -653,6 +653,12 @@ FOpenMobileSensorsIOSBackend::GetSensorCapabilities() const
 	return Capabilities;
 }
 
+EOpenMobileSensorBackgroundSupport
+FOpenMobileSensorsIOSBackend::GetNativeStepCountQueryBackgroundSupport() const
+{
+	return EOpenMobileSensorBackgroundSupport::Limited;
+}
+
 TArray<FOpenMobileSensorBackendMetadata>
 FOpenMobileSensorsIOSBackend::GetSensorMetadata() const
 {

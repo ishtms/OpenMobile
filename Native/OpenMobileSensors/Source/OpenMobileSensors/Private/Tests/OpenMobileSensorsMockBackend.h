@@ -90,6 +90,12 @@ public:
 		return SensorCapabilities;
 	}
 
+	virtual EOpenMobileSensorBackgroundSupport
+	GetNativeStepCountQueryBackgroundSupport() const override
+	{
+		return NativeStepCountQueryBackgroundSupport;
+	}
+
 	virtual TArray<FOpenMobileSensorBackendMetadata>
 	GetSensorMetadata() const override
 	{
@@ -247,6 +253,13 @@ public:
 	)
 	{
 		SensorCapabilities = MoveTemp(InCapabilities);
+	}
+
+	void SetNativeStepCountQueryBackgroundSupportForTests(
+		EOpenMobileSensorBackgroundSupport Support
+	)
+	{
+		NativeStepCountQueryBackgroundSupport = Support;
 	}
 
 	void SetSensorMetadata(
@@ -527,6 +540,8 @@ private:
 	mutable int32 CapabilityQueryCount = 0;
 	FOpenMobileCapability BackendCapability;
 	TArray<FOpenMobileSensorCapability> SensorCapabilities;
+	EOpenMobileSensorBackgroundSupport NativeStepCountQueryBackgroundSupport =
+		EOpenMobileSensorBackgroundSupport::Unsupported;
 	mutable int32 SensorCapabilityQueryCount = 0;
 	TArray<FOpenMobileSensorBackendMetadata> SensorMetadata;
 	TArray<FOpenMobileSensorBackendMetadata> RefreshedMutableSensorMetadata;

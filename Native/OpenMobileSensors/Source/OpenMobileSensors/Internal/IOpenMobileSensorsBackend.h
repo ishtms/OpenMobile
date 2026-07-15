@@ -49,6 +49,12 @@ public:
 		return {};
 	}
 
+	virtual EOpenMobileSensorBackgroundSupport
+	GetNativeStepCountQueryBackgroundSupport() const
+	{
+		return EOpenMobileSensorBackgroundSupport::Unsupported;
+	}
+
 	virtual TArray<FOpenMobileSensorBackendMetadata> GetSensorMetadata() const
 	{
 		return {};

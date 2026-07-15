@@ -6,6 +6,7 @@
 #include "OpenMobilePermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsPermissionPolicy.h"
+#include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsTrueHeadingService.h"
 
 namespace OpenMobileSensorsCapabilityServicePrivate
@@ -18,6 +19,8 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 	bool bBackendDirty = true;
 	bool bSnapshotDirty = true;
 	bool bHasSnapshot = false;
+	bool bHasBackgroundDeliverySetting = false;
+	bool bBackgroundDeliveryAllowed = false;
 	FDelegateHandle BackgroundHandle;
 	FDelegateHandle ForegroundHandle;
 	FDelegateHandle DeactivatedHandle;
@@ -26,6 +29,9 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 	FName BaseBackendName;
 	FOpenMobileCapability BaseBackendAvailability;
 	TArray<FOpenMobileSensorCapability> BaseCapabilities;
+	EOpenMobileSensorBackgroundSupport
+		BaseNativeStepCountQueryBackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Unsupported;
 	TMap<FName, EOpenMobilePermissionStatus> PermissionStatuses;
 	FOpenMobileSensorCapabilitySnapshot CachedSnapshot;
 	FOnOpenMobileSensorCapabilityMatrixChanged ChangedEvent;
@@ -172,6 +178,8 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		BaseBackendName = NAME_None;
 		BaseBackendAvailability = {};
 		BaseCapabilities.Reset();
+		BaseNativeStepCountQueryBackgroundSupport =
+			EOpenMobileSensorBackgroundSupport::Unsupported;
 		IOpenMobileSensorsBackend* Backend =
 			FOpenMobileSensorsBackendRegistry::FindBackend();
 		if (!Backend)
@@ -188,6 +196,8 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		BaseBackendName = Backend->GetBackendName();
 		BaseBackendAvailability = Backend->GetBackendCapability();
 		BaseCapabilities = Backend->GetSensorCapabilities();
+		BaseNativeStepCountQueryBackgroundSupport =
+			Backend->GetNativeStepCountQueryBackgroundSupport();
 	}
 
 	void ApplyPermissionState(FOpenMobileSensorCapability& Capability)
@@ -363,6 +373,16 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		{
 			return;
 		}
+		if (!bBackgroundDeliveryAllowed)
+		{
+			Capability.ActiveRestriction =
+				EOpenMobileSensorRestriction::Background;
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::TemporarilyUnavailable;
+			Capability.Availability.Detail =
+				TEXT("Project policy suspends sensor delivery while the application is inactive.");
+			return;
+		}
 		switch (Capability.BackgroundSupport)
 		{
 		case EOpenMobileSensorBackgroundSupport::Supported:
@@ -385,6 +405,226 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			Capability.Availability.Detail =
 				TEXT("The sensor is suspended while the application is inactive.");
 			break;
+		}
+	}
+
+	bool IsRecordingSensor(EOpenMobileSensorType Type)
+	{
+		switch (Type)
+		{
+		case EOpenMobileSensorType::Accelerometer:
+		case EOpenMobileSensorType::AccelerometerUncalibrated:
+		case EOpenMobileSensorType::Gyroscope:
+		case EOpenMobileSensorType::GyroscopeUncalibrated:
+		case EOpenMobileSensorType::Magnetometer:
+		case EOpenMobileSensorType::MagnetometerUncalibrated:
+		case EOpenMobileSensorType::Gravity:
+		case EOpenMobileSensorType::LinearAcceleration:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool SupportsConfiguredBackgroundContinuation(
+		EOpenMobileSensorBackgroundSupport Behavior
+	)
+	{
+		return Behavior == EOpenMobileSensorBackgroundSupport::EventDriven
+			|| Behavior == EOpenMobileSensorBackgroundSupport::Supported;
+	}
+
+	EOpenMobileSensorFailureReason GetCapabilityFailureReason(
+		const FOpenMobileSensorCapability& Capability,
+		bool bHasBackend
+	)
+	{
+		switch (Capability.ActiveRestriction)
+		{
+		case EOpenMobileSensorRestriction::MissingHardware:
+			return EOpenMobileSensorFailureReason::MissingHardware;
+		case EOpenMobileSensorRestriction::Permission:
+			switch (Capability.Availability.State)
+			{
+			case EOpenMobileCapabilityState::PermissionRequired:
+				return EOpenMobileSensorFailureReason::PermissionRequired;
+			case EOpenMobileCapabilityState::Restricted:
+				return EOpenMobileSensorFailureReason::PermissionRestricted;
+			case EOpenMobileCapabilityState::Denied:
+			default:
+				return EOpenMobileSensorFailureReason::PermissionDenied;
+			}
+		case EOpenMobileSensorRestriction::RateLimited:
+			return EOpenMobileSensorFailureReason::RateLimited;
+		case EOpenMobileSensorRestriction::Configuration:
+			return EOpenMobileSensorFailureReason::ConfigurationBlocked;
+		case EOpenMobileSensorRestriction::MissingInput:
+			for (const FOpenMobileSensorPrerequisiteCapability& Prerequisite
+				: Capability.Prerequisites)
+			{
+				if (Prerequisite.InputFailureReason !=
+					EOpenMobileSensorFailureReason::None)
+				{
+					return Prerequisite.InputFailureReason;
+				}
+			}
+			return EOpenMobileSensorFailureReason::DerivedInputUnavailable;
+		case EOpenMobileSensorRestriction::Calibration:
+			return EOpenMobileSensorFailureReason::PoorCalibration;
+		case EOpenMobileSensorRestriction::TemporarilyUnavailable:
+			return EOpenMobileSensorFailureReason::TemporarilyUnavailable;
+		case EOpenMobileSensorRestriction::None:
+		case EOpenMobileSensorRestriction::Background:
+		default:
+			break;
+		}
+		switch (Capability.Availability.State)
+		{
+		case EOpenMobileCapabilityState::NotSupported:
+			return bHasBackend
+				? EOpenMobileSensorFailureReason::UnsupportedOperation
+				: EOpenMobileSensorFailureReason::UnsupportedPlatform;
+		case EOpenMobileCapabilityState::Unavailable:
+			return EOpenMobileSensorFailureReason::MissingHardware;
+		case EOpenMobileCapabilityState::NotConfigured:
+			return EOpenMobileSensorFailureReason::ConfigurationBlocked;
+		case EOpenMobileCapabilityState::PermissionRequired:
+			return EOpenMobileSensorFailureReason::PermissionRequired;
+		case EOpenMobileCapabilityState::Denied:
+			return EOpenMobileSensorFailureReason::PermissionDenied;
+		case EOpenMobileCapabilityState::Restricted:
+			return EOpenMobileSensorFailureReason::PermissionRestricted;
+		case EOpenMobileCapabilityState::TemporarilyUnavailable:
+			return Capability.ActiveRestriction ==
+				EOpenMobileSensorRestriction::Background
+				? EOpenMobileSensorFailureReason::None
+				: EOpenMobileSensorFailureReason::TemporarilyUnavailable;
+		case EOpenMobileCapabilityState::Available:
+		default:
+			return EOpenMobileSensorFailureReason::None;
+		}
+	}
+
+	FOpenMobileSensorBackgroundCapability MakeBackgroundCapability(
+		const FOpenMobileSensorCapability& Capability,
+		EOpenMobileSensorBackgroundOperation Operation,
+		EOpenMobileSensorBackgroundSupport PlatformBehavior,
+		bool bUsesContinuousDeliveryPolicy,
+		bool bHasBackend
+	)
+	{
+		FOpenMobileSensorBackgroundCapability Report;
+		Report.Operation = Operation;
+		Report.Sensor = Capability.Sensor;
+		Report.PlatformBehavior = PlatformBehavior;
+		Report.ExpectedBehavior = PlatformBehavior;
+		Report.RequiredPermission = Capability.RequiredPermission;
+		Report.bProjectOptInRequired = bUsesContinuousDeliveryPolicy
+			&& SupportsConfiguredBackgroundContinuation(PlatformBehavior);
+		Report.bProjectOptInEnabled = bBackgroundDeliveryAllowed;
+		const EOpenMobileSensorFailureReason CapabilityFailure =
+			GetCapabilityFailureReason(Capability, bHasBackend);
+		if (CapabilityFailure != EOpenMobileSensorFailureReason::None)
+		{
+			Report.ExpectedBehavior =
+				EOpenMobileSensorBackgroundSupport::Unsupported;
+			Report.ActiveRestriction = Capability.ActiveRestriction;
+			Report.Reason = CapabilityFailure;
+			Report.Detail = Capability.Availability.Detail;
+			return Report;
+		}
+		if (Report.bProjectOptInRequired
+			&& !bBackgroundDeliveryAllowed)
+		{
+			Report.ExpectedBehavior =
+				EOpenMobileSensorBackgroundSupport::Suspended;
+			Report.Reason =
+				EOpenMobileSensorFailureReason::ConfigurationBlocked;
+			Report.Detail =
+				TEXT("Project Settings disable background sensor delivery for this operation.");
+		}
+		else
+		{
+			switch (Report.ExpectedBehavior)
+			{
+			case EOpenMobileSensorBackgroundSupport::Supported:
+				Report.Detail =
+					TEXT("The operation supports background delivery under the current platform rules.");
+				break;
+			case EOpenMobileSensorBackgroundSupport::EventDriven:
+				Report.Detail =
+					TEXT("The operation uses event-driven background delivery under the current platform rules.");
+				break;
+			case EOpenMobileSensorBackgroundSupport::Limited:
+				Report.Reason =
+					EOpenMobileSensorFailureReason::BackgroundRestricted;
+				Report.Detail =
+					TEXT("The operation has limited background behavior and does not promise continuous delivery.");
+				break;
+			case EOpenMobileSensorBackgroundSupport::Suspended:
+				Report.Reason =
+					EOpenMobileSensorFailureReason::BackgroundRestricted;
+				Report.Detail =
+					TEXT("The operation suspends while the application is inactive.");
+				break;
+			case EOpenMobileSensorBackgroundSupport::Unsupported:
+				Report.Reason =
+					EOpenMobileSensorFailureReason::BackgroundRestricted;
+				Report.Detail =
+					TEXT("The platform does not support this operation in the background.");
+				break;
+			case EOpenMobileSensorBackgroundSupport::Unknown:
+			default:
+				Report.Reason =
+					EOpenMobileSensorFailureReason::BackgroundRestricted;
+				Report.Detail =
+					TEXT("Background behavior is not known for this operation.");
+				break;
+			}
+		}
+		if (!bApplicationActive
+			&& !SupportsConfiguredBackgroundContinuation(
+				Report.ExpectedBehavior
+			))
+		{
+			Report.ActiveRestriction =
+				EOpenMobileSensorRestriction::Background;
+		}
+		return Report;
+	}
+
+	void PopulateBackgroundCapabilities(
+		FOpenMobileSensorCapability& Capability,
+		bool bHasBackend
+	)
+	{
+		Capability.BackgroundOperations.Reset();
+		Capability.BackgroundOperations.Add(MakeBackgroundCapability(
+			Capability,
+			EOpenMobileSensorBackgroundOperation::Stream,
+			Capability.BackgroundSupport,
+			true,
+			bHasBackend
+		));
+		if (IsRecordingSensor(Capability.Sensor.Type))
+		{
+			Capability.BackgroundOperations.Add(MakeBackgroundCapability(
+				Capability,
+				EOpenMobileSensorBackgroundOperation::Recording,
+				Capability.BackgroundSupport,
+				true,
+				bHasBackend
+			));
+		}
+		if (Capability.Sensor.Type == EOpenMobileSensorType::StepCounter)
+		{
+			Capability.BackgroundOperations.Add(MakeBackgroundCapability(
+				Capability,
+				EOpenMobileSensorBackgroundOperation::NativeStepCountQuery,
+				BaseNativeStepCountQueryBackgroundSupport,
+				false,
+				bHasBackend
+			));
 		}
 	}
 
@@ -959,6 +1199,10 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 			ApplyPermissionState(*TrueHeading);
 			ApplyLifecycleState(*TrueHeading);
 		}
+		for (FOpenMobileSensorCapability& Capability : Snapshot.Sensors)
+		{
+			PopulateBackgroundCapabilities(Capability, bHasBackend);
+		}
 		return Snapshot;
 	}
 
@@ -972,6 +1216,19 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 
 	void RefreshAndBroadcast()
 	{
+		const UOpenMobileSensorsSettings* Settings =
+			GetDefault<UOpenMobileSensorsSettings>();
+		const bool bCurrentBackgroundDeliveryAllowed = Settings
+			&& Settings->bAllowBackgroundSensorDelivery;
+		if (!bHasBackgroundDeliverySetting
+			|| bBackgroundDeliveryAllowed !=
+				bCurrentBackgroundDeliveryAllowed)
+		{
+			bHasBackgroundDeliverySetting = true;
+			bBackgroundDeliveryAllowed =
+				bCurrentBackgroundDeliveryAllowed;
+			bSnapshotDirty = true;
+		}
 		if (!bSnapshotDirty)
 		{
 			return;
@@ -1042,6 +1299,8 @@ void FOpenMobileSensorsCapabilityService::Start()
 	bBackendDirty = true;
 	bSnapshotDirty = true;
 	bHasSnapshot = false;
+	bHasBackgroundDeliverySetting = false;
+	bBackgroundDeliveryAllowed = false;
 	PermissionStatuses.Reset();
 	BackgroundHandle =
 		FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddStatic(
@@ -1101,6 +1360,8 @@ void FOpenMobileSensorsCapabilityService::BeginShutdown()
 	bHasSnapshot = false;
 	bBackendDirty = true;
 	bSnapshotDirty = true;
+	bHasBackgroundDeliverySetting = false;
+	bBackgroundDeliveryAllowed = false;
 }
 
 FOpenMobileSensorCapabilitySnapshot
@@ -1178,6 +1439,11 @@ void FOpenMobileSensorsCapabilityService::ApplyTrueHeadingLocationInputState(
 	if (TrueHeading)
 	{
 		ApplyTrueHeadingInputState(*TrueHeading, InputState);
+		ApplyLifecycleState(*TrueHeading);
+		PopulateBackgroundCapabilities(
+			*TrueHeading,
+			Snapshot.BackendGeneration != 0
+		);
 	}
 }
 

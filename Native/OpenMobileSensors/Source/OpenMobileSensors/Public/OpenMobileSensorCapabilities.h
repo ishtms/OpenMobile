@@ -45,6 +45,14 @@ enum class EOpenMobileSensorBackgroundSupport : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileSensorBackgroundOperation : uint8
+{
+	Stream,
+	Recording,
+	NativeStepCountQuery
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileSensorFallbackPowerCost : uint8
 {
 	Unknown,
@@ -223,6 +231,63 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceFrameCapability
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorBackgroundCapability
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorBackgroundOperation Operation =
+		EOpenMobileSensorBackgroundOperation::Stream;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorIdentifier Sensor;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorBackgroundSupport PlatformBehavior =
+		EOpenMobileSensorBackgroundSupport::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorBackgroundSupport ExpectedBehavior =
+		EOpenMobileSensorBackgroundSupport::Unknown;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorRestriction ActiveRestriction =
+		EOpenMobileSensorRestriction::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorFailureReason Reason =
+		EOpenMobileSensorFailureReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FName RequiredPermission;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bProjectOptInRequired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bProjectOptInEnabled = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FString Detail;
+
+	bool operator==(
+		const FOpenMobileSensorBackgroundCapability& Other
+	) const
+	{
+		return Operation == Other.Operation
+			&& Sensor == Other.Sensor
+			&& PlatformBehavior == Other.PlatformBehavior
+			&& ExpectedBehavior == Other.ExpectedBehavior
+			&& ActiveRestriction == Other.ActiveRestriction
+			&& Reason == Other.Reason
+			&& RequiredPermission == Other.RequiredPermission
+			&& bProjectOptInRequired == Other.bProjectOptInRequired
+			&& bProjectOptInEnabled == Other.bProjectOptInEnabled
+			&& Detail == Other.Detail;
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 {
 	GENERATED_BODY()
@@ -258,6 +323,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorBackgroundCapability> BackgroundOperations;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorFallbackCapability Fallback;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
@@ -280,6 +348,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 			&& MaximumFrequencyHz == Other.MaximumFrequencyHz
 			&& bSupportsNativeBatching == Other.bSupportsNativeBatching
 			&& BackgroundSupport == Other.BackgroundSupport
+			&& BackgroundOperations == Other.BackgroundOperations
 			&& Fallback == Other.Fallback
 			&& Prerequisites == Other.Prerequisites
 			&& AttitudeReferenceFrames == Other.AttitudeReferenceFrames;

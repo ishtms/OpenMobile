@@ -32,6 +32,8 @@ public:
 	virtual void CancelRequest(const FGuid& RequestIdentifier) override;
 	virtual FOpenMobileCapability GetBackendCapability() const override;
 	virtual TArray<FOpenMobileSensorCapability> GetSensorCapabilities() const override;
+	virtual EOpenMobileSensorBackgroundSupport
+	GetNativeStepCountQueryBackgroundSupport() const override;
 	virtual TArray<FOpenMobileSensorBackendMetadata> GetSensorMetadata() const override;
 	virtual FOpenMobileSensorOperationResult StartSensorStream(
 		const FOpenMobileSensorBackendStreamHandle& Handle,
