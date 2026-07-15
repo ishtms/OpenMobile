@@ -22,6 +22,14 @@ FName FOpenMobileSensorsPermissionPolicy::TrueHeadingLocation()
 	return Name;
 }
 
+FName FOpenMobileSensorsPermissionPolicy::TrueHeadingLocationInput()
+{
+	static const FName Name(
+		TEXT("OpenMobile.Sensors.Prerequisite.TrueHeadingLocationInput")
+	);
+	return Name;
+}
+
 bool FOpenMobileSensorsPermissionPolicy::IsSensorPermission(FName Permission)
 {
 	return Permission == MotionActivity()

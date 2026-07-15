@@ -105,7 +105,7 @@ bool FOpenMobileSensorsTrueHeadingLocationValidityTest::RunTest(
 			ResolvedLocation,
 			LocationAgeSeconds
 		),
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable);
+		EOpenMobileSensorFailureReason::MissingLocationInput);
 
 	FOpenMobileSensorLocationInput StaleLocation = Location;
 	StaleLocation.TimestampSeconds -= 61.0;
@@ -127,7 +127,7 @@ bool FOpenMobileSensorsTrueHeadingLocationValidityTest::RunTest(
 			CurrentUnixSeconds,
 			CurrentMonotonicSeconds
 		),
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable);
+		EOpenMobileSensorFailureReason::PoorLocationAccuracy);
 
 	FOpenMobileSensorLocationInput FutureLocation = Location;
 	FutureLocation.TimestampSeconds += 6.0;
@@ -166,7 +166,7 @@ bool FOpenMobileSensorsTrueHeadingLocationValidityTest::RunTest(
 			ResolvedLocation,
 			LocationAgeSeconds
 		),
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable);
+		EOpenMobileSensorFailureReason::MissingLocationInput);
 	TestEqual(TEXT("Owner receives usable input"),
 		FOpenMobileSensorsTrueHeadingService::GetUsableLocationInput(
 			Owner,
@@ -201,7 +201,7 @@ bool FOpenMobileSensorsTrueHeadingLocationValidityTest::RunTest(
 			ResolvedLocation,
 			LocationAgeSeconds
 		),
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable);
+		EOpenMobileSensorFailureReason::MissingLocationInput);
 	FOpenMobileSensorsTrueHeadingService::ResetForTests();
 	return true;
 }
@@ -420,7 +420,7 @@ bool FOpenMobileSensorsTrueHeadingFallbackDeliveryTest::RunTest(
 		);
 	TestEqual(TEXT("Absent location blocks true heading"),
 		MissingLocation.Operation.Failure.Reason,
-		EOpenMobileSensorFailureReason::DerivedInputUnavailable);
+		EOpenMobileSensorFailureReason::MissingLocationInput);
 
 	const double CurrentUnixSeconds = static_cast<double>(
 		FDateTime::UtcNow().ToUnixTimestamp()

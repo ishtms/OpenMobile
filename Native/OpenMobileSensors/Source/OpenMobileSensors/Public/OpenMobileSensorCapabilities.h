@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobilePermissionTypes.h"
+#include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorQuality.h"
 #include "OpenMobileSensorStreamOptions.h"
@@ -64,6 +66,64 @@ enum class EOpenMobileSensorFallbackUnsupportedCondition : uint8
 ENUM_CLASS_FLAGS(EOpenMobileSensorFallbackUnsupportedCondition);
 
 USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorPrerequisiteCapability
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FName Name;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileCapability Availability;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorFailureReason InputFailureReason =
+		EOpenMobileSensorFailureReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FName RequiredPermission;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bPermissionStatusKnown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobilePermissionStatus PermissionStatus =
+		EOpenMobilePermissionStatus::NotDetermined;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorFailureReason PermissionFailureReason =
+		EOpenMobileSensorFailureReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bReady = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double MaximumAgeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double MaximumHorizontalAccuracyMeters = 0.0;
+
+	bool operator==(
+		const FOpenMobileSensorPrerequisiteCapability& Other
+	) const
+	{
+		return Name == Other.Name
+			&& Availability.Name == Other.Availability.Name
+			&& Availability.State == Other.Availability.State
+			&& Availability.Detail == Other.Availability.Detail
+			&& InputFailureReason == Other.InputFailureReason
+			&& RequiredPermission == Other.RequiredPermission
+			&& bPermissionStatusKnown == Other.bPermissionStatusKnown
+			&& PermissionStatus == Other.PermissionStatus
+			&& PermissionFailureReason == Other.PermissionFailureReason
+			&& bReady == Other.bReady
+			&& MaximumAgeSeconds == Other.MaximumAgeSeconds
+			&& MaximumHorizontalAccuracyMeters ==
+				Other.MaximumHorizontalAccuracyMeters;
+	}
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
 {
 	GENERATED_BODY()
@@ -73,6 +133,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bAvailable = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bRequiredInputsAvailable = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<EOpenMobileSensorType> RequiredInputs;
@@ -103,6 +166,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
 	{
 		return bImplemented == Other.bImplemented
 			&& bAvailable == Other.bAvailable
+			&& bRequiredInputsAvailable == Other.bRequiredInputsAvailable
 			&& RequiredInputs == Other.RequiredInputs
 			&& MinimumInputFrequencyHz == Other.MinimumInputFrequencyHz
 			&& bRequiresCalibratedInput == Other.bRequiresCalibratedInput
@@ -197,6 +261,9 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 	FOpenMobileSensorFallbackCapability Fallback;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorPrerequisiteCapability> Prerequisites;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileAttitudeReferenceFrameCapability>
 		AttitudeReferenceFrames;
 
@@ -214,6 +281,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 			&& bSupportsNativeBatching == Other.bSupportsNativeBatching
 			&& BackgroundSupport == Other.BackgroundSupport
 			&& Fallback == Other.Fallback
+			&& Prerequisites == Other.Prerequisites
 			&& AttitudeReferenceFrames == Other.AttitudeReferenceFrames;
 	}
 

@@ -162,6 +162,14 @@ namespace OpenMobileSensorsErrorMapperPrivate
 				TEXT("The bounded sensor buffer overflowed."),
 				TEXT("Drain more often, lower the rate, or choose a larger bounded capacity.")
 			};
+		case EOpenMobileSensorFailureReason::MissingLocationInput:
+			return {
+				Reason,
+				EOpenMobileSensorResultCode::Unavailable,
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("True-heading location input is missing."),
+				TEXT("Provide a recent caller-owned location sample before retrying.")
+			};
 		case EOpenMobileSensorFailureReason::StaleLocationInput:
 			return {
 				Reason,
@@ -169,6 +177,14 @@ namespace OpenMobileSensorsErrorMapperPrivate
 				EOpenMobileErrorCode::Unavailable,
 				TEXT("True-heading location input is stale."),
 				TEXT("Provide a recent caller-owned location sample before retrying.")
+			};
+		case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
+			return {
+				Reason,
+				EOpenMobileSensorResultCode::Unavailable,
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("True-heading location accuracy is insufficient."),
+				TEXT("Provide caller-owned location with horizontal accuracy of 100 metres or better.")
 			};
 		case EOpenMobileSensorFailureReason::TemporarilyUnavailable:
 			return {

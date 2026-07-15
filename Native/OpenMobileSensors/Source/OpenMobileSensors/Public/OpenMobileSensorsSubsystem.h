@@ -445,6 +445,9 @@ public:
 	FOpenMobileSensorOperationResult SetTrueHeadingLocationInputNative(
 		const FOpenMobileSensorLocationInput& LocationInput
 	);
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Clear True Heading Location Input", ToolTip = "Immediately removes caller-owned location retained for true heading."))
+	FOpenMobileSensorOperationResult ClearTrueHeadingLocationInputNative();
 	FGuid StartRecordingNative(
 		const FOpenMobileSensorRecordingOptions& Options,
 		FOnOpenMobileSensorRecordingComplete&& Completion

@@ -4,6 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobileAsync.h"
+#include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -579,19 +580,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		if (LogicalSensor.Type == EOpenMobileSensorType::TrueHeading)
 		{
-			FOpenMobileSensorLocationInput LocationInput;
-			double LocationAgeSeconds = 0.0;
-			OutFailureReason = FOpenMobileSensorsTrueHeadingService::
-				GetUsableLocationInput(
-					OwnerIdentifier,
-					FPlatformTime::Seconds(),
-					LocationInput,
-					LocationAgeSeconds
-				);
-			if (OutFailureReason != EOpenMobileSensorFailureReason::None)
-			{
-				return false;
-			}
+			FOpenMobileSensorsCapabilityService::RefreshPermissionStatus(
+				FOpenMobileSensorPermissions::GetPermissionName(
+					EOpenMobileSensorPermission::TrueHeadingLocation
+				)
+			);
 			const FOpenMobileSensorCapabilitySnapshot Snapshot =
 				FOpenMobileSensorsCapabilityService::GetSnapshot();
 			const FOpenMobileSensorCapability* TrueHeading =
@@ -628,6 +621,19 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				default:
 					break;
 				}
+			}
+			FOpenMobileSensorLocationInput LocationInput;
+			double LocationAgeSeconds = 0.0;
+			OutFailureReason = FOpenMobileSensorsTrueHeadingService::
+				GetUsableLocationInput(
+					OwnerIdentifier,
+					FPlatformTime::Seconds(),
+					LocationInput,
+					LocationAgeSeconds
+				);
+			if (OutFailureReason != EOpenMobileSensorFailureReason::None)
+			{
+				return false;
 			}
 			const bool bDirectAvailable = TrueHeading
 				&& TrueHeading->Availability.State ==

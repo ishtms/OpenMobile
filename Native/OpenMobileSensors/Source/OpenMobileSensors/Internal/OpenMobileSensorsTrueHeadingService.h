@@ -20,6 +20,10 @@ public:
 		FOpenMobileSensorLocationInput& OutLocationInput,
 		double& OutLocationAgeSeconds
 	);
+	static EOpenMobileSensorFailureReason GetLocationInputState(
+		const FGuid& OwnerIdentifier,
+		double CurrentMonotonicSeconds
+	);
 	static EOpenMobileSensorFailureReason ConvertMagneticHeading(
 		const FGuid& OwnerIdentifier,
 		double CurrentMonotonicSeconds,
@@ -32,9 +36,15 @@ public:
 		FOpenMobileHeadingSensorSample& NativeHeading
 	);
 	static void RemoveOwner(const FGuid& OwnerIdentifier);
+	static bool ClearLocationInput(const FGuid& OwnerIdentifier);
 	static bool HasAnyLocationInput(double CurrentMonotonicSeconds);
+	static double GetMaximumLocationAgeSeconds();
+	static double GetMaximumHorizontalAccuracyMeters();
 
 #if WITH_DEV_AUTOMATION_TESTS
+	static bool HasRetainedLocationInputForTests(
+		const FGuid& OwnerIdentifier
+	);
 	static void ResetForTests();
 #endif
 };

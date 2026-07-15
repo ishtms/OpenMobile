@@ -20,6 +20,13 @@ public:
 		FName Permission,
 		EOpenMobilePermissionStatus Status
 	);
+	static FOpenMobilePermissionResult RefreshPermissionStatus(
+		FName Permission
+	);
+	static void ApplyTrueHeadingLocationInputState(
+		FOpenMobileSensorCapabilitySnapshot& Snapshot,
+		EOpenMobileSensorFailureReason InputState
+	);
 	static void SetApplicationActive(bool bActive);
 	static void SetLocationInputAvailable(bool bAvailable);
 	static FOnOpenMobileSensorCapabilityMatrixChanged& OnChanged();

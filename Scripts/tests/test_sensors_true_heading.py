@@ -106,8 +106,46 @@ class SensorsTrueHeadingTests(unittest.TestCase):
 			"location age",
 			"location acquisition",
 			"physical-device acceptance",
+			"separate location prerequisite",
+			"non-sensitive stale marker",
+			"ClearTrueHeadingLocationInputNative",
 		):
 			self.assertIn(token, contract)
+
+	def test_capabilities_expose_location_and_authorization_prerequisites(self):
+		capabilities = (
+			COMMON / "Public" / "OpenMobileSensorCapabilities.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"FOpenMobileSensorPrerequisiteCapability",
+			"InputFailureReason",
+			"PermissionFailureReason",
+			"bPermissionStatusKnown",
+			"bReady",
+			"Prerequisites",
+			"bRequiredInputsAvailable",
+		):
+			self.assertIn(token, capabilities)
+
+	def test_location_retention_has_explicit_clear_and_expiry_scrubbing(self):
+		service_header = (
+			COMMON / "Internal" / "OpenMobileSensorsTrueHeadingService.h"
+		).read_text(encoding="utf-8")
+		service = (
+			COMMON / "Private" / "OpenMobileSensorsTrueHeadingService.cpp"
+		).read_text(encoding="utf-8")
+		subsystem = (
+			COMMON / "Public" / "OpenMobileSensorsSubsystem.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"ClearLocationInput",
+			"GetLocationInputState",
+			"GetMaximumLocationAgeSeconds",
+			"GetMaximumHorizontalAccuracyMeters",
+		):
+			self.assertIn(token, service_header)
+		self.assertIn("ScrubSensitiveInput", service)
+		self.assertIn("ClearTrueHeadingLocationInputNative", subsystem)
 
 
 if __name__ == "__main__":

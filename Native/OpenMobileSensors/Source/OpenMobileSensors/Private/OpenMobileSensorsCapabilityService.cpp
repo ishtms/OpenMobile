@@ -3,7 +3,10 @@
 #include "IOpenMobileSensorsBackend.h"
 #include "Misc/CoreDelegates.h"
 #include "OpenMobileSensorPermissions.h"
+#include "OpenMobilePermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsPermissionPolicy.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 
 namespace OpenMobileSensorsCapabilityServicePrivate
 {
@@ -47,6 +50,113 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		}
 	}
 
+	FOpenMobileSensorPrerequisiteCapability&
+	GetTrueHeadingLocationPrerequisite(
+		FOpenMobileSensorCapability& Capability
+	)
+	{
+		const FName Name =
+			FOpenMobileSensorsPermissionPolicy::TrueHeadingLocationInput();
+		FOpenMobileSensorPrerequisiteCapability* Existing =
+			Capability.Prerequisites.FindByPredicate(
+				[Name](
+					const FOpenMobileSensorPrerequisiteCapability& Prerequisite
+				)
+				{
+					return Prerequisite.Name == Name;
+				}
+			);
+		if (Existing)
+		{
+			return *Existing;
+		}
+		FOpenMobileSensorPrerequisiteCapability Prerequisite;
+		Prerequisite.Name = Name;
+		Prerequisite.Availability.Name = Name;
+		Prerequisite.RequiredPermission =
+			FOpenMobileSensorsPermissionPolicy::TrueHeadingLocation();
+		Prerequisite.MaximumAgeSeconds =
+			FOpenMobileSensorsTrueHeadingService::
+				GetMaximumLocationAgeSeconds();
+		Prerequisite.MaximumHorizontalAccuracyMeters =
+			FOpenMobileSensorsTrueHeadingService::
+				GetMaximumHorizontalAccuracyMeters();
+		return Capability.Prerequisites.Add_GetRef(MoveTemp(Prerequisite));
+	}
+
+	void RefreshPrerequisiteSummary(
+		FOpenMobileSensorPrerequisiteCapability& Prerequisite
+	)
+	{
+		Prerequisite.bReady =
+			Prerequisite.InputFailureReason ==
+				EOpenMobileSensorFailureReason::None
+			&& Prerequisite.PermissionFailureReason ==
+				EOpenMobileSensorFailureReason::None;
+		if (Prerequisite.PermissionFailureReason !=
+			EOpenMobileSensorFailureReason::None)
+		{
+			switch (Prerequisite.PermissionFailureReason)
+			{
+			case EOpenMobileSensorFailureReason::PermissionRequired:
+				Prerequisite.Availability.State =
+					EOpenMobileCapabilityState::PermissionRequired;
+				Prerequisite.Availability.Detail =
+					TEXT("Location authorization has not been decided by its owning provider.");
+				break;
+			case EOpenMobileSensorFailureReason::PermissionDenied:
+				Prerequisite.Availability.State =
+					EOpenMobileCapabilityState::Denied;
+				Prerequisite.Availability.Detail =
+					TEXT("The owning location provider reports denied authorization.");
+				break;
+			case EOpenMobileSensorFailureReason::PermissionRestricted:
+				Prerequisite.Availability.State =
+					EOpenMobileCapabilityState::Restricted;
+				Prerequisite.Availability.Detail =
+					TEXT("System policy restricts the owning location provider.");
+				break;
+			default:
+				Prerequisite.Availability.State =
+					EOpenMobileCapabilityState::TemporarilyUnavailable;
+				Prerequisite.Availability.Detail =
+					TEXT("Location authorization is unavailable.");
+				break;
+			}
+			return;
+		}
+		if (Prerequisite.InputFailureReason !=
+			EOpenMobileSensorFailureReason::None)
+		{
+			Prerequisite.Availability.State =
+				EOpenMobileCapabilityState::TemporarilyUnavailable;
+			switch (Prerequisite.InputFailureReason)
+			{
+			case EOpenMobileSensorFailureReason::MissingLocationInput:
+				Prerequisite.Availability.Detail =
+					TEXT("Caller-owned location input is missing.");
+				break;
+			case EOpenMobileSensorFailureReason::StaleLocationInput:
+				Prerequisite.Availability.Detail =
+					TEXT("Caller-owned location input is stale.");
+				break;
+			case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
+				Prerequisite.Availability.Detail =
+					TEXT("Caller-owned location input is not accurate enough.");
+				break;
+			default:
+				Prerequisite.Availability.Detail =
+					TEXT("Caller-owned location input is unusable.");
+				break;
+			}
+			return;
+		}
+		Prerequisite.Availability.State =
+			EOpenMobileCapabilityState::Available;
+		Prerequisite.Availability.Detail =
+			TEXT("Caller-owned location input is ready.");
+	}
+
 	void RefreshBackendBase()
 	{
 		if (!bBackendDirty)
@@ -82,16 +192,48 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		{
 			return;
 		}
+		const EOpenMobilePermissionStatus* Status =
+			PermissionStatuses.Find(Capability.RequiredPermission);
+		if (!Status)
+		{
+			return;
+		}
+		for (FOpenMobileSensorPrerequisiteCapability& Prerequisite
+			: Capability.Prerequisites)
+		{
+			if (Prerequisite.RequiredPermission !=
+				Capability.RequiredPermission)
+			{
+				continue;
+			}
+			Prerequisite.bPermissionStatusKnown = true;
+			Prerequisite.PermissionStatus = *Status;
+			switch (*Status)
+			{
+			case EOpenMobilePermissionStatus::Granted:
+				Prerequisite.PermissionFailureReason =
+					EOpenMobileSensorFailureReason::None;
+				break;
+			case EOpenMobilePermissionStatus::NotDetermined:
+				Prerequisite.PermissionFailureReason =
+					EOpenMobileSensorFailureReason::PermissionRequired;
+				break;
+			case EOpenMobilePermissionStatus::Denied:
+			case EOpenMobilePermissionStatus::PermanentlyDenied:
+				Prerequisite.PermissionFailureReason =
+					EOpenMobileSensorFailureReason::PermissionDenied;
+				break;
+			case EOpenMobilePermissionStatus::Restricted:
+				Prerequisite.PermissionFailureReason =
+					EOpenMobileSensorFailureReason::PermissionRestricted;
+				break;
+			}
+			RefreshPrerequisiteSummary(Prerequisite);
+		}
 		if (Capability.ActiveRestriction ==
 			EOpenMobileSensorRestriction::MissingHardware
 			|| Capability.Availability.State ==
 				EOpenMobileCapabilityState::NotSupported)
-		{
-			return;
-		}
-		const EOpenMobilePermissionStatus* Status =
-			PermissionStatuses.Find(Capability.RequiredPermission);
-		if (!Status)
 		{
 			return;
 		}
@@ -136,12 +278,19 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		}
 	}
 
-	void ApplyLocationState(FOpenMobileSensorCapability& Capability)
+	void ApplyTrueHeadingInputState(
+		FOpenMobileSensorCapability& Capability,
+		EOpenMobileSensorFailureReason InputState
+	)
 	{
 		if (Capability.Sensor.Type != EOpenMobileSensorType::TrueHeading)
 		{
 			return;
 		}
+		FOpenMobileSensorPrerequisiteCapability& Prerequisite =
+			GetTrueHeadingLocationPrerequisite(Capability);
+		Prerequisite.InputFailureReason = InputState;
+		RefreshPrerequisiteSummary(Prerequisite);
 		if (Capability.ActiveRestriction ==
 			EOpenMobileSensorRestriction::MissingHardware
 			|| Capability.Availability.State ==
@@ -149,14 +298,35 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		{
 			return;
 		}
-		if (!bLocationInputAvailable)
+		if (Prerequisite.PermissionFailureReason !=
+			EOpenMobileSensorFailureReason::None)
+		{
+			Capability.Fallback.bAvailable = false;
+			return;
+		}
+		if (InputState != EOpenMobileSensorFailureReason::None)
 		{
 			Capability.ActiveRestriction =
 				EOpenMobileSensorRestriction::MissingInput;
 			Capability.Availability.State =
 				EOpenMobileCapabilityState::TemporarilyUnavailable;
-			Capability.Availability.Detail =
-				TEXT("True heading requires recent caller-owned location input.");
+			switch (InputState)
+			{
+			case EOpenMobileSensorFailureReason::StaleLocationInput:
+				Capability.Availability.Detail =
+					TEXT("True heading requires newer caller-owned location input.");
+				break;
+			case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
+				Capability.Availability.Detail =
+					TEXT("True heading requires more accurate caller-owned location input.");
+				break;
+			case EOpenMobileSensorFailureReason::MissingLocationInput:
+			default:
+				Capability.Availability.Detail =
+					TEXT("True heading requires caller-owned location input.");
+				break;
+			}
+			Capability.Fallback.bAvailable = false;
 			return;
 		}
 		if (Capability.ActiveRestriction ==
@@ -167,6 +337,18 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 				EOpenMobileCapabilityState::Available;
 			Capability.Availability.Detail.Reset();
 		}
+		Capability.Fallback.bAvailable =
+			Capability.Fallback.bRequiredInputsAvailable;
+	}
+
+	void ApplyLocationState(FOpenMobileSensorCapability& Capability)
+	{
+		ApplyTrueHeadingInputState(
+			Capability,
+			bLocationInputAvailable
+				? EOpenMobileSensorFailureReason::None
+				: EOpenMobileSensorFailureReason::MissingLocationInput
+		);
 	}
 
 	void ApplyLifecycleState(FOpenMobileSensorCapability& Capability)
@@ -306,7 +488,9 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 				EOpenMobileCapabilityState::Available
 			&& (Accelerometer->MaximumFrequencyHz <= 0.0
 				|| Accelerometer->MaximumFrequencyHz >=
-					MinimumFallbackFrequencyHz);
+						MinimumFallbackFrequencyHz);
+		Derived->Fallback.bRequiredInputsAvailable =
+			Derived->Fallback.bAvailable;
 		const bool bHasUsableDirectSource = Derived
 			&& Derived->Availability.State ==
 				EOpenMobileCapabilityState::Available
@@ -387,6 +571,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		const bool bMagneticAvailable = MagneticHeading
 			&& MagneticHeading->Availability.State ==
 				EOpenMobileCapabilityState::Available;
+		TrueHeading->Fallback.bRequiredInputsAvailable = bMagneticAvailable;
 		TrueHeading->Fallback.bAvailable = bMagneticAvailable
 			&& bLocationInputAvailable;
 		const bool bDirectAvailable = TrueHeading->Availability.State ==
@@ -456,6 +641,8 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		const bool bPressureAvailable = Pressure
 			&& Pressure->Availability.State ==
 				EOpenMobileCapabilityState::Available;
+		RelativeAltitude->Fallback.bRequiredInputsAvailable =
+			bPressureAvailable;
 		RelativeAltitude->Fallback.bAvailable = bPressureAvailable;
 		const bool bDirectAvailable =
 			RelativeAltitude->Availability.State ==
@@ -533,6 +720,7 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		const bool bActivityAvailable = Activity
 			&& Activity->Availability.State ==
 				EOpenMobileCapabilityState::Available;
+		Transition->Fallback.bRequiredInputsAvailable = bActivityAvailable;
 		Transition->Fallback.bAvailable = bActivityAvailable;
 		const bool bDirectAvailable = Transition->Availability.State ==
 				EOpenMobileCapabilityState::Available
@@ -625,6 +813,8 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		Shake->Fallback.bImplemented = true;
 		Shake->Fallback.bAvailable =
 			IsAvailableAtRequiredRate(Input);
+		Shake->Fallback.bRequiredInputsAvailable =
+			Shake->Fallback.bAvailable;
 		Shake->Fallback.MinimumInputFrequencyHz = MinimumInputFrequencyHz;
 		Shake->Fallback.PowerCost =
 			EOpenMobileSensorFallbackPowerCost::Low;
@@ -898,6 +1088,42 @@ void FOpenMobileSensorsCapabilityService::NotifyPermissionStatusChanged(
 	PermissionStatuses.Add(Permission, Status);
 	bSnapshotDirty = true;
 	RefreshAndBroadcast();
+}
+
+FOpenMobilePermissionResult
+FOpenMobileSensorsCapabilityService::RefreshPermissionStatus(
+	FName Permission
+)
+{
+	check(IsInGameThread());
+	const FOpenMobilePermissionResult Result =
+		FOpenMobilePermissions::GetStatus(Permission);
+	if (!Result.Error.IsSet())
+	{
+		NotifyPermissionStatusChanged(Permission, Result.Status);
+	}
+	return Result;
+}
+
+void FOpenMobileSensorsCapabilityService::ApplyTrueHeadingLocationInputState(
+	FOpenMobileSensorCapabilitySnapshot& Snapshot,
+	EOpenMobileSensorFailureReason InputState
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsCapabilityServicePrivate;
+	FOpenMobileSensorCapability* TrueHeading =
+		Snapshot.Sensors.FindByPredicate(
+			[](const FOpenMobileSensorCapability& Capability)
+			{
+				return Capability.Sensor.Type ==
+					EOpenMobileSensorType::TrueHeading;
+			}
+		);
+	if (TrueHeading)
+	{
+		ApplyTrueHeadingInputState(*TrueHeading, InputState);
+	}
 }
 
 void FOpenMobileSensorsCapabilityService::SetApplicationActive(bool bActive)
