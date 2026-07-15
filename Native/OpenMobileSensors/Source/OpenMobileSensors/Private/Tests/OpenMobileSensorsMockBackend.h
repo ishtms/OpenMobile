@@ -140,6 +140,10 @@ public:
 		{
 			ActiveSensorStreams.Add(Handle);
 		}
+		if (StartSensorStreamHookForTests)
+		{
+			StartSensorStreamHookForTests();
+		}
 		return StartSensorStreamResult;
 	}
 
@@ -306,6 +310,11 @@ public:
 	void SetAppliedStartFrequencyForTests(double FrequencyHz)
 	{
 		AppliedStartFrequencyForTests = FrequencyHz;
+	}
+
+	void SetStartSensorStreamHookForTests(TFunction<void()> Hook)
+	{
+		StartSensorStreamHookForTests = MoveTemp(Hook);
 	}
 
 	void SetAppliedReconfigureFrequencyForTests(double FrequencyHz)
@@ -529,6 +538,7 @@ private:
 	FOpenMobileSensorOperationResult ReconfigureSensorStreamResult;
 	FOpenMobileSensorOperationResult FlushSensorStreamResult;
 	FOpenMobileSensorOperationResult CalibrationPromptResult;
+	TFunction<void()> StartSensorStreamHookForTests;
 	TOptional<double> AppliedStartFrequencyForTests;
 	TOptional<double> AppliedReconfigureFrequencyForTests;
 	TOptional<bool> NativeBatchingAppliedForTests;

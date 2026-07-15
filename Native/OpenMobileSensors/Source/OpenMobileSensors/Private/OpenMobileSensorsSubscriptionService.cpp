@@ -3,6 +3,7 @@
 #include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "Misc/CoreDelegates.h"
 #include "OpenMobileAsync.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -55,6 +56,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		double LastDeliveryTimestampSeconds = 0.0;
 		bool bHasDeliveredSample = false;
 		bool bResettableStepCountSession = false;
+		bool bPausedForLifecycle = false;
 	};
 
 	struct FPhysicalStreamEntry
@@ -84,6 +86,12 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	TMap<FGuid, FPendingFlush> PendingFlushes;
 	uint32 NextHandleGeneration = 1;
 	bool bShuttingDown = false;
+	bool bApplicationActive = true;
+	bool bApplicationInForeground = true;
+	FDelegateHandle DeactivatedHandle;
+	FDelegateHandle ReactivatedHandle;
+	FDelegateHandle BackgroundHandle;
+	FDelegateHandle ForegroundHandle;
 
 	FOpenMobileSensorOperationResult MakeSuccess(
 		EOpenMobileSensorResultCode ResultCode =
@@ -1538,16 +1546,22 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		const FSubscriptionEntry* FirstEntry =
 			Subscriptions.Find(StartingIdentifiers[0]);
+		const FOpenMobileSensorsBackendToken PendingBackendToken =
+			FirstEntry ? FirstEntry->BackendToken :
+				FOpenMobileSensorsBackendToken{};
 		IOpenMobileSensorsBackend* Backend =
 			FOpenMobileSensorsBackendRegistry::FindBackend();
 		FOpenMobileSensorOperationResult Operation;
 		Operation.Code = EOpenMobileSensorResultCode::Failed;
 		FPhysicalStreamEntry* ExistingPhysical = PhysicalStreams.Find(Key);
+		const bool bStartingNewPhysical = ExistingPhysical == nullptr;
+		const FOpenMobileSensorPhysicalStreamRequest DemandBeforeBackendCall =
+			DesiredRequest;
 		FOpenMobileSensorBackendStreamHandle NewPhysicalHandle;
 		if (!FirstEntry
 			|| !Backend
 			|| !FOpenMobileSensorsBackendRegistry::IsTokenCurrent(
-				FirstEntry->BackendToken
+				PendingBackendToken
 			))
 		{
 			Operation = FOpenMobileSensorsErrorMapper::Map(
@@ -1586,43 +1600,86 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 
 		if (Operation.IsSuccess())
 		{
-			const FOpenMobileSensorBackendStreamHandle ActivePhysicalHandle =
-				ExistingPhysical
-				? ExistingPhysical->Handle
-				: NewPhysicalHandle;
-			if (ExistingPhysical)
+			if (bShuttingDown)
 			{
-				ExistingPhysical->Request = DesiredRequest;
+				if (bStartingNewPhysical
+					&& Backend
+					&& FOpenMobileSensorsBackendRegistry::IsBackendRegistered(
+						Backend
+					))
+				{
+					Backend->StopSensorStream(NewPhysicalHandle);
+				}
+				return;
 			}
-			else
+			FOpenMobileSensorPhysicalStreamRequest CurrentDemand;
+			if (!BuildPhysicalRequest(Key, CurrentDemand))
+			{
+				if (bStartingNewPhysical)
+				{
+					if (FOpenMobileSensorsBackendRegistry::
+						IsBackendRegistered(Backend))
+					{
+						Backend->StopSensorStream(NewPhysicalHandle);
+					}
+				}
+				else
+				{
+					ReconcilePhysicalStream(Key);
+				}
+				return;
+			}
+			const bool bDemandChangedDuringBackendCall =
+				CurrentDemand != DemandBeforeBackendCall;
+			FPhysicalStreamEntry* ActivePhysical =
+				PhysicalStreams.Find(Key);
+			if (bStartingNewPhysical)
 			{
 				FPhysicalStreamEntry Physical;
 				Physical.Handle = NewPhysicalHandle;
 				Physical.Key = Key;
 				Physical.Request = DesiredRequest;
-				Physical.BackendToken = FirstEntry->BackendToken;
+				Physical.BackendToken = PendingBackendToken;
 				Physical.Backend = Backend;
 				PhysicalStreams.Add(Key, MoveTemp(Physical));
+				ActivePhysical = PhysicalStreams.Find(Key);
 			}
+			else if (ActivePhysical)
+			{
+				ActivePhysical->Request = DesiredRequest;
+			}
+			if (!ActivePhysical)
+			{
+				return;
+			}
+			const FOpenMobileSensorBackendStreamHandle ActivePhysicalHandle =
+				ActivePhysical->Handle;
 			UpdateAppliedNativeRate(
 				Key,
-				DesiredRequest
+				ActivePhysical->Request
 			);
 			for (const FGuid& Identifier : StartingIdentifiers)
 			{
 				const FSubscriptionEntry* Entry =
 					Subscriptions.Find(Identifier);
-				if (Entry)
+				if (!Entry
+					|| Entry->State !=
+						EOpenMobileSensorSubscriptionState::Starting)
 				{
-					FOpenMobileSensorsSampleService::SetPhysicalStreamHandle(
-						Entry->Handle,
-						ActivePhysicalHandle
-					);
+					continue;
 				}
+				FOpenMobileSensorsSampleService::SetPhysicalStreamHandle(
+					Entry->Handle,
+					ActivePhysicalHandle
+				);
 				SetState(
 					Identifier,
 					EOpenMobileSensorSubscriptionState::Active
 				);
+			}
+			if (bDemandChangedDuringBackendCall)
+			{
+				ReconcilePhysicalStream(Key);
 			}
 			return;
 		}
@@ -1677,6 +1734,320 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		PhysicalStreams.Reset();
 	}
+
+	bool IsApplicationReadyForForegroundStreams()
+	{
+		return bApplicationActive && bApplicationInForeground;
+	}
+
+	enum class ELifecycleAction : uint8
+	{
+		Pause,
+		Continue,
+		Stop
+	};
+
+	ELifecycleAction ResolveLifecycleAction(
+		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorStreamOptions& Options,
+		bool bBackgroundDeliveryAllowed,
+		const FOpenMobileSensorCapabilitySnapshot& Snapshot
+	)
+	{
+		switch (Options.LifecyclePolicy)
+		{
+		case EOpenMobileSensorLifecyclePolicy::StopInBackground:
+			return ELifecycleAction::Stop;
+		case EOpenMobileSensorLifecyclePolicy::SuspendInBackground:
+			return ELifecycleAction::Pause;
+		case EOpenMobileSensorLifecyclePolicy::ContinueWhenSupported:
+			break;
+		}
+		if (!bBackgroundDeliveryAllowed)
+		{
+			return ELifecycleAction::Pause;
+		}
+		const FOpenMobileSensorCapability* Capability =
+			Snapshot.Sensors.FindByPredicate(
+				[&Sensor](const FOpenMobileSensorCapability& Candidate)
+				{
+					return Candidate.Sensor.Type == Sensor.Type
+						&& (Sensor.InstanceId.IsNone()
+							|| Candidate.Sensor.InstanceId ==
+								Sensor.InstanceId);
+				}
+			);
+		return Capability
+			&& (Capability->BackgroundSupport ==
+					EOpenMobileSensorBackgroundSupport::EventDriven
+				|| Capability->BackgroundSupport ==
+					EOpenMobileSensorBackgroundSupport::Supported)
+			? ELifecycleAction::Continue
+			: ELifecycleAction::Pause;
+	}
+
+	void StopSubscriptionForLifecycle(
+		const FGuid& Identifier,
+		const FOpenMobileSensorOperationResult& Restriction
+	)
+	{
+		FSubscriptionEntry* Entry = Subscriptions.Find(Identifier);
+		if (!Entry)
+		{
+			return;
+		}
+		const FSubscriptionEntry StoppedEntry = *Entry;
+		SetState(
+			Identifier,
+			EOpenMobileSensorSubscriptionState::Stopping,
+			Restriction.Error,
+			Restriction.Failure
+		);
+		Entry = Subscriptions.Find(Identifier);
+		if (!Entry)
+		{
+			return;
+		}
+		Subscriptions.Remove(Identifier);
+		FOpenMobileSensorsSampleService::UnregisterSubscription(
+			StoppedEntry.Handle
+		);
+		FSubscriptionEntry FinalEntry = StoppedEntry;
+		FinalEntry.State = EOpenMobileSensorSubscriptionState::Stopped;
+		FinalEntry.Error = Restriction.Error;
+		FinalEntry.Failure = Restriction.Failure;
+		BroadcastState(FinalEntry);
+	}
+
+	void ApplyApplicationLifecycleState()
+	{
+		if (bShuttingDown)
+		{
+			return;
+		}
+		if (!IsApplicationReadyForForegroundStreams())
+		{
+			CancelPendingOperationsTick();
+			const UOpenMobileSensorsSettings* Settings =
+				GetDefault<UOpenMobileSensorsSettings>();
+			const bool bBackgroundDeliveryAllowed = Settings
+				&& Settings->bAllowBackgroundSensorDelivery;
+			const FOpenMobileSensorCapabilitySnapshot CapabilitySnapshot =
+				FOpenMobileSensorsCapabilityService::GetSnapshot();
+			TArray<FGuid> PausedIdentifiers;
+			TArray<FGuid> ResumedIdentifiers;
+			TArray<FGuid> StoppedIdentifiers;
+			TSet<FPhysicalStreamKey> Keys;
+			for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+			{
+				if (Pair.Value.State ==
+						EOpenMobileSensorSubscriptionState::Accepted
+					|| Pair.Value.State ==
+						EOpenMobileSensorSubscriptionState::Starting
+					|| Pair.Value.State ==
+						EOpenMobileSensorSubscriptionState::Active)
+				{
+					const ELifecycleAction Action = ResolveLifecycleAction(
+						Pair.Value.Request.Sensor,
+						Pair.Value.AppliedOptions,
+						bBackgroundDeliveryAllowed,
+						CapabilitySnapshot
+					);
+					if (Action != ELifecycleAction::Continue)
+					{
+						Keys.Add(Pair.Value.PhysicalKey);
+					}
+					if (Action == ELifecycleAction::Pause)
+					{
+						PausedIdentifiers.Add(Pair.Key);
+					}
+					else if (Action == ELifecycleAction::Stop)
+					{
+						StoppedIdentifiers.Add(Pair.Key);
+					}
+				}
+				else if (Pair.Value.State ==
+						EOpenMobileSensorSubscriptionState::Paused
+					&& Pair.Value.bPausedForLifecycle)
+				{
+					const ELifecycleAction Action = ResolveLifecycleAction(
+						Pair.Value.Request.Sensor,
+						Pair.Value.AppliedOptions,
+						bBackgroundDeliveryAllowed,
+						CapabilitySnapshot
+					);
+					if (Action == ELifecycleAction::Continue)
+					{
+						ResumedIdentifiers.Add(Pair.Key);
+					}
+					else if (Action == ELifecycleAction::Stop)
+					{
+						StoppedIdentifiers.Add(Pair.Key);
+						Keys.Add(Pair.Value.PhysicalKey);
+					}
+				}
+			}
+			const FOpenMobileSensorOperationResult Restriction =
+				FOpenMobileSensorsErrorMapper::Map(
+					EOpenMobileSensorFailureReason::BackgroundRestricted
+				);
+			for (const FGuid& Identifier : PausedIdentifiers)
+			{
+				FSubscriptionEntry* Entry = Subscriptions.Find(Identifier);
+				if (!Entry)
+				{
+					continue;
+				}
+				Entry->bPausedForLifecycle = true;
+				SetState(
+					Identifier,
+					EOpenMobileSensorSubscriptionState::Paused,
+					Restriction.Error,
+					Restriction.Failure
+				);
+			}
+			for (const FGuid& Identifier : StoppedIdentifiers)
+			{
+				StopSubscriptionForLifecycle(Identifier, Restriction);
+			}
+			bool bNeedsBackendWork = false;
+			for (const FGuid& Identifier : ResumedIdentifiers)
+			{
+				FSubscriptionEntry* Entry = Subscriptions.Find(Identifier);
+				if (!Entry || !Entry->bPausedForLifecycle)
+				{
+					continue;
+				}
+				Entry->bPausedForLifecycle = false;
+				SetState(
+					Identifier,
+					EOpenMobileSensorSubscriptionState::Accepted
+				);
+				bNeedsBackendWork = true;
+			}
+			for (const FPhysicalStreamKey& Key : Keys)
+			{
+				ReconcilePhysicalStream(Key);
+			}
+			if (bNeedsBackendWork)
+			{
+				SchedulePendingBackendOperations();
+			}
+			return;
+		}
+
+		bool bNeedsBackendWork = false;
+		TArray<FGuid> Identifiers;
+		for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+		{
+			if (Pair.Value.State == EOpenMobileSensorSubscriptionState::Paused
+				&& Pair.Value.bPausedForLifecycle)
+			{
+				Identifiers.Add(Pair.Key);
+			}
+		}
+		for (const FGuid& Identifier : Identifiers)
+		{
+			FSubscriptionEntry* Entry = Subscriptions.Find(Identifier);
+			if (!Entry || !Entry->bPausedForLifecycle)
+			{
+				continue;
+			}
+			Entry->bPausedForLifecycle = false;
+			SetState(
+				Identifier,
+				EOpenMobileSensorSubscriptionState::Accepted
+			);
+			bNeedsBackendWork = true;
+		}
+		if (bNeedsBackendWork)
+		{
+			SchedulePendingBackendOperations();
+		}
+	}
+
+	FOpenMobileSensorOperationResult CompleteSubscriptionUpdate()
+	{
+		ApplyApplicationLifecycleState();
+		return MakeSuccess();
+	}
+
+	void HandleApplicationWillDeactivate()
+	{
+		bApplicationActive = false;
+		ApplyApplicationLifecycleState();
+	}
+
+	void HandleApplicationHasReactivated()
+	{
+		bApplicationActive = true;
+		ApplyApplicationLifecycleState();
+	}
+
+	void HandleApplicationWillEnterBackground()
+	{
+		bApplicationInForeground = false;
+		ApplyApplicationLifecycleState();
+	}
+
+	void HandleApplicationHasEnteredForeground()
+	{
+		bApplicationInForeground = true;
+		ApplyApplicationLifecycleState();
+	}
+
+	void RemoveLifecycleDelegates()
+	{
+		if (DeactivatedHandle.IsValid())
+		{
+			FCoreDelegates::ApplicationWillDeactivateDelegate.Remove(
+				DeactivatedHandle
+			);
+			DeactivatedHandle.Reset();
+		}
+		if (ReactivatedHandle.IsValid())
+		{
+			FCoreDelegates::ApplicationHasReactivatedDelegate.Remove(
+				ReactivatedHandle
+			);
+			ReactivatedHandle.Reset();
+		}
+		if (BackgroundHandle.IsValid())
+		{
+			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Remove(
+				BackgroundHandle
+			);
+			BackgroundHandle.Reset();
+		}
+		if (ForegroundHandle.IsValid())
+		{
+			FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Remove(
+				ForegroundHandle
+			);
+			ForegroundHandle.Reset();
+		}
+	}
+
+	void RegisterLifecycleDelegates()
+	{
+		RemoveLifecycleDelegates();
+		DeactivatedHandle =
+			FCoreDelegates::ApplicationWillDeactivateDelegate.AddStatic(
+				&HandleApplicationWillDeactivate
+			);
+		ReactivatedHandle =
+			FCoreDelegates::ApplicationHasReactivatedDelegate.AddStatic(
+				&HandleApplicationHasReactivated
+			);
+		BackgroundHandle =
+			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddStatic(
+				&HandleApplicationWillEnterBackground
+			);
+		ForegroundHandle =
+			FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddStatic(
+				&HandleApplicationHasEnteredForeground
+			);
+	}
 }
 
 void FOpenMobileSensorsSubscriptionService::Start()
@@ -1686,9 +2057,12 @@ void FOpenMobileSensorsSubscriptionService::Start()
 	CancelPendingOperationsTick();
 	CancelAllFlushes();
 	bShuttingDown = false;
+	bApplicationActive = true;
+	bApplicationInForeground = true;
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
+	RegisterLifecycleDelegates();
 }
 
 void FOpenMobileSensorsSubscriptionService::BeginShutdown()
@@ -1700,6 +2074,7 @@ void FOpenMobileSensorsSubscriptionService::BeginShutdown()
 		return;
 	}
 	bShuttingDown = true;
+	RemoveLifecycleDelegates();
 	CancelPendingOperationsTick();
 	CancelAllFlushes();
 	StopPhysicalStreams();
@@ -1796,6 +2171,27 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		);
 		return Result;
 	}
+	ELifecycleAction InactiveLifecycleAction = ELifecycleAction::Continue;
+	if (!IsApplicationReadyForForegroundStreams())
+	{
+		const UOpenMobileSensorsSettings* Settings =
+			GetDefault<UOpenMobileSensorsSettings>();
+		const FOpenMobileSensorCapabilitySnapshot CapabilitySnapshot =
+			FOpenMobileSensorsCapabilityService::GetSnapshot();
+		InactiveLifecycleAction = ResolveLifecycleAction(
+			Request.Sensor,
+			AppliedOptions,
+			Settings && Settings->bAllowBackgroundSensorDelivery,
+			CapabilitySnapshot
+		);
+	}
+	if (InactiveLifecycleAction == ELifecycleAction::Stop)
+	{
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::BackgroundRestricted
+		);
+		return Result;
+	}
 	const FOpenMobileSensorsBackendToken BackendToken =
 		FOpenMobileSensorsBackendRegistry::CaptureToken();
 	if (BackendToken.Generation == 0)
@@ -1836,7 +2232,25 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 		Request.bResettableStepCountSession,
 		BackendToken.Generation
 	);
-	SchedulePendingBackendOperations();
+	if (InactiveLifecycleAction == ELifecycleAction::Continue)
+	{
+		SchedulePendingBackendOperations();
+	}
+	else if (FSubscriptionEntry* StoredEntry =
+		Subscriptions.Find(Handle.Identifier))
+	{
+		StoredEntry->bPausedForLifecycle = true;
+		const FOpenMobileSensorOperationResult Restriction =
+			FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::BackgroundRestricted
+			);
+		SetState(
+			Handle.Identifier,
+			EOpenMobileSensorSubscriptionState::Paused,
+			Restriction.Error,
+			Restriction.Failure
+		);
+	}
 
 	Result.Handle = Handle;
 	Result.Operation = MakeSuccess(EOpenMobileSensorResultCode::Accepted);
@@ -1872,7 +2286,13 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	}
 	FOpenMobileSensorIdentifier PhysicalSensor;
 	EOpenMobileSensorFailureReason ResolutionFailure;
-	if (!ResolvePhysicalSensor(
+	if (Entry->State == EOpenMobileSensorSubscriptionState::Paused
+		&& Entry->bPausedForLifecycle
+		&& !IsApplicationReadyForForegroundStreams())
+	{
+		PhysicalSensor = Entry->PhysicalKey.Sensor;
+	}
+	else if (!ResolvePhysicalSensor(
 		OwnerIdentifier,
 		Entry->Request.Sensor,
 		Options,
@@ -2062,7 +2482,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 			UpdateAppliedNativeRate(NewKey, ActivePhysical->Request);
 		}
 		BroadcastState(*Entry);
-		return MakeSuccess();
+		return CompleteSubscriptionUpdate();
 	}
 	if (Entry->State == EOpenMobileSensorSubscriptionState::Active)
 	{
@@ -2098,7 +2518,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 			Handle,
 			AppliedOptions
 		);
-		return MakeSuccess();
+		return CompleteSubscriptionUpdate();
 	}
 
 	FPhysicalStreamEntry* Physical = PhysicalStreams.Find(PreviousKey);
@@ -2124,7 +2544,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 			Handle,
 			AppliedOptions
 		);
-		return MakeSuccess();
+		return CompleteSubscriptionUpdate();
 	}
 	FOpenMobileSensorPhysicalStreamRequest BackendRequest = DesiredRequest;
 	const FOpenMobileSensorOperationResult ReconfigureResult =
@@ -2150,7 +2570,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 		Handle,
 		AppliedOptions
 	);
-	return MakeSuccess();
+	return CompleteSubscriptionUpdate();
 }
 
 FOpenMobileSensorOperationResult
@@ -2817,5 +3237,8 @@ void FOpenMobileSensorsSubscriptionService::ResetForTests()
 	StateChangedEvent.Clear();
 	NextHandleGeneration = 1;
 	bShuttingDown = false;
+	bApplicationActive = true;
+	bApplicationInForeground = true;
+	RegisterLifecycleDelegates();
 }
 #endif

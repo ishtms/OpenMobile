@@ -12,12 +12,16 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 {
 	bool bStarted = false;
 	bool bApplicationActive = true;
+	bool bApplicationFocused = true;
+	bool bApplicationInForeground = true;
 	bool bLocationInputAvailable = false;
 	bool bBackendDirty = true;
 	bool bSnapshotDirty = true;
 	bool bHasSnapshot = false;
 	FDelegateHandle BackgroundHandle;
 	FDelegateHandle ForegroundHandle;
+	FDelegateHandle DeactivatedHandle;
+	FDelegateHandle ReactivatedHandle;
 	FOpenMobileSensorsBackendToken BaseBackendToken;
 	FName BaseBackendName;
 	FOpenMobileCapability BaseBackendAvailability;
@@ -984,14 +988,41 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		}
 	}
 
+	void RefreshApplicationActivity()
+	{
+		const bool bActive = bApplicationFocused
+			&& bApplicationInForeground;
+		if (bApplicationActive == bActive)
+		{
+			return;
+		}
+		bApplicationActive = bActive;
+		bSnapshotDirty = true;
+		RefreshAndBroadcast();
+	}
+
+	void HandleApplicationWillDeactivate()
+	{
+		bApplicationFocused = false;
+		RefreshApplicationActivity();
+	}
+
+	void HandleApplicationHasReactivated()
+	{
+		bApplicationFocused = true;
+		RefreshApplicationActivity();
+	}
+
 	void HandleApplicationWillEnterBackground()
 	{
-		FOpenMobileSensorsCapabilityService::SetApplicationActive(false);
+		bApplicationInForeground = false;
+		RefreshApplicationActivity();
 	}
 
 	void HandleApplicationHasEnteredForeground()
 	{
-		FOpenMobileSensorsCapabilityService::SetApplicationActive(true);
+		bApplicationInForeground = true;
+		RefreshApplicationActivity();
 	}
 }
 
@@ -1005,6 +1036,8 @@ void FOpenMobileSensorsCapabilityService::Start()
 	}
 	bStarted = true;
 	bApplicationActive = true;
+	bApplicationFocused = true;
+	bApplicationInForeground = true;
 	bLocationInputAvailable = false;
 	bBackendDirty = true;
 	bSnapshotDirty = true;
@@ -1017,6 +1050,14 @@ void FOpenMobileSensorsCapabilityService::Start()
 	ForegroundHandle =
 		FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddStatic(
 			&HandleApplicationHasEnteredForeground
+		);
+	DeactivatedHandle =
+		FCoreDelegates::ApplicationWillDeactivateDelegate.AddStatic(
+			&HandleApplicationWillDeactivate
+		);
+	ReactivatedHandle =
+		FCoreDelegates::ApplicationHasReactivatedDelegate.AddStatic(
+			&HandleApplicationHasReactivated
 		);
 }
 
@@ -1037,6 +1078,20 @@ void FOpenMobileSensorsCapabilityService::BeginShutdown()
 			ForegroundHandle
 		);
 		ForegroundHandle.Reset();
+	}
+	if (DeactivatedHandle.IsValid())
+	{
+		FCoreDelegates::ApplicationWillDeactivateDelegate.Remove(
+			DeactivatedHandle
+		);
+		DeactivatedHandle.Reset();
+	}
+	if (ReactivatedHandle.IsValid())
+	{
+		FCoreDelegates::ApplicationHasReactivatedDelegate.Remove(
+			ReactivatedHandle
+		);
+		ReactivatedHandle.Reset();
 	}
 	ChangedEvent.Clear();
 	PermissionStatuses.Reset();
@@ -1130,13 +1185,9 @@ void FOpenMobileSensorsCapabilityService::SetApplicationActive(bool bActive)
 {
 	check(IsInGameThread());
 	using namespace OpenMobileSensorsCapabilityServicePrivate;
-	if (bApplicationActive == bActive)
-	{
-		return;
-	}
-	bApplicationActive = bActive;
-	bSnapshotDirty = true;
-	RefreshAndBroadcast();
+	bApplicationFocused = bActive;
+	bApplicationInForeground = bActive;
+	RefreshApplicationActivity();
 }
 
 void FOpenMobileSensorsCapabilityService::SetLocationInputAvailable(

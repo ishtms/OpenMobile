@@ -5,6 +5,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/CoreDelegates.h"
 #include "OpenMobileSensorRecordingCodec.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -305,6 +306,37 @@ bool FOpenMobileSensorsAccelerometerRecordingLifecycleTest::RunTest(
 		FOpenMobileSensorsSubscriptionService::
 			GetPhysicalStreamCountForTests(), 1);
 
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	EOpenMobileSensorRecordingState RecordingState =
+		EOpenMobileSensorRecordingState::Idle;
+	TestTrue(
+		TEXT("A suspended recording remains queryable"),
+		FOpenMobileSensorsRecordingService::GetRecordingStateForTests(
+			RequestId,
+			RecordingState
+		)
+	);
+	TestEqual(
+		TEXT("The default lifecycle keeps recording state across a gap"),
+		RecordingState,
+		EOpenMobileSensorRecordingState::Recording
+	);
+	TestEqual(
+		TEXT("Suspending every owner releases the shared native stream"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		0
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestEqual(
+		TEXT("Resume restores one renegotiated shared native stream"),
+		FOpenMobileSensorsSubscriptionService::
+			GetPhysicalStreamCountForTests(),
+		1
+	);
+
 	FOpenMobileVectorSensorBatch Batch;
 	for (int32 Index = 0; Index < 2; ++Index)
 	{
@@ -569,6 +601,190 @@ bool FOpenMobileSensorsAccelerometerRecordingSizeLimitTest::RunTest(
 		Decoded.Footer.DroppedSamples,
 		StopResult.Recording.DroppedSamples);
 	IFileManager::Get().Delete(*StopResult.Recording.FilePath);
+	FinishServices(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRecordingStopInBackgroundTest,
+	"OpenMobile.Sensors.Accelerometer.Recording.StopInBackground",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRecordingStopInBackgroundTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsRecordingTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("RecordingLifecycleStop"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	FOpenMobileSensorRecordingOptions Options;
+	FOpenMobileSensorIdentifier& Sensor =
+		Options.Sensors.AddDefaulted_GetRef();
+	Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	Sensor.InstanceId = TEXT("Default");
+	Options.MaximumDurationSeconds = 30.0;
+	Options.MaximumBytes = 1024ll * 1024;
+	Options.LifecyclePolicy =
+		EOpenMobileSensorLifecyclePolicy::StopInBackground;
+	bool bStarted = false;
+	FOpenMobileSensorRecordingResult StartResult;
+	const FGuid RequestId =
+		FOpenMobileSensorsRecordingService::StartRecording(
+			Owner,
+			Options,
+			[&](const FOpenMobileSensorRecordingResult& Result)
+			{
+				StartResult = Result;
+				bStarted = true;
+			}
+		);
+	TestTrue(
+		TEXT("The lifecycle recording starts"),
+		WaitUntil([&]() { return bStarted; })
+	);
+	TestTrue(
+		TEXT("The lifecycle recording is active"),
+		StartResult.Operation.IsSuccess()
+	);
+
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+	EOpenMobileSensorRecordingState RecordingState =
+		EOpenMobileSensorRecordingState::Idle;
+	TestTrue(
+		TEXT("The recording remains queryable during finalization"),
+		FOpenMobileSensorsRecordingService::GetRecordingStateForTests(
+			RequestId,
+			RecordingState
+		)
+	);
+	TestTrue(
+		TEXT("Stop-in-background begins recording finalization"),
+		RecordingState == EOpenMobileSensorRecordingState::Stopping
+			|| RecordingState == EOpenMobileSensorRecordingState::Completed
+	);
+	TestTrue(
+		TEXT("Background finalization completes"),
+		WaitUntil([&]()
+		{
+			return FOpenMobileSensorsRecordingService::
+				GetRecordingStateForTests(RequestId, RecordingState)
+				&& RecordingState ==
+					EOpenMobileSensorRecordingState::Completed;
+		})
+	);
+
+	bool bCollected = false;
+	FOpenMobileSensorRecordingResult FinalResult;
+	FOpenMobileSensorsRecordingService::StopRecording(
+		Owner,
+		RequestId,
+		[&](const FOpenMobileSensorRecordingResult& Result)
+		{
+			FinalResult = Result;
+			bCollected = true;
+		}
+	);
+	TestTrue(
+		TEXT("The finalized result is immediately collectable"),
+		bCollected
+	);
+	TestTrue(
+		TEXT("Lifecycle finalization produces a valid recording"),
+		FinalResult.Operation.IsSuccess()
+	);
+	TestEqual(
+		TEXT("Lifecycle finalization reports completed state"),
+		FinalResult.Recording.State,
+		EOpenMobileSensorRecordingState::Completed
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	IFileManager::Get().Delete(*FinalResult.Recording.FilePath);
+	FinishServices(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRecordingStopWhileStartingInBackgroundTest,
+	"OpenMobile.Sensors.Accelerometer.Recording.StopWhileStartingInBackground",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRecordingStopWhileStartingInBackgroundTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsRecordingTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("RecordingStartLifecycleStop"));
+	bool bInterrupted = false;
+	Backend.SetStartSensorStreamHookForTests([&]()
+	{
+		if (!bInterrupted)
+		{
+			bInterrupted = true;
+			FCoreDelegates::ApplicationWillEnterBackgroundDelegate.Broadcast();
+		}
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	FOpenMobileSensorRecordingOptions Options;
+	FOpenMobileSensorIdentifier& Sensor =
+		Options.Sensors.AddDefaulted_GetRef();
+	Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	Sensor.InstanceId = TEXT("Default");
+	Options.MaximumDurationSeconds = 30.0;
+	Options.MaximumBytes = 1024ll * 1024;
+	Options.LifecyclePolicy =
+		EOpenMobileSensorLifecyclePolicy::StopInBackground;
+	bool bCompleted = false;
+	int32 CompletionCount = 0;
+	FOpenMobileSensorRecordingResult Result;
+	FOpenMobileSensorsRecordingService::StartRecording(
+		FGuid::NewGuid(),
+		Options,
+		[&](const FOpenMobileSensorRecordingResult& InResult)
+		{
+			Result = InResult;
+			++CompletionCount;
+			bCompleted = true;
+		}
+	);
+	TestTrue(
+		TEXT("The native start is interrupted"),
+		WaitUntil([&]() { return bInterrupted; })
+	);
+	TestTrue(
+		TEXT("The interrupted start completes"),
+		WaitUntil([&]() { return bCompleted; })
+	);
+	TestEqual(
+		TEXT("The interrupted start completes once"),
+		CompletionCount,
+		1
+	);
+	TestFalse(
+		TEXT("The interrupted recording is not accepted"),
+		Result.Operation.IsSuccess()
+	);
+	TestEqual(
+		TEXT("The interrupted start reports the lifecycle restriction"),
+		Result.Operation.Failure.Reason,
+		EOpenMobileSensorFailureReason::BackgroundRestricted
+	);
+	TestEqual(
+		TEXT("The raced native stream is released"),
+		Backend.GetStopSensorStreamCount(),
+		1
+	);
+	FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
+	if (!Result.Recording.FilePath.IsEmpty())
+	{
+		IFileManager::Get().Delete(*Result.Recording.FilePath);
+	}
 	FinishServices(Backend);
 	return true;
 }

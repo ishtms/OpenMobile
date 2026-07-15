@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorRecording.generated.h"
 
 UENUM(BlueprintType)
@@ -32,6 +33,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingOptions
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	bool bIncludeSensitiveLocationContext = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorLifecyclePolicy LifecyclePolicy =
+		EOpenMobileSensorLifecyclePolicy::SuspendInBackground;
 };
 
 USTRUCT(BlueprintType)

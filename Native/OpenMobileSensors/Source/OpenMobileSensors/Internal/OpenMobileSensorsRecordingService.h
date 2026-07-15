@@ -28,6 +28,10 @@ public:
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void TickForTests(double NowSeconds);
+	static bool GetRecordingStateForTests(
+		const FGuid& RequestId,
+		EOpenMobileSensorRecordingState& OutState
+	);
 	static void ResetForTests();
 #endif
 };

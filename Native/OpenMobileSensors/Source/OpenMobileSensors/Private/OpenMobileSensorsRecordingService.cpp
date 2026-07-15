@@ -142,6 +142,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	TMap<FGuid, TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>> Recordings;
 	TMap<FGuid, TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>> Replays;
 	FDelegateHandle VectorBatchHandle;
+	FDelegateHandle SubscriptionStateHandle;
 	FTSTicker::FDelegateHandle TickHandle;
 	bool bShuttingDown = true;
 
@@ -230,7 +231,11 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			|| Options.MaximumBytes < MinimumRecordingBytes
 			|| Options.MaximumBytes > FMath::Min(
 				Settings->MaximumRecordingBytes,
-				MaximumReplayFileBytes))
+				MaximumReplayFileBytes)
+			|| !StaticEnum<EOpenMobileSensorLifecyclePolicy>()->
+				IsValidEnumValue(
+					static_cast<int64>(Options.LifecyclePolicy)
+				))
 		{
 			OutFailure = MakeFailure(
 				EOpenMobileSensorFailureReason::InvalidRequest,
@@ -665,6 +670,44 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		}
 	}
 
+	void RequestWorkerStop(FRecordingEntry& Entry, bool bDiscard);
+
+	void HandleSubscriptionStateChanged(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
+	)
+	{
+		if (bShuttingDown
+			|| Snapshot.State != EOpenMobileSensorSubscriptionState::Stopped
+			|| Snapshot.Failure.Reason !=
+				EOpenMobileSensorFailureReason::BackgroundRestricted)
+		{
+			return;
+		}
+		for (const TPair<
+			FGuid,
+			TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>
+		>& Pair : Recordings)
+		{
+			FRecordingEntry& Entry = *Pair.Value;
+			if (Entry.StreamOwnerIdentifier != OwnerIdentifier
+				|| !Entry.SubscriptionHandles.Contains(Snapshot.Handle)
+				|| (Entry.State != EOpenMobileSensorRecordingState::Starting
+					&& Entry.State !=
+						EOpenMobileSensorRecordingState::Recording))
+			{
+				continue;
+			}
+			Entry.bStopRequested = true;
+			Entry.bAutoStopped = true;
+			if (Entry.State == EOpenMobileSensorRecordingState::Recording)
+			{
+				Entry.State = EOpenMobileSensorRecordingState::Stopping;
+				RequestWorkerStop(Entry, false);
+			}
+		}
+	}
+
 	void StopHiddenSubscriptions(FRecordingEntry& Entry)
 	{
 		for (const FOpenMobileSensorSubscriptionHandle& Handle
@@ -708,6 +751,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			Request.Options.OverflowPolicy =
 				EOpenMobileSensorOverflowPolicy::RejectNewest;
 			Request.Options.Filters = {};
+			Request.Options.LifecyclePolicy = Entry.Options.LifecyclePolicy;
 			const FOpenMobileSensorSubscriptionResult Result =
 				FOpenMobileSensorsSubscriptionService::StartSubscription(
 					Entry.StreamOwnerIdentifier, Request);
@@ -1086,8 +1130,31 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			{
 				if (Entry->bStopRequested)
 				{
-					Entry->State = EOpenMobileSensorRecordingState::Stopping;
-					RequestWorkerStop(*Entry, false);
+					StopHiddenSubscriptions(*Entry);
+					Entry->State = EOpenMobileSensorRecordingState::Failed;
+					Entry->FinalResult.Operation = MakeFailure(
+						EOpenMobileSensorFailureReason::BackgroundRestricted,
+						TEXT("RecordingStoppedInBackground")
+					);
+					Entry->FinalResult.Recording = MakeSnapshot(
+						*Entry,
+						EOpenMobileSensorRecordingState::Failed
+					);
+					RequestWorkerStop(*Entry, true);
+					Entry->bStartCompletionDelivered = true;
+					if (Entry->StartCompletion)
+					{
+						auto Completion = MoveTemp(Entry->StartCompletion);
+						const FOpenMobileSensorRecordingResult Result =
+							Entry->FinalResult;
+						Callbacks.Add([
+							Completion = MoveTemp(Completion),
+							Result
+						]() mutable
+						{
+							Completion(Result);
+						});
+					}
 				}
 				else
 				{
@@ -1187,6 +1254,13 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				StopHiddenSubscriptions(*Entry);
 				Entry->State = EOpenMobileSensorRecordingState::Failed;
 				Entry->FinalResult = MakeWorkerFailure(*Entry);
+			}
+			if (Entry->State == EOpenMobileSensorRecordingState::Recording
+				&& Entry->bStopRequested)
+			{
+				StopHiddenSubscriptions(*Entry);
+				Entry->State = EOpenMobileSensorRecordingState::Stopping;
+				RequestWorkerStop(*Entry, false);
 			}
 			if (Entry->State == EOpenMobileSensorRecordingState::Recording
 				&& NowSeconds - Entry->StartWallTimeSeconds >=
@@ -1315,6 +1389,13 @@ void FOpenMobileSensorsRecordingService::Start()
 		VectorBatchHandle = FOpenMobileSensorsSampleService::OnVectorBatch()
 			.AddStatic(&CaptureVectorBatch);
 	}
+	if (!SubscriptionStateHandle.IsValid())
+	{
+		SubscriptionStateHandle =
+			FOpenMobileSensorsSubscriptionService::OnStateChanged().AddStatic(
+				&HandleSubscriptionStateChanged
+			);
+	}
 	EnsureTicker();
 }
 
@@ -1333,6 +1414,13 @@ void FOpenMobileSensorsRecordingService::BeginShutdown()
 		FOpenMobileSensorsSampleService::OnVectorBatch().Remove(
 			VectorBatchHandle);
 		VectorBatchHandle.Reset();
+	}
+	if (SubscriptionStateHandle.IsValid())
+	{
+		FOpenMobileSensorsSubscriptionService::OnStateChanged().Remove(
+			SubscriptionStateHandle
+		);
+		SubscriptionStateHandle.Reset();
 	}
 	CancelEntries(nullptr);
 }
@@ -1548,6 +1636,22 @@ void FOpenMobileSensorsRecordingService::TickForTests(double NowSeconds)
 	{
 		TickAt(NowSeconds);
 	}
+}
+
+bool FOpenMobileSensorsRecordingService::GetRecordingStateForTests(
+	const FGuid& RequestId,
+	EOpenMobileSensorRecordingState& OutState
+)
+{
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>* Entry =
+		Recordings.Find(RequestId);
+	if (!Entry)
+	{
+		return false;
+	}
+	OutState = (*Entry)->State;
+	return true;
 }
 
 void FOpenMobileSensorsRecordingService::ResetForTests()
