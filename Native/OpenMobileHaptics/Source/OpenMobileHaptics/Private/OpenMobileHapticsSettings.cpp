@@ -1,6 +1,7 @@
 #include "OpenMobileHapticsSettings.h"
 
 #include "Misc/PackageName.h"
+#include "OpenMobileHapticsRateLimiter.h"
 
 namespace OpenMobileHapticsSettingsPrivate
 {
@@ -29,7 +30,8 @@ UOpenMobileHapticsSettings::UOpenMobileHapticsSettings()
 		FName Name,
 		EOpenMobileHapticChannelPriority Priority,
 		int32 Capacity,
-		float MinimumIntervalSeconds
+		float MinimumIntervalSeconds,
+		int32 ChannelMaximumSubmissionsPerSecond
 	)
 	{
 		FOpenMobileHapticChannelSettings Channel;
@@ -38,28 +40,45 @@ UOpenMobileHapticsSettings::UOpenMobileHapticsSettings()
 		Channel.MaximumActiveHandles = Capacity;
 		Channel.MaximumQueueDepth = Capacity;
 		Channel.MinimumIntervalSeconds = MinimumIntervalSeconds;
+		Channel.MaximumSubmissionsPerSecond =
+			ChannelMaximumSubmissionsPerSecond;
 		Channels.Add(MoveTemp(Channel));
 	};
 
-	AddChannel(TEXT("UI"), EOpenMobileHapticChannelPriority::Normal, 4, 0.04f);
+	AddChannel(
+		TEXT("UI"),
+		EOpenMobileHapticChannelPriority::Normal,
+		4,
+		0.04f,
+		20
+	);
 	AddChannel(
 		TEXT("Gameplay"),
 		EOpenMobileHapticChannelPriority::Normal,
 		8,
-		0.02f
+		0.02f,
+		30
 	);
-	AddChannel(TEXT("Alerts"), EOpenMobileHapticChannelPriority::High, 4, 0.1f);
+	AddChannel(
+		TEXT("Alerts"),
+		EOpenMobileHapticChannelPriority::High,
+		4,
+		0.1f,
+		10
+	);
 	AddChannel(
 		TEXT("Cinematic"),
 		EOpenMobileHapticChannelPriority::Normal,
 		4,
-		0.02f
+		0.02f,
+		20
 	);
 	AddChannel(
 		TEXT("Critical"),
 		EOpenMobileHapticChannelPriority::Critical,
 		2,
-		0.25f
+		0.25f,
+		4
 	);
 }
 
@@ -126,6 +145,13 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 		if (!IsFiniteRange(Channel.MinimumIntervalSeconds, 0.0f, 1.0f))
 		{
 			AddError(TEXT("Channel minimum intervals must be finite and between 0 and 1 second."));
+		}
+		if (Channel.MaximumSubmissionsPerSecond < 1
+			|| Channel.MaximumSubmissionsPerSecond
+				> FOpenMobileHapticsRateLimiter::
+					HardMaximumChannelSubmissionsPerSecond)
+		{
+			AddError(TEXT("Channel submission rates must be between 1 and the hard comfort limit."));
 		}
 		if (!IsNormalized(Channel.IntensityScale))
 		{
@@ -277,9 +303,12 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	{
 		AddError(TEXT("Default minimum interval must be finite and between 0 and 1 second."));
 	}
-	if (MaximumSubmissionsPerSecond < 1 || MaximumSubmissionsPerSecond > 100)
+	if (MaximumSubmissionsPerSecond < 1
+		|| MaximumSubmissionsPerSecond
+			> FOpenMobileHapticsRateLimiter::
+				HardMaximumGlobalSubmissionsPerSecond)
 	{
-		AddError(TEXT("Maximum submissions per second must be between 1 and 100."));
+		AddError(TEXT("Maximum submissions per second must fit within the hard comfort limit."));
 	}
 	if (MaximumDynamicParameterUpdatesPerSecond < 1
 		|| MaximumDynamicParameterUpdatesPerSecond > 240)
@@ -289,6 +318,10 @@ bool UOpenMobileHapticsSettings::Validate(TArray<FString>& OutErrors) const
 	if (!IsFiniteRange(SelectionDebounceSeconds, 0.0f, 1.0f))
 	{
 		AddError(TEXT("Selection debounce must be finite and between 0 and 1 second."));
+	}
+	if (!IsFiniteRange(UIRequestDebounceSeconds, 0.0f, 1.0f))
+	{
+		AddError(TEXT("UI request debounce must be finite and between 0 and 1 second."));
 	}
 	if (MaximumRecoveryAttempts < 0 || MaximumRecoveryAttempts > 8)
 	{

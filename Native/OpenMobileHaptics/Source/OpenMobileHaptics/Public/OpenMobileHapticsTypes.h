@@ -186,6 +186,24 @@ enum class EOpenMobileHapticPlaybackOutcome : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileHapticSuppressionReason : uint8
+{
+	None,
+	PlayerPolicy,
+	Lifecycle,
+	ZeroOutput,
+	Unavailable,
+	OverlapPolicy,
+	EquivalentRequest,
+	ChannelMinimumInterval,
+	EffectMinimumInterval,
+	ChannelWindow,
+	GlobalWindow,
+	InvalidClock,
+	Other
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileHapticNamedPatternStatus : uint8
 {
 	Unprepared,
@@ -1024,6 +1042,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticSuppressionReason SuppressionReason =
+		EOpenMobileHapticSuppressionReason::None;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticPlaybackHandle Handle;

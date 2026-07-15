@@ -319,6 +319,70 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			policy_header.read_text(encoding="utf-8"),
 		)
 
+	def test_rate_limits_are_bounded_and_cover_all_submission_paths(self) -> None:
+		common_module = HAPTICS_PLUGIN / "Source" / "OpenMobileHaptics"
+		limiter_header = (
+			common_module / "Internal" / "OpenMobileHapticsRateLimiter.h"
+		).read_text(encoding="utf-8")
+		limiter_source = (
+			common_module / "Private" / "OpenMobileHapticsRateLimiter.cpp"
+		).read_text(encoding="utf-8")
+		settings = (
+			common_module / "Public" / "OpenMobileHapticsSettings.h"
+		).read_text(encoding="utf-8")
+		types = (
+			common_module / "Public" / "OpenMobileHapticsTypes.h"
+		).read_text(encoding="utf-8")
+		subsystem = (
+			common_module / "Private" / "OpenMobileHapticsSubsystem.cpp"
+		).read_text(encoding="utf-8")
+
+		for contract in (
+			"HardMaximumChannelSubmissionsPerSecond = 30",
+			"HardMaximumGlobalSubmissionsPerSecond = 60",
+			"MaximumTrackedChannels = 128",
+			"MaximumTrackedEffects = 1024",
+			"MaximumTrackedEquivalentRequests = 256",
+			"using FClock = TFunction<double()>;",
+			"FCriticalSection Mutex;",
+			"RecentGlobalSubmissionTimes",
+			"RecentNonCriticalSubmissionTimes",
+		):
+			self.assertIn(contract, limiter_header)
+		for bounded_state in (
+			"Channels.Num() >= MaximumTrackedChannels",
+			"Effects.Num() >= MaximumTrackedEffects",
+			"EquivalentRequests.Num() >= MaximumTrackedEquivalentRequests",
+		):
+			self.assertIn(bounded_state, limiter_source)
+
+		self.assertIn("MaximumSubmissionsPerSecond", settings)
+		self.assertIn("UIRequestDebounceSeconds", settings)
+		self.assertIn("bRetainRateLimitStateAcrossForeground", settings)
+		self.assertIn("EOpenMobileHapticSuppressionReason", types)
+		self.assertIn("SuppressionReason", types)
+		self.assertIn("State->RateLimiter.Reset()", subsystem)
+		self.assertNotIn("RateLimiter.ShouldSuppress", subsystem)
+
+		path_boundaries = (
+			(
+				"UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(",
+				"UOpenMobileHapticsSubsystem::SubmitOneShot(",
+			),
+			(
+				"UOpenMobileHapticsSubsystem::SubmitOneShotInternal(",
+				"UOpenMobileHapticsSubsystem::SubmitNamedPattern(",
+			),
+			(
+				"UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(",
+				"UOpenMobileHapticsSubsystem::CompleteControlledRequest(",
+			),
+		)
+		for start, end in path_boundaries:
+			path = subsystem[subsystem.index(start):subsystem.index(end)]
+			self.assertEqual(1, path.count("RateLimiter.Evaluate("), start)
+			self.assertIn("MakeRateLimitedPlaybackResult", path)
+
 	def test_background_alert_support_matches_platform_contracts(self) -> None:
 		android_backend = (
 			HAPTICS_PLUGIN

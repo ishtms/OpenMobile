@@ -175,8 +175,167 @@ namespace OpenMobileHapticsSubsystemPrivate
 		Result.State = EOpenMobileHapticPlaybackState::Completed;
 		Result.Channel = Channel;
 		Result.ResolvedPath = Reason;
+		if (Reason == TEXT("PlayerPolicy"))
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::PlayerPolicy;
+		}
+		else if (Reason == TEXT("ApplicationInactive")
+			|| Reason == TEXT("ApplicationTerminating")
+			|| Reason == TEXT("BackgroundPolicy"))
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::Lifecycle;
+		}
+		else if (Reason == TEXT("ZeroDuration")
+			|| Reason == TEXT("ZeroIntensity"))
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::ZeroOutput;
+		}
+		else if (Reason == TEXT("Unavailable")
+			|| Reason == TEXT("UnavailableIntensity"))
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::Unavailable;
+		}
+		else if (Reason == TEXT("OverlapIgnore")
+			|| Reason == TEXT("OverlapPriority"))
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::OverlapPolicy;
+		}
+		else
+		{
+			Result.SuppressionReason =
+				EOpenMobileHapticSuppressionReason::Other;
+		}
 		return Result;
 	}
+
+	FOpenMobileHapticPlaybackResult MakeRateLimitedPlaybackResult(
+		FName Channel,
+		EOpenMobileHapticsRateLimitOutcome Outcome
+	)
+	{
+		FName Path = TEXT("RateLimited");
+		EOpenMobileHapticSuppressionReason Reason =
+			EOpenMobileHapticSuppressionReason::Other;
+		switch (Outcome)
+		{
+		case EOpenMobileHapticsRateLimitOutcome::EquivalentRequest:
+			Path = TEXT("CoalescedEquivalentRequest");
+			Reason = EOpenMobileHapticSuppressionReason::EquivalentRequest;
+			break;
+		case EOpenMobileHapticsRateLimitOutcome::ChannelMinimumInterval:
+			Path = TEXT("ChannelMinimumInterval");
+			Reason =
+				EOpenMobileHapticSuppressionReason::ChannelMinimumInterval;
+			break;
+		case EOpenMobileHapticsRateLimitOutcome::EffectMinimumInterval:
+			Path = TEXT("EffectMinimumInterval");
+			Reason =
+				EOpenMobileHapticSuppressionReason::EffectMinimumInterval;
+			break;
+		case EOpenMobileHapticsRateLimitOutcome::ChannelWindow:
+			Path = TEXT("ChannelRateLimit");
+			Reason = EOpenMobileHapticSuppressionReason::ChannelWindow;
+			break;
+		case EOpenMobileHapticsRateLimitOutcome::GlobalWindow:
+			Path = TEXT("GlobalRateLimit");
+			Reason = EOpenMobileHapticSuppressionReason::GlobalWindow;
+			break;
+		case EOpenMobileHapticsRateLimitOutcome::InvalidClock:
+			Path = TEXT("RateLimitClockInvalid");
+			Reason = EOpenMobileHapticSuppressionReason::InvalidClock;
+			break;
+		default:
+			break;
+		}
+		FOpenMobileHapticPlaybackResult Result =
+			MakeSuppressedPlaybackResult(Channel, Path);
+		Result.SuppressionReason = Reason;
+		return Result;
+	}
+
+	FOpenMobileHapticsRateLimitPolicy ResolveRateLimitPolicy(
+		const UOpenMobileHapticsSettings& Settings,
+		FName ChannelName,
+		FName EffectName,
+		double EquivalentRequestDebounceSeconds
+	)
+	{
+		FOpenMobileHapticsRateLimitPolicy Policy;
+		Policy.ChannelMinimumIntervalSeconds =
+			Settings.DefaultMinimumIntervalSeconds;
+		Policy.MaximumChannelSubmissionsPerSecond =
+			Settings.MaximumSubmissionsPerSecond;
+		Policy.MaximumGlobalSubmissionsPerSecond =
+			Settings.MaximumSubmissionsPerSecond;
+		Policy.EquivalentRequestDebounceSeconds =
+			EquivalentRequestDebounceSeconds;
+		for (const FOpenMobileHapticChannelSettings& Channel :
+			Settings.Channels)
+		{
+			if (Channel.Name == ChannelName)
+			{
+				Policy.ChannelMinimumIntervalSeconds =
+					Channel.MinimumIntervalSeconds;
+				Policy.MaximumChannelSubmissionsPerSecond =
+					Channel.MaximumSubmissionsPerSecond;
+				break;
+			}
+		}
+		for (const FOpenMobileHapticEffectSettings& Effect :
+			Settings.EffectOverrides)
+		{
+			if (Effect.Name == EffectName)
+			{
+				Policy.EffectMinimumIntervalSeconds =
+					Effect.MinimumIntervalSeconds;
+				break;
+			}
+		}
+		return Policy;
+	}
+
+	FOpenMobileHapticsRateLimitRequest MakeRateLimitRequest(
+		const FOpenMobileHapticPlaybackOptions& Options,
+		FName Effect,
+		bool bCoalescible,
+		uint32 EquivalenceHash
+	)
+	{
+		FOpenMobileHapticsRateLimitRequest Request;
+		Request.Channel = Options.Channel;
+		Request.Category = Options.Category;
+		Request.Effect = Effect;
+		Request.Priority = Options.Priority;
+		Request.EquivalenceHash = EquivalenceHash;
+		Request.bCoalescible = bCoalescible;
+		return Request;
+	}
+
+	uint32 MakeSemanticEquivalenceHash(
+		const FOpenMobileHapticSemanticRequest& Request,
+		FName PatternOverride
+	)
+	{
+		uint32 Hash = GetTypeHash(Request.Intensity);
+		Hash = HashCombineFast(
+			Hash,
+			GetTypeHash(static_cast<uint8>(Request.Options.FallbackPolicy))
+		);
+	Hash = HashCombineFast(
+		Hash,
+		GetTypeHash(static_cast<uint8>(Request.Options.OverlapPolicy))
+	);
+	Hash = HashCombineFast(
+		Hash,
+		GetTypeHash(static_cast<uint8>(Request.Options.InterruptionPolicy))
+	);
+	return HashCombineFast(Hash, GetTypeHash(PatternOverride));
+}
 
 	EOpenMobileHapticsLifecycleRequestOutcome EvaluateLifecycle(
 		const FOpenMobileHapticPlaybackOptions& Options,
@@ -2692,13 +2851,11 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	}
 
 	float ProjectScale = 1.0f;
-	double MinimumIntervalSeconds = Settings->DefaultMinimumIntervalSeconds;
 	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
 	{
 		if (Channel.Name == Request.Options.Channel)
 		{
 			ProjectScale *= Channel.IntensityScale;
-			MinimumIntervalSeconds = Channel.MinimumIntervalSeconds;
 			break;
 		}
 	}
@@ -2708,10 +2865,6 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		if (Effect.Name == Descriptor.Name)
 		{
 			ProjectScale *= Effect.IntensityScale;
-			MinimumIntervalSeconds = FMath::Max<double>(
-				MinimumIntervalSeconds,
-				Effect.MinimumIntervalSeconds
-			);
 			break;
 		}
 	}
@@ -2785,19 +2938,43 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		);
 	const bool bSelection = Descriptor.Behavior
 		== EOpenMobileHapticsSemanticBehavior::Selection;
-	if (!ExistingToken && LocalState.RateLimiter.ShouldSuppress(
-		Request.Options.Channel,
-		bSelection,
-		FPlatformTime::Seconds(),
-		MinimumIntervalSeconds,
-		Settings->SelectionDebounceSeconds,
-		Settings->MaximumSubmissionsPerSecond
-	))
+	const bool bCoalescible = !AdjustedRequest.Options.Loop.bLoop
+		&& AdjustedRequest.Options.Schedule.Mode
+			== EOpenMobileHapticScheduleMode::Immediate
+		&& (bSelection || AdjustedRequest.Options.Category == TEXT("UI"));
+	const double EquivalentRequestDebounceSeconds = bSelection
+		? Settings->SelectionDebounceSeconds
+		: bCoalescible
+			? Settings->UIRequestDebounceSeconds
+			: 0.0;
+	const FOpenMobileHapticsRateLimitDecision RateLimitDecision =
+		ExistingToken
+			? FOpenMobileHapticsRateLimitDecision{}
+			: LocalState.RateLimiter.Evaluate(
+				OpenMobileHapticsSubsystemPrivate::MakeRateLimitRequest(
+					AdjustedRequest.Options,
+					Descriptor.Name,
+					bCoalescible,
+					OpenMobileHapticsSubsystemPrivate::
+						MakeSemanticEquivalenceHash(
+							AdjustedRequest,
+							PatternOverride
+						)
+				),
+				OpenMobileHapticsSubsystemPrivate::ResolveRateLimitPolicy(
+					*Settings,
+					AdjustedRequest.Options.Channel,
+					Descriptor.Name,
+					EquivalentRequestDebounceSeconds
+				)
+			);
+	if (!RateLimitDecision.IsAllowed())
 	{
-		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
-			Request.Options.Channel,
-			TEXT("RateLimited")
-		);
+		return OpenMobileHapticsSubsystemPrivate::
+			MakeRateLimitedPlaybackResult(
+				Request.Options.Channel,
+				RateLimitDecision.Outcome
+			);
 	}
 	FOpenMobileHapticPlaybackResult OverlapResult;
 	bool bShouldQueueForOverlap = false;
@@ -3183,13 +3360,11 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 	}
 
 	float ProjectScale = 1.0f;
-	double MinimumIntervalSeconds = Settings->DefaultMinimumIntervalSeconds;
 	for (const FOpenMobileHapticChannelSettings& Channel : Settings->Channels)
 	{
 		if (Channel.Name == Request.Options.Channel)
 		{
 			ProjectScale *= Channel.IntensityScale;
-			MinimumIntervalSeconds = Channel.MinimumIntervalSeconds;
 			break;
 		}
 	}
@@ -3199,10 +3374,6 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 		if (Effect.Name == TEXT("OneShot"))
 		{
 			ProjectScale *= Effect.IntensityScale;
-			MinimumIntervalSeconds = FMath::Max<double>(
-				MinimumIntervalSeconds,
-				Effect.MinimumIntervalSeconds
-			);
 			break;
 		}
 	}
@@ -3329,19 +3500,30 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			Request.Options.Channel
 		);
 	}
-	if (!ExistingToken && LocalState.RateLimiter.ShouldSuppress(
-		Request.Options.Channel,
-		false,
-		FPlatformTime::Seconds(),
-		MinimumIntervalSeconds,
-		Settings->SelectionDebounceSeconds,
-		Settings->MaximumSubmissionsPerSecond
-	))
+	const FOpenMobileHapticsRateLimitDecision RateLimitDecision =
+		ExistingToken
+			? FOpenMobileHapticsRateLimitDecision{}
+			: LocalState.RateLimiter.Evaluate(
+				OpenMobileHapticsSubsystemPrivate::MakeRateLimitRequest(
+					AdjustedRequest.Options,
+					TEXT("OneShot"),
+					false,
+					0
+				),
+				OpenMobileHapticsSubsystemPrivate::ResolveRateLimitPolicy(
+					*Settings,
+					AdjustedRequest.Options.Channel,
+					TEXT("OneShot"),
+					0.0
+				)
+			);
+	if (!RateLimitDecision.IsAllowed())
 	{
-		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
-			Request.Options.Channel,
-			TEXT("RateLimited")
-		);
+		return OpenMobileHapticsSubsystemPrivate::
+			MakeRateLimitedPlaybackResult(
+				Request.Options.Channel,
+				RateLimitDecision.Outcome
+			);
 	}
 	FOpenMobileHapticPlaybackResult OverlapResult;
 	bool bShouldQueueForOverlap = false;
@@ -3723,6 +3905,31 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	PlaybackParameters.Timing = Timing;
 	PlaybackParameters.ScheduledStartGuard =
 		OpenMobileHapticsSubsystemPrivate::MakeScheduledStartGuard(Timing);
+	const FOpenMobileHapticsRateLimitDecision RateLimitDecision =
+		ExistingToken
+			? FOpenMobileHapticsRateLimitDecision{}
+			: LocalState.RateLimiter.Evaluate(
+				OpenMobileHapticsSubsystemPrivate::MakeRateLimitRequest(
+					ResolvedRequest.Options,
+					ResolvedRequest.PatternName,
+					false,
+					0
+				),
+				OpenMobileHapticsSubsystemPrivate::ResolveRateLimitPolicy(
+					*Settings,
+					ResolvedRequest.Options.Channel,
+					ResolvedRequest.PatternName,
+					0.0
+				)
+			);
+	if (!RateLimitDecision.IsAllowed())
+	{
+		return OpenMobileHapticsSubsystemPrivate::
+			MakeRateLimitedPlaybackResult(
+				Request.Options.Channel,
+				RateLimitDecision.Outcome
+			);
+	}
 	const UOpenMobileHapticPatternAsset* PortablePattern =
 		Cast<UOpenMobileHapticPatternAsset>(
 			ResolvedRequest.PatternAsset.ResolveObject()
@@ -4883,7 +5090,19 @@ void UOpenMobileHapticsSubsystem::HandleApplicationLifecycle(
 )
 {
 	check(IsInGameThread());
-	if (bDeinitialized || !State || !Transition.bInterruptsPlayback)
+	if (bDeinitialized || !State)
+	{
+		return;
+	}
+	if (Transition.bChanged
+		&& Transition.CurrentState
+			== EOpenMobileHapticsApplicationState::Active
+		&& !GetDefault<UOpenMobileHapticsSettings>()
+			->bRetainRateLimitStateAcrossForeground)
+	{
+		State->RateLimiter.Reset();
+	}
+	if (!Transition.bInterruptsPlayback)
 	{
 		return;
 	}

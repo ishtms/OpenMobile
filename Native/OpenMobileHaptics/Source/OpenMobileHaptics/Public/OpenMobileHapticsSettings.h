@@ -38,6 +38,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelSettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float MinimumIntervalSeconds = 0.02f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "1", ClampMax = "30"))
+	int32 MaximumSubmissionsPerSecond = 30;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Channel", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float IntensityScale = 1.0f;
 };
@@ -143,6 +146,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle")
 	bool bResumeEligiblePlaybackAfterForeground = false;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ToolTip = "Retains recent rate-limit history over foreground transitions so a rapid resume cannot produce a comfort-breaking burst. Disable only when a fresh foreground session must start with an empty limiter."))
+	bool bRetainRateLimitStateAcrossForeground = true;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0", ClampMax = "8"))
 	int32 MaximumRecoveryAttempts = 2;
 
@@ -200,7 +206,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float DefaultMinimumIntervalSeconds = 0.02f;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "1", ClampMax = "100"))
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "1", ClampMax = "60"))
 	int32 MaximumSubmissionsPerSecond = 30;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "1", ClampMax = "240", DisplayName = "Maximum Dynamic Parameter Updates Per Second", ToolTip = "Maximum native dynamic-parameter submissions per active playback handle. Newer values replace pending values within the interval."))
@@ -208,6 +214,9 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s"))
 	float SelectionDebounceSeconds = 0.04f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rate Limits", meta = (ClampMin = "0.0", ClampMax = "1.0", Units = "s", ToolTip = "Coalesces otherwise equivalent immediate semantic UI requests without delaying the first request."))
+	float UIRequestDebounceSeconds = 0.02f;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Platform", meta = (ToolTip = "Enables portable custom pattern playback. Platform packaging options must agree with this setting."))
 	bool bEnableCustomPlayback = true;

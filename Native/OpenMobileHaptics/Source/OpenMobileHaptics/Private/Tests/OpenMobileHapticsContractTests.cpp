@@ -3,9 +3,11 @@
 #include <limits>
 
 #include "Async/Async.h"
+#include "Async/ParallelFor.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Engine/GameInstance.h"
 #include "HAL/FileManager.h"
+#include "HAL/ThreadSafeCounter.h"
 #include "IOpenMobileHapticsBackend.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/DataValidation.h"
@@ -3385,6 +3387,12 @@ bool FOpenMobileHapticsOneShotSubmissionTest::RunTest(
 	TestEqual(TEXT("Repeated pulse is suppressed before native submission"),
 		SecondRateLimited.Outcome,
 		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Channel interval suppression is structured"),
+		SecondRateLimited.SuppressionReason,
+		EOpenMobileHapticSuppressionReason::ChannelMinimumInterval);
+	TestEqual(TEXT("Expected rate suppression has no error"),
+		SecondRateLimited.Error.Code,
+		EOpenMobileHapticErrorCode::None);
 
 	Backend.Capabilities.BasicVibration =
 		EOpenMobileHapticSupportState::Unsupported;
@@ -3613,6 +3621,17 @@ bool FOpenMobileHapticsSemanticSubmissionPolicyTest::RunTest(
 	TestEqual(TEXT("Dedicated selection entry point uses selection semantics"),
 		Backend.LastSemanticRequest.Effect,
 		EOpenMobileHapticSemanticEffect::Selection);
+	const int32 SelectionSubmissionCount = Backend.SemanticSubmissionCount;
+	const FOpenMobileHapticPlaybackResult CoalescedSelection =
+		Subsystem->PlaySelectionFeedback();
+	TestEqual(TEXT("Equivalent selection feedback is coalesced"),
+		CoalescedSelection.SuppressionReason,
+		EOpenMobileHapticSuppressionReason::EquivalentRequest);
+	TestEqual(TEXT("Coalesced selection does not reach the backend"),
+		Backend.SemanticSubmissionCount, SelectionSubmissionCount);
+	TestEqual(TEXT("Coalescing remains an expected non-error outcome"),
+		CoalescedSelection.Error.Code,
+		EOpenMobileHapticErrorCode::None);
 
 	FOpenMobileHapticUserPolicy Policy;
 	Policy.MasterIntensity = 0.8f;
@@ -4233,16 +4252,16 @@ bool FOpenMobileHapticsSemanticRateLimitTest::RunTest(
 	FOpenMobileHapticsRateLimiter BurstLimiter;
 	TestFalse(TEXT("First burst event is allowed"),
 		BurstLimiter.ShouldSuppress(TEXT("A"), false, 30.0,
-			0.0, 0.0, 2));
+			0.0, 0.0, 3));
 	TestFalse(TEXT("Second burst event is allowed"),
 		BurstLimiter.ShouldSuppress(TEXT("B"), false, 30.1,
-			0.0, 0.0, 2));
+			0.0, 0.0, 3));
 	TestTrue(TEXT("Submission cap suppresses the next event"),
 		BurstLimiter.ShouldSuppress(TEXT("C"), false, 30.2,
-			0.0, 0.0, 2));
+			0.0, 0.0, 3));
 	TestFalse(TEXT("Old burst events expire at one second"),
 		BurstLimiter.ShouldSuppress(TEXT("D"), false, 31.0,
-			0.0, 0.0, 2));
+			0.0, 0.0, 3));
 
 	FOpenMobileHapticsRateLimiter PerChannelLimiter;
 	TestFalse(TEXT("Fast selection channel accepts its first event"),
@@ -4257,6 +4276,504 @@ bool FOpenMobileHapticsSemanticRateLimitTest::RunTest(
 	TestTrue(TEXT("Slow selection channel keeps its longer interval"),
 		PerChannelLimiter.ShouldSuppress(TEXT("Slow"), true, 40.025,
 			0.04, 0.02, 30));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRateLimitPolicyTest,
+	"OpenMobile.Haptics.Policy.RateLimit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRateLimitPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	double NowSeconds = 100.0;
+	FOpenMobileHapticsRateLimiter Limiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	FOpenMobileHapticsRateLimitPolicy Policy;
+	Policy.ChannelMinimumIntervalSeconds = 0.0;
+	Policy.EffectMinimumIntervalSeconds = 0.05;
+	Policy.EquivalentRequestDebounceSeconds = 0.0;
+	Policy.MaximumChannelSubmissionsPerSecond = 3;
+	Policy.MaximumGlobalSubmissionsPerSecond = 10;
+	FOpenMobileHapticsRateLimitRequest Request;
+	Request.Channel = TEXT("UI");
+	Request.Category = TEXT("UI");
+	Request.Effect = TEXT("Selection");
+
+	TestEqual(TEXT("First effect is allowed"),
+		Limiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 100.01;
+	Request.Effect = TEXT("Click");
+	TestEqual(TEXT("Another effect does not inherit the first interval"),
+		Limiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 100.049;
+	Request.Channel = TEXT("Gameplay");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("Selection");
+	TestEqual(TEXT("Effect interval follows the effect across channels"),
+		Limiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::EffectMinimumInterval);
+	NowSeconds = 100.05;
+	TestEqual(TEXT("Exact effect interval boundary is allowed"),
+		Limiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+
+	NowSeconds = 200.0;
+	FOpenMobileHapticsRateLimiter WindowLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.EffectMinimumIntervalSeconds = 0.0;
+	Policy.MaximumChannelSubmissionsPerSecond = 2;
+	Request.Channel = TEXT("UI");
+	Request.Category = TEXT("UI");
+	Request.Effect = TEXT("A");
+	TestEqual(TEXT("First channel-window request is allowed"),
+		WindowLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 200.1;
+	Request.Effect = TEXT("B");
+	TestEqual(TEXT("Second channel-window request is allowed"),
+		WindowLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 200.2;
+	Request.Effect = TEXT("C");
+	TestEqual(TEXT("Per-channel window suppresses the burst"),
+		WindowLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::ChannelWindow);
+	Request.Channel = TEXT("Alerts");
+	Request.Category = TEXT("Alerts");
+	TestEqual(TEXT("Another channel has an independent window"),
+		WindowLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 201.0;
+	Request.Channel = TEXT("UI");
+	Request.Category = TEXT("UI");
+	TestEqual(TEXT("Exact one-second window boundary expires"),
+		WindowLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+
+	NowSeconds = 300.0;
+	FOpenMobileHapticsRateLimiter CoalescingLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond = 30;
+	Policy.ChannelMinimumIntervalSeconds = 0.0;
+	Policy.EffectMinimumIntervalSeconds = 0.0;
+	Policy.EquivalentRequestDebounceSeconds = 0.04;
+	Request.Channel = TEXT("UI");
+	Request.Category = TEXT("UI");
+	Request.Effect = TEXT("Selection");
+	Request.Priority = EOpenMobileHapticChannelPriority::Normal;
+	Request.EquivalenceHash = 11;
+	Request.bCoalescible = true;
+	TestEqual(TEXT("First equivalent UI request is allowed"),
+		CoalescingLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	NowSeconds = 300.039;
+	TestEqual(TEXT("Equivalent UI request is coalesced"),
+		CoalescingLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::EquivalentRequest);
+	Request.EquivalenceHash = 12;
+	TestEqual(TEXT("Meaningfully different UI request is retained"),
+		CoalescingLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+	Request.EquivalenceHash = 11;
+	Request.Priority = EOpenMobileHapticChannelPriority::Critical;
+	TestEqual(TEXT("Critical request is not coalesced with normal feedback"),
+		CoalescingLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::Allowed);
+
+	NowSeconds = 400.0;
+	FOpenMobileHapticsRateLimiter ClockLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Request.bCoalescible = false;
+	Request.Priority = EOpenMobileHapticChannelPriority::Normal;
+	TestTrue(TEXT("Clock baseline is allowed"),
+		ClockLimiter.Evaluate(Request, Policy).IsAllowed());
+	NowSeconds = 399.0;
+	const FOpenMobileHapticsRateLimitDecision BackwardClock =
+		ClockLimiter.Evaluate(Request, Policy);
+	TestTrue(TEXT("Backward monotonic clock resets stale history"),
+		BackwardClock.IsAllowed());
+	TestTrue(TEXT("Backward clock reset is explicit"),
+		BackwardClock.bClockReset);
+	NowSeconds = std::numeric_limits<double>::quiet_NaN();
+	TestEqual(TEXT("Nonfinite clock fails closed"),
+		ClockLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::InvalidClock);
+
+	NowSeconds = 500.0;
+	FOpenMobileHapticsRateLimiter HardChannelLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond = MAX_int32;
+	Policy.MaximumGlobalSubmissionsPerSecond = MAX_int32;
+	for (int32 Index = 0;
+		Index < FOpenMobileHapticsRateLimiter::
+			HardMaximumChannelSubmissionsPerSecond;
+		++Index)
+	{
+		Request.Effect = FName(*FString::Printf(TEXT("Channel%d"), Index));
+		TestTrue(TEXT("Hard channel budget admits bounded traffic"),
+			HardChannelLimiter.Evaluate(Request, Policy).IsAllowed());
+	}
+	Request.Effect = TEXT("ChannelOverflow");
+	TestEqual(TEXT("Extreme channel configuration is hard capped"),
+		HardChannelLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::ChannelWindow);
+
+	NowSeconds = 600.0;
+	FOpenMobileHapticsRateLimiter HardGlobalLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Request.Priority = EOpenMobileHapticChannelPriority::Critical;
+	for (int32 Index = 0;
+		Index < FOpenMobileHapticsRateLimiter::
+			HardMaximumGlobalSubmissionsPerSecond;
+		++Index)
+	{
+		Request.Channel = FName(*FString::Printf(TEXT("Global%d"), Index));
+		Request.Category = Request.Channel;
+		Request.Effect = Request.Channel;
+		TestTrue(TEXT("Hard global budget admits bounded traffic"),
+			HardGlobalLimiter.Evaluate(Request, Policy).IsAllowed());
+	}
+	Request.Channel = TEXT("GlobalOverflow");
+	Request.Category = Request.Channel;
+	Request.Effect = Request.Channel;
+	TestEqual(TEXT("Critical traffic still obeys the hard global cap"),
+		HardGlobalLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::GlobalWindow);
+
+	NowSeconds = 650.0;
+	FOpenMobileHapticsRateLimiter ReservedCriticalLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond = 30;
+	Policy.MaximumGlobalSubmissionsPerSecond = 2;
+	Request.Priority = EOpenMobileHapticChannelPriority::Normal;
+	Request.Channel = TEXT("NormalA");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("NormalA");
+	TestTrue(TEXT("Normal traffic can use the unreserved budget"),
+		ReservedCriticalLimiter.Evaluate(Request, Policy).IsAllowed());
+	Request.Channel = TEXT("NormalB");
+	Request.Effect = TEXT("NormalB");
+	TestEqual(TEXT("Normal traffic preserves one critical slot"),
+		ReservedCriticalLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::GlobalWindow);
+	Request.Priority = EOpenMobileHapticChannelPriority::Critical;
+	Request.Channel = TEXT("CriticalReserved");
+	Request.Category = TEXT("Alerts");
+	Request.Effect = TEXT("CriticalReserved");
+	TestTrue(TEXT("Critical traffic can consume its reserved slot"),
+		ReservedCriticalLimiter.Evaluate(Request, Policy).IsAllowed());
+
+	FOpenMobileHapticsRateLimiter CriticalFirstLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumGlobalSubmissionsPerSecond = 3;
+	Request.Channel = TEXT("CriticalFirst");
+	Request.Category = TEXT("Alerts");
+	Request.Effect = TEXT("CriticalFirst");
+	TestTrue(TEXT("Critical traffic can arrive before normal traffic"),
+		CriticalFirstLimiter.Evaluate(Request, Policy).IsAllowed());
+	Request.Priority = EOpenMobileHapticChannelPriority::Normal;
+	Request.Channel = TEXT("NormalAfterCriticalA");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("NormalAfterCriticalA");
+	TestTrue(TEXT("First normal slot remains available after Critical"),
+		CriticalFirstLimiter.Evaluate(Request, Policy).IsAllowed());
+	Request.Channel = TEXT("NormalAfterCriticalB");
+	Request.Effect = TEXT("NormalAfterCriticalB");
+	TestTrue(TEXT("Normal partition is independent of arrival order"),
+		CriticalFirstLimiter.Evaluate(Request, Policy).IsAllowed());
+	Request.Channel = TEXT("NormalAfterCriticalOverflow");
+	Request.Effect = TEXT("NormalAfterCriticalOverflow");
+	TestEqual(TEXT("Combined traffic still obeys the global cap"),
+		CriticalFirstLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::GlobalWindow);
+
+	NowSeconds = 700.0;
+	FOpenMobileHapticsRateLimiter PriorityLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond = 1;
+	Policy.MaximumGlobalSubmissionsPerSecond = 10;
+	Request.Channel = TEXT("Gameplay");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("Collision");
+	Request.Priority = EOpenMobileHapticChannelPriority::Low;
+	TestTrue(TEXT("Low-priority gameplay starts its channel window"),
+		PriorityLimiter.Evaluate(Request, Policy).IsAllowed());
+	Request.Priority = EOpenMobileHapticChannelPriority::Critical;
+	Request.Effect = TEXT("UrgentGameplay");
+	TestEqual(TEXT("Critical priority does not bypass channel safety"),
+		PriorityLimiter.Evaluate(Request, Policy).Outcome,
+		EOpenMobileHapticsRateLimitOutcome::ChannelWindow);
+	Request.Channel = TEXT("Critical");
+	Request.Category = TEXT("Alerts");
+	Request.Effect = TEXT("CriticalAlert");
+	TestTrue(TEXT("Critical channel keeps an independent budget"),
+		PriorityLimiter.Evaluate(Request, Policy).IsAllowed());
+
+	NowSeconds = 800.0;
+	FOpenMobileHapticsRateLimiter SustainedLimiter(
+		[&NowSeconds]()
+		{
+			return NowSeconds;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond = 2;
+	Request.Channel = TEXT("Sustained");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("Pulse");
+	Request.Priority = EOpenMobileHapticChannelPriority::Normal;
+	TestTrue(TEXT("Sustained request zero is allowed"),
+		SustainedLimiter.Evaluate(Request, Policy).IsAllowed());
+	NowSeconds = 800.5;
+	TestTrue(TEXT("Sustained request one is allowed"),
+		SustainedLimiter.Evaluate(Request, Policy).IsAllowed());
+	NowSeconds = 801.0;
+	TestTrue(TEXT("Sustained exact boundary remains allowed"),
+		SustainedLimiter.Evaluate(Request, Policy).IsAllowed());
+	NowSeconds = 801.5;
+	TestTrue(TEXT("Sustained window remains bounded and live"),
+		SustainedLimiter.Evaluate(Request, Policy).IsAllowed());
+
+	FOpenMobileHapticsRateLimiter ConcurrentLimiter(
+		[]()
+		{
+			return 900.0;
+		}
+	);
+	Policy.MaximumChannelSubmissionsPerSecond =
+		FOpenMobileHapticsRateLimiter::
+			HardMaximumChannelSubmissionsPerSecond;
+	Policy.MaximumGlobalSubmissionsPerSecond =
+		FOpenMobileHapticsRateLimiter::
+			HardMaximumGlobalSubmissionsPerSecond;
+	Request.Channel = TEXT("Concurrent");
+	Request.Category = TEXT("Gameplay");
+	Request.Effect = TEXT("ConcurrentPulse");
+	FThreadSafeCounter AllowedCount;
+	ParallelFor(64,
+		[&ConcurrentLimiter, &Policy, Request, &AllowedCount](int32)
+		{
+			if (ConcurrentLimiter.Evaluate(Request, Policy).IsAllowed())
+			{
+				AllowedCount.Increment();
+			}
+		});
+	TestEqual(TEXT("Concurrent callers cannot overrun the channel cap"),
+		AllowedCount.GetValue(),
+		FOpenMobileHapticsRateLimiter::
+			HardMaximumChannelSubmissionsPerSecond);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRateLimitSubsystemPathsTest,
+	"OpenMobile.Haptics.RateLimit.SubsystemPaths",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRateLimitSubsystemPathsTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const TArray<FOpenMobileHapticEffectSettings> SavedEffectOverrides =
+		Settings->EffectOverrides;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
+	Settings->NamedLibraries.Reset();
+	Settings->EffectOverrides.Reset();
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
+	FOpenMobileHapticEffectSettings EffectLimit;
+	EffectLimit.Name = TEXT("RateNamed");
+	EffectLimit.MinimumIntervalSeconds = 1.0f;
+	Settings->EffectOverrides.Add(EffectLimit);
+
+	FMockBackend Backend(TEXT("RateLimitSubsystem"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::SemanticFeedback;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	FOpenMobileHapticNamedPatternRequest FirstRequest;
+	FirstRequest.PatternName = TEXT("RateNamed");
+	FirstRequest.Options.Channel = TEXT("NamedRateA");
+	const FOpenMobileHapticPlaybackResult First =
+		Subsystem->SubmitNamedPattern(FirstRequest);
+	TestTrue(TEXT("First named effect is accepted"), First.IsAccepted());
+
+	FOpenMobileHapticNamedPatternRequest RepeatedRequest = FirstRequest;
+	RepeatedRequest.Options.Channel = TEXT("NamedRateB");
+	const FOpenMobileHapticPlaybackResult Repeated =
+		Subsystem->SubmitNamedPattern(RepeatedRequest);
+	TestEqual(TEXT("Named effect interval crosses channel boundaries"),
+		Repeated.SuppressionReason,
+		EOpenMobileHapticSuppressionReason::EffectMinimumInterval);
+	TestEqual(TEXT("Expected named suppression has no error"),
+		Repeated.Error.Code,
+		EOpenMobileHapticErrorCode::None);
+
+	RepeatedRequest.PatternName = TEXT("AnotherNamedEffect");
+	const FOpenMobileHapticPlaybackResult Different =
+		Subsystem->SubmitNamedPattern(RepeatedRequest);
+	TestTrue(TEXT("Different named effect remains eligible"),
+		Different.IsAccepted());
+	TestEqual(TEXT("Only eligible named work reaches the backend"),
+		Backend.NamedSubmissionCount, 2);
+
+	FOpenMobileHapticSemanticRequest FirstSemantic;
+	FirstSemantic.Effect = EOpenMobileHapticSemanticEffect::Selection;
+	FirstSemantic.Options.Channel = TEXT("MeaningfulUIDifference");
+	FirstSemantic.Options.Category = TEXT("UI");
+	FirstSemantic.Options.InterruptionPolicy =
+		EOpenMobileHapticInterruptionPolicy::Stop;
+	TestTrue(TEXT("First UI semantic meaning is accepted"),
+		Subsystem->SubmitSemantic(FirstSemantic).IsAccepted());
+	FOpenMobileHapticSemanticRequest RestartSemantic = FirstSemantic;
+	RestartSemantic.Options.InterruptionPolicy =
+		EOpenMobileHapticInterruptionPolicy::Restart;
+	TestTrue(TEXT("Different interruption meaning is not coalesced"),
+		Subsystem->SubmitSemantic(RestartSemantic).IsAccepted());
+	TestEqual(TEXT("Both meaningful UI requests reach the backend"),
+		Backend.SemanticSubmissionCount, 2);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->EffectOverrides = SavedEffectOverrides;
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsRateLimitForegroundPolicyTest,
+	"OpenMobile.Haptics.RateLimit.ForegroundPolicy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsRateLimitForegroundPolicyTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
+	const bool bSavedRetainRateLimitState =
+		Settings->bRetainRateLimitStateAcrossForeground;
+	Settings->DefaultMinimumIntervalSeconds = 1.0f;
+	Settings->bRetainRateLimitStateAcrossForeground = true;
+
+	FMockBackend Backend(TEXT("RateLimitForeground"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	auto CycleForeground = []()
+	{
+		FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+			EOpenMobileHapticsLifecycleEvent::WillDeactivate
+		);
+		FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+			EOpenMobileHapticsLifecycleEvent::WillEnterBackground
+		);
+		FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+			EOpenMobileHapticsLifecycleEvent::HasEnteredForeground
+		);
+		FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
+			EOpenMobileHapticsLifecycleEvent::HasReactivated
+		);
+	};
+
+	FOpenMobileHapticOneShotRequest Request;
+	Request.DurationSeconds = 0.05f;
+	Request.Options.Channel = TEXT("RetainedRateHistory");
+	TestTrue(TEXT("Retained-history fixture is accepted"),
+		Subsystem->SubmitOneShot(Request).IsAccepted());
+	CycleForeground();
+	const FOpenMobileHapticPlaybackResult Retained =
+		Subsystem->SubmitOneShot(Request);
+	TestEqual(TEXT("Foreground retains recent comfort history"),
+		Retained.SuppressionReason,
+		EOpenMobileHapticSuppressionReason::ChannelMinimumInterval);
+
+	Settings->bRetainRateLimitStateAcrossForeground = false;
+	Request.Options.Channel = TEXT("ResetRateHistory");
+	TestTrue(TEXT("Reset-history fixture is accepted"),
+		Subsystem->SubmitOneShot(Request).IsAccepted());
+	CycleForeground();
+	TestTrue(TEXT("Configured foreground reset clears limiter history"),
+		Subsystem->SubmitOneShot(Request).IsAccepted());
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
+	Settings->bRetainRateLimitStateAcrossForeground =
+		bSavedRetainRateLimitState;
 	return true;
 }
 
@@ -4373,6 +4890,7 @@ bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
 
 	FOpenMobileHapticPlaybackOptions CombatOptions;
 	CombatOptions.Category = TEXT("Combat");
+	CombatOptions.Channel = TEXT("DynamicEngine");
 	const FOpenMobileHapticPlaybackResult Playback =
 		Subsystem->PlayNamedPatternAdvanced(
 			TEXT("EngineLoop"),
@@ -4458,7 +4976,11 @@ bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
 		Backend.DynamicUpdateCount, BeforeStop);
 
 	const FOpenMobileHapticPlaybackResult ResetPlayback =
-		Subsystem->PlayNamedPattern(TEXT("ResetLoop"));
+		Subsystem->PlayNamedPattern(
+			TEXT("ResetLoop"),
+			1.0f,
+			TEXT("DynamicReset")
+		);
 	Subsystem->UpdatePlaybackParameters(ResetPlayback.Handle, Update);
 	const int32 BeforeReset = Backend.DynamicUpdateCount;
 	Backend.Emit(1, EOpenMobileHapticPlaybackState::Failed, 1);
@@ -4470,11 +4992,13 @@ bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
 		Subsystem->UpdatePlaybackParameters(ResetPlayback.Handle, Update).Outcome,
 		EOpenMobileHapticControlOutcome::StaleHandle);
 
+	FOpenMobileHapticPlaybackOptions PolicyOptions = CombatOptions;
+	PolicyOptions.Channel = TEXT("DynamicPolicy");
 	const FOpenMobileHapticPlaybackResult PolicyPlayback =
 		Subsystem->PlayNamedPatternAdvanced(
 			TEXT("PolicyLoop"),
 			1.0f,
-			CombatOptions
+			PolicyOptions
 		);
 	FOpenMobileHapticUserPolicy Policy = Subsystem->GetUserPolicy();
 	Policy.MasterIntensity = 0.5f;
@@ -4568,6 +5092,10 @@ bool FOpenMobileHapticsTypeDefaultsTest::RunTest(const FString& Parameters)
 	const FOpenMobileHapticUserPolicy Policy;
 	TestTrue(TEXT("Haptics are enabled by default"), Policy.bEnabled);
 	TestEqual(TEXT("Master intensity defaults to one"), Policy.MasterIntensity, 1.0f);
+	const FOpenMobileHapticPlaybackResult SuppressionResult;
+	TestEqual(TEXT("Playback results default to no suppression reason"),
+		SuppressionResult.SuppressionReason,
+		EOpenMobileHapticSuppressionReason::None);
 	const FOpenMobileHapticDynamicParameterUpdate DynamicUpdate;
 	TestTrue(TEXT("Runtime updates target intensity by default"),
 		DynamicUpdate.bUpdateIntensity);
@@ -4655,6 +5183,11 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 			Settings->Channels[Index].MaximumActiveHandles > 0);
 		TestTrue(TEXT("Default channel has queued capacity"),
 			Settings->Channels[Index].MaximumQueueDepth > 0);
+		TestTrue(TEXT("Default channel has a bounded submission rate"),
+			Settings->Channels[Index].MaximumSubmissionsPerSecond > 0
+				&& Settings->Channels[Index].MaximumSubmissionsPerSecond
+					<= FOpenMobileHapticsRateLimiter::
+						HardMaximumChannelSubmissionsPerSecond);
 		TestTrue(TEXT("Default mix fallback cannot recurse"),
 			Settings->Channels[Index].UnsupportedMixFallbackPolicy
 				!= EOpenMobileHapticOverlapPolicy::MixWhenSupported);
@@ -4684,6 +5217,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->MaximumPatternCurvePointCount, 256);
 	TestEqual(TEXT("Runtime parameter calls have a bounded rate"),
 		Settings->MaximumDynamicParameterUpdatesPerSecond, 60);
+	TestEqual(TEXT("Equivalent UI requests use a short debounce"),
+		Settings->UIRequestDebounceSeconds, 0.02f);
+	TestTrue(TEXT("Foreground transitions retain comfort history by default"),
+		Settings->bRetainRateLimitStateAcrossForeground);
 	TestEqual(TEXT("Prepared patterns have a default memory budget"),
 		Settings->MaximumPreparedPatternMemoryKilobytes, 4096);
 	TestEqual(TEXT("Prepared patterns have a finite idle lifetime"),
@@ -4743,6 +5280,15 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Settings->Validate(Errors));
 	Settings->Channels[0].UnsupportedMixFallbackPolicy =
 		EOpenMobileHapticOverlapPolicy::Replace;
+	Settings->Channels[0].MaximumSubmissionsPerSecond = 0;
+	TestFalse(TEXT("Zero channel submission rate is invalid"),
+		Settings->Validate(Errors));
+	Settings->Channels[0].MaximumSubmissionsPerSecond =
+		FOpenMobileHapticsRateLimiter::
+			HardMaximumChannelSubmissionsPerSecond + 1;
+	TestFalse(TEXT("Channel rate cannot exceed the hard comfort limit"),
+		Settings->Validate(Errors));
+	Settings->Channels[0].MaximumSubmissionsPerSecond = 20;
 	Settings->MaximumQueuedRequestAgeSeconds =
 		std::numeric_limits<float>::quiet_NaN();
 	TestFalse(TEXT("Queue age must be finite"), Settings->Validate(Errors));
@@ -4778,6 +5324,17 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Zero runtime parameter rate is invalid"),
 		Settings->Validate(Errors));
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 60;
+	Settings->MaximumSubmissionsPerSecond =
+		FOpenMobileHapticsRateLimiter::
+			HardMaximumGlobalSubmissionsPerSecond + 1;
+	TestFalse(TEXT("Global rate cannot exceed the hard comfort limit"),
+		Settings->Validate(Errors));
+	Settings->MaximumSubmissionsPerSecond = 30;
+	Settings->UIRequestDebounceSeconds =
+		std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("UI request debounce must be finite"),
+		Settings->Validate(Errors));
+	Settings->UIRequestDebounceSeconds = 0.02f;
 	Settings->MaximumPreparedPatternMemoryKilobytes = 0;
 	TestFalse(TEXT("Zero prepared pattern memory is invalid"),
 		Settings->Validate(Errors));
@@ -4813,12 +5370,15 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	Settings->Channels[0].MaximumActiveHandles = 3;
 	Settings->Channels[0].UnsupportedMixFallbackPolicy =
 		EOpenMobileHapticOverlapPolicy::Queue;
+	Settings->Channels[0].MaximumSubmissionsPerSecond = 12;
 	Settings->MaximumPatternCurveCount = 12;
 	Settings->MaximumPatternCurvePointCount = 192;
 	Settings->MaximumDynamicParameterUpdatesPerSecond = 90;
 	Settings->MaximumPreparedPatternMemoryKilobytes = 1024;
 	Settings->PreparedPatternIdleLifetimeSeconds = 12.5f;
 	Settings->SelectionDebounceSeconds = 0.06f;
+	Settings->UIRequestDebounceSeconds = 0.03f;
+	Settings->bRetainRateLimitStateAcrossForeground = false;
 	Settings->Channels[0].IntensityScale = 0.6f;
 	Effect.IntensityScale = 0.8f;
 	Settings->EffectOverrides.Add(Effect);
@@ -4854,6 +5414,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Channel mix fallback survives serialization"),
 		Loaded->Channels[0].UnsupportedMixFallbackPolicy,
 		EOpenMobileHapticOverlapPolicy::Queue);
+	TestEqual(TEXT("Channel rate survives serialization"),
+		Loaded->Channels[0].MaximumSubmissionsPerSecond, 12);
 	TestEqual(
 		TEXT("Curve limit survives editor restart serialization"),
 		Loaded->MaximumPatternCurveCount,
@@ -4884,6 +5446,10 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		Loaded->SelectionDebounceSeconds,
 		0.06f
 	);
+	TestEqual(TEXT("UI debounce survives editor restart serialization"),
+		Loaded->UIRequestDebounceSeconds, 0.03f);
+	TestFalse(TEXT("Foreground limiter policy survives serialization"),
+		Loaded->bRetainRateLimitStateAcrossForeground);
 	TestFalse(
 		TEXT("Android packaging override survives serialization"),
 		Loaded->bEnableAndroidCustomVibration
@@ -5547,7 +6113,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 		}
 	);
 	const FOpenMobileHapticPlaybackResult Named =
-		Subsystem->PlayNamedPattern(TEXT("UI_Confirm"));
+		Subsystem->PlayNamedPattern(
+			TEXT("UI_Confirm"),
+			1.0f,
+			TEXT("SubmissionCallbacks")
+		);
 	TestTrue(TEXT("Named request is accepted"), Named.IsAccepted());
 	TestTrue(TEXT("Controllable request has a handle"), Named.Handle.IsValid());
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
@@ -5613,7 +6183,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 	TestEqual(TEXT("Post-terminal callback is ignored"), EventCount, 2);
 
 	const FOpenMobileHapticPlaybackResult Stale =
-		Subsystem->PlayNamedPattern(TEXT("Stale"));
+		Subsystem->PlayNamedPattern(
+			TEXT("Stale"),
+			1.0f,
+			TEXT("StaleBackend")
+		);
 	FMockBackend Newest(TEXT("Newest"), 20);
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Newest);
 	TestEqual(TEXT("Control against a replaced backend becomes stale"),
@@ -5631,7 +6205,11 @@ bool FOpenMobileHapticsBackendSubmissionTest::RunTest(
 
 	Newest.bFailSubmissions = true;
 	const FOpenMobileHapticPlaybackResult Failed =
-		Subsystem->PlayNamedPattern(TEXT("Failure"));
+		Subsystem->PlayNamedPattern(
+			TEXT("Failure"),
+			1.0f,
+			TEXT("FailedSubmission")
+		);
 	TestEqual(
 		TEXT("Injected native failure remains typed"),
 		Failed.Error.Code,
@@ -6084,7 +6662,11 @@ bool FOpenMobileHapticsPlaybackLifecycleHistoryTest::RunTest(
 		EOpenMobileHapticPlaybackState::Stopped);
 
 	const FOpenMobileHapticPlaybackResult PrivatePlayback =
-		Subsystem->PlayNamedPattern(TEXT("/Game/Private/SecretPattern"));
+		Subsystem->PlayNamedPattern(
+			TEXT("/Game/Private/SecretPattern"),
+			1.0f,
+			TEXT("PrivateHistory")
+		);
 	FOpenMobileHapticPlaybackEvent Failure;
 	Failure.State = EOpenMobileHapticPlaybackState::Failed;
 	Failure.Evidence = EOpenMobileHapticEventEvidence::NativeConfirmed;
@@ -6149,7 +6731,10 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 		GetMutableDefault<UOpenMobileHapticsSettings>();
 	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
 		Settings->NamedLibraries;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
 	Settings->NamedLibraries.Reset();
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
 	FMockBackend Backend(TEXT("Control"));
 	Backend.ControlSupport.bStop = true;
 	Backend.ControlSupport.bStopChannel = true;
@@ -6247,6 +6832,8 @@ bool FOpenMobileHapticsPlaybackControlTest::RunTest(
 		Backend.LastStoppedToken.PlaybackHandle, Newer.Handle);
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
 	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
@@ -6409,7 +6996,11 @@ bool FOpenMobileHapticsPlaybackCursorControlTest::RunTest(
 	Backend.SubmissionControlSupport.PauseImplementation =
 		EOpenMobileHapticControlImplementation::Unsupported;
 	const FOpenMobileHapticPlaybackResult UnsupportedPlayback =
-		Subsystem->PlayNamedPattern(TEXT("UnsupportedControl"));
+		Subsystem->PlayNamedPattern(
+			TEXT("UnsupportedControl"),
+			1.0f,
+			TEXT("UnsupportedControl")
+		);
 	const FOpenMobileHapticControlResult Unsupported =
 		Subsystem->PausePlayback(UnsupportedPlayback.Handle);
 	TestEqual(TEXT("Request-specific fallback support is enforced"),
@@ -6596,7 +7187,11 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 
 	Backend.bFailSubmissionsWithoutError = true;
 	const FOpenMobileHapticPlaybackResult Rejected =
-		Subsystem->PlayNamedPattern(TEXT("MissingSubmissionError"));
+		Subsystem->PlayNamedPattern(
+			TEXT("MissingSubmissionError"),
+			1.0f,
+			TEXT("MissingSubmissionError")
+		);
 	TestEqual(
 		TEXT("Missing submission errors become native failures"),
 		Rejected.Error.Code,
@@ -6618,7 +7213,11 @@ bool FOpenMobileHapticsMissingBackendErrorTest::RunTest(
 
 	Backend.bFailSubmissionsWithoutError = false;
 	const FOpenMobileHapticPlaybackResult Accepted =
-		Subsystem->PlayNamedPattern(TEXT("MissingCallbackError"));
+		Subsystem->PlayNamedPattern(
+			TEXT("MissingCallbackError"),
+			1.0f,
+			TEXT("MissingCallbackError")
+		);
 	FOpenMobileHapticError TerminalError;
 	Subsystem->OnPlaybackEventNative().AddLambda(
 		[&TerminalError](const FOpenMobileHapticPlaybackEvent& Event)
@@ -6802,8 +7401,11 @@ bool FOpenMobileHapticsInterruptionRecoveryTest::RunTest(
 		Settings->NamedLibraries;
 	const bool bSavedResume =
 		Settings->bResumeEligiblePlaybackAfterForeground;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
 	Settings->NamedLibraries.Reset();
 	Settings->bResumeEligiblePlaybackAfterForeground = true;
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
 
 	FMockBackend Backend(TEXT("RecoveryOrdering"));
 	Backend.ControlSupport.bStop = true;
@@ -6821,6 +7423,7 @@ bool FOpenMobileHapticsInterruptionRecoveryTest::RunTest(
 
 	FOpenMobileHapticNamedPatternRequest Request;
 	Request.PatternName = TEXT("RestartableLoop");
+	Request.Options.Channel = TEXT("RecoveryRestart");
 	Request.Options.Loop.bLoop = true;
 	Request.Options.InterruptionPolicy =
 		EOpenMobileHapticInterruptionPolicy::Restart;
@@ -6885,6 +7488,8 @@ bool FOpenMobileHapticsInterruptionRecoveryTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	Settings->NamedLibraries = SavedLibraries;
 	Settings->bResumeEligiblePlaybackAfterForeground = bSavedResume;
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
 	return true;
 }
 
@@ -6905,7 +7510,10 @@ bool FOpenMobileHapticsInterruptionStateTest::RunTest(
 		GetMutableDefault<UOpenMobileHapticsSettings>();
 	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
 		Settings->NamedLibraries;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
 	Settings->NamedLibraries.Reset();
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
 
 	FMockBackend Backend(TEXT("RecoveryStates"));
 	Backend.Capabilities.Availability =
@@ -6939,6 +7547,7 @@ bool FOpenMobileHapticsInterruptionStateTest::RunTest(
 	const FOpenMobileHapticPlaybackResult Scheduled =
 		Subsystem->VibrateAdvanced(0.05f, 1.0f, ScheduledOptions);
 	FOpenMobileHapticPlaybackOptions ConcurrentOptions;
+	ConcurrentOptions.Channel = TEXT("RecoveryStates");
 	ConcurrentOptions.OverlapPolicy =
 		EOpenMobileHapticOverlapPolicy::MixWhenSupported;
 	const FOpenMobileHapticPlaybackResult Active =
@@ -7021,6 +7630,8 @@ bool FOpenMobileHapticsInterruptionStateTest::RunTest(
 
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
 	Settings->NamedLibraries = SavedLibraries;
 	return true;
 }
@@ -7282,7 +7893,11 @@ bool FOpenMobileHapticsRecoveryPreparedAssetsTest::RunTest(
 	TestEqual(TEXT("Engine recovery does not eagerly rebuild assets"),
 		Backend.PrepareResourcesCount, 1);
 	const FOpenMobileHapticPlaybackResult Replayed =
-		Subsystem->PlayNamedPattern(TEXT("PreparedRecovery"));
+		Subsystem->PlayNamedPattern(
+			TEXT("PreparedRecovery"),
+			1.0f,
+			TEXT("PreparedRecoveryReplay")
+		);
 	TestTrue(TEXT("The next named request restores preparation"),
 		Replayed.IsAccepted());
 	TestEqual(TEXT("Lazy restoration recompiles exactly once"),
@@ -8761,6 +9376,7 @@ bool FOpenMobileHapticsApplicationLifecycleTest::RunTest(
 	BackgroundPatternRequest.PatternName = TEXT("BackgroundAlertPattern");
 	BackgroundPatternRequest.PatternAsset = FSoftObjectPath(AlertPattern);
 	BackgroundPatternRequest.Options = AlertOptions;
+	BackgroundPatternRequest.Options.Channel = TEXT("CriticalPatterns");
 	const FOpenMobileHapticPlaybackResult BackgroundPattern =
 		First->SubmitNamedPattern(BackgroundPatternRequest);
 	TestTrue(TEXT("Marked critical alert assets can run in background"),
@@ -8807,7 +9423,11 @@ bool FOpenMobileHapticsApplicationLifecycleTest::RunTest(
 		Backend.LifecycleTransitionCount, TransitionsAtReactivation);
 
 	const FOpenMobileHapticPlaybackResult BeforeTermination =
-		First->PlayNamedPattern(TEXT("BeforeTermination"));
+		First->PlayNamedPattern(
+			TEXT("BeforeTermination"),
+			1.0f,
+			TEXT("ForegroundTermination")
+		);
 	TestTrue(TEXT("Foreground playback resumes normally"),
 		BeforeTermination.IsAccepted());
 	FOpenMobileHapticsBackendRegistry::NotifyApplicationLifecycle(
@@ -8917,7 +9537,11 @@ bool FOpenMobileHapticsLifecyclePreparedAssetsTest::RunTest(
 		EOpenMobileHapticNamedPatternStatus::Loaded);
 
 	const FOpenMobileHapticPlaybackResult AfterForeground =
-		Subsystem->PlayNamedPattern(TEXT("LifecyclePrepared"));
+		Subsystem->PlayNamedPattern(
+			TEXT("LifecyclePrepared"),
+			1.0f,
+			TEXT("LifecyclePreparedForeground")
+		);
 	TestTrue(TEXT("Next foreground request is accepted"),
 		AfterForeground.IsAccepted());
 	TestEqual(TEXT("Next foreground request restores native preparation"),
