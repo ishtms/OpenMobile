@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "IOpenMobilePermissionProvider.h"
 #include "IOpenMobileMotionActivityProvider.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobileNativeStepCounter.h"
@@ -11,12 +12,26 @@ struct FOpenMobileSensorsAndroidSensorDescriptor;
 struct FOpenMobileSensorsBackendToken;
 class IModularFeature;
 
-class FOpenMobileSensorsAndroidBackend final : public IOpenMobileSensorsBackend
+class FOpenMobileSensorsAndroidBackend final
+	: public IOpenMobileSensorsBackend
+	, public IOpenMobilePermissionProvider
 {
 public:
 	FOpenMobileSensorsAndroidBackend();
 	virtual ~FOpenMobileSensorsAndroidBackend() override;
 	virtual FName GetBackendName() const override;
+	virtual FName GetProviderName() const override;
+	virtual bool SupportsPermission(FName Permission) const override;
+	virtual FOpenMobilePermissionResult GetStatus(
+		FName Permission
+	) const override;
+	virtual bool RequestPermission(
+		FName Permission,
+		const FGuid& RequestIdentifier,
+		FOpenMobileNativePermissionCompletion&& Completion,
+		FOpenMobileError& OutError
+	) override;
+	virtual void CancelRequest(const FGuid& RequestIdentifier) override;
 	virtual FOpenMobileCapability GetBackendCapability() const override;
 	virtual TArray<FOpenMobileSensorCapability> GetSensorCapabilities() const override;
 	virtual TArray<FOpenMobileSensorBackendMetadata> GetSensorMetadata() const override;

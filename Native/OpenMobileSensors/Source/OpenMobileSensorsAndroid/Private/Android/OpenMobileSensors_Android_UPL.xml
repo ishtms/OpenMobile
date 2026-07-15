@@ -44,7 +44,7 @@
 
 	<gameActivityOnRequestPermissionsResultAdditions>
 		<insert>
-	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onPermissionsChanged(this);
+	com.openmobile.sensors.OpenMobileSensorsBridgeV1.onPermissionsChanged(this, requestCode, permissions, grantResults);
 		</insert>
 	</gameActivityOnRequestPermissionsResultAdditions>
 </root>

@@ -41,6 +41,9 @@ protected:
 	virtual void OnActionCancelled(const FOpenMobileError& Error) override;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FOpenMobileSensorsPermissionOwnerTeardownTest;
+#endif
 	void HandleComplete(const FOpenMobilePermissionResult& InResult);
 
 	UPROPERTY(Transient)

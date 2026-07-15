@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "IOpenMobileSensorsBackend.h"
+#include "IOpenMobilePermissionProvider.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 
 class FOpenMobileSensorsAndroidBackend;
@@ -68,6 +69,14 @@ public:
 	);
 	~FOpenMobileSensorsAndroidBridge();
 
+	static FOpenMobilePermissionResult
+	QueryActivityRecognitionPermissionStatus();
+	bool RequestActivityRecognitionPermission(
+		const FGuid& RequestIdentifier,
+		FOpenMobileNativePermissionCompletion&& Completion,
+		FOpenMobileError& OutError
+	);
+	void CancelPermissionRequest(const FGuid& RequestIdentifier);
 	FOpenMobileSensorsAndroidBridgeResult QuerySensors(
 		TArray<FOpenMobileSensorsAndroidSensorDescriptor>& OutSensors
 	);
@@ -140,6 +149,10 @@ public:
 		const FGuid& StreamIdentifier
 	);
 	void HandleSensorsChanged();
+	void HandlePermissionResult(
+		const FGuid& RequestIdentifier,
+		int32 NativeStatus
+	);
 
 private:
 	struct FActiveStream
@@ -178,6 +191,8 @@ private:
 	FCriticalSection Mutex;
 	TMap<FGuid, FActiveStream> ActiveStreams;
 	TMap<FGuid, FPendingFlush> PendingFlushes;
+	TMap<FGuid, FOpenMobileNativePermissionCompletion>
+		PendingPermissionRequests;
 	void* BridgeClass = nullptr;
 	void* BridgeObject = nullptr;
 	void* CreateMethod = nullptr;
@@ -187,6 +202,8 @@ private:
 	void* StopStreamMethod = nullptr;
 	void* FlushStreamMethod = nullptr;
 	void* HasHighSamplingRateDeclarationMethod = nullptr;
+	void* RequestActivityRecognitionPermissionMethod = nullptr;
+	void* CancelPermissionRequestMethod = nullptr;
 	void* ShutdownMethod = nullptr;
 	TAtomic<bool> bShuttingDown = false;
 };

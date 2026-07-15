@@ -6,6 +6,8 @@
 
 namespace OpenMobilePermissionsPrivate
 {
+	struct FRequestGroup;
+
 	struct FRequestState
 	{
 		FOpenMobilePermissionRequestHandle Handle;
@@ -13,10 +15,21 @@ namespace OpenMobilePermissionsPrivate
 		IOpenMobilePermissionProvider* Provider = nullptr;
 		FName ProviderName;
 		FOnOpenMobilePermissionRequestComplete Completion;
+		TWeakPtr<FRequestGroup, ESPMode::ThreadSafe> Group;
+	};
+
+	struct FRequestGroup
+	{
+		FGuid NativeIdentifier;
+		FName Permission;
+		IOpenMobilePermissionProvider* Provider = nullptr;
+		FName ProviderName;
+		TArray<TSharedPtr<FRequestState, ESPMode::ThreadSafe>> Requests;
 	};
 
 	FCriticalSection RequestsMutex;
 	TMap<FGuid, TSharedPtr<FRequestState, ESPMode::ThreadSafe>> Requests;
+	TArray<TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>> RequestGroups;
 	TAtomic<uint32> NextGeneration(1);
 	TAtomic<bool> bShuttingDown(false);
 
@@ -48,28 +61,52 @@ namespace OpenMobilePermissionsPrivate
 		return Result;
 	}
 
-	void CompleteRequest(
-		const TSharedPtr<FRequestState, ESPMode::ThreadSafe>& State,
-		FOpenMobilePermissionResult Result
+	void CompleteRequestGroup(
+		const TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>& Group,
+		EOpenMobilePermissionStatus Status,
+		FOpenMobileError Error
 	)
 	{
 		OpenMobile::DispatchToGameThread(
-			[State, Result = MoveTemp(Result)]() mutable
+			[Group, Status, Error = MoveTemp(Error)]() mutable
 			{
-				FOnOpenMobilePermissionRequestComplete Completion;
+				TArray<FOnOpenMobilePermissionRequestComplete> Completions;
 				{
 					FScopeLock Lock(&RequestsMutex);
-					TSharedPtr<FRequestState, ESPMode::ThreadSafe>* Current =
-						Requests.Find(State->Handle.GetIdentifier());
-					if (!Current || *Current != State)
+					const int32 GroupIndex = RequestGroups.IndexOfByKey(Group);
+					if (GroupIndex == INDEX_NONE)
 					{
 						return;
 					}
-
-					Requests.Remove(State->Handle.GetIdentifier());
-					Completion = MoveTemp(State->Completion);
+					RequestGroups.RemoveAtSwap(GroupIndex, 1, EAllowShrinking::No);
+					Completions.Reserve(Group->Requests.Num());
+					for (const TSharedPtr<FRequestState, ESPMode::ThreadSafe>& State
+						: Group->Requests)
+					{
+						TSharedPtr<FRequestState, ESPMode::ThreadSafe>* Current =
+							Requests.Find(State->Handle.GetIdentifier());
+						if (!Current || *Current != State)
+						{
+							continue;
+						}
+						Requests.Remove(State->Handle.GetIdentifier());
+						Completions.Add(MoveTemp(State->Completion));
+					}
+					Group->Requests.Reset();
 				}
-				Completion.ExecuteIfBound(Result);
+				FOpenMobilePermissionResult Result;
+				Result.Permission = Group->Permission;
+				Result.Status = Status;
+				Result.Error = MoveTemp(Error);
+				if (Result.Error.IsSet() && Result.Error.Provider.IsEmpty())
+				{
+					Result.Error.Provider = Group->ProviderName.ToString();
+				}
+				for (FOnOpenMobilePermissionRequestComplete& Completion
+					: Completions)
+				{
+					Completion.ExecuteIfBound(Result);
+				}
 			}
 		);
 	}
@@ -191,30 +228,50 @@ FOpenMobilePermissionRequestHandle FOpenMobilePermissions::RequestPermission(
 	State->Provider = Provider;
 	State->ProviderName = Provider->GetProviderName();
 	State->Completion = MoveTemp(Completion);
+	TSharedPtr<FRequestGroup, ESPMode::ThreadSafe> Group;
+	bool bStartNativeRequest = false;
 	{
 		FScopeLock Lock(&RequestsMutex);
+		for (const TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>& Candidate
+			: RequestGroups)
+		{
+			if (Candidate->Provider == Provider
+				&& Candidate->Permission == Permission)
+			{
+				Group = Candidate;
+				break;
+			}
+		}
+		if (!Group)
+		{
+			Group = MakeShared<FRequestGroup, ESPMode::ThreadSafe>();
+			Group->NativeIdentifier = FGuid::NewGuid();
+			Group->Permission = Permission;
+			Group->Provider = Provider;
+			Group->ProviderName = Provider->GetProviderName();
+			RequestGroups.Add(Group);
+			bStartNativeRequest = true;
+		}
+		State->Group = Group;
+		Group->Requests.Add(State);
 		Requests.Add(Handle.Identifier, State);
+	}
+	if (!bStartNativeRequest)
+	{
+		return Handle;
 	}
 
 	FOpenMobileError StartError;
 	const bool bAccepted = Provider->RequestPermission(
 		Permission,
-		Handle.Identifier,
+		Group->NativeIdentifier,
 		FOpenMobileNativePermissionCompletion::CreateLambda(
-			[State](
+			[Group](
 				EOpenMobilePermissionStatus Status,
 				FOpenMobileError Error
 			) mutable
 			{
-				FOpenMobilePermissionResult Result;
-				Result.Permission = State->Permission;
-				Result.Status = Status;
-				Result.Error = MoveTemp(Error);
-				if (Result.Error.IsSet() && Result.Error.Provider.IsEmpty())
-				{
-					Result.Error.Provider = State->ProviderName.ToString();
-				}
-				CompleteRequest(State, MoveTemp(Result));
+				CompleteRequestGroup(Group, Status, MoveTemp(Error));
 			}
 		),
 		StartError
@@ -230,10 +287,11 @@ FOpenMobilePermissionRequestHandle FOpenMobilePermissions::RequestPermission(
 				Provider->GetProviderName().ToString()
 			);
 		}
-		FOpenMobilePermissionResult Result;
-		Result.Permission = Permission;
-		Result.Error = MoveTemp(StartError);
-		CompleteRequest(State, MoveTemp(Result));
+		CompleteRequestGroup(
+			Group,
+			EOpenMobilePermissionStatus::NotDetermined,
+			MoveTemp(StartError)
+		);
 		return {};
 	}
 
@@ -252,6 +310,8 @@ bool FOpenMobilePermissions::CancelRequest(
 	}
 
 	TSharedPtr<FRequestState, ESPMode::ThreadSafe> State;
+	TSharedPtr<FRequestGroup, ESPMode::ThreadSafe> Group;
+	bool bCancelNativeRequest = false;
 	{
 		FScopeLock Lock(&RequestsMutex);
 		TSharedPtr<FRequestState, ESPMode::ThreadSafe>* Found =
@@ -262,9 +322,22 @@ bool FOpenMobilePermissions::CancelRequest(
 		}
 		State = *Found;
 		Requests.Remove(Handle.Identifier);
+		Group = State->Group.Pin();
+		if (Group)
+		{
+			Group->Requests.RemoveSingleSwap(State, EAllowShrinking::No);
+			if (Group->Requests.IsEmpty())
+			{
+				RequestGroups.RemoveSingleSwap(Group, EAllowShrinking::No);
+				bCancelNativeRequest = true;
+			}
+		}
 	}
 
-	State->Provider->CancelRequest(Handle.Identifier);
+	if (bCancelNativeRequest)
+	{
+		State->Provider->CancelRequest(Group->NativeIdentifier);
+	}
 	CompleteDetached(
 		MoveTemp(State->Completion),
 		MakeFailure(
@@ -295,10 +368,10 @@ void FOpenMobilePermissions::BeginShutdown()
 	TArray<IOpenMobilePermissionProvider*> Providers;
 	{
 		FScopeLock Lock(&RequestsMutex);
-		for (const TPair<FGuid, TSharedPtr<FRequestState, ESPMode::ThreadSafe>>& Entry
-			: Requests)
+		for (const TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>& Group
+			: RequestGroups)
 		{
-			Providers.AddUnique(Entry.Value->Provider);
+			Providers.AddUnique(Group->Provider);
 		}
 	}
 	for (IOpenMobilePermissionProvider* Provider : Providers)
@@ -325,23 +398,44 @@ void FOpenMobilePermissions::FailRequestsForProvider(
 {
 	check(IsInGameThread());
 	using namespace OpenMobilePermissionsPrivate;
+	TArray<TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>> FailedGroups;
 	TArray<TSharedPtr<FRequestState, ESPMode::ThreadSafe>> Failed;
 	{
 		FScopeLock Lock(&RequestsMutex);
-		for (auto Iterator = Requests.CreateIterator(); Iterator; ++Iterator)
+		for (auto GroupIterator = RequestGroups.CreateIterator();
+			GroupIterator;
+			++GroupIterator)
 		{
-			if (Iterator.Value()->Provider != &Provider)
+			const TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>& Group =
+				*GroupIterator;
+			if (Group->Provider != &Provider)
 			{
 				continue;
 			}
-			Failed.Add(Iterator.Value());
-			Iterator.RemoveCurrent();
+			FailedGroups.Add(Group);
+			for (const TSharedPtr<FRequestState, ESPMode::ThreadSafe>& State
+				: Group->Requests)
+			{
+				TSharedPtr<FRequestState, ESPMode::ThreadSafe>* Current =
+					Requests.Find(State->Handle.GetIdentifier());
+				if (Current && *Current == State)
+				{
+					Requests.Remove(State->Handle.GetIdentifier());
+					Failed.Add(State);
+				}
+			}
+			Group->Requests.Reset();
+			GroupIterator.RemoveCurrent();
 		}
 	}
 
+	for (const TSharedPtr<FRequestGroup, ESPMode::ThreadSafe>& Group
+		: FailedGroups)
+	{
+		Provider.CancelRequest(Group->NativeIdentifier);
+	}
 	for (const TSharedPtr<FRequestState, ESPMode::ThreadSafe>& State : Failed)
 	{
-		Provider.CancelRequest(State->Handle.Identifier);
 		FOpenMobilePermissionResult Result;
 		Result.Permission = State->Permission;
 		Result.Error = Error;

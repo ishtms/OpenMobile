@@ -3,6 +3,7 @@ package com.openmobile.sensors;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
@@ -42,8 +43,22 @@ public final class OpenMobileSensorsBridgeV1 {
     public static final int RESULT_PAUSED = -7;
     public static final int RESULT_SHUTTING_DOWN = -8;
     public static final int RESULT_TIMEOUT = -9;
+    public static final int RESULT_ACTIVITY_UNAVAILABLE = -10;
+    public static final int RESULT_PERMISSION_NOT_DECLARED = -11;
+    public static final int RESULT_BUSY = -12;
+
+    public static final int PERMISSION_STATUS_NOT_DETERMINED = 0;
+    public static final int PERMISSION_STATUS_GRANTED = 1;
+    public static final int PERMISSION_STATUS_DENIED = 2;
+    public static final int PERMISSION_STATUS_RESTRICTED = 3;
+    public static final int PERMISSION_STATUS_PERMANENTLY_DENIED = 4;
 
     private static final long HANDLER_TIMEOUT_MILLIS = 2000L;
+    private static final int ACTIVITY_RECOGNITION_REQUEST_CODE = 0x4f53;
+    private static final String PERMISSION_PREFERENCES =
+        "OpenMobileSensorsPermissions";
+    private static final String ACTIVITY_RECOGNITION_REQUESTED =
+        "ActivityRecognitionRequested";
     private static final Object ACTIVE_LOCK = new Object();
     private static WeakReference<OpenMobileSensorsBridgeV1> activeBridge =
         new WeakReference<>(null);
@@ -276,8 +291,12 @@ public final class OpenMobileSensorsBridgeV1 {
     private final Handler handler;
     private final SensorManager.DynamicSensorCallback dynamicSensorCallback;
     private final Map<String, StreamState> streams = new HashMap<>();
+    private final Object permissionLock = new Object();
     private List<SensorRecord> sensorRecords = Collections.emptyList();
     private WeakReference<Activity> activityReference;
+    private String pendingPermissionRequestId;
+    private int pendingPermissionPreviousStatus =
+        PERMISSION_STATUS_NOT_DETERMINED;
     private volatile boolean paused;
     private volatile boolean shuttingDown;
 
@@ -348,6 +367,59 @@ public final class OpenMobileSensorsBridgeV1 {
         if (activity == null || Build.VERSION.SDK_INT < 31) {
             return activity != null;
         }
+        return hasManifestPermission(
+            activity,
+            Manifest.permission.HIGH_SAMPLING_RATE_SENSORS
+        );
+    }
+
+    public static int getActivityRecognitionPermissionStatus(
+        Activity activity
+    ) {
+        if (activity == null) {
+            return RESULT_ACTIVITY_UNAVAILABLE;
+        }
+        if (Build.VERSION.SDK_INT < 29) {
+            return PERMISSION_STATUS_GRANTED;
+        }
+        if (!hasManifestPermission(
+            activity,
+            Manifest.permission.ACTIVITY_RECOGNITION
+        )) {
+            return RESULT_PERMISSION_NOT_DECLARED;
+        }
+        if (activity.checkSelfPermission(
+            Manifest.permission.ACTIVITY_RECOGNITION
+        ) == PackageManager.PERMISSION_GRANTED) {
+            return PERMISSION_STATUS_GRANTED;
+        }
+        OpenMobileSensorsBridgeV1 bridge = getActiveBridge();
+        if (bridge != null) {
+            synchronized (bridge.permissionLock) {
+                if (bridge.pendingPermissionRequestId != null) {
+                    return bridge.pendingPermissionPreviousStatus;
+                }
+            }
+        }
+        SharedPreferences preferences = activity.getSharedPreferences(
+            PERMISSION_PREFERENCES,
+            Context.MODE_PRIVATE
+        );
+        if (!preferences.getBoolean(ACTIVITY_RECOGNITION_REQUESTED, false)) {
+            return PERMISSION_STATUS_NOT_DETERMINED;
+        }
+        if (activity.shouldShowRequestPermissionRationale(
+            Manifest.permission.ACTIVITY_RECOGNITION
+        )) {
+            return PERMISSION_STATUS_DENIED;
+        }
+        return PERMISSION_STATUS_PERMANENTLY_DENIED;
+    }
+
+    private static boolean hasManifestPermission(
+        Activity activity,
+        String permission
+    ) {
         try {
             PackageInfo info;
             if (Build.VERSION.SDK_INT >= 33) {
@@ -366,10 +438,8 @@ public final class OpenMobileSensorsBridgeV1 {
             if (info.requestedPermissions == null) {
                 return false;
             }
-            for (String permission : info.requestedPermissions) {
-                if (Manifest.permission.HIGH_SAMPLING_RATE_SENSORS.equals(
-                    permission
-                )) {
+            for (String declaredPermission : info.requestedPermissions) {
+                if (permission.equals(declaredPermission)) {
                     return true;
                 }
             }
@@ -400,11 +470,21 @@ public final class OpenMobileSensorsBridgeV1 {
         }
     }
 
-    public static void onPermissionsChanged(Activity activity) {
+    public static void onPermissionsChanged(
+        Activity activity,
+        int requestCode,
+        String[] permissions,
+        int[] grantResults
+    ) {
         OpenMobileSensorsBridgeV1 bridge = getActiveBridge();
         if (bridge != null) {
             bridge.activityReference = new WeakReference<>(activity);
-            bridge.handler.post(bridge::refreshPermissionState);
+            bridge.handlePermissionResult(
+                activity,
+                requestCode,
+                permissions,
+                grantResults
+            );
         }
     }
 
@@ -412,6 +492,67 @@ public final class OpenMobileSensorsBridgeV1 {
         return callOnHandler(this::buildSensorSnapshot, new Object[] {
             new String[0], new long[0], new float[0]
         });
+    }
+
+    public int requestActivityRecognitionPermission(String requestId) {
+        if (requestId == null || requestId.isEmpty()) {
+            return RESULT_INVALID_ARGUMENT;
+        }
+        if (shuttingDown) {
+            return RESULT_SHUTTING_DOWN;
+        }
+        Activity activity = activityReference.get();
+        int status = getActivityRecognitionPermissionStatus(activity);
+        if (status < 0) {
+            return status;
+        }
+        if (
+            status == PERMISSION_STATUS_GRANTED
+            || status == PERMISSION_STATUS_RESTRICTED
+            || status == PERMISSION_STATUS_PERMANENTLY_DENIED
+        ) {
+            postPermissionResult(requestId, status);
+            return RESULT_OK;
+        }
+        synchronized (permissionLock) {
+            if (pendingPermissionRequestId != null) {
+                return RESULT_BUSY;
+            }
+            pendingPermissionRequestId = requestId;
+            pendingPermissionPreviousStatus = status;
+        }
+        activity.runOnUiThread(() -> {
+            synchronized (permissionLock) {
+                if (!requestId.equals(pendingPermissionRequestId)) {
+                    return;
+                }
+            }
+            try {
+                activity.getSharedPreferences(
+                    PERMISSION_PREFERENCES,
+                    Context.MODE_PRIVATE
+                ).edit().putBoolean(
+                    ACTIVITY_RECOGNITION_REQUESTED,
+                    true
+                ).apply();
+                activity.requestPermissions(
+                    new String[] {Manifest.permission.ACTIVITY_RECOGNITION},
+                    ACTIVITY_RECOGNITION_REQUEST_CODE
+                );
+            } catch (RuntimeException exception) {
+                synchronized (permissionLock) {
+                    if (requestId.equals(pendingPermissionRequestId)) {
+                        pendingPermissionRequestId = null;
+                    }
+                }
+                postPermissionResult(requestId, RESULT_REGISTER_FAILED);
+            }
+        });
+        return RESULT_OK;
+    }
+
+    public void cancelPermissionRequest(String requestId) {
+        // Android does not expose a way to dismiss an active permission dialog.
     }
 
     public int startStream(
@@ -622,6 +763,9 @@ public final class OpenMobileSensorsBridgeV1 {
             handler.removeCallbacksAndMessages(null);
             return true;
         }, false);
+        synchronized (permissionLock) {
+            pendingPermissionRequestId = null;
+        }
         synchronized (ACTIVE_LOCK) {
             if (activeBridge.get() == this) {
                 activeBridge = new WeakReference<>(null);
@@ -815,6 +959,7 @@ public final class OpenMobileSensorsBridgeV1 {
                     RESULT_REGISTER_FAILED
                 );
             }
+            nativeOnSensorsChanged();
         });
     }
 
@@ -822,6 +967,35 @@ public final class OpenMobileSensorsBridgeV1 {
         if (activityReference.get() == activity) {
             activityReference.clear();
         }
+    }
+
+    private void handlePermissionResult(
+        Activity activity,
+        int requestCode,
+        String[] permissions,
+        int[] grantResults
+    ) {
+        String requestId = null;
+        if (requestCode == ACTIVITY_RECOGNITION_REQUEST_CODE) {
+            synchronized (permissionLock) {
+                requestId = pendingPermissionRequestId;
+                pendingPermissionRequestId = null;
+            }
+        }
+        final String completedRequestId = requestId;
+        handler.post(() -> {
+            refreshPermissionState();
+            if (completedRequestId != null) {
+                nativeOnPermissionResult(
+                    completedRequestId,
+                    getActivityRecognitionPermissionStatus(activity)
+                );
+            }
+        });
+    }
+
+    private void postPermissionResult(String requestId, int status) {
+        handler.post(() -> nativeOnPermissionResult(requestId, status));
     }
 
     private void refreshPermissionState() {
@@ -953,4 +1127,9 @@ public final class OpenMobileSensorsBridgeV1 {
     );
 
     private static native void nativeOnSensorsChanged();
+
+    private static native void nativeOnPermissionResult(
+        String requestId,
+        int status
+    );
 }

@@ -3,6 +3,7 @@
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidJNI.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileAsync.h"
 #include "OpenMobileSensorsAndroidBackend.h"
 
 namespace OpenMobileSensorsAndroidBridgePrivate
@@ -17,6 +18,14 @@ namespace OpenMobileSensorsAndroidBridgePrivate
 	constexpr int32 ResultPaused = -7;
 	constexpr int32 ResultShuttingDown = -8;
 	constexpr int32 ResultTimeout = -9;
+	constexpr int32 ResultActivityUnavailable = -10;
+	constexpr int32 ResultPermissionNotDeclared = -11;
+	constexpr int32 ResultBusy = -12;
+	constexpr int32 PermissionStatusNotDetermined = 0;
+	constexpr int32 PermissionStatusGranted = 1;
+	constexpr int32 PermissionStatusDenied = 2;
+	constexpr int32 PermissionStatusRestricted = 3;
+	constexpr int32 PermissionStatusPermanentlyDenied = 4;
 	constexpr int32 StringStride = 4;
 	constexpr int32 IntegerStride = 10;
 	constexpr int32 NumberStride = 3;
@@ -25,6 +34,76 @@ namespace OpenMobileSensorsAndroidBridgePrivate
 
 	FCriticalSection ActiveBridgeMutex;
 	FOpenMobileSensorsAndroidBridge* ActiveBridge = nullptr;
+
+	bool TryMapPermissionStatus(
+		int32 NativeStatus,
+		EOpenMobilePermissionStatus& OutStatus
+	)
+	{
+		switch (NativeStatus)
+		{
+		case PermissionStatusNotDetermined:
+			OutStatus = EOpenMobilePermissionStatus::NotDetermined;
+			return true;
+		case PermissionStatusGranted:
+			OutStatus = EOpenMobilePermissionStatus::Granted;
+			return true;
+		case PermissionStatusDenied:
+			OutStatus = EOpenMobilePermissionStatus::Denied;
+			return true;
+		case PermissionStatusRestricted:
+			OutStatus = EOpenMobilePermissionStatus::Restricted;
+			return true;
+		case PermissionStatusPermanentlyDenied:
+			OutStatus = EOpenMobilePermissionStatus::PermanentlyDenied;
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	FOpenMobileError PermissionErrorFromResult(int32 NativeResult)
+	{
+		switch (NativeResult)
+		{
+		case ResultActivityUnavailable:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("The Android activity is unavailable."),
+				TEXT("ActivityUnavailable")
+			);
+		case ResultPermissionNotDeclared:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::NotConfigured,
+				TEXT("Android activity recognition is not declared in the manifest."),
+				TEXT("PermissionNotDeclared")
+			);
+		case ResultBusy:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::Busy,
+				TEXT("An Android activity-recognition prompt is already active."),
+				TEXT("PermissionRequestBusy")
+			);
+		case ResultInvalidArgument:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::InvalidArgument,
+				TEXT("The Android permission request is invalid."),
+				TEXT("InvalidArgument")
+			);
+		case ResultShuttingDown:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("The Android Sensors bridge is shutting down."),
+				TEXT("ShuttingDown")
+			);
+		default:
+			return FOpenMobileError::Make(
+				EOpenMobileErrorCode::NativeFailure,
+				TEXT("The Android permission request failed."),
+				FString::FromInt(NativeResult)
+			);
+		}
+	}
 
 	EOpenMobileSensorType MapNativeSensorType(int32 NativeType)
 	{
@@ -298,6 +377,36 @@ JNI_METHOD void Java_com_openmobile_sensors_OpenMobileSensorsBridgeV1_nativeOnSe
 	);
 }
 
+JNI_METHOD void Java_com_openmobile_sensors_OpenMobileSensorsBridgeV1_nativeOnPermissionResult(
+	JNIEnv* Env,
+	jclass Class,
+	jstring RequestIdentifier,
+	jint NativeStatus
+)
+{
+	static_cast<void>(Class);
+	const FGuid ParsedRequest =
+		OpenMobileSensorsAndroidBridgePrivate::ParseGuid(
+			Env,
+			RequestIdentifier
+		);
+	if (!ParsedRequest.IsValid())
+	{
+		return;
+	}
+	OpenMobileSensorsAndroidBridgePrivate::WithActiveBridge(
+		[ParsedRequest, NativeStatus](
+			FOpenMobileSensorsAndroidBridge& Bridge
+		)
+		{
+			Bridge.HandlePermissionResult(
+				ParsedRequest,
+				static_cast<int32>(NativeStatus)
+			);
+		}
+	);
+}
+
 FOpenMobileSensorsAndroidBridge::FOpenMobileSensorsAndroidBridge(
 	FOpenMobileSensorsAndroidBackend& InBackend
 )
@@ -312,6 +421,174 @@ FOpenMobileSensorsAndroidBridge::FOpenMobileSensorsAndroidBridge(
 FOpenMobileSensorsAndroidBridge::~FOpenMobileSensorsAndroidBridge()
 {
 	Shutdown();
+}
+
+FOpenMobilePermissionResult FOpenMobileSensorsAndroidBridge::
+QueryActivityRecognitionPermissionStatus()
+{
+	using namespace OpenMobileSensorsAndroidBridgePrivate;
+	FOpenMobilePermissionResult Result;
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity)
+	{
+		Result.Error = PermissionErrorFromResult(ResultActivityUnavailable);
+		return Result;
+	}
+	jclass Bridge = FAndroidApplication::FindJavaClassGlobalRef(
+		"com/openmobile/sensors/OpenMobileSensorsBridgeV1"
+	);
+	if (!Bridge)
+	{
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+		}
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("The Android Sensors bridge class is unavailable."),
+			TEXT("BridgeClassMissing")
+		);
+		return Result;
+	}
+	const jmethodID GetStatusMethod = Env->GetStaticMethodID(
+		Bridge,
+		"getActivityRecognitionPermissionStatus",
+		"(Landroid/app/Activity;)I"
+	);
+	if (Env->ExceptionCheck() || !GetStatusMethod)
+	{
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+		}
+		Env->DeleteGlobalRef(Bridge);
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("The Android permission status bridge is unavailable."),
+			TEXT("BridgeMethodMissing")
+		);
+		return Result;
+	}
+	const int32 NativeStatus = static_cast<int32>(
+		Env->CallStaticIntMethod(Bridge, GetStatusMethod, Activity)
+	);
+	const bool bException = Env->ExceptionCheck();
+	if (bException)
+	{
+		Env->ExceptionClear();
+	}
+	Env->DeleteGlobalRef(Bridge);
+	if (bException)
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::NativeFailure,
+			TEXT("Android permission status lookup raised an exception."),
+			TEXT("JavaException")
+		);
+		return Result;
+	}
+	if (!TryMapPermissionStatus(NativeStatus, Result.Status))
+	{
+		Result.Error = PermissionErrorFromResult(NativeStatus);
+	}
+	return Result;
+}
+
+bool FOpenMobileSensorsAndroidBridge::RequestActivityRecognitionPermission(
+	const FGuid& RequestIdentifier,
+	FOpenMobileNativePermissionCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	using namespace OpenMobileSensorsAndroidBridgePrivate;
+	if (!RequestIdentifier.IsValid() || !Completion.IsBound())
+	{
+		OutError = PermissionErrorFromResult(ResultInvalidArgument);
+		return false;
+	}
+	const FOpenMobileSensorsAndroidBridgeResult Initialization =
+		EnsureInitialized();
+	if (!Initialization.IsSuccess())
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Android Sensors bridge is unavailable."),
+			FString::FromInt(static_cast<int32>(Initialization.Failure))
+		);
+		return false;
+	}
+	{
+		FScopeLock Lock(&Mutex);
+		if (PendingPermissionRequests.Contains(RequestIdentifier))
+		{
+			OutError = PermissionErrorFromResult(ResultInvalidArgument);
+			return false;
+		}
+		PendingPermissionRequests.Add(
+			RequestIdentifier,
+			MoveTemp(Completion)
+		);
+	}
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env)
+	{
+		FScopeLock Lock(&Mutex);
+		PendingPermissionRequests.Remove(RequestIdentifier);
+		OutError = PermissionErrorFromResult(ResultActivityUnavailable);
+		return false;
+	}
+	const FScopedJavaObject<jstring> JavaRequestIdentifier =
+		FJavaHelper::ToJavaString(Env, RequestIdentifier.ToString());
+	const int32 NativeResult = static_cast<int32>(Env->CallIntMethod(
+		static_cast<jobject>(BridgeObject),
+		static_cast<jmethodID>(RequestActivityRecognitionPermissionMethod),
+		*JavaRequestIdentifier
+	));
+	if (Env->ExceptionCheck() || NativeResult != ResultOk)
+	{
+		const bool bException = Env->ExceptionCheck();
+		ClearException(Env);
+		{
+			FScopeLock Lock(&Mutex);
+			PendingPermissionRequests.Remove(RequestIdentifier);
+		}
+		OutError = bException
+			? FOpenMobileError::Make(
+				EOpenMobileErrorCode::NativeFailure,
+				TEXT("Android permission request raised an exception."),
+				TEXT("JavaException")
+			)
+			: PermissionErrorFromResult(NativeResult);
+		return false;
+	}
+	return true;
+}
+
+void FOpenMobileSensorsAndroidBridge::CancelPermissionRequest(
+	const FGuid& RequestIdentifier
+)
+{
+	{
+		FScopeLock Lock(&Mutex);
+		if (PendingPermissionRequests.Remove(RequestIdentifier) == 0)
+		{
+			return;
+		}
+	}
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	if (!Env || !BridgeObject || !CancelPermissionRequestMethod)
+	{
+		return;
+	}
+	const FScopedJavaObject<jstring> JavaRequestIdentifier =
+		FJavaHelper::ToJavaString(Env, RequestIdentifier.ToString());
+	Env->CallVoidMethod(
+		static_cast<jobject>(BridgeObject),
+		static_cast<jmethodID>(CancelPermissionRequestMethod),
+		*JavaRequestIdentifier
+	);
+	ClearException(Env);
 }
 
 void FOpenMobileSensorsAndroidBridge::ClearException(
@@ -387,6 +664,16 @@ FOpenMobileSensorsAndroidBridge::EnsureInitialized()
 		"hasHighSamplingRateDeclaration",
 		"(Landroid/app/Activity;)Z"
 	);
+	const jmethodID LocalRequestPermissionMethod = Env->GetMethodID(
+		LocalBridgeClass,
+		"requestActivityRecognitionPermission",
+		"(Ljava/lang/String;)I"
+	);
+	const jmethodID LocalCancelPermissionMethod = Env->GetMethodID(
+		LocalBridgeClass,
+		"cancelPermissionRequest",
+		"(Ljava/lang/String;)V"
+	);
 	const jmethodID LocalShutdownMethod = Env->GetMethodID(
 		LocalBridgeClass,
 		"shutdown",
@@ -400,6 +687,8 @@ FOpenMobileSensorsAndroidBridge::EnsureInitialized()
 		|| !LocalStopStreamMethod
 		|| !LocalFlushStreamMethod
 		|| !LocalHighSamplingMethod
+		|| !LocalRequestPermissionMethod
+		|| !LocalCancelPermissionMethod
 		|| !LocalShutdownMethod)
 	{
 		ClearException(Env);
@@ -437,6 +726,9 @@ FOpenMobileSensorsAndroidBridge::EnsureInitialized()
 	StopStreamMethod = LocalStopStreamMethod;
 	FlushStreamMethod = LocalFlushStreamMethod;
 	HasHighSamplingRateDeclarationMethod = LocalHighSamplingMethod;
+	RequestActivityRecognitionPermissionMethod =
+		LocalRequestPermissionMethod;
+	CancelPermissionRequestMethod = LocalCancelPermissionMethod;
 	ShutdownMethod = LocalShutdownMethod;
 	return {};
 }
@@ -886,6 +1178,7 @@ void FOpenMobileSensorsAndroidBridge::Shutdown()
 		FScopeLock Lock(&Mutex);
 		ActiveStreams.Reset();
 		PendingFlushes.Reset();
+		PendingPermissionRequests.Reset();
 	}
 	if (Env && BridgeObject)
 	{
@@ -904,6 +1197,8 @@ void FOpenMobileSensorsAndroidBridge::Shutdown()
 	StopStreamMethod = nullptr;
 	FlushStreamMethod = nullptr;
 	HasHighSamplingRateDeclarationMethod = nullptr;
+	RequestActivityRecognitionPermissionMethod = nullptr;
+	CancelPermissionRequestMethod = nullptr;
 	ShutdownMethod = nullptr;
 }
 
@@ -1170,4 +1465,38 @@ void FOpenMobileSensorsAndroidBridge::HandleStreamRestarted(
 void FOpenMobileSensorsAndroidBridge::HandleSensorsChanged()
 {
 	Backend.HandleSensorsChangedFromHandler();
+}
+
+void FOpenMobileSensorsAndroidBridge::HandlePermissionResult(
+	const FGuid& RequestIdentifier,
+	int32 NativeStatus
+)
+{
+	using namespace OpenMobileSensorsAndroidBridgePrivate;
+	FOpenMobileNativePermissionCompletion Completion;
+	{
+		FScopeLock Lock(&Mutex);
+		FOpenMobileNativePermissionCompletion* Found =
+			PendingPermissionRequests.Find(RequestIdentifier);
+		if (!Found)
+		{
+			return;
+		}
+		Completion = MoveTemp(*Found);
+		PendingPermissionRequests.Remove(RequestIdentifier);
+	}
+	EOpenMobilePermissionStatus Status =
+		EOpenMobilePermissionStatus::NotDetermined;
+	FOpenMobileError Error;
+	if (!TryMapPermissionStatus(NativeStatus, Status))
+	{
+		Error = PermissionErrorFromResult(NativeStatus);
+	}
+	OpenMobile::DispatchToGameThread(
+		[Completion = MoveTemp(Completion), Status,
+			Error = MoveTemp(Error)]() mutable
+		{
+			Completion.ExecuteIfBound(Status, MoveTemp(Error));
+		}
+	);
 }

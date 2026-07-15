@@ -45,6 +45,9 @@ protected:
 
 private:
 	friend class UOpenMobileSensorsSubsystem;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FOpenMobileSensorsPermissionOwnerTeardownTest;
+#endif
 
 	bool TrySetTerminalState(EOpenMobileSensorAsyncTerminalState State);
 	void HandleWorldCleanup(

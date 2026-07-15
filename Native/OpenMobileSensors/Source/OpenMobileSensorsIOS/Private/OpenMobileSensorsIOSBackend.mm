@@ -465,6 +465,85 @@ FName FOpenMobileSensorsIOSBackend::GetBackendName() const
 	return TEXT("IOS");
 }
 
+FName FOpenMobileSensorsIOSBackend::GetProviderName() const
+{
+	return TEXT("IOSSensorsPermissions");
+}
+
+bool FOpenMobileSensorsIOSBackend::SupportsPermission(FName Permission) const
+{
+	return Permission == FOpenMobileSensorPermissions::GetPermissionName(
+		EOpenMobileSensorPermission::MotionActivity
+	);
+}
+
+FOpenMobilePermissionResult FOpenMobileSensorsIOSBackend::GetStatus(
+	FName Permission
+) const
+{
+	FOpenMobilePermissionResult Result;
+	Result.Permission = Permission;
+	if (!SupportsPermission(Permission))
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("The iOS Sensors provider does not own this permission.")
+		);
+		return Result;
+	}
+	if (bShuttingDown.Load())
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The iOS Sensors provider is shutting down.")
+		);
+		return Result;
+	}
+	Result = FOpenMobileSensorsIOSBridge::GetMotionActivityPermissionStatus();
+	Result.Permission = Permission;
+	return Result;
+}
+
+bool FOpenMobileSensorsIOSBackend::RequestPermission(
+	FName Permission,
+	const FGuid& RequestIdentifier,
+	FOpenMobileNativePermissionCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	if (!SupportsPermission(Permission))
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("The iOS Sensors provider does not own this permission.")
+		);
+		return false;
+	}
+	if (bShuttingDown.Load())
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The iOS Sensors provider is shutting down.")
+		);
+		return false;
+	}
+	return GetBridge().RequestMotionActivityPermission(
+		RequestIdentifier,
+		MoveTemp(Completion),
+		OutError
+	);
+}
+
+void FOpenMobileSensorsIOSBackend::CancelRequest(
+	const FGuid& RequestIdentifier
+)
+{
+	if (Bridge)
+	{
+		Bridge->CancelMotionActivityPermission(RequestIdentifier);
+	}
+}
+
 double FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(
 	double TimestampSeconds)
 {
@@ -490,7 +569,7 @@ CaptureApplicationWindowRotationFromMainThread(
 FOpenMobileCapability FOpenMobileSensorsIOSBackend::GetBackendCapability() const
 {
 	FOpenMobileCapability Capability;
-	Capability.Name = GetModularFeatureName();
+	Capability.Name = IOpenMobileSensorsBackend::GetModularFeatureName();
 	if (bShuttingDown.Load())
 	{
 		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;

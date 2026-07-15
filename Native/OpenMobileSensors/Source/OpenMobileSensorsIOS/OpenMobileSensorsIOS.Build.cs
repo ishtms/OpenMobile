@@ -11,6 +11,7 @@ public class OpenMobileSensorsIOS : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
+			"OpenMobilePermissions",
 			"OpenMobileSensors"
 		});
 

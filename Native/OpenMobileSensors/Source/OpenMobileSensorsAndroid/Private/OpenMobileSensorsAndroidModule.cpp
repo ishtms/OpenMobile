@@ -1,5 +1,6 @@
 #include "OpenMobileSensorsAndroidBackend.h"
 
+#include "IOpenMobilePermissionProvider.h"
 #include "Modules/ModuleManager.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 
@@ -12,6 +13,12 @@ public:
 		if (!FOpenMobileSensorsBackendRegistry::RegisterBackend(*Backend))
 		{
 			Backend.Reset();
+			return;
+		}
+		if (!FOpenMobilePermissionProviderRegistry::RegisterProvider(*Backend))
+		{
+			FOpenMobileSensorsBackendRegistry::UnregisterBackend(*Backend);
+			Backend.Reset();
 		}
 	}
 
@@ -19,6 +26,7 @@ public:
 	{
 		if (Backend)
 		{
+			FOpenMobilePermissionProviderRegistry::UnregisterProvider(*Backend);
 			FOpenMobileSensorsBackendRegistry::UnregisterBackend(*Backend);
 			Backend.Reset();
 		}

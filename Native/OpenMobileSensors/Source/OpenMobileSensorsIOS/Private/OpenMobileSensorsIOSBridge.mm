@@ -5,6 +5,7 @@
 
 #include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
+#include "OpenMobileAsync.h"
 #include "OpenMobileMotionActivityClassifier.h"
 #include "OpenMobileProximityMonitoringPolicy.h"
 #include "OpenMobileSensorSourcePolicy.h"
@@ -30,6 +31,12 @@ namespace OpenMobileSensorsIOSBridgePrivate
 	};
 
 	struct FPedometerCallbackGate
+	{
+		FCriticalSection Mutex;
+		void* Owner = nullptr;
+	};
+
+	struct FPermissionCallbackGate
 	{
 		FCriticalSection Mutex;
 		void* Owner = nullptr;
@@ -215,6 +222,66 @@ namespace OpenMobileSensorsIOSBridgePrivate
 			&& Error.code == CMErrorDeviceRequiresMovement;
 	}
 
+	EOpenMobilePermissionStatus MapAuthorizationStatus(
+		CMAuthorizationStatus Status
+	)
+	{
+		switch (Status)
+		{
+		case CMAuthorizationStatusAuthorized:
+			return EOpenMobilePermissionStatus::Granted;
+		case CMAuthorizationStatusDenied:
+			return EOpenMobilePermissionStatus::Denied;
+		case CMAuthorizationStatusRestricted:
+			return EOpenMobilePermissionStatus::Restricted;
+		case CMAuthorizationStatusNotDetermined:
+		default:
+			return EOpenMobilePermissionStatus::NotDetermined;
+		}
+	}
+
+	bool HasMotionUsageDescription()
+	{
+		id Value = [[NSBundle mainBundle]
+			objectForInfoDictionaryKey:@"NSMotionUsageDescription"];
+		return [Value isKindOfClass:[NSString class]]
+			&& [(NSString*)Value stringByTrimmingCharactersInSet:
+				[NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0;
+	}
+
+	FOpenMobilePermissionResult QueryMotionActivityPermissionStatus()
+	{
+		FOpenMobilePermissionResult Result;
+		if (!HasMotionUsageDescription())
+		{
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::NotConfigured,
+				TEXT("NSMotionUsageDescription is missing or empty."),
+				TEXT("MissingUsageDescription")
+			);
+			return Result;
+		}
+		const bool bActivityAvailable =
+			[CMMotionActivityManager isActivityAvailable];
+		const bool bPedometerAvailable = [CMPedometer isStepCountingAvailable];
+		if (!bActivityAvailable && !bPedometerAvailable)
+		{
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("Motion and pedometer authorization are unavailable on this device."),
+				TEXT("MotionAuthorizationUnavailable")
+			);
+			return Result;
+		}
+		if (@available(iOS 11.0, *))
+		{
+			Result.Status = MapAuthorizationStatus(bActivityAvailable
+				? [CMMotionActivityManager authorizationStatus]
+				: [CMPedometer authorizationStatus]);
+		}
+		return Result;
+	}
+
 	FOpenMobileSensorsIOSAvailability AvailabilityForManager(
 		CMMotionManager* Manager
 	)
@@ -235,46 +302,12 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		}
 		if (@available(iOS 11.0, *))
 		{
-			switch ([CMPedometer authorizationStatus])
-			{
-			case CMAuthorizationStatusAuthorized:
-				Availability.PedometerAuthorizationStatus =
-					EOpenMobilePermissionStatus::Granted;
-				break;
-			case CMAuthorizationStatusDenied:
-				Availability.PedometerAuthorizationStatus =
-					EOpenMobilePermissionStatus::Denied;
-				break;
-			case CMAuthorizationStatusRestricted:
-				Availability.PedometerAuthorizationStatus =
-					EOpenMobilePermissionStatus::Restricted;
-				break;
-			case CMAuthorizationStatusNotDetermined:
-			default:
-				Availability.PedometerAuthorizationStatus =
-					EOpenMobilePermissionStatus::NotDetermined;
-				break;
-			}
-			switch ([CMMotionActivityManager authorizationStatus])
-			{
-			case CMAuthorizationStatusAuthorized:
-				Availability.MotionActivityAuthorizationStatus =
-					EOpenMobilePermissionStatus::Granted;
-				break;
-			case CMAuthorizationStatusDenied:
-				Availability.MotionActivityAuthorizationStatus =
-					EOpenMobilePermissionStatus::Denied;
-				break;
-			case CMAuthorizationStatusRestricted:
-				Availability.MotionActivityAuthorizationStatus =
-					EOpenMobilePermissionStatus::Restricted;
-				break;
-			case CMAuthorizationStatusNotDetermined:
-			default:
-				Availability.MotionActivityAuthorizationStatus =
-					EOpenMobilePermissionStatus::NotDetermined;
-				break;
-			}
+			Availability.PedometerAuthorizationStatus =
+				MapAuthorizationStatus([CMPedometer authorizationStatus]);
+			Availability.MotionActivityAuthorizationStatus =
+				MapAuthorizationStatus(
+					[CMMotionActivityManager authorizationStatus]
+				);
 		}
 		if (@available(iOS 15.0, *))
 		{
@@ -384,16 +417,23 @@ public:
 		if (@available(iOS 7.0, *))
 		{
 			ActivityManager = [[CMMotionActivityManager alloc] init];
+			PermissionActivityManager =
+				[[CMMotionActivityManager alloc] init];
 		}
 		if (@available(iOS 8.0, *))
 		{
 			Altimeter = [[CMAltimeter alloc] init];
 			Pedometer = [[CMPedometer alloc] init];
+			PermissionPedometer = [[CMPedometer alloc] init];
 		}
 		PedometerCallbackGate =
 			MakeShared<OpenMobileSensorsIOSBridgePrivate::
 				FPedometerCallbackGate, ESPMode::ThreadSafe>();
 		PedometerCallbackGate->Owner = this;
+		PermissionCallbackGate =
+			MakeShared<OpenMobileSensorsIOSBridgePrivate::
+				FPermissionCallbackGate, ESPMode::ThreadSafe>();
+		PermissionCallbackGate->Owner = this;
 		Availability =
 			OpenMobileSensorsIOSBridgePrivate::AvailabilityForManager(
 				MotionManager
@@ -401,6 +441,10 @@ public:
 		LifecycleQueue =
 			OpenMobileSensorsIOSBridgePrivate::MakeSerialQueue(
 				@"OpenMobileSensorsLifecycleQueue"
+			);
+		PermissionQueue =
+			OpenMobileSensorsIOSBridgePrivate::MakeSerialQueue(
+				@"OpenMobileSensorsPermissionQueue"
 			);
 		bApplicationActive = [UIApplication sharedApplication].applicationState
 			== UIApplicationStateActive;
@@ -437,7 +481,147 @@ public:
 
 	FOpenMobileSensorsIOSAvailability QueryAvailability() const
 	{
-		return Availability;
+		return OpenMobileSensorsIOSBridgePrivate::AvailabilityForManager(
+			MotionManager
+		);
+	}
+
+	FOpenMobilePermissionResult GetMotionActivityPermissionStatus() const
+	{
+		return OpenMobileSensorsIOSBridgePrivate::
+			QueryMotionActivityPermissionStatus();
+	}
+
+	bool RequestMotionActivityPermission(
+		const FGuid& RequestIdentifier,
+		FOpenMobileNativePermissionCompletion&& Completion,
+		FOpenMobileError& OutError
+	)
+	{
+		if (!RequestIdentifier.IsValid() || !Completion.IsBound())
+		{
+			OutError = FOpenMobileError::Make(
+				EOpenMobileErrorCode::InvalidArgument,
+				TEXT("The iOS motion permission request is invalid.")
+			);
+			return false;
+		}
+		const FOpenMobilePermissionResult Current =
+			GetMotionActivityPermissionStatus();
+		if (Current.Error.IsSet())
+		{
+			OutError = Current.Error;
+			return false;
+		}
+		if (Current.Status != EOpenMobilePermissionStatus::NotDetermined)
+		{
+			OpenMobile::DispatchToGameThread(
+				[Completion = MoveTemp(Completion),
+					Status = Current.Status]() mutable
+				{
+					Completion.ExecuteIfBound(Status, {});
+				}
+			);
+			return true;
+		}
+		const bool bUseActivityQuery =
+			[CMMotionActivityManager isActivityAvailable];
+		{
+			FScopeLock Lock(&Mutex);
+			if (bShuttingDown || !bApplicationActive)
+			{
+				OutError = FOpenMobileError::Make(
+					EOpenMobileErrorCode::Unavailable,
+					TEXT("The iOS motion permission prompt requires an active application.")
+				);
+				return false;
+			}
+			if (!PermissionQueue
+				|| (bUseActivityQuery && !PermissionActivityManager)
+				|| (!bUseActivityQuery && !PermissionPedometer))
+			{
+				OutError = FOpenMobileError::Make(
+					EOpenMobileErrorCode::Unavailable,
+					TEXT("The iOS motion permission service is unavailable.")
+				);
+				return false;
+			}
+			if (!PendingPermissionRequests.IsEmpty())
+			{
+				OutError = FOpenMobileError::Make(
+					EOpenMobileErrorCode::Busy,
+					TEXT("The iOS motion permission request is already active.")
+				);
+				return false;
+			}
+			PendingPermissionRequests.Add(
+				RequestIdentifier,
+				MoveTemp(Completion)
+			);
+		}
+		const TSharedPtr<
+			OpenMobileSensorsIOSBridgePrivate::FPermissionCallbackGate,
+			ESPMode::ThreadSafe
+		> Gate =
+			PermissionCallbackGate;
+		NSDate* EndDate = [NSDate date];
+		NSDate* StartDate = [EndDate dateByAddingTimeInterval:-1.0];
+		if (bUseActivityQuery)
+		{
+			[PermissionActivityManager
+				queryActivityStartingFromDate:StartDate
+				toDate:EndDate
+				toQueue:PermissionQueue
+				withHandler:^(NSArray<CMMotionActivity*>*, NSError* Error)
+				{
+					if (!Gate)
+					{
+						return;
+					}
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandlePermissionRequest(
+								RequestIdentifier,
+								Error
+							);
+					}
+				}];
+		}
+		else
+		{
+			NSOperationQueue* CallbackQueue = PermissionQueue;
+			[PermissionPedometer
+				queryPedometerDataFromDate:StartDate
+				toDate:EndDate
+				withHandler:^(CMPedometerData*, NSError* Error)
+				{
+					[CallbackQueue addOperationWithBlock:^
+					{
+						if (!Gate)
+						{
+							return;
+						}
+						FScopeLock GateLock(&Gate->Mutex);
+						if (Gate->Owner)
+						{
+							static_cast<FImpl*>(Gate->Owner)->
+								HandlePermissionRequest(
+									RequestIdentifier,
+									Error
+								);
+						}
+					}];
+				}];
+		}
+		return true;
+	}
+
+	void CancelMotionActivityPermission(const FGuid& RequestIdentifier)
+	{
+		FScopeLock Lock(&Mutex);
+		PendingPermissionRequests.Remove(RequestIdentifier);
 	}
 
 	FOpenMobileSensorsIOSBridgeResult StartStream(
@@ -723,6 +907,8 @@ public:
 		TArray<NSOperationQueue*> Queues;
 		TArray<FOnOpenMobileNativeStepCountBackendQueryComplete>
 			PendingStepCompletions;
+		TArray<FOpenMobileNativePermissionCompletion>
+			PendingPermissionCompletions;
 		id LocalWillResignObserver = nil;
 		id LocalDidBecomeActiveObserver = nil;
 		{
@@ -738,6 +924,15 @@ public:
 				PendingStepCompletions.Add(MoveTemp(Pair.Value.Completion));
 			}
 			PendingStepQueries.Reset();
+			PendingPermissionCompletions.Reserve(
+				PendingPermissionRequests.Num()
+			);
+			for (TPair<FGuid, FOpenMobileNativePermissionCompletion>& Pair
+				: PendingPermissionRequests)
+			{
+				PendingPermissionCompletions.Add(MoveTemp(Pair.Value));
+			}
+			PendingPermissionRequests.Reset();
 			LocalWillResignObserver = WillResignObserver;
 			LocalDidBecomeActiveObserver = DidBecomeActiveObserver;
 			WillResignObserver = nil;
@@ -775,13 +970,19 @@ public:
 				AbsoluteAltitudeQueue,
 				ActivityQueue,
 				ProximityQueue,
-				LifecycleQueue
+				LifecycleQueue,
+				PermissionQueue
 			};
 		}
 		if (PedometerCallbackGate)
 		{
 			FScopeLock GateLock(&PedometerCallbackGate->Mutex);
 			PedometerCallbackGate->Owner = nullptr;
+		}
+		if (PermissionCallbackGate)
+		{
+			FScopeLock GateLock(&PermissionCallbackGate->Mutex);
+			PermissionCallbackGate->Owner = nullptr;
 		}
 		const FOpenMobileSensorOperationResult ShutdownResult =
 			Backend.MapBridgeFailure(
@@ -791,6 +992,19 @@ public:
 			: PendingStepCompletions)
 		{
 			Completion.ExecuteIfBound(ShutdownResult, EmptyStepSample);
+		}
+		const FOpenMobileError PermissionShutdownError =
+			FOpenMobileError::Make(
+				EOpenMobileErrorCode::Unavailable,
+				TEXT("The iOS motion permission service is shutting down.")
+			);
+		for (FOpenMobileNativePermissionCompletion& Completion
+			: PendingPermissionCompletions)
+		{
+			Completion.ExecuteIfBound(
+				EOpenMobilePermissionStatus::NotDetermined,
+				PermissionShutdownError
+			);
 		}
 		for (NSOperationQueue* Queue : Queues)
 		{
@@ -802,8 +1016,10 @@ public:
 		}
 		MotionManager = nil;
 		ActivityManager = nil;
+		PermissionActivityManager = nil;
 		Altimeter = nil;
 		Pedometer = nil;
+		PermissionPedometer = nil;
 		AccelerometerQueue = nil;
 		GyroscopeQueue = nil;
 		MagnetometerQueue = nil;
@@ -813,6 +1029,7 @@ public:
 		ActivityQueue = nil;
 		ProximityQueue = nil;
 		LifecycleQueue = nil;
+		PermissionQueue = nil;
 	}
 
 private:
@@ -833,13 +1050,57 @@ private:
 		FOnOpenMobileNativeStepCountBackendQueryComplete Completion;
 	};
 
-	bool HasMotionUsageDescription() const
+	void HandlePermissionRequest(
+		const FGuid& RequestIdentifier,
+		NSError* NativeError
+	)
 	{
-		id Value = [[NSBundle mainBundle]
-			objectForInfoDictionaryKey:@"NSMotionUsageDescription"];
-		return [Value isKindOfClass:[NSString class]]
-			&& [(NSString*)Value stringByTrimmingCharactersInSet:
-				[NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0;
+		using namespace OpenMobileSensorsIOSBridgePrivate;
+		FOpenMobileNativePermissionCompletion Completion;
+		{
+			FScopeLock Lock(&Mutex);
+			FOpenMobileNativePermissionCompletion* Found =
+				PendingPermissionRequests.Find(RequestIdentifier);
+			if (!Found)
+			{
+				return;
+			}
+			Completion = MoveTemp(*Found);
+			PendingPermissionRequests.Remove(RequestIdentifier);
+		}
+		FOpenMobilePermissionResult Result =
+			GetMotionActivityPermissionStatus();
+		if (!Result.Error.IsSet()
+			&& Result.Status == EOpenMobilePermissionStatus::NotDetermined)
+		{
+			if (FailureFromError(NativeError) ==
+				EOpenMobileSensorsIOSBridgeFailure::PermissionDenied)
+			{
+				Result.Status = EOpenMobilePermissionStatus::Denied;
+			}
+			else
+			{
+				Result.Error = FOpenMobileError::Make(
+					EOpenMobileErrorCode::NativeFailure,
+					TEXT("Core Motion did not return an authorization decision."),
+					NativeError
+						? FString::Printf(
+							TEXT("%s:%lld"),
+							*FromNSString(NativeError.domain),
+							static_cast<int64>(NativeError.code)
+						)
+						: TEXT("NoAuthorizationDecision")
+				);
+			}
+		}
+		OpenMobile::DispatchToGameThread(
+			[Completion = MoveTemp(Completion),
+				Status = Result.Status,
+				Error = MoveTemp(Result.Error)]() mutable
+			{
+				Completion.ExecuteIfBound(Status, MoveTemp(Error));
+			}
+		);
 	}
 
 	bool HasDuplicateTypeLocked(
@@ -2254,11 +2515,15 @@ private:
 	FCriticalSection Mutex;
 	TMap<FGuid, FActiveStream> ActiveStreams;
 	TMap<FGuid, FPendingStepQuery> PendingStepQueries;
+	TMap<FGuid, FOpenMobileNativePermissionCompletion>
+		PendingPermissionRequests;
 	FOpenMobileSensorsIOSAvailability Availability;
 	__strong CMMotionManager* MotionManager = nil;
 	__strong CMMotionActivityManager* ActivityManager = nil;
+	__strong CMMotionActivityManager* PermissionActivityManager = nil;
 	__strong CMAltimeter* Altimeter = nil;
 	__strong CMPedometer* Pedometer = nil;
+	__strong CMPedometer* PermissionPedometer = nil;
 	__strong NSOperationQueue* AccelerometerQueue = nil;
 	__strong NSOperationQueue* GyroscopeQueue = nil;
 	__strong NSOperationQueue* MagnetometerQueue = nil;
@@ -2268,6 +2533,7 @@ private:
 	__strong NSOperationQueue* ActivityQueue = nil;
 	__strong NSOperationQueue* ProximityQueue = nil;
 	__strong NSOperationQueue* LifecycleQueue = nil;
+	__strong NSOperationQueue* PermissionQueue = nil;
 	__strong id WillResignObserver = nil;
 	__strong id DidBecomeActiveObserver = nil;
 	__strong id ProximityObserver = nil;
@@ -2276,6 +2542,10 @@ private:
 		OpenMobileSensorsIOSBridgePrivate::FPedometerCallbackGate,
 		ESPMode::ThreadSafe
 	> PedometerCallbackGate;
+	TSharedPtr<
+		OpenMobileSensorsIOSBridgePrivate::FPermissionCallbackGate,
+		ESPMode::ThreadSafe
+	> PermissionCallbackGate;
 	uint64 AccelerometerGeneration = 0;
 	uint64 GyroscopeGeneration = 0;
 	uint64 MagnetometerGeneration = 0;
@@ -2313,6 +2583,44 @@ FOpenMobileSensorsIOSAvailability
 FOpenMobileSensorsIOSBridge::QueryAvailability() const
 {
 	return Impl ? Impl->QueryAvailability() : FOpenMobileSensorsIOSAvailability{};
+}
+
+FOpenMobilePermissionResult
+FOpenMobileSensorsIOSBridge::GetMotionActivityPermissionStatus()
+{
+	return OpenMobileSensorsIOSBridgePrivate::
+		QueryMotionActivityPermissionStatus();
+}
+
+bool FOpenMobileSensorsIOSBridge::RequestMotionActivityPermission(
+	const FGuid& RequestIdentifier,
+	FOpenMobileNativePermissionCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	if (!Impl)
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The iOS motion permission service is unavailable.")
+		);
+		return false;
+	}
+	return Impl->RequestMotionActivityPermission(
+		RequestIdentifier,
+		MoveTemp(Completion),
+		OutError
+	);
+}
+
+void FOpenMobileSensorsIOSBridge::CancelMotionActivityPermission(
+	const FGuid& RequestIdentifier
+)
+{
+	if (Impl)
+	{
+		Impl->CancelMotionActivityPermission(RequestIdentifier);
+	}
 }
 
 FOpenMobileSensorsIOSBridgeResult FOpenMobileSensorsIOSBridge::StartStream(

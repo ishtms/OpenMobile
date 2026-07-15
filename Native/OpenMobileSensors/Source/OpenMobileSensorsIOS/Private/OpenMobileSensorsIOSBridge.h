@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "IOpenMobilePermissionProvider.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "OpenMobilePermissionTypes.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -68,6 +69,13 @@ public:
 
 	static FOpenMobileSensorsIOSAvailability QuerySystemAvailability();
 	FOpenMobileSensorsIOSAvailability QueryAvailability() const;
+	static FOpenMobilePermissionResult GetMotionActivityPermissionStatus();
+	bool RequestMotionActivityPermission(
+		const FGuid& RequestIdentifier,
+		FOpenMobileNativePermissionCompletion&& Completion,
+		FOpenMobileError& OutError
+	);
+	void CancelMotionActivityPermission(const FGuid& RequestIdentifier);
 	FOpenMobileSensorsIOSBridgeResult StartStream(
 		const FOpenMobileSensorsBackendToken& Token,
 		const FOpenMobileSensorBackendStreamHandle& Handle,

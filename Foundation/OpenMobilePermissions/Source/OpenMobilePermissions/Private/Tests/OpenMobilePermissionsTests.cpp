@@ -43,6 +43,7 @@ namespace OpenMobilePermissionsTestsPrivate
 				return false;
 			}
 			++RequestCount;
+			LastCompletion = Completion;
 			Pending.Add(RequestIdentifier, MoveTemp(Completion));
 			LastRequestIdentifier = RequestIdentifier;
 			return true;
@@ -73,6 +74,11 @@ namespace OpenMobilePermissionsTestsPrivate
 			Pending.Remove(LastRequestIdentifier);
 		}
 
+		void CompleteLate(EOpenMobilePermissionStatus CompletionStatus)
+		{
+			LastCompletion.ExecuteIfBound(CompletionStatus, {});
+		}
+
 		FName SupportedPermission = TEXT("OpenMobile.Test.Permission");
 		EOpenMobilePermissionStatus Status =
 			EOpenMobilePermissionStatus::NotDetermined;
@@ -81,6 +87,7 @@ namespace OpenMobilePermissionsTestsPrivate
 		int32 CancelCount = 0;
 		bool bShutdown = false;
 		FGuid LastRequestIdentifier;
+		FOpenMobileNativePermissionCompletion LastCompletion;
 		TMap<FGuid, FOpenMobileNativePermissionCompletion> Pending;
 	};
 }
@@ -144,6 +151,27 @@ bool FOpenMobilePermissionsContractTest::RunTest(const FString& Parameters)
 	);
 	TestEqual(TEXT("Status query reaches the provider"), Provider.StatusQueryCount, 1);
 	TestEqual(TEXT("Status query does not request"), Provider.RequestCount, 0);
+	const TArray<EOpenMobilePermissionStatus> NormalizedStatuses = {
+		EOpenMobilePermissionStatus::NotDetermined,
+		EOpenMobilePermissionStatus::Granted,
+		EOpenMobilePermissionStatus::Denied,
+		EOpenMobilePermissionStatus::Restricted,
+		EOpenMobilePermissionStatus::PermanentlyDenied
+	};
+	for (EOpenMobilePermissionStatus Expected : NormalizedStatuses)
+	{
+		Provider.Status = Expected;
+		TestEqual(
+			TEXT("Every normalized status is preserved"),
+			FOpenMobilePermissions::GetStatus(Permission).Status,
+			Expected
+		);
+	}
+	TestEqual(
+		TEXT("Repeated status queries remain side-effect free"),
+		Provider.RequestCount,
+		0
+	);
 
 	int32 CompletionCount = 0;
 	FOpenMobilePermissionResult CompletionResult;
@@ -168,6 +196,103 @@ bool FOpenMobilePermissionsContractTest::RunTest(const FString& Parameters)
 		CompletionResult.Status,
 		EOpenMobilePermissionStatus::Granted
 	);
+
+	int32 FirstSharedCompletionCount = 0;
+	int32 SecondSharedCompletionCount = 0;
+	const FOpenMobilePermissionRequestHandle FirstSharedHandle =
+		FOpenMobilePermissions::RequestPermission(
+			Permission,
+			FOnOpenMobilePermissionRequestComplete::CreateLambda(
+				[this, &FirstSharedCompletionCount](
+					const FOpenMobilePermissionResult& Result
+				)
+				{
+					++FirstSharedCompletionCount;
+					TestEqual(
+						TEXT("First shared request receives the decision"),
+						Result.Status,
+						EOpenMobilePermissionStatus::Granted
+					);
+				}
+			)
+		);
+	const int32 RequestCountBeforeJoin = Provider.RequestCount;
+	const FOpenMobilePermissionRequestHandle SecondSharedHandle =
+		FOpenMobilePermissions::RequestPermission(
+			Permission,
+			FOnOpenMobilePermissionRequestComplete::CreateLambda(
+				[this, &SecondSharedCompletionCount](
+					const FOpenMobilePermissionResult& Result
+				)
+				{
+					++SecondSharedCompletionCount;
+					TestEqual(
+						TEXT("Second shared request receives the decision"),
+						Result.Status,
+						EOpenMobilePermissionStatus::Granted
+					);
+				}
+			)
+		);
+	TestTrue(TEXT("First shared request has a handle"), FirstSharedHandle.IsValid());
+	TestTrue(TEXT("Second shared request has a handle"), SecondSharedHandle.IsValid());
+	TestEqual(
+		TEXT("Concurrent callers share one native prompt"),
+		Provider.RequestCount,
+		RequestCountBeforeJoin
+	);
+	Provider.CompleteTwice(EOpenMobilePermissionStatus::Granted);
+	TestEqual(TEXT("First shared request completes once"), FirstSharedCompletionCount, 1);
+	TestEqual(TEXT("Second shared request completes once"), SecondSharedCompletionCount, 1);
+
+	int32 CancelledSharedCompletionCount = 0;
+	int32 RemainingSharedCompletionCount = 0;
+	const FOpenMobilePermissionRequestHandle CancelledSharedHandle =
+		FOpenMobilePermissions::RequestPermission(
+			Permission,
+			FOnOpenMobilePermissionRequestComplete::CreateLambda(
+				[this, &CancelledSharedCompletionCount](
+					const FOpenMobilePermissionResult& Result
+				)
+				{
+					++CancelledSharedCompletionCount;
+					TestEqual(
+						TEXT("A cancelled shared request is typed"),
+						Result.Error.Code,
+						EOpenMobileErrorCode::Cancelled
+					);
+				}
+			)
+		);
+	FOpenMobilePermissions::RequestPermission(
+		Permission,
+		FOnOpenMobilePermissionRequestComplete::CreateLambda(
+			[this, &RemainingSharedCompletionCount](
+				const FOpenMobilePermissionResult& Result
+			)
+			{
+				++RemainingSharedCompletionCount;
+				TestEqual(
+					TEXT("The remaining shared request receives the decision"),
+					Result.Status,
+					EOpenMobilePermissionStatus::Granted
+				);
+			}
+		)
+	);
+	const int32 CancelCountBeforeSharedCancel = Provider.CancelCount;
+	TestTrue(
+		TEXT("One shared caller can cancel independently"),
+		FOpenMobilePermissions::CancelRequest(CancelledSharedHandle)
+	);
+	TestEqual(
+		TEXT("A remaining caller keeps the native prompt alive"),
+		Provider.CancelCount,
+		CancelCountBeforeSharedCancel
+	);
+	Provider.CompleteTwice(EOpenMobilePermissionStatus::Granted);
+	TestEqual(TEXT("Cancelled shared request completes once"), CancelledSharedCompletionCount, 1);
+	TestEqual(TEXT("Remaining shared request completes once"), RemainingSharedCompletionCount, 1);
 
 	int32 CancelCompletionCount = 0;
 	FOpenMobilePermissionResult CancelResult;
@@ -197,6 +322,12 @@ bool FOpenMobilePermissionsContractTest::RunTest(const FString& Parameters)
 		TEXT("Cancellation has a stable error"),
 		CancelResult.Error.Code,
 		EOpenMobileErrorCode::Cancelled
+	);
+	Provider.CompleteLate(EOpenMobilePermissionStatus::Granted);
+	TestEqual(
+		TEXT("A late native callback after cancellation is ignored"),
+		CancelCompletionCount,
+		1
 	);
 
 	int32 UnregisteredCompletionCount = 0;

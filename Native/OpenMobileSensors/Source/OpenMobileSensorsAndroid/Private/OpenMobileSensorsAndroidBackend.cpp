@@ -114,6 +114,72 @@ namespace OpenMobileSensorsAndroidBackendPrivate
 		return Capability;
 	}
 
+	void ApplyActivityRecognitionPermission(
+		FOpenMobileSensorCapability& Capability,
+		const FOpenMobilePermissionResult& Permission
+	)
+	{
+		const FName ActivityRecognition =
+			FOpenMobileSensorPermissions::GetPermissionName(
+				EOpenMobileSensorPermission::ActivityRecognition
+			);
+		if (Capability.RequiredPermission != ActivityRecognition
+			|| Capability.Availability.State ==
+				EOpenMobileCapabilityState::NotSupported
+			|| Capability.ActiveRestriction ==
+				EOpenMobileSensorRestriction::MissingHardware)
+		{
+			return;
+		}
+		if (Permission.Error.IsSet())
+		{
+			if (Permission.Error.Code == EOpenMobileErrorCode::NotConfigured)
+			{
+				Capability.Availability.State =
+					EOpenMobileCapabilityState::NotConfigured;
+				Capability.ActiveRestriction =
+					EOpenMobileSensorRestriction::Configuration;
+				Capability.Availability.Detail =
+					TEXT("Activity recognition is not declared in the Android manifest.");
+			}
+			else
+			{
+				Capability.Availability.State =
+					EOpenMobileCapabilityState::TemporarilyUnavailable;
+				Capability.ActiveRestriction =
+					EOpenMobileSensorRestriction::TemporarilyUnavailable;
+				Capability.Availability.Detail =
+					TEXT("Android activity-recognition status is unavailable.");
+			}
+			return;
+		}
+		switch (Permission.Status)
+		{
+		case EOpenMobilePermissionStatus::Granted:
+			return;
+		case EOpenMobilePermissionStatus::NotDetermined:
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::PermissionRequired;
+			Capability.Availability.Detail =
+				TEXT("Activity-recognition permission has not been decided.");
+			break;
+		case EOpenMobilePermissionStatus::Denied:
+		case EOpenMobilePermissionStatus::PermanentlyDenied:
+			Capability.Availability.State = EOpenMobileCapabilityState::Denied;
+			Capability.Availability.Detail =
+				TEXT("Activity-recognition permission was denied.");
+			break;
+		case EOpenMobilePermissionStatus::Restricted:
+			Capability.Availability.State =
+				EOpenMobileCapabilityState::Restricted;
+			Capability.Availability.Detail =
+				TEXT("Activity recognition is restricted by system policy.");
+			break;
+		}
+		Capability.ActiveRestriction =
+			EOpenMobileSensorRestriction::Permission;
+	}
+
 	void PopulateAttitudeReferenceCapabilities(
 		FOpenMobileSensorCapability& Capability,
 		const TArray<FOpenMobileSensorsAndroidSensorDescriptor>& Descriptors
@@ -345,6 +411,88 @@ FName FOpenMobileSensorsAndroidBackend::GetBackendName() const
 	return TEXT("Android");
 }
 
+FName FOpenMobileSensorsAndroidBackend::GetProviderName() const
+{
+	return TEXT("AndroidSensorsPermissions");
+}
+
+bool FOpenMobileSensorsAndroidBackend::SupportsPermission(
+	FName Permission
+) const
+{
+	return Permission == FOpenMobileSensorPermissions::GetPermissionName(
+		EOpenMobileSensorPermission::ActivityRecognition
+	);
+}
+
+FOpenMobilePermissionResult FOpenMobileSensorsAndroidBackend::GetStatus(
+	FName Permission
+) const
+{
+	FOpenMobilePermissionResult Result;
+	Result.Permission = Permission;
+	if (!SupportsPermission(Permission))
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("The Android Sensors provider does not own this permission.")
+		);
+		return Result;
+	}
+	if (bShuttingDown.Load())
+	{
+		Result.Error = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Android Sensors provider is shutting down.")
+		);
+		return Result;
+	}
+	Result = FOpenMobileSensorsAndroidBridge::
+		QueryActivityRecognitionPermissionStatus();
+	Result.Permission = Permission;
+	return Result;
+}
+
+bool FOpenMobileSensorsAndroidBackend::RequestPermission(
+	FName Permission,
+	const FGuid& RequestIdentifier,
+	FOpenMobileNativePermissionCompletion&& Completion,
+	FOpenMobileError& OutError
+)
+{
+	if (!SupportsPermission(Permission))
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("The Android Sensors provider does not own this permission.")
+		);
+		return false;
+	}
+	if (bShuttingDown.Load())
+	{
+		OutError = FOpenMobileError::Make(
+			EOpenMobileErrorCode::Unavailable,
+			TEXT("The Android Sensors provider is shutting down.")
+		);
+		return false;
+	}
+	return GetBridge().RequestActivityRecognitionPermission(
+		RequestIdentifier,
+		MoveTemp(Completion),
+		OutError
+	);
+}
+
+void FOpenMobileSensorsAndroidBackend::CancelRequest(
+	const FGuid& RequestIdentifier
+)
+{
+	if (Bridge)
+	{
+		Bridge->CancelPermissionRequest(RequestIdentifier);
+	}
+}
+
 double FOpenMobileSensorsAndroidBackend::
 ConvertSensorEventTimestampNanoseconds(int64 TimestampNanoseconds)
 {
@@ -373,7 +521,7 @@ FOpenMobileCapability
 FOpenMobileSensorsAndroidBackend::GetBackendCapability() const
 {
 	FOpenMobileCapability Capability;
-	Capability.Name = GetModularFeatureName();
+	Capability.Name = IOpenMobileSensorsBackend::GetModularFeatureName();
 	if (bShuttingDown.Load())
 	{
 		Capability.State = EOpenMobileCapabilityState::TemporarilyUnavailable;
@@ -409,14 +557,25 @@ TArray<FOpenMobileSensorCapability>
 FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 {
 	using namespace OpenMobileSensorsAndroidBackendPrivate;
+	const FOpenMobilePermissionResult ActivityRecognition =
+		FOpenMobileSensorsAndroidBridge::
+			QueryActivityRecognitionPermissionStatus();
 	TArray<FOpenMobileSensorsAndroidSensorDescriptor> Descriptors;
 	if (!QuerySensorDescriptors(Descriptors))
 	{
-		return {
+		TArray<FOpenMobileSensorCapability> UnavailableCapabilities = {
 			FOpenMobileMotionActivityProviderResolver::GetCapability(),
 			FOpenMobileMotionActivityProviderResolver::
 				GetTransitionCapability()
 		};
+		for (FOpenMobileSensorCapability& Capability : UnavailableCapabilities)
+		{
+			ApplyActivityRecognitionPermission(
+				Capability,
+				ActivityRecognition
+			);
+		}
+		return UnavailableCapabilities;
 	}
 	TMap<EOpenMobileSensorType, FOpenMobileSensorsAndroidSensorDescriptor>
 		Preferred;
@@ -488,6 +647,13 @@ FOpenMobileSensorsAndroidBackend::GetSensorCapabilities() const
 	Capabilities.Add(
 		FOpenMobileMotionActivityProviderResolver::GetTransitionCapability()
 	);
+	for (FOpenMobileSensorCapability& Capability : Capabilities)
+	{
+		ApplyActivityRecognitionPermission(
+			Capability,
+			ActivityRecognition
+		);
+	}
 	Capabilities.Sort(
 		[](const FOpenMobileSensorCapability& Left,
 			const FOpenMobileSensorCapability& Right)

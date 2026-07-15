@@ -513,6 +513,9 @@ public:
 
 private:
 	friend class UOpenMobileSensorAsyncActionBase;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FOpenMobileSensorsPermissionOwnerTeardownTest;
+#endif
 
 	FGuid GetOrCreateSubscriptionOwnerIdentifier();
 	void EnsureCapabilityListener() const;

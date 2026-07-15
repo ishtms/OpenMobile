@@ -11,6 +11,7 @@ public class OpenMobileSensorsAndroid : ModuleRules
 		{
 			"Core",
 			"Launch",
+			"OpenMobilePermissions",
 			"OpenMobileSensors"
 		});
 
