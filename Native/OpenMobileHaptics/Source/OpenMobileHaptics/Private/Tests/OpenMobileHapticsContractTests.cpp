@@ -5558,6 +5558,191 @@ bool FOpenMobileHapticsMasterIntensityTest::RunTest(
 	return true;
 }
 
+#if WITH_EDITORONLY_DATA
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsCategoryEffectScaleTest,
+	"OpenMobile.Haptics.Policy.CategoryAndEffectScales",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsCategoryEffectScaleTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const FName SavedDefaultCategory = Settings->DefaultCategory;
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	Settings->DefaultCategory = TEXT("ProjectDefault");
+
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->DefaultCategory = TEXT("AssetCombat");
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("Scale test pattern builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+	UOpenMobileHapticLibrary* Library = NewObject<UOpenMobileHapticLibrary>();
+	Library->Patterns = {
+		{TEXT("LibraryPulse"), Pattern},
+		{TEXT("LibraryPulseAlias"), Pattern}
+	};
+	FOpenMobileHapticNamedLibrarySettings LibrarySettings;
+	LibrarySettings.Name = TEXT("ScaleLibrary");
+	LibrarySettings.Asset = FSoftObjectPath(Library);
+	Settings->NamedLibraries = {LibrarySettings};
+
+	FMockBackend Backend(TEXT("CategoryEffectScales"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.WaveformTiming =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.DynamicParameters =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bDynamicParameters = true;
+	Backend.ControlSupport.bStop = true;
+	Backend.SubmissionResolvedPath = TEXT("PortableRich");
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	TArray<FString> PreparationErrors;
+	TestTrue(TEXT("Scale test library prepares"),
+		Subsystem->PrepareLoadedNamedLibraries({Library}, PreparationErrors));
+
+	const FOpenMobileHapticPlaybackOptions DefaultOptions;
+	TestTrue(TEXT("Unset request category defers to stable defaults"),
+		DefaultOptions.Category.IsNone());
+	FOpenMobileHapticUserPolicy Policy = Subsystem->GetUserPolicy();
+	Policy.MasterIntensity = 0.5f;
+	Policy.CategoryScales.Add(TEXT("AssetCombat"), 0.5f);
+	Policy.CategoryScales.Add(TEXT("RenamedCombat"), 0.2f);
+	Policy.CategoryScales.Add(TEXT("RequestOverride"), 0.25f);
+	Policy.CategoryScales.Add(TEXT("ProjectDefault"), 0.4f);
+	Policy.EffectScales.Add(TEXT("LibraryPulse"), 0.5f);
+	Policy.EffectScales.Add(TEXT("LibraryPulseAlias"), 0.25f);
+	Subsystem->SetUserPolicy(Policy);
+
+	FOpenMobileHapticNamedPatternRequest Request;
+	struct FScaleCase
+	{
+		FName PatternName;
+		FName AssetCategory;
+		FName RequestCategory;
+		FName ResolvedCategory;
+		float PolicyScale;
+	};
+	const FScaleCase Cases[] = {
+		{TEXT("LibraryPulse"), TEXT("AssetCombat"), NAME_None,
+			TEXT("AssetCombat"), 0.125f},
+		{TEXT("LibraryPulseAlias"), TEXT("renamedcombat"), NAME_None,
+			TEXT("RenamedCombat"), 0.025f},
+		{TEXT("LibraryPulse"), TEXT("AssetCombat"),
+			TEXT("RequestOverride"), TEXT("RequestOverride"), 0.0625f},
+		{TEXT("LibraryPulseAlias"), NAME_None, NAME_None,
+			TEXT("ProjectDefault"), 0.05f},
+		{TEXT("LibraryPulseAlias"), NAME_None, TEXT("UnmappedCategory"),
+			TEXT("UnmappedCategory"), 0.125f}
+	};
+	FOpenMobileHapticPlaybackHandle CachedHandle;
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Cases); ++Index)
+	{
+		const FScaleCase& ScaleCase = Cases[Index];
+		Pattern->DefaultCategory = ScaleCase.AssetCategory;
+		Request.PatternName = ScaleCase.PatternName;
+		Request.Options.Category = ScaleCase.RequestCategory;
+		Request.Options.Channel = FName(*FString::Printf(
+			TEXT("ScaleCase%d"),
+			Index
+		));
+		const FOpenMobileHapticPlaybackResult Result =
+			Subsystem->SubmitNamedPattern(Request);
+		TestTrue(TEXT("Scale precedence case is accepted"),
+			Result.IsAccepted());
+		TestEqual(TEXT("Category precedence resolves deterministically"),
+			Backend.LastNamedRequest.Options.Category,
+			ScaleCase.ResolvedCategory);
+		TestTrue(TEXT("Named player scales resolve once"),
+			FMath::IsNearlyEqual(
+				Backend.LastNamedPlaybackParameters
+					.InitialDynamicParameters.Intensity,
+				ScaleCase.PolicyScale
+			));
+		if (Index == 0)
+		{
+			CachedHandle = Result.Handle;
+		}
+		else
+		{
+			Subsystem->StopPlayback(Result.Handle);
+		}
+	}
+
+	Subsystem->UserPolicy.CategoryScales.Add(TEXT("AssetCombat"), 1.0f);
+	FOpenMobileHapticDynamicParameterUpdate RuntimeUpdate;
+	RuntimeUpdate.Intensity = 0.8f;
+	Subsystem->UpdatePlaybackParameters(CachedHandle, RuntimeUpdate);
+	double FlushTime = FPlatformTime::Seconds() + 1.0;
+	Subsystem->FlushDynamicParameterUpdatesForTests(FlushTime);
+	TestTrue(TEXT("Runtime control uses the cached player scale"),
+		FMath::IsNearlyEqual(Backend.LastDynamicUpdate.Intensity, 0.1f));
+
+	Policy.CategoryScales.Add(TEXT("AssetCombat"), 0.25f);
+	TestEqual(TEXT("Policy update refreshes active cached scales"),
+		Subsystem->SetUserPolicy(Policy).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Subsystem->FlushDynamicParameterUpdatesForTests(++FlushTime);
+	TestTrue(TEXT("Policy batch applies the updated active scale"),
+		FMath::IsNearlyEqual(Backend.LastDynamicUpdate.Intensity, 0.05f));
+
+	const auto RejectScale = [this, Subsystem, &Policy](
+		FName Name,
+		float Scale
+	)
+	{
+		FOpenMobileHapticUserPolicy InvalidPolicy = Policy;
+		InvalidPolicy.CategoryScales.Add(Name, Scale);
+		TestEqual(TEXT("Invalid named scale is rejected"),
+			Subsystem->SetUserPolicy(InvalidPolicy).Error.Code,
+			EOpenMobileHapticErrorCode::InvalidRequest);
+	};
+	RejectScale(NAME_None, 0.5f);
+	RejectScale(TEXT("NegativeScale"), -0.01f);
+	RejectScale(
+		TEXT("NonfiniteScale"),
+		std::numeric_limits<float>::quiet_NaN()
+	);
+
+	UOpenMobileHapticsSettings* ValidationSettings =
+		NewObject<UOpenMobileHapticsSettings>();
+	ValidationSettings->NamedLibraries.Reset();
+	FOpenMobileHapticEffectSettings Effect;
+	Effect.Name = TEXT("CaseScale");
+	FOpenMobileHapticEffectSettings CaseConflict = Effect;
+	CaseConflict.Name = TEXT("casescale");
+	ValidationSettings->EffectOverrides = {Effect, CaseConflict};
+	TArray<FString> ValidationErrors;
+	TestFalse(TEXT("Case-conflicting project effect scales are rejected"),
+		ValidationSettings->Validate(ValidationErrors));
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->DefaultCategory = SavedDefaultCategory;
+	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+#endif
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsTypeDefaultsTest,
 	"OpenMobile.Haptics.API.TypeDefaults",

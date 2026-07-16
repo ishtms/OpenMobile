@@ -862,7 +862,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackOptions
 	FName Channel = TEXT("Gameplay");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
-	FName Category = TEXT("Gameplay");
+	FName Category;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	EOpenMobileHapticChannelPriority Priority =

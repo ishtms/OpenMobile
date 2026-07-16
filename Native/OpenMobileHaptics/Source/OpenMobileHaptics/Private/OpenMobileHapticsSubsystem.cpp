@@ -49,6 +49,7 @@ struct FOpenMobileHapticsSubsystemRequestState
 	double EstimatedStartTimeSeconds = 0.0;
 	float RuntimeIntensity = 1.0f;
 	float RuntimeSharpness = 0.5f;
+	float ResolvedUserPolicyScale = 1.0f;
 	bool bSupportsDynamicParameters = false;
 	bool bRequiresPreparedAsset = false;
 	bool bWaitingForOverlap = false;
@@ -547,6 +548,21 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Scale ? *Scale : 1.0f;
 	}
 
+	FName ResolveCategory(
+		FName RequestCategory,
+		FName AssetOrEffectCategory,
+		FName ProjectCategory
+	)
+	{
+		if (!RequestCategory.IsNone())
+		{
+			return RequestCategory;
+		}
+		return AssetOrEffectCategory.IsNone()
+			? ProjectCategory
+			: AssetOrEffectCategory;
+	}
+
 	bool IsAllowedByUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy,
 		EOpenMobileHapticChannelPriority Priority,
@@ -585,16 +601,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 	}
 
 	float ActivePolicyScale(
-		const FOpenMobileHapticUserPolicy& Policy,
 		const FOpenMobileHapticsSubsystemRequestState& Request
 	)
 	{
-		return UserPolicyScale(
-			Policy,
-			Request.Priority,
-			Request.Category,
-			Request.Effect
-		);
+		return Request.ResolvedUserPolicyScale;
 	}
 
 	double DynamicParameterInterval(
@@ -2477,6 +2487,13 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::QueueOverlapRequest
 	RequestState.Category = Options.Category;
 	RequestState.Effect = Effect;
 	RequestState.Priority = ResolvedChannel.EffectivePriority;
+	RequestState.ResolvedUserPolicyScale =
+		OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
+			UserPolicy,
+			RequestState.Priority,
+			RequestState.Category,
+			RequestState.Effect
+		);
 	RequestState.ResolvedPath = bUsedMixFallback
 		? FName(TEXT("MixFallbackQueue"))
 		: FName(TEXT("OverlapQueue"));
@@ -2919,6 +2936,15 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	check(IsInGameThread());
 	const FOpenMobileHapticsSemanticDescriptor Descriptor =
 		FOpenMobileHapticsSemanticPolicy::Describe(Request.Effect);
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticSemanticRequest AdjustedRequest = Request;
+	AdjustedRequest.Options.Category =
+		OpenMobileHapticsSubsystemPrivate::ResolveCategory(
+			Request.Options.Category,
+			Descriptor.Category,
+			Settings->DefaultCategory
+		);
 	if (static_cast<uint8>(Request.Effect)
 			> static_cast<uint8>(EOpenMobileHapticSemanticEffect::Achievement)
 		|| !FMath::IsFinite(Request.Intensity)
@@ -2928,7 +2954,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		|| Request.Options.IntensityScale < 0.0f
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
-		|| Request.Options.Category.IsNone()
+		|| AdjustedRequest.Options.Category.IsNone()
 		|| static_cast<uint8>(Request.Options.Priority)
 			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.OverlapPolicy)
@@ -2945,9 +2971,6 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			Request.Options.Channel
 		);
 	}
-	const UOpenMobileHapticsSettings* Settings =
-		GetDefault<UOpenMobileHapticsSettings>();
-	FOpenMobileHapticSemanticRequest AdjustedRequest = Request;
 	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
 		FOpenMobileHapticsChannelPolicy::Resolve(
 			Request.Options.Channel,
@@ -2970,7 +2993,14 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			TEXT("PlayerPolicy")
 		);
 	}
-	if (UserPolicy.MasterIntensity <= 0.0f)
+	const float MutablePolicyScale =
+		OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
+			UserPolicy,
+			AdjustedRequest.Options.Priority,
+			AdjustedRequest.Options.Category,
+			Descriptor.Name
+		);
+	if (MutablePolicyScale <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 			Request.Options.Channel,
@@ -3031,20 +3061,6 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		1.0f,
 		Request.Options.IntensityScale,
 		ProjectScale
-	);
-	const float MutablePolicyScale = FOpenMobileHapticsIntensityPolicy::Scale(
-		1.0f,
-		UserPolicy.MasterIntensity,
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.CategoryScales,
-			Request.Options.Category
-		),
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.EffectScales,
-			Descriptor.Name
-		),
-		1.0f,
-		1.0f
 	);
 	AdjustedRequest.Intensity = StaticIntensity * MutablePolicyScale;
 	if (AdjustedRequest.Intensity <= 0.0f)
@@ -3148,6 +3164,8 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	}
 	if (bShouldQueueForOverlap)
 	{
+		FOpenMobileHapticSemanticRequest QueuedRequest = Request;
+		QueuedRequest.Options = AdjustedRequest.Options;
 		return QueueOverlapRequest(
 			AdjustedRequest.Options,
 			ResolvedChannel,
@@ -3155,7 +3173,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			AdjustedRequest.Options.Loop.bLoop,
 			bUsedMixFallback,
 			ExistingToken,
-			&Request,
+			&QueuedRequest,
 			nullptr,
 			nullptr,
 			PatternOverride
@@ -3207,10 +3225,11 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		}
 		FOpenMobileHapticsSubsystemRequestState OverrideState;
 		OverrideState.Token = OverrideToken;
-		OverrideState.Channel = Request.Options.Channel;
-		OverrideState.Category = Request.Options.Category;
+		OverrideState.Channel = AdjustedRequest.Options.Channel;
+		OverrideState.Category = AdjustedRequest.Options.Category;
 		OverrideState.Effect = Descriptor.Name;
 		OverrideState.Priority = ResolvedChannel.EffectivePriority;
+		OverrideState.ResolvedUserPolicyScale = MutablePolicyScale;
 		OverrideState.bSupportsDynamicParameters =
 			bSupportsDynamicParameters;
 		OverrideState.bRequiresPreparedAsset = true;
@@ -3363,10 +3382,11 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 	}
 	FOpenMobileHapticsSubsystemRequestState RequestState;
 	RequestState.Token = Token;
-	RequestState.Channel = Request.Options.Channel;
-	RequestState.Category = Request.Options.Category;
+	RequestState.Channel = AdjustedRequest.Options.Channel;
+	RequestState.Category = AdjustedRequest.Options.Category;
 	RequestState.Effect = Descriptor.Name;
 	RequestState.Priority = ResolvedChannel.EffectivePriority;
+	RequestState.ResolvedUserPolicyScale = MutablePolicyScale;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
 	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
@@ -3454,6 +3474,13 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 	check(IsInGameThread());
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticOneShotRequest AdjustedRequest = Request;
+	AdjustedRequest.Options.Category =
+		OpenMobileHapticsSubsystemPrivate::ResolveCategory(
+			Request.Options.Category,
+			NAME_None,
+			Settings->DefaultCategory
+		);
 	if (!FMath::IsFinite(Request.DurationSeconds)
 		|| Request.DurationSeconds < 0.0f
 		|| (Request.DurationSeconds > 0.0f
@@ -3469,7 +3496,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 		|| Request.Options.IntensityScale < 0.0f
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
-		|| Request.Options.Category.IsNone()
+		|| AdjustedRequest.Options.Category.IsNone()
 		|| static_cast<uint8>(Request.Options.Priority)
 			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.OverlapPolicy)
@@ -3497,7 +3524,6 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			Reason
 		);
 	}
-	FOpenMobileHapticOneShotRequest AdjustedRequest = Request;
 	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
 		FOpenMobileHapticsChannelPolicy::Resolve(
 			Request.Options.Channel,
@@ -3520,7 +3546,14 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			TEXT("PlayerPolicy")
 		);
 	}
-	if (UserPolicy.MasterIntensity <= 0.0f)
+	const float MutablePolicyScale =
+		OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
+			UserPolicy,
+			AdjustedRequest.Options.Priority,
+			AdjustedRequest.Options.Category,
+			TEXT("OneShot")
+		);
+	if (MutablePolicyScale <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 			Request.Options.Channel,
@@ -3565,20 +3598,15 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			break;
 		}
 	}
-	AdjustedRequest.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
+	const float StaticIntensity = FOpenMobileHapticsIntensityPolicy::Scale(
 		Request.Intensity,
-		UserPolicy.MasterIntensity,
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.CategoryScales,
-			Request.Options.Category
-		),
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.EffectScales,
-			TEXT("OneShot")
-		),
+		1.0f,
+		1.0f,
+		1.0f,
 		Request.Options.IntensityScale,
 		ProjectScale
 	);
+	AdjustedRequest.Intensity = StaticIntensity * MutablePolicyScale;
 	if (AdjustedRequest.Intensity <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
@@ -3729,6 +3757,8 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 	}
 	if (bShouldQueueForOverlap)
 	{
+		FOpenMobileHapticOneShotRequest QueuedRequest = Request;
+		QueuedRequest.Options = AdjustedRequest.Options;
 		return QueueOverlapRequest(
 			AdjustedRequest.Options,
 			ResolvedChannel,
@@ -3737,7 +3767,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			bUsedMixFallback,
 			ExistingToken,
 			nullptr,
-			&Request,
+			&QueuedRequest,
 			nullptr
 		);
 	}
@@ -3769,10 +3799,11 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 	}
 	FOpenMobileHapticsSubsystemRequestState RequestState;
 	RequestState.Token = Token;
-	RequestState.Channel = Request.Options.Channel;
-	RequestState.Category = Request.Options.Category;
+	RequestState.Channel = AdjustedRequest.Options.Channel;
+	RequestState.Category = AdjustedRequest.Options.Category;
 	RequestState.Effect = TEXT("OneShot");
 	RequestState.Priority = ResolvedChannel.EffectivePriority;
+	RequestState.ResolvedUserPolicyScale = MutablePolicyScale;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
 	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
@@ -3852,6 +3883,34 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_SubmitNamedPattern);
 	check(IsInGameThread());
 	FOpenMobileHapticsSubsystemState& LocalState = GetOrCreateState();
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
+	FSoftObjectPath LifecyclePatternPath = Request.PatternAsset;
+	if (Settings->NamedLibraries.Num() > 0
+		&& LocalState.LibraryResolver.Find(
+			Request.PatternName,
+			LifecyclePatternPath
+		))
+	{
+		ResolvedRequest.PatternAsset = LifecyclePatternPath;
+	}
+	else if (Settings->NamedLibraries.Num() > 0)
+	{
+		LifecyclePatternPath.Reset();
+	}
+	const UOpenMobileHapticPatternAsset* LifecyclePattern =
+		Cast<UOpenMobileHapticPatternAsset>(
+			LifecyclePatternPath.ResolveObject()
+		);
+	ResolvedRequest.Options.Category =
+		OpenMobileHapticsSubsystemPrivate::ResolveCategory(
+			Request.Options.Category,
+			LifecyclePattern
+				? LifecyclePattern->DefaultCategory
+				: NAME_None,
+			Settings->DefaultCategory
+		);
 	if (Request.PatternName.IsNone()
 		|| !FMath::IsFinite(Request.Intensity)
 		|| Request.Intensity < 0.0f
@@ -3860,7 +3919,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		|| Request.Options.IntensityScale < 0.0f
 		|| Request.Options.IntensityScale > 1.0f
 		|| Request.Options.Channel.IsNone()
-		|| Request.Options.Category.IsNone()
+		|| ResolvedRequest.Options.Category.IsNone()
 		|| static_cast<uint8>(Request.Options.Priority)
 			> static_cast<uint8>(EOpenMobileHapticChannelPriority::Critical)
 		|| static_cast<uint8>(Request.Options.OverlapPolicy)
@@ -3880,13 +3939,10 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		LocalState.LastError = Result.Error;
 		return Result;
 	}
-	const UOpenMobileHapticsSettings* Settings =
-		GetDefault<UOpenMobileHapticsSettings>();
-	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
 	const FOpenMobileHapticsResolvedChannel ResolvedChannel =
 		FOpenMobileHapticsChannelPolicy::Resolve(
-			Request.Options.Channel,
-			Request.Options.Priority,
+			ResolvedRequest.Options.Channel,
+			ResolvedRequest.Options.Priority,
 			Settings->Channels,
 			Settings->MaximumActiveHandles,
 			Settings->MaximumQueueDepthPerChannel
@@ -3905,26 +3961,20 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 			TEXT("PlayerPolicy")
 		);
 	}
-	if (UserPolicy.MasterIntensity <= 0.0f)
+	const float MutablePolicyScale =
+		OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
+			UserPolicy,
+			ResolvedRequest.Options.Priority,
+			ResolvedRequest.Options.Category,
+			ResolvedRequest.PatternName
+		);
+	if (MutablePolicyScale <= 0.0f)
 	{
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 			Request.Options.Channel,
 			TEXT("ZeroIntensity")
 		);
 	}
-	FSoftObjectPath LifecyclePatternPath = Request.PatternAsset;
-	if (Settings->NamedLibraries.Num() > 0
-		&& !LocalState.LibraryResolver.Find(
-			Request.PatternName,
-			LifecyclePatternPath
-		))
-	{
-		LifecyclePatternPath.Reset();
-	}
-	const UOpenMobileHapticPatternAsset* LifecyclePattern =
-		Cast<UOpenMobileHapticPatternAsset>(
-			LifecyclePatternPath.ResolveObject()
-		);
 	if (OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
 		ResolvedRequest.Options,
 		EOpenMobileHapticsLifecycleRequestKind::NamedPattern,
@@ -3996,20 +4046,6 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		1.0f,
 		Request.Options.IntensityScale,
 		ProjectScale
-	);
-	const float MutablePolicyScale = FOpenMobileHapticsIntensityPolicy::Scale(
-		1.0f,
-		UserPolicy.MasterIntensity,
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.CategoryScales,
-			Request.Options.Category
-		),
-		OpenMobileHapticsSubsystemPrivate::FindScale(
-			UserPolicy.EffectScales,
-			Request.PatternName
-		),
-		1.0f,
-		1.0f
 	);
 	if (StaticIntensity <= 0.0f || MutablePolicyScale <= 0.0f)
 	{
@@ -4108,6 +4144,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		Capabilities.DynamicParameters
 			== EOpenMobileHapticSupportState::Supported
 		&& Backend->GetControlSupport().bDynamicParameters;
+	const FOpenMobileHapticNamedPatternRequest ReplayRequest = ResolvedRequest;
 	ResolvedRequest.Intensity = bSupportsDynamicParameters
 		? StaticIntensity
 		: StaticIntensity * MutablePolicyScale;
@@ -4198,7 +4235,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 			ExistingToken,
 			nullptr,
 			nullptr,
-			&Request
+			&ReplayRequest
 		);
 	}
 
@@ -4230,9 +4267,10 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	RequestState.Category = ResolvedRequest.Options.Category;
 	RequestState.Effect = ResolvedRequest.PatternName;
 	RequestState.Priority = ResolvedChannel.EffectivePriority;
+	RequestState.ResolvedUserPolicyScale = MutablePolicyScale;
 	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
 	RequestState.bRequiresPreparedAsset = !Settings->NamedLibraries.IsEmpty();
-	RequestState.RecoveryRequest = Request;
+	RequestState.RecoveryRequest = ReplayRequest;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;
 	OpenMobileHapticsSubsystemPrivate::PreserveOverlapQueueLifecycle(
@@ -4680,7 +4718,6 @@ UOpenMobileHapticsSubsystem::UpdatePlaybackParametersNative(
 		EffectiveUpdate.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
 			Update.Intensity,
 			OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
-				UserPolicy,
 				*Request
 			),
 			1.0f,
@@ -5101,15 +5138,19 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 		TArray<uint64> ScheduledRequestIds;
 		TArray<uint64> ActiveRequestIds;
 		TArray<uint64> DynamicRequestIds;
-		for (const TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
+		for (TPair<uint64, FOpenMobileHapticsSubsystemRequestState>& Pair :
 			State->Requests)
 		{
-			const FOpenMobileHapticsSubsystemRequestState& Request = Pair.Value;
-			const bool bProducesFeedback =
-				OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
+			FOpenMobileHapticsSubsystemRequestState& Request = Pair.Value;
+			Request.ResolvedUserPolicyScale =
+				OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
 					Policy,
-					Request
-				) > 0.0f;
+					Request.Priority,
+					Request.Category,
+					Request.Effect
+				);
+			const bool bProducesFeedback =
+				Request.ResolvedUserPolicyScale > 0.0f;
 			if (Request.bWaitingForOverlap)
 			{
 				if (!bProducesFeedback)
@@ -5205,7 +5246,6 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 			Update.Intensity = FOpenMobileHapticsIntensityPolicy::Scale(
 				Request->RuntimeIntensity,
 				OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
-					Policy,
 					*Request
 				),
 				1.0f,
@@ -5426,7 +5466,6 @@ void UOpenMobileHapticsSubsystem::HandleInterruption(
 				== EOpenMobileHapticInterruptionPolicy::Restart
 			&& Settings->bResumeEligiblePlaybackAfterForeground
 			&& OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
-				UserPolicy,
 				*Request
 			) > 0.0f
 			&& FOpenMobileHapticsBackendRegistry::IsApplicationActive()

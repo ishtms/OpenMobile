@@ -287,6 +287,7 @@ private:
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
 	friend class FOpenMobileHapticsMasterIntensityTest;
+	friend class FOpenMobileHapticsCategoryEffectScaleTest;
 	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
 	friend class FOpenMobileHapticsRecoveryPreparedAssetsTest;
 	friend class FOpenMobileHapticsLifecyclePreparedAssetsTest;
