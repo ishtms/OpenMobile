@@ -11,9 +11,12 @@ public class OpenMobileSensorsEditor : ModuleRules
 			"BlueprintGraph",
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"Kismet",
+			"MessageLog",
 			"OpenMobileSensors",
+			"Projects",
 			"UnrealEd"
 		});
 	}

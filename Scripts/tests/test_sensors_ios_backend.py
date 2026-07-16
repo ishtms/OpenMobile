@@ -37,7 +37,7 @@ class SensorsIOSBackendTests(unittest.TestCase):
 		for forbidden in ("CoreLocation", "Google", "AdSupport"):
 			self.assertNotIn(forbidden, rules)
 
-	def test_plist_always_contains_motion_usage_text(self):
+	def test_ios_module_build_path_contains_motion_usage_text(self):
 		self.assertTrue(UPL.is_file())
 		upl = UPL.read_text(encoding="utf-8")
 
