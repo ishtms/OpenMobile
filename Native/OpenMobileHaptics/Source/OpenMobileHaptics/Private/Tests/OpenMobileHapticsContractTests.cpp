@@ -5288,6 +5288,277 @@ bool FOpenMobileHapticsGlobalEnableTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsMasterIntensityTest,
+	"OpenMobile.Haptics.Policy.MasterIntensity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsMasterIntensityTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const bool SavedEnabledByDefault = Settings->bEnabledByDefault;
+	const float SavedDefaultMasterIntensity =
+		Settings->DefaultMasterIntensity;
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
+	Settings->bEnabledByDefault = true;
+	Settings->DefaultMasterIntensity = 0.8f;
+	Settings->NamedLibraries.Reset();
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
+
+	FMockBackend Backend(TEXT("MasterIntensity"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.DynamicParameters =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bDynamicParameters = true;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	FSubsystemCollection<UGameInstanceSubsystem> FirstCollection;
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(FirstGameInstance);
+	Subsystem->Initialize(FirstCollection);
+	TestEqual(TEXT("Project default initializes master intensity"),
+		Subsystem->GetMasterIntensity(), 0.8f);
+	TestEqual(TEXT("Native facade reports master intensity"),
+		static_cast<IOpenMobileHaptics*>(Subsystem)
+			->GetMasterIntensityNative(),
+		0.8f);
+	const UFunction* GetterFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("GetMasterIntensity")
+		);
+	const UFunction* SetterFunction =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("SetMasterIntensity")
+		);
+	TestTrue(TEXT("Master intensity getter is Blueprint pure"),
+		GetterFunction
+		&& GetterFunction->HasAnyFunctionFlags(FUNC_BlueprintPure));
+	TestTrue(TEXT("Master intensity setter is Blueprint callable"),
+		SetterFunction
+		&& SetterFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+
+	FOpenMobileHapticUserPolicy PreservedPolicy = Subsystem->GetUserPolicy();
+	PreservedPolicy.bAllowCriticalFeedbackWhenDisabled = true;
+	PreservedPolicy.CategoryScales.Add(TEXT("Gameplay"), 0.75f);
+	Subsystem->SetUserPolicy(PreservedPolicy);
+	TestEqual(TEXT("Dedicated master setter is accepted"),
+		Subsystem->SetMasterIntensity(0.6f).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Dedicated master getter reflects the new scale"),
+		Subsystem->GetMasterIntensity(), 0.6f);
+	TestTrue(TEXT("Dedicated master setter preserves enable state"),
+		Subsystem->IsHapticsEnabled());
+	TestTrue(TEXT("Dedicated master setter preserves critical preference"),
+		Subsystem->GetUserPolicy()
+			.bAllowCriticalFeedbackWhenDisabled);
+	TestEqual(TEXT("Dedicated master setter preserves category preferences"),
+		Subsystem->GetUserPolicy().CategoryScales.FindRef(TEXT("Gameplay")),
+		0.75f);
+
+	for (const float InvalidIntensity : {
+		-0.01f,
+		1.01f,
+		std::numeric_limits<float>::quiet_NaN(),
+		std::numeric_limits<float>::infinity()
+	})
+	{
+		TestEqual(TEXT("Invalid master intensity is rejected"),
+			Subsystem->SetMasterIntensity(InvalidIntensity).Error.Code,
+			EOpenMobileHapticErrorCode::InvalidRequest);
+		TestEqual(TEXT("Rejected master intensity preserves the preference"),
+			Subsystem->GetMasterIntensity(), 0.6f);
+	}
+
+	FOpenMobileHapticOneShotRequest FutureRequest;
+	FutureRequest.DurationSeconds = 0.2f;
+	FutureRequest.Intensity = 0.8f;
+	FutureRequest.Options.Channel = TEXT("MasterFutureRequest");
+	FutureRequest.Options.Category = TEXT("UI");
+	const FOpenMobileHapticPlaybackResult FutureResult =
+		Subsystem->SubmitOneShot(FutureRequest);
+	TestTrue(TEXT("Future request is accepted at the player scale"),
+		FutureResult.IsAccepted());
+	TestTrue(TEXT("Future request reports resolved master intensity"),
+		FMath::IsNearlyEqual(
+			FutureResult.Intensity.Resolved,
+			0.48f,
+			1.e-6f
+		));
+	TestTrue(TEXT("Future backend request receives master intensity"),
+		FMath::IsNearlyEqual(
+			Backend.LastOneShotRequest.Intensity,
+			0.48f,
+			1.e-6f
+		));
+
+	FOpenMobileHapticPlaybackOptions DynamicOptions;
+	DynamicOptions.Channel = TEXT("MasterDynamic");
+	DynamicOptions.Category = TEXT("UI");
+	const FOpenMobileHapticPlaybackResult DynamicPlayback =
+		Subsystem->PlayNamedPatternAdvanced(
+			TEXT("MasterContinuous"),
+			1.0f,
+			DynamicOptions
+		);
+	TestTrue(TEXT("Continuous playback is accepted"),
+		DynamicPlayback.IsAccepted());
+	TestEqual(TEXT("Initial dynamic control carries player intensity"),
+		Backend.LastNamedPlaybackParameters.InitialDynamicParameters.Intensity,
+		0.6f);
+	Subsystem->SetMasterIntensity(0.25f);
+	double FlushTime = FPlatformTime::Seconds() + 1.0;
+	Subsystem->FlushDynamicParameterUpdatesForTests(FlushTime);
+	TestEqual(TEXT("Active continuous player receives intensity changes"),
+		Backend.LastDynamicUpdate.Intensity, 0.25f);
+	TestEqual(TEXT("Active update keeps the same native player"),
+		Backend.LastDynamicToken.PlaybackHandle, DynamicPlayback.Handle);
+
+	FOpenMobileHapticOneShotRequest ActiveRequest;
+	ActiveRequest.DurationSeconds = 1.0f;
+	ActiveRequest.Options.Channel = TEXT("MasterZeroQueue");
+	ActiveRequest.Options.Category = TEXT("UI");
+	ActiveRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
+	const FOpenMobileHapticPlaybackResult Active =
+		Subsystem->SubmitOneShot(ActiveRequest);
+	FOpenMobileHapticOneShotRequest QueuedRequest = ActiveRequest;
+	QueuedRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::Queue;
+	const FOpenMobileHapticPlaybackResult Queued =
+		Subsystem->SubmitOneShot(QueuedRequest);
+	const int32 SubmissionsBeforeZero = Backend.OneShotSubmissionCount;
+	TestEqual(TEXT("Zero master intensity is accepted"),
+		Subsystem->SetMasterIntensity(0.0f).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	Subsystem->FlushDynamicParameterUpdatesForTests(++FlushTime);
+	TestTrue(TEXT("Zero master intensity does not disable the preference"),
+		Subsystem->IsHapticsEnabled());
+	TestEqual(TEXT("Zero master intensity remains an explicit scale"),
+		Subsystem->GetMasterIntensity(), 0.0f);
+	TestEqual(TEXT("Zero master intensity mutes active dynamic playback"),
+		Backend.LastDynamicUpdate.Intensity, 0.0f);
+	TestEqual(TEXT("Zero master intensity stops fixed active playback"),
+		Subsystem->GetPlaybackState(Active.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Zero master intensity cancels queued playback"),
+		Subsystem->GetPlaybackState(Queued.Handle),
+		EOpenMobileHapticPlaybackState::Cancelled);
+	FutureRequest.Options.Channel = TEXT("MasterZeroFuture");
+	TestEqual(TEXT("Zero master intensity suppresses future feedback"),
+		Subsystem->SubmitOneShot(FutureRequest).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	TestEqual(TEXT("Zero master intensity avoids native submissions"),
+		Backend.OneShotSubmissionCount, SubmissionsBeforeZero);
+
+	Subsystem->SetMasterIntensity(0.4f);
+	Subsystem->FlushDynamicParameterUpdatesForTests(++FlushTime);
+	TestEqual(TEXT("A nonzero scale restores the active dynamic player"),
+		Backend.LastDynamicUpdate.Intensity, 0.4f);
+	Subsystem->SetHapticsEnabled(false);
+	Subsystem->SetHapticsEnabled(true);
+	Subsystem->FlushDynamicParameterUpdatesForTests(++FlushTime);
+	TestEqual(TEXT("Enable toggles preserve the nonzero master preference"),
+		Subsystem->GetMasterIntensity(), 0.4f);
+	TestEqual(TEXT("Enable toggles restore the saved dynamic scale"),
+		Backend.LastDynamicUpdate.Intensity, 0.4f);
+	Subsystem->SetMasterIntensity(0.5f);
+	Subsystem->FlushDynamicParameterUpdatesForTests(++FlushTime);
+	Subsystem->StopPlayback(DynamicPlayback.Handle);
+
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::BasicVibration;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.SemanticEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.PredefinedEffects =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.DynamicParameters =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Unsupported;
+	Backend.ControlSupport.bDynamicParameters = false;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	FOpenMobileHapticOneShotRequest FixedAmplitudeRequest;
+	FixedAmplitudeRequest.DurationSeconds = 0.2f;
+	FixedAmplitudeRequest.Intensity = 0.8f;
+	FixedAmplitudeRequest.Options.Channel = TEXT("MasterFixedAmplitude");
+	FixedAmplitudeRequest.Options.Category = TEXT("UI");
+	const FOpenMobileHapticPlaybackResult FixedAmplitude =
+		Subsystem->SubmitOneShot(FixedAmplitudeRequest);
+	TestEqual(TEXT("Fixed-amplitude hardware reports a fallback"),
+		FixedAmplitude.Outcome, EOpenMobileHapticPlaybackOutcome::Fallback);
+	TestEqual(TEXT("Fallback reports the player-scaled intensity"),
+		FixedAmplitude.Intensity.Resolved, 0.4f);
+	TestTrue(TEXT("Fallback reports its known native intensity"),
+		FixedAmplitude.Intensity.bNativeIntensityKnown);
+	TestEqual(TEXT("Fallback reports fixed native amplitude"),
+		FixedAmplitude.Intensity.Native, 1.0f);
+	TestTrue(TEXT("Fallback reports inaccurate amplitude representation"),
+		FixedAmplitude.Intensity.bNativeClamped);
+	FixedAmplitudeRequest.Options.Channel = TEXT("MasterExactAmplitude");
+	FixedAmplitudeRequest.Options.FallbackPolicy =
+		EOpenMobileHapticFallbackPolicy::ExactOnly;
+	TestEqual(TEXT("Exact scaling rejects fixed-amplitude hardware"),
+		Subsystem->SubmitOneShot(FixedAmplitudeRequest).Error.Code,
+		EOpenMobileHapticErrorCode::UnsupportedFeature);
+	FixedAmplitudeRequest.Options.Channel = TEXT("MasterNoEffectAmplitude");
+	FixedAmplitudeRequest.Options.FallbackPolicy =
+		EOpenMobileHapticFallbackPolicy::NoEffectAllowed;
+	TestEqual(TEXT("Optional scaling suppresses fixed-amplitude fallback"),
+		Subsystem->SubmitOneShot(FixedAmplitudeRequest).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Subsystem->Deinitialize();
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	FSubsystemCollection<UGameInstanceSubsystem> SecondCollection;
+	UOpenMobileHapticsSubsystem* SecondSubsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(SecondGameInstance);
+	SecondSubsystem->Initialize(SecondCollection);
+	TestEqual(TEXT("Recreated subsystem uses the project default"),
+		SecondSubsystem->GetMasterIntensity(), 0.8f);
+	SecondSubsystem->Deinitialize();
+
+	Settings->DefaultMasterIntensity =
+		std::numeric_limits<float>::quiet_NaN();
+	UGameInstance* InvalidGameInstance = NewObject<UGameInstance>();
+	FSubsystemCollection<UGameInstanceSubsystem> InvalidCollection;
+	UOpenMobileHapticsSubsystem* InvalidDefaultSubsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(InvalidGameInstance);
+	InvalidDefaultSubsystem->Initialize(InvalidCollection);
+	TestEqual(TEXT("Invalid project intensity resolves to a safe default"),
+		InvalidDefaultSubsystem->GetMasterIntensity(), 1.0f);
+	InvalidDefaultSubsystem->Deinitialize();
+
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->bEnabledByDefault = SavedEnabledByDefault;
+	Settings->DefaultMasterIntensity = SavedDefaultMasterIntensity;
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsTypeDefaultsTest,
 	"OpenMobile.Haptics.API.TypeDefaults",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

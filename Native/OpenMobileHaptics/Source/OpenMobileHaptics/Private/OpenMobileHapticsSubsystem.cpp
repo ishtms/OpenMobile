@@ -563,26 +563,37 @@ namespace OpenMobileHapticsSubsystemPrivate
 				|| Category == TEXT("Accessibility"));
 	}
 
-	float ActivePolicyScale(
+	float UserPolicyScale(
 		const FOpenMobileHapticUserPolicy& Policy,
-		const FOpenMobileHapticsSubsystemRequestState& Request
+		EOpenMobileHapticChannelPriority Priority,
+		FName Category,
+		FName Effect
 	)
 	{
-		if (!IsAllowedByUserPolicy(
-			Policy,
-			Request.Priority,
-			Request.Category
-		))
+		if (!IsAllowedByUserPolicy(Policy, Priority, Category))
 		{
 			return 0.0f;
 		}
 		return FOpenMobileHapticsIntensityPolicy::Scale(
 			1.0f,
 			Policy.MasterIntensity,
-			FindScale(Policy.CategoryScales, Request.Category),
-			FindScale(Policy.EffectScales, Request.Effect),
+			FindScale(Policy.CategoryScales, Category),
+			FindScale(Policy.EffectScales, Effect),
 			1.0f,
 			1.0f
+		);
+	}
+
+	float ActivePolicyScale(
+		const FOpenMobileHapticUserPolicy& Policy,
+		const FOpenMobileHapticsSubsystemRequestState& Request
+	)
+	{
+		return UserPolicyScale(
+			Policy,
+			Request.Priority,
+			Request.Category,
+			Request.Effect
 		);
 	}
 
@@ -1058,7 +1069,12 @@ void UOpenMobileHapticsSubsystem::Initialize(
 	UserPolicy.bEnabled = Settings->bEnabledByDefault;
 	UserPolicy.bAllowCriticalFeedbackWhenDisabled =
 		Settings->bAllowCriticalFeedbackWhenDisabledByDefault;
-	UserPolicy.MasterIntensity = Settings->DefaultMasterIntensity;
+	UserPolicy.MasterIntensity =
+		FMath::IsFinite(Settings->DefaultMasterIntensity)
+		&& Settings->DefaultMasterIntensity >= 0.0f
+		&& Settings->DefaultMasterIntensity <= 1.0f
+			? Settings->DefaultMasterIntensity
+			: 1.0f;
 	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
 	State->RecentPlaybackEvents.Reserve(
@@ -2061,6 +2077,18 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::SetHapticsEnabled(
 	return SetHapticsEnabledNative(bEnabled);
 }
 
+float UOpenMobileHapticsSubsystem::GetMasterIntensity() const
+{
+	return GetMasterIntensityNative();
+}
+
+FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::SetMasterIntensity(
+	float MasterIntensity
+)
+{
+	return SetMasterIntensityNative(MasterIntensity);
+}
+
 FOpenMobileHapticUserPolicy UOpenMobileHapticsSubsystem::GetUserPolicy() const
 {
 	return GetUserPolicyNative();
@@ -2942,6 +2970,13 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			TEXT("PlayerPolicy")
 		);
 	}
+	if (UserPolicy.MasterIntensity <= 0.0f)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("ZeroIntensity")
+		);
+	}
 	const EOpenMobileHapticsLifecycleRequestOutcome LifecycleOutcome =
 		OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
 			AdjustedRequest.Options,
@@ -3485,6 +3520,13 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 			TEXT("PlayerPolicy")
 		);
 	}
+	if (UserPolicy.MasterIntensity <= 0.0f)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("ZeroIntensity")
+		);
+	}
 	if (OpenMobileHapticsSubsystemPrivate::EvaluateLifecycle(
 		AdjustedRequest.Options,
 		EOpenMobileHapticsLifecycleRequestKind::OneShot
@@ -3861,6 +3903,13 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
 			Request.Options.Channel,
 			TEXT("PlayerPolicy")
+		);
+	}
+	if (UserPolicy.MasterIntensity <= 0.0f)
+	{
+		return OpenMobileHapticsSubsystemPrivate::MakeSuppressedPlaybackResult(
+			Request.Options.Channel,
+			TEXT("ZeroIntensity")
 		);
 	}
 	FSoftObjectPath LifecyclePatternPath = Request.PatternAsset;
@@ -4961,6 +5010,29 @@ UOpenMobileHapticsSubsystem::SetHapticsEnabledNative(bool bEnabled)
 	return ApplyUserPolicy(Policy, true);
 }
 
+float UOpenMobileHapticsSubsystem::GetMasterIntensityNative() const
+{
+	return UserPolicy.MasterIntensity;
+}
+
+FOpenMobileHapticControlResult
+UOpenMobileHapticsSubsystem::SetMasterIntensityNative(float MasterIntensity)
+{
+	check(IsInGameThread());
+	if (FMath::IsFinite(MasterIntensity)
+		&& MasterIntensity >= 0.0f
+		&& MasterIntensity <= 1.0f
+		&& UserPolicy.MasterIntensity == MasterIntensity)
+	{
+		FOpenMobileHapticControlResult Result;
+		Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
+		return Result;
+	}
+	FOpenMobileHapticUserPolicy Policy = UserPolicy;
+	Policy.MasterIntensity = MasterIntensity;
+	return ApplyUserPolicy(Policy, false);
+}
+
 FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::UpdateUserPolicy(
 	const FOpenMobileHapticUserPolicy& Policy
 )
@@ -5015,13 +5087,14 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 						Settings->MaximumActiveHandles,
 						Settings->MaximumQueueDepthPerChannel
 					);
-				const bool bAllowed =
-					OpenMobileHapticsSubsystemPrivate::IsAllowedByUserPolicy(
+				const float PolicyScale =
+					OpenMobileHapticsSubsystemPrivate::UserPolicyScale(
 						Policy,
 						ResolvedChannel.EffectivePriority,
-						Pending.Request.Options.Category
+						Pending.Request.Options.Category,
+						Pending.Request.PatternName
 					);
-				return !bAllowed;
+				return PolicyScale <= 0.0f;
 			}
 		);
 		TArray<uint64> QueuedRequestIds;
@@ -5032,15 +5105,14 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 			State->Requests)
 		{
 			const FOpenMobileHapticsSubsystemRequestState& Request = Pair.Value;
-			const bool bAllowed =
-				OpenMobileHapticsSubsystemPrivate::IsAllowedByUserPolicy(
+			const bool bProducesFeedback =
+				OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
 					Policy,
-					Request.Priority,
-					Request.Category
-				);
+					Request
+				) > 0.0f;
 			if (Request.bWaitingForOverlap)
 			{
-				if (!bAllowed)
+				if (!bProducesFeedback)
 				{
 					QueuedRequestIds.Add(Pair.Key);
 				}
@@ -5049,7 +5121,7 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 			if (Request.SubmissionState
 				== EOpenMobileHapticPlaybackState::Scheduled)
 			{
-				if (!bAllowed || !bPreserveAllowedScheduledStarts)
+				if (!bProducesFeedback || !bPreserveAllowedScheduledStarts)
 				{
 					ScheduledRequestIds.Add(Pair.Key);
 				}
@@ -5059,7 +5131,8 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 			{
 				DynamicRequestIds.Add(Pair.Key);
 			}
-			else if (!bAllowed && Request.Token.PlaybackHandle.IsValid())
+			else if (!bProducesFeedback
+				&& Request.Token.PlaybackHandle.IsValid())
 			{
 				ActiveRequestIds.Add(Pair.Key);
 			}
@@ -5352,11 +5425,10 @@ void UOpenMobileHapticsSubsystem::HandleInterruption(
 			&& Request->RecoveryRequest->Options.InterruptionPolicy
 				== EOpenMobileHapticInterruptionPolicy::Restart
 			&& Settings->bResumeEligiblePlaybackAfterForeground
-			&& OpenMobileHapticsSubsystemPrivate::IsAllowedByUserPolicy(
+			&& OpenMobileHapticsSubsystemPrivate::ActivePolicyScale(
 				UserPolicy,
-				Request->Priority,
-				Request->Category
-			)
+				*Request
+			) > 0.0f
 			&& FOpenMobileHapticsBackendRegistry::IsApplicationActive()
 			&& (Request->LastPublishedState
 					== EOpenMobileHapticPlaybackState::Started

@@ -58,6 +58,10 @@ public:
 	virtual FOpenMobileHapticControlResult SetHapticsEnabledNative(
 		bool bEnabled
 	) = 0;
+	virtual float GetMasterIntensityNative() const = 0;
+	virtual FOpenMobileHapticControlResult SetMasterIntensityNative(
+		float MasterIntensity
+	) = 0;
 	virtual FOpenMobileHapticUserPolicy GetUserPolicyNative() const = 0;
 	virtual FOpenMobileHapticControlResult UpdateUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy

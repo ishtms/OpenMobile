@@ -203,6 +203,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Set Haptics Enabled", ToolTip = "Updates the current per-player global Haptics switch without saving it. Games remain responsible for persistence."))
 	FOpenMobileHapticControlResult SetHapticsEnabled(bool bEnabled);
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptics Master Intensity", ToolTip = "Returns the finite normalized per-player master intensity held by this Game Instance."))
+	float GetMasterIntensity() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Set Haptics Master Intensity", ToolTip = "Updates the finite normalized per-player master intensity without saving it. Games remain responsible for persistence."))
+	FOpenMobileHapticControlResult SetMasterIntensity(
+		UPARAM(meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		float MasterIntensity
+	);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptics User Policy", ToolTip = "Returns the current per-player Haptics policy held by this Game Instance."))
 	FOpenMobileHapticUserPolicy GetUserPolicy() const;
 
@@ -261,6 +270,10 @@ public:
 	virtual FOpenMobileHapticControlResult SetHapticsEnabledNative(
 		bool bEnabled
 	) override;
+	virtual float GetMasterIntensityNative() const override;
+	virtual FOpenMobileHapticControlResult SetMasterIntensityNative(
+		float MasterIntensity
+	) override;
 	virtual FOpenMobileHapticUserPolicy GetUserPolicyNative() const override;
 	virtual FOpenMobileHapticControlResult UpdateUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy
@@ -273,6 +286,7 @@ private:
 	friend class FOpenMobileHapticsAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
+	friend class FOpenMobileHapticsMasterIntensityTest;
 	friend class FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest;
 	friend class FOpenMobileHapticsRecoveryPreparedAssetsTest;
 	friend class FOpenMobileHapticsLifecyclePreparedAssetsTest;
