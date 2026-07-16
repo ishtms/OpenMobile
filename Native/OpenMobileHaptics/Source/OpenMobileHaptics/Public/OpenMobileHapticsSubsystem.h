@@ -197,6 +197,12 @@ public:
 		FOpenMobileHapticPlaybackHandle Handle
 	) const;
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Is Haptics Enabled", ToolTip = "Returns the current per-player global Haptics switch held by this Game Instance."))
+	bool IsHapticsEnabled() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Set Haptics Enabled", ToolTip = "Updates the current per-player global Haptics switch without saving it. Games remain responsible for persistence."))
+	FOpenMobileHapticControlResult SetHapticsEnabled(bool bEnabled);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptics User Policy", ToolTip = "Returns the current per-player Haptics policy held by this Game Instance."))
 	FOpenMobileHapticUserPolicy GetUserPolicy() const;
 
@@ -251,6 +257,10 @@ public:
 	virtual EOpenMobileHapticPlaybackState GetPlaybackStateNative(
 		FOpenMobileHapticPlaybackHandle Handle
 	) const override;
+	virtual bool IsHapticsEnabledNative() const override;
+	virtual FOpenMobileHapticControlResult SetHapticsEnabledNative(
+		bool bEnabled
+	) override;
 	virtual FOpenMobileHapticUserPolicy GetUserPolicyNative() const override;
 	virtual FOpenMobileHapticControlResult UpdateUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy
@@ -278,6 +288,10 @@ private:
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	FOpenMobileHapticsSubsystemState& GetOrCreateState() const;
+	FOpenMobileHapticControlResult ApplyUserPolicy(
+		const FOpenMobileHapticUserPolicy& Policy,
+		bool bPreserveAllowedScheduledStarts
+	);
 	TFunction<void(const FOpenMobileHapticsBackendCallback&)>
 	MakeBackendCallback();
 	void HandleBackendCallback(

@@ -15,6 +15,7 @@
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "Serialization/ObjectAndNameAsStringProxyArchive.h"
+#include "Subsystems/SubsystemCollection.h"
 #include "UObject/CoreRedirects.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsChannelPolicy.h"
@@ -5043,13 +5044,11 @@ bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
 	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 5.0);
 	TestEqual(TEXT("Runtime and policy intensity compose once"),
 		Backend.LastDynamicUpdate.Intensity, 0.2f);
-	Policy.bEnabled = false;
-	Subsystem->SetUserPolicy(Policy);
+	Subsystem->SetHapticsEnabled(false);
 	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 6.0);
 	TestEqual(TEXT("Disabling policy mutes active compatible playback"),
 		Backend.LastDynamicUpdate.Intensity, 0.0f);
-	Policy.bEnabled = true;
-	Subsystem->SetUserPolicy(Policy);
+	Subsystem->SetHapticsEnabled(true);
 	Subsystem->FlushDynamicParameterUpdatesForTests(FutureTime + 7.0);
 	TestEqual(TEXT("Re-enabling policy restores composed intensity"),
 		Backend.LastDynamicUpdate.Intensity, 0.2f);
@@ -5058,6 +5057,233 @@ bool FOpenMobileHapticsDynamicParameterSubsystemTest::RunTest(
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	Settings->NamedLibraries = SavedLibraries;
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsGlobalEnableTest,
+	"OpenMobile.Haptics.Policy.GlobalEnable",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsGlobalEnableTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileHapticsTests;
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	UOpenMobileHapticsSettings* Settings =
+		GetMutableDefault<UOpenMobileHapticsSettings>();
+	const bool SavedEnabledByDefault = Settings->bEnabledByDefault;
+	const bool SavedCriticalDefault =
+		Settings->bAllowCriticalFeedbackWhenDisabledByDefault;
+	const TArray<FOpenMobileHapticNamedLibrarySettings> SavedLibraries =
+		Settings->NamedLibraries;
+	const float SavedDefaultMinimumIntervalSeconds =
+		Settings->DefaultMinimumIntervalSeconds;
+	Settings->bEnabledByDefault = false;
+	Settings->bAllowCriticalFeedbackWhenDisabledByDefault = false;
+	Settings->NamedLibraries.Reset();
+	Settings->DefaultMinimumIntervalSeconds = 0.0f;
+
+	FMockBackend Backend(TEXT("GlobalEnable"));
+	Backend.Capabilities.Availability =
+		EOpenMobileHapticAvailability::RichHaptics;
+	Backend.Capabilities.RichHaptics =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.AmplitudeControl =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.Capabilities.Scheduling =
+		EOpenMobileHapticSupportState::Supported;
+	Backend.ControlSupport.bStop = true;
+	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
+
+	UGameInstance* FirstGameInstance = NewObject<UGameInstance>();
+	FSubsystemCollection<UGameInstanceSubsystem> FirstCollection;
+	UOpenMobileHapticsSubsystem* FirstSubsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(FirstGameInstance);
+	FirstSubsystem->Initialize(FirstCollection);
+	TestFalse(TEXT("Project default initializes the runtime switch"),
+		FirstSubsystem->IsHapticsEnabled());
+	TestFalse(TEXT("Native facade reports the runtime switch"),
+		static_cast<IOpenMobileHaptics*>(FirstSubsystem)
+			->IsHapticsEnabledNative());
+	TestEqual(TEXT("Disabled policy is visible in capabilities"),
+		FirstSubsystem->GetHapticCapabilities().Availability,
+		EOpenMobileHapticAvailability::DisabledByPolicy);
+
+	FOpenMobileHapticUserPolicy PreservedPolicy =
+		FirstSubsystem->GetUserPolicy();
+	PreservedPolicy.MasterIntensity = 0.65f;
+	PreservedPolicy.CategoryScales.Add(TEXT("Gameplay"), 0.75f);
+	FirstSubsystem->SetUserPolicy(PreservedPolicy);
+	TestEqual(TEXT("Dedicated enable operation is accepted"),
+		FirstSubsystem->SetHapticsEnabled(true).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestTrue(TEXT("Dedicated getter reflects the enabled state"),
+		FirstSubsystem->IsHapticsEnabled());
+	TestEqual(TEXT("Dedicated switch preserves master intensity"),
+		FirstSubsystem->GetUserPolicy().MasterIntensity, 0.65f);
+	TestEqual(TEXT("Dedicated switch preserves category preferences"),
+		FirstSubsystem->GetUserPolicy().CategoryScales.FindRef(TEXT("Gameplay")),
+		0.75f);
+	FirstSubsystem->Deinitialize();
+
+	UGameInstance* SecondGameInstance = NewObject<UGameInstance>();
+	FSubsystemCollection<UGameInstanceSubsystem> SecondCollection;
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(SecondGameInstance);
+	Subsystem->Initialize(SecondCollection);
+	TestFalse(TEXT("Recreated subsystem resolves the project default again"),
+		Subsystem->IsHapticsEnabled());
+	TestFalse(TEXT("Runtime preference is not written to a global save"),
+		Subsystem->GetUserPolicy().bEnabled);
+	TestFalse(TEXT("Critical feedback is opt-in by default"),
+		Subsystem->GetUserPolicy()
+			.bAllowCriticalFeedbackWhenDisabled);
+	Subsystem->SetHapticsEnabled(true);
+
+	FOpenMobileHapticOneShotRequest ActiveRequest;
+	ActiveRequest.DurationSeconds = 1.0f;
+	ActiveRequest.Options.Channel = TEXT("GlobalEnablePlayback");
+	ActiveRequest.Options.Category = TEXT("Gameplay");
+	ActiveRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::Replace;
+	const FOpenMobileHapticPlaybackResult Active =
+		Subsystem->SubmitOneShot(ActiveRequest);
+	FOpenMobileHapticOneShotRequest QueuedRequest = ActiveRequest;
+	QueuedRequest.Options.OverlapPolicy =
+		EOpenMobileHapticOverlapPolicy::Queue;
+	const FOpenMobileHapticPlaybackResult Queued =
+		Subsystem->SubmitOneShot(QueuedRequest);
+	TestTrue(TEXT("Nonessential playback starts before disable"),
+		Active.IsAccepted());
+	TestEqual(TEXT("Conflicting nonessential work is queued"),
+		Queued.State, EOpenMobileHapticPlaybackState::Scheduled);
+	const int32 StopsBeforeDisable = Backend.StopPlaybackCount;
+	TestEqual(TEXT("Disabling active feedback is accepted"),
+		Subsystem->SetHapticsEnabled(false).Outcome,
+		EOpenMobileHapticControlOutcome::Accepted);
+	TestEqual(TEXT("Active nonessential feedback is stopped"),
+		Subsystem->GetPlaybackState(Active.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Queued nonessential feedback is cancelled"),
+		Subsystem->GetPlaybackState(Queued.Handle),
+		EOpenMobileHapticPlaybackState::Cancelled);
+	TestEqual(TEXT("Disable stops only the active native playback"),
+		Backend.StopPlaybackCount, StopsBeforeDisable + 1);
+	TestEqual(TEXT("Disable releases all nonessential queue capacity"),
+		Subsystem->GetDiagnostics().QueuedPlaybackCount, 0);
+
+	Subsystem->SetHapticsEnabled(true);
+	FOpenMobileHapticNamedPatternRequest ScheduledRequest;
+	ScheduledRequest.PatternName = TEXT("ScheduledPolicyPattern");
+	ScheduledRequest.Options.Channel = TEXT("ScheduledPolicyPlayback");
+	ScheduledRequest.Options.Category = TEXT("Gameplay");
+	ScheduledRequest.Options.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::Relative;
+	ScheduledRequest.Options.Schedule.TimeSeconds = 0.25;
+	const FOpenMobileHapticPlaybackResult Scheduled =
+		Subsystem->SubmitNamedPattern(ScheduledRequest);
+	TestEqual(TEXT("Future nonessential feedback is scheduled"),
+		Scheduled.State, EOpenMobileHapticPlaybackState::Scheduled);
+	const int32 StopsBeforeScheduledDisable = Backend.StopPlaybackCount;
+	Subsystem->SetHapticsEnabled(false);
+	TestEqual(TEXT("Disable cancels scheduled nonessential feedback"),
+		Subsystem->GetPlaybackState(Scheduled.Handle),
+		EOpenMobileHapticPlaybackState::Cancelled);
+	TestEqual(TEXT("Scheduled native work is stopped before its start"),
+		Backend.StopPlaybackCount, StopsBeforeScheduledDisable + 1);
+
+	FOpenMobileHapticOneShotRequest CriticalAlert;
+	CriticalAlert.DurationSeconds = 1.0f;
+	CriticalAlert.Options.Channel = TEXT("CriticalAlert");
+	CriticalAlert.Options.Category = TEXT("Alerts");
+	CriticalAlert.Options.Priority =
+		EOpenMobileHapticChannelPriority::Critical;
+	TestEqual(TEXT("Critical alert remains blocked without opt-in"),
+		Subsystem->SubmitOneShot(CriticalAlert).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	FOpenMobileHapticUserPolicy CriticalPolicy = Subsystem->GetUserPolicy();
+	CriticalPolicy.bAllowCriticalFeedbackWhenDisabled = true;
+	Subsystem->SetUserPolicy(CriticalPolicy);
+	const FOpenMobileHapticPlaybackResult Critical =
+		Subsystem->SubmitOneShot(CriticalAlert);
+	TestTrue(TEXT("Opted-in critical alert can play while globally disabled"),
+		Critical.IsAccepted());
+	FOpenMobileHapticOneShotRequest CriticalAccessibility = CriticalAlert;
+	CriticalAccessibility.Options.Channel = TEXT("CriticalAccessibility");
+	CriticalAccessibility.Options.Category = TEXT("Accessibility");
+	const FOpenMobileHapticPlaybackResult Accessibility =
+		Subsystem->SubmitOneShot(CriticalAccessibility);
+	TestTrue(TEXT("Opted-in critical accessibility feedback can play"),
+		Accessibility.IsAccepted());
+	FOpenMobileHapticOneShotRequest ScheduledCritical = CriticalAlert;
+	ScheduledCritical.Options.Channel = TEXT("ScheduledCriticalAlert");
+	ScheduledCritical.Options.Schedule.Mode =
+		EOpenMobileHapticScheduleMode::Relative;
+	ScheduledCritical.Options.Schedule.TimeSeconds = 0.2;
+	const FOpenMobileHapticPlaybackResult CriticalDelayed =
+		Subsystem->SubmitOneShot(ScheduledCritical);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	const TSharedPtr<
+		FOpenMobileHapticsScheduledStartGuard,
+		ESPMode::ThreadSafe
+	> CriticalDelayedGuard =
+		Backend.LastOneShotPlaybackParameters.ScheduledStartGuard;
+	TestEqual(TEXT("Opted-in critical delayed feedback is scheduled"),
+		CriticalDelayed.State, EOpenMobileHapticPlaybackState::Scheduled);
+	Subsystem->SetHapticsEnabled(true);
+	Subsystem->SetHapticsEnabled(false);
+	TestTrue(TEXT("Switch changes preserve permitted critical delayed work"),
+		CriticalDelayedGuard
+		&& CriticalDelayedGuard->CanStart(
+			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+	TestEqual(TEXT("Permitted critical delayed work stays scheduled"),
+		Subsystem->GetPlaybackState(CriticalDelayed.Handle),
+		EOpenMobileHapticPlaybackState::Scheduled);
+	FOpenMobileHapticOneShotRequest WrongCategory = CriticalAlert;
+	WrongCategory.Options.Channel = TEXT("CriticalGameplay");
+	WrongCategory.Options.Category = TEXT("Gameplay");
+	TestEqual(TEXT("Critical gameplay cannot bypass the global switch"),
+		Subsystem->SubmitOneShot(WrongCategory).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+	FOpenMobileHapticOneShotRequest WrongPriority = CriticalAlert;
+	WrongPriority.Options.Channel = TEXT("NormalAlert");
+	WrongPriority.Options.Priority =
+		EOpenMobileHapticChannelPriority::Normal;
+	TestEqual(TEXT("Ordinary alerts cannot bypass the global switch"),
+		Subsystem->SubmitOneShot(WrongPriority).Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed);
+
+	Subsystem->SetHapticsEnabled(true);
+	ActiveRequest.Options.Channel = TEXT("OrdinaryAlongsideCritical");
+	const FOpenMobileHapticPlaybackResult Ordinary =
+		Subsystem->SubmitOneShot(ActiveRequest);
+	const int32 StopsBeforeSelectiveDisable = Backend.StopPlaybackCount;
+	Subsystem->SetHapticsEnabled(false);
+	TestEqual(TEXT("Selective disable preserves opted-in critical feedback"),
+		Subsystem->GetPlaybackState(Critical.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+	TestEqual(TEXT("Selective disable preserves critical accessibility feedback"),
+		Subsystem->GetPlaybackState(Accessibility.Handle),
+		EOpenMobileHapticPlaybackState::Accepted);
+	TestEqual(TEXT("Selective disable stops ordinary feedback"),
+		Subsystem->GetPlaybackState(Ordinary.Handle),
+		EOpenMobileHapticPlaybackState::Stopped);
+	TestEqual(TEXT("Selective disable stops one native request"),
+		Backend.StopPlaybackCount, StopsBeforeSelectiveDisable + 1);
+
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	Settings->bEnabledByDefault = SavedEnabledByDefault;
+	Settings->bAllowCriticalFeedbackWhenDisabledByDefault = SavedCriticalDefault;
+	Settings->NamedLibraries = SavedLibraries;
+	Settings->DefaultMinimumIntervalSeconds =
+		SavedDefaultMinimumIntervalSeconds;
 	return true;
 }
 
@@ -5116,6 +5342,8 @@ bool FOpenMobileHapticsTypeDefaultsTest::RunTest(const FString& Parameters)
 
 	const FOpenMobileHapticUserPolicy Policy;
 	TestTrue(TEXT("Haptics are enabled by default"), Policy.bEnabled);
+	TestFalse(TEXT("Critical feedback requires explicit player opt-in"),
+		Policy.bAllowCriticalFeedbackWhenDisabled);
 	TestEqual(TEXT("Master intensity defaults to one"), Policy.MasterIntensity, 1.0f);
 	const FOpenMobileHapticPlaybackResult SuppressionResult;
 	TestEqual(TEXT("Playback results default to no suppression reason"),
@@ -5176,7 +5404,25 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Master intensity is serialized to config"),
 		IntensityProperty && IntensityProperty->HasAnyPropertyFlags(CPF_Config)
 	);
+	const FBoolProperty* EnabledProperty = FindFProperty<FBoolProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileHapticsSettings, bEnabledByDefault)
+	);
+	const FBoolProperty* CriticalDefaultProperty = FindFProperty<FBoolProperty>(
+		UOpenMobileHapticsSettings::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(
+			UOpenMobileHapticsSettings,
+			bAllowCriticalFeedbackWhenDisabledByDefault
+		)
+	);
+	TestTrue(TEXT("Enable default is serialized to config"),
+		EnabledProperty && EnabledProperty->HasAnyPropertyFlags(CPF_Config));
+	TestTrue(TEXT("Critical-feedback default is serialized to config"),
+		CriticalDefaultProperty
+			&& CriticalDefaultProperty->HasAnyPropertyFlags(CPF_Config));
 	TestTrue(TEXT("Haptics are enabled by default"), Settings->bEnabledByDefault);
+	TestFalse(TEXT("Critical feedback is disabled by default"),
+		Settings->bAllowCriticalFeedbackWhenDisabledByDefault);
 	TestEqual(
 		TEXT("Default project intensity is one"),
 		Settings->DefaultMasterIntensity,
@@ -5388,6 +5634,7 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT(".ini")
 	);
 	Settings->bEnabledByDefault = false;
+	Settings->bAllowCriticalFeedbackWhenDisabledByDefault = true;
 	Settings->DefaultMasterIntensity = 0.75f;
 	Settings->DefaultChannel = TEXT("UI");
 	Settings->MaximumQueuedHandles = 12;
@@ -5417,6 +5664,8 @@ bool FOpenMobileHapticsSettingsContractTest::RunTest(const FString& Parameters)
 		TEXT("Enable default survives editor restart serialization"),
 		Loaded->bEnabledByDefault
 	);
+	TestTrue(TEXT("Critical default survives editor restart serialization"),
+		Loaded->bAllowCriticalFeedbackWhenDisabledByDefault);
 	TestEqual(
 		TEXT("Master intensity survives editor restart serialization"),
 		Loaded->DefaultMasterIntensity,
@@ -7507,6 +7756,30 @@ bool FOpenMobileHapticsInterruptionRecoveryTest::RunTest(
 	}
 	TestTrue(TEXT("Restarted playback identifies the interrupted handle"),
 		bFoundReplacement);
+
+	const int32 ReplacementCallback = Backend.GetPendingCallbackCount() - 1;
+	Backend.Emit(
+		ReplacementCallback,
+		EOpenMobileHapticPlaybackState::Started,
+		1,
+		EOpenMobileHapticEventEvidence::NativeConfirmed
+	);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	FOpenMobileHapticsBackendRegistry::NotifyInterruption(
+		Backend.GetBackendName(),
+		EOpenMobileHapticsInterruptionReason::EngineReset
+	);
+	const int32 SubmissionsBeforeDisabledRecovery =
+		Backend.NamedSubmissionCount;
+	Subsystem->SetHapticsEnabled(false);
+	FOpenMobileHapticsBackendRegistry::RunRecoveryAttemptForTests(
+		FPlatformTime::Seconds() + 10.0
+	);
+	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+	TestEqual(TEXT("Backend recovery still completes while policy is disabled"),
+		Backend.RecoveryAttemptCount, 2);
+	TestEqual(TEXT("Disable removes queued ordinary restart work"),
+		Backend.NamedSubmissionCount, SubmissionsBeforeDisabledRecovery);
 
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);

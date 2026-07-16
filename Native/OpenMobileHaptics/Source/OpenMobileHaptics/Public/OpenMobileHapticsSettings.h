@@ -121,6 +121,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Defaults", meta = (DisplayName = "Enabled by Default", ToolTip = "Initial per-player Haptics state. Games remain responsible for saving player preferences."))
 	bool bEnabledByDefault = true;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Defaults", meta = (DisplayName = "Allow Critical Feedback When Disabled by Default", ToolTip = "Initial opt-in for Critical-priority Alerts or Accessibility feedback while the global Haptics switch is off. Games remain responsible for saving player preferences."))
+	bool bAllowCriticalFeedbackWhenDisabledByDefault = false;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Defaults", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Default Master Intensity", ToolTip = "Initial per-player master intensity. Games remain responsible for saving later changes."))
 	float DefaultMasterIntensity = 1.0f;
 

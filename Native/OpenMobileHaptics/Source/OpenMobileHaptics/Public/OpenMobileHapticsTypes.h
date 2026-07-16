@@ -1206,6 +1206,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticUserPolicy
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
 	bool bEnabled = true;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ToolTip = "Allows Critical-priority Alerts or Accessibility feedback while the global Haptics switch is off."))
+	bool bAllowCriticalFeedbackWhenDisabled = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float MasterIntensity = 1.0f;
 

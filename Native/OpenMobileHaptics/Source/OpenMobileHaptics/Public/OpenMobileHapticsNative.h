@@ -54,6 +54,10 @@ public:
 	virtual EOpenMobileHapticPlaybackState GetPlaybackStateNative(
 		FOpenMobileHapticPlaybackHandle Handle
 	) const = 0;
+	virtual bool IsHapticsEnabledNative() const = 0;
+	virtual FOpenMobileHapticControlResult SetHapticsEnabledNative(
+		bool bEnabled
+	) = 0;
 	virtual FOpenMobileHapticUserPolicy GetUserPolicyNative() const = 0;
 	virtual FOpenMobileHapticControlResult UpdateUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy
