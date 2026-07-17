@@ -232,6 +232,14 @@ bool FOpenMobileSensorsSubscriptionStartFailureTest::RunTest(
 		Accepted.Handle.IsValid());
 	FOpenMobileSensorsSubscriptionService::
 		ProcessPendingBackendOperationsForTests();
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
 	FOpenMobileSensorSubscriptionStateSnapshot Snapshot;
 	TestTrue(TEXT("Failed starts remain queryable"),
 		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
@@ -248,6 +256,8 @@ bool FOpenMobileSensorsSubscriptionStartFailureTest::RunTest(
 		FOpenMobileSensorsSubscriptionService::
 			GetPhysicalStreamCountForTests(),
 		0);
+	TestEqual(TEXT("Failed native starts use the bounded retry budget"),
+		Backend.GetStartSensorStreamCount(), 3);
 	TestTrue(TEXT("Failure is reported through the state event"),
 		States.Contains(EOpenMobileSensorSubscriptionState::Failed));
 	FOpenMobileSensorsSubscriptionService::OnStateChanged().Remove(EventHandle);
@@ -542,9 +552,9 @@ bool FOpenMobileSensorsPhysicalStreamFailureTest::RunTest(
 			Second.Handle,
 			SecondState
 		));
-	TestEqual(TEXT("All shared subscribers fail"),
+	TestEqual(TEXT("A transient failure queues shared recovery"),
 		FirstState.State,
-		EOpenMobileSensorSubscriptionState::Failed);
+		EOpenMobileSensorSubscriptionState::Accepted);
 	TestEqual(TEXT("The shared failure is preserved"),
 		SecondState.Error.NativeCode,
 		FString(TEXT("SensorDisconnected")));
@@ -558,6 +568,21 @@ bool FOpenMobileSensorsPhysicalStreamFailureTest::RunTest(
 			Backend.GetLastStartedPhysicalHandle(),
 			Failure
 		));
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	TestTrue(TEXT("The first recovered handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			FirstOwner,
+			First.Handle,
+			FirstState
+		));
+	TestEqual(TEXT("Transient recovery restores the physical stream"),
+		FirstState.State,
+		EOpenMobileSensorSubscriptionState::Active);
+	TestEqual(TEXT("Shared recovery starts one replacement stream"),
+		Backend.GetStartSensorStreamCount(), 2);
 	FOpenMobileSensorsSubscriptionService::StopSubscription(
 		FirstOwner,
 		First.Handle
@@ -565,6 +590,114 @@ bool FOpenMobileSensorsPhysicalStreamFailureTest::RunTest(
 	FOpenMobileSensorsSubscriptionService::StopSubscription(
 		SecondOwner,
 		Second.Handle
+	);
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBoundedNativeRecoveryTest,
+	"OpenMobile.Sensors.Subscriptions.BoundedNativeRecovery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBoundedNativeRecoveryTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsSubscriptionTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("BoundedRecovery"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FOpenMobileSensorOperationResult TransientFailure =
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::OperationalFailure,
+			TEXT("CoreMotion"),
+			TEXT("ManagerError")
+		);
+	Backend.SetStartSensorStreamResult(TransientFailure);
+	TestTrue(TEXT("The manager failure starts recovery"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			Token,
+			Backend.GetLastStartedPhysicalHandle(),
+			TransientFailure
+		));
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	FOpenMobileSensorSubscriptionStateSnapshot State;
+	TestTrue(TEXT("The exhausted recovery handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Subscription.Handle,
+			State
+		));
+	TestEqual(TEXT("Two failed recovery attempts become terminal"),
+		State.State,
+		EOpenMobileSensorSubscriptionState::Failed);
+	TestEqual(TEXT("Recovery attempts are bounded"),
+		Backend.GetStartSensorStreamCount(), 3);
+	Backend.SetStartSensorStreamResult({EOpenMobileSensorResultCode::Success});
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	TestEqual(TEXT("Terminal failure requires an explicit new subscription"),
+		Backend.GetStartSensorStreamCount(), 3);
+	const FOpenMobileSensorSubscriptionResult Restart =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			MakeRequest()
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestTrue(TEXT("An explicit restart receives a new handle"),
+		Restart.Handle.IsValid()
+		&& Restart.Handle != Subscription.Handle);
+	TestEqual(TEXT("The explicit restart starts native hardware"),
+		Backend.GetStartSensorStreamCount(), 4);
+	const FOpenMobileSensorOperationResult TerminalFailure =
+		FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::ConfigurationBlocked,
+			TEXT("Native"),
+			TEXT("ConfigurationBlocked")
+		);
+	TestTrue(TEXT("A terminal failure is accepted"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			FOpenMobileSensorsBackendRegistry::CaptureToken(),
+			Backend.GetLastStartedPhysicalHandle(),
+			TerminalFailure
+		));
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max()
+		);
+	TestEqual(TEXT("A terminal failure never restarts implicitly"),
+		Backend.GetStartSensorStreamCount(), 4);
+
+	FOpenMobileSensorsSubscriptionService::StopSubscription(
+		Owner,
+		Subscription.Handle
+	);
+	FOpenMobileSensorsSubscriptionService::StopSubscription(
+		Owner,
+		Restart.Handle
 	);
 	FinishBackend(Backend);
 	return true;

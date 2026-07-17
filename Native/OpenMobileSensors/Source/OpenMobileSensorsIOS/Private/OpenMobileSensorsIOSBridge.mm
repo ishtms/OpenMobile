@@ -30,17 +30,14 @@ namespace OpenMobileSensorsIOSBridgePrivate
 		Proximity
 	};
 
-	struct FPedometerCallbackGate
+	struct FCallbackGate
 	{
 		FCriticalSection Mutex;
 		void* Owner = nullptr;
 	};
 
-	struct FPermissionCallbackGate
-	{
-		FCriticalSection Mutex;
-		void* Owner = nullptr;
-	};
+	using FPedometerCallbackGate = FCallbackGate;
+	using FPermissionCallbackGate = FCallbackGate;
 
 	template <typename CallableType>
 	void RunOnMainQueue(CallableType&& Callable)
@@ -434,6 +431,10 @@ public:
 			MakeShared<OpenMobileSensorsIOSBridgePrivate::
 				FPermissionCallbackGate, ESPMode::ThreadSafe>();
 		PermissionCallbackGate->Owner = this;
+		CallbackGate =
+			MakeShared<OpenMobileSensorsIOSBridgePrivate::FCallbackGate,
+				ESPMode::ThreadSafe>();
+		CallbackGate->Owner = this;
 		Availability =
 			OpenMobileSensorsIOSBridgePrivate::AvailabilityForManager(
 				MotionManager
@@ -448,7 +449,10 @@ public:
 			);
 		bApplicationActive = [UIApplication sharedApplication].applicationState
 			== UIApplicationStateActive;
-		FImpl* Self = this;
+		const TSharedPtr<
+			OpenMobileSensorsIOSBridgePrivate::FCallbackGate,
+			ESPMode::ThreadSafe
+		> Gate = CallbackGate;
 		NSOperationQueue* Queue = LifecycleQueue;
 		WillResignObserver = [[NSNotificationCenter defaultCenter]
 			addObserverForName:UIApplicationWillResignActiveNotification
@@ -458,7 +462,12 @@ public:
 			{
 				[Queue addOperationWithBlock:^
 				{
-					Self->SetApplicationActive(false);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							SetApplicationActive(false);
+					}
 				}];
 			}];
 		DidBecomeActiveObserver = [[NSNotificationCenter defaultCenter]
@@ -469,7 +478,12 @@ public:
 			{
 				[Queue addOperationWithBlock:^
 				{
-					Self->SetApplicationActive(true);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							SetApplicationActive(true);
+					}
 				}];
 			}];
 	}
@@ -911,6 +925,9 @@ public:
 			PendingPermissionCompletions;
 		id LocalWillResignObserver = nil;
 		id LocalDidBecomeActiveObserver = nil;
+		id LocalProximityObserver = nil;
+		bool bShouldSetProximityMonitoringEnabled = false;
+		bool bProximityMonitoringEnabled = false;
 		{
 			FScopeLock Lock(&Mutex);
 			if (bShuttingDown)
@@ -938,29 +955,29 @@ public:
 			WillResignObserver = nil;
 			DidBecomeActiveObserver = nil;
 		}
-		OpenMobileSensorsIOSBridgePrivate::RunOnMainQueue(
-			[LocalWillResignObserver, LocalDidBecomeActiveObserver]()
-			{
-				if (LocalWillResignObserver)
-				{
-					[[NSNotificationCenter defaultCenter]
-						removeObserver:LocalWillResignObserver];
-				}
-				if (LocalDidBecomeActiveObserver)
-				{
-					[[NSNotificationCenter defaultCenter]
-						removeObserver:LocalDidBecomeActiveObserver];
-				}
-			}
-		);
 		{
 			FScopeLock Lock(&Mutex);
 			bApplicationActive = false;
-			StopAllServicesLocked();
+			using namespace OpenMobileSensorsIOSBridgePrivate;
+			StopServiceLocked(EService::Accelerometer);
+			StopServiceLocked(EService::Gyroscope);
+			StopServiceLocked(EService::Magnetometer);
+			StopServiceLocked(EService::DeviceMotion);
+			StopServiceLocked(EService::RelativeAltitude);
+			StopServiceLocked(EService::AbsoluteAltitude);
+			StopServiceLocked(EService::Pedometer);
+			StopServiceLocked(EService::MotionActivity);
+			++ProximityGeneration;
+			LocalProximityObserver = ProximityObserver;
+			ProximityObserver = nil;
+			bProximityServiceActive = false;
 			ActiveStreams.Reset();
-			ApplyProximityMonitoringActionLocked(
-				ProximityMonitoringPolicy.Shutdown()
-			);
+			const FOpenMobileProximityMonitoringAction ProximityAction =
+				ProximityMonitoringPolicy.Shutdown();
+			bShouldSetProximityMonitoringEnabled =
+				ProximityAction.bShouldSetMonitoringEnabled;
+			bProximityMonitoringEnabled =
+				ProximityAction.bMonitoringEnabled;
 			Queues = {
 				AccelerometerQueue,
 				GyroscopeQueue,
@@ -983,6 +1000,50 @@ public:
 		{
 			FScopeLock GateLock(&PermissionCallbackGate->Mutex);
 			PermissionCallbackGate->Owner = nullptr;
+		}
+		if (CallbackGate)
+		{
+			FScopeLock GateLock(&CallbackGate->Mutex);
+			CallbackGate->Owner = nullptr;
+		}
+		auto CleanupUIKit = [
+			LocalWillResignObserver,
+			LocalDidBecomeActiveObserver,
+			LocalProximityObserver,
+			bShouldSetProximityMonitoringEnabled,
+			bProximityMonitoringEnabled
+		]()
+		{
+			NSNotificationCenter* Center =
+				[NSNotificationCenter defaultCenter];
+			if (LocalWillResignObserver)
+			{
+				[Center removeObserver:LocalWillResignObserver];
+			}
+			if (LocalDidBecomeActiveObserver)
+			{
+				[Center removeObserver:LocalDidBecomeActiveObserver];
+			}
+			if (LocalProximityObserver)
+			{
+				[Center removeObserver:LocalProximityObserver];
+			}
+			if (bShouldSetProximityMonitoringEnabled)
+			{
+				[UIDevice currentDevice].proximityMonitoringEnabled =
+					bProximityMonitoringEnabled;
+			}
+		};
+		if ([NSThread isMainThread])
+		{
+			CleanupUIKit();
+		}
+		else
+		{
+			dispatch_async(dispatch_get_main_queue(), ^
+			{
+				CleanupUIKit();
+			});
 		}
 		const FOpenMobileSensorOperationResult ShutdownResult =
 			Backend.MapBridgeFailure(
@@ -1011,7 +1072,6 @@ public:
 			if (Queue)
 			{
 				[Queue cancelAllOperations];
-				[Queue waitUntilAllOperationsAreFinished];
 			}
 		}
 		MotionManager = nil;
@@ -1304,9 +1364,10 @@ private:
 				? ProximityQueue
 				: MakeSerialQueue(@"OpenMobileSensorsProximityQueue");
 			const uint64 Generation = ProximityGeneration;
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			NSOperationQueue* Queue = ProximityQueue;
-			RunOnMainQueue([this, Self, Queue, Generation]()
+			RunOnMainQueue([this, Gate, Queue, Generation]()
 			{
 				ProximityObserver = [[NSNotificationCenter defaultCenter]
 					addObserverForName:
@@ -1321,11 +1382,16 @@ private:
 							FPlatformTime::Seconds();
 						[Queue addOperationWithBlock:^
 						{
-							Self->HandleProximityStateChange(
-								Generation,
-								bNear,
-								TimestampSeconds
-							);
+							FScopeLock GateLock(&Gate->Mutex);
+							if (Gate->Owner)
+							{
+								static_cast<FImpl*>(Gate->Owner)->
+									HandleProximityStateChange(
+										Generation,
+										bNear,
+										TimestampSeconds
+									);
+							}
 						}];
 					}];
 			});
@@ -1410,12 +1476,19 @@ private:
 			bNear = [UIDevice currentDevice].proximityState;
 		});
 		const double TimestampSeconds = FPlatformTime::Seconds();
-		FImpl* Self = this;
+		const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+			CallbackGate;
 		[ProximityQueue addOperationWithBlock:^
 		{
+			FScopeLock GateLock(&Gate->Mutex);
+			FImpl* Owner = static_cast<FImpl*>(Gate->Owner);
+			if (!Owner)
+			{
+				return;
+			}
 			for (const FActiveStream& Active : Pending)
 			{
-				Self->PublishProximityState(
+				Owner->PublishProximityState(
 					Active,
 					bNear,
 					TimestampSeconds
@@ -1518,12 +1591,18 @@ private:
 			const uint64 Generation = ++AccelerometerGeneration;
 			SetRegistrationGenerationLocked(Service, Generation);
 			MotionManager.accelerometerUpdateInterval = Interval;
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			[MotionManager
 				startAccelerometerUpdatesToQueue:AccelerometerQueue
 				withHandler:^(CMAccelerometerData* Data, NSError* Error)
 				{
-					Self->HandleAccelerometer(Generation, Data, Error);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandleAccelerometer(Generation, Data, Error);
+					}
 				}];
 			return SuccessWithAppliedInterval(
 				MotionManager.accelerometerUpdateInterval
@@ -1537,12 +1616,18 @@ private:
 			const uint64 Generation = ++GyroscopeGeneration;
 			SetRegistrationGenerationLocked(Service, Generation);
 			MotionManager.gyroUpdateInterval = Interval;
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			[MotionManager
 				startGyroUpdatesToQueue:GyroscopeQueue
 				withHandler:^(CMGyroData* Data, NSError* Error)
 				{
-					Self->HandleGyroscope(Generation, Data, Error);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandleGyroscope(Generation, Data, Error);
+					}
 				}];
 			return SuccessWithAppliedInterval(MotionManager.gyroUpdateInterval);
 		}
@@ -1554,12 +1639,18 @@ private:
 			const uint64 Generation = ++MagnetometerGeneration;
 			SetRegistrationGenerationLocked(Service, Generation);
 			MotionManager.magnetometerUpdateInterval = Interval;
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			[MotionManager
 				startMagnetometerUpdatesToQueue:MagnetometerQueue
 				withHandler:^(CMMagnetometerData* Data, NSError* Error)
 				{
-					Self->HandleMagnetometer(Generation, Data, Error);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandleMagnetometer(Generation, Data, Error);
+					}
 				}];
 			return SuccessWithAppliedInterval(
 				MotionManager.magnetometerUpdateInterval
@@ -1575,13 +1666,19 @@ private:
 			MotionManager.deviceMotionUpdateInterval = Interval;
 			const CMAttitudeReferenceFrame Frame =
 				ResolveDeviceMotionFrameLocked();
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			[MotionManager
 				startDeviceMotionUpdatesUsingReferenceFrame:Frame
 				toQueue:DeviceMotionQueue
 				withHandler:^(CMDeviceMotion* Motion, NSError* Error)
 				{
-					Self->HandleDeviceMotion(Generation, Motion, Error);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandleDeviceMotion(Generation, Motion, Error);
+					}
 				}];
 			return SuccessWithAppliedInterval(
 				MotionManager.deviceMotionUpdateInterval
@@ -1594,12 +1691,18 @@ private:
 				: MakeSerialQueue(@"OpenMobileSensorsAltimeterQueue");
 			const uint64 Generation = ++AltimeterGeneration;
 			SetRegistrationGenerationLocked(Service, Generation);
-			FImpl* Self = this;
+			const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+				CallbackGate;
 			[Altimeter
 				startRelativeAltitudeUpdatesToQueue:AltimeterQueue
 				withHandler:^(CMAltitudeData* Data, NSError* Error)
 				{
-					Self->HandleRelativeAltitude(Generation, Data, Error);
+					FScopeLock GateLock(&Gate->Mutex);
+					if (Gate->Owner)
+					{
+						static_cast<FImpl*>(Gate->Owner)->
+							HandleRelativeAltitude(Generation, Data, Error);
+					}
 				}];
 			return SuccessWithAppliedInterval(1.0);
 		}
@@ -1612,12 +1715,22 @@ private:
 					: MakeSerialQueue(@"OpenMobileSensorsAbsoluteAltitudeQueue");
 				const uint64 Generation = ++AbsoluteAltitudeGeneration;
 				SetRegistrationGenerationLocked(Service, Generation);
-				FImpl* Self = this;
+				const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+					CallbackGate;
 				[Altimeter
 					startAbsoluteAltitudeUpdatesToQueue:AbsoluteAltitudeQueue
 					withHandler:^(CMAbsoluteAltitudeData* Data, NSError* Error)
 					{
-						Self->HandleAbsoluteAltitude(Generation, Data, Error);
+						FScopeLock GateLock(&Gate->Mutex);
+						if (Gate->Owner)
+						{
+							static_cast<FImpl*>(Gate->Owner)->
+								HandleAbsoluteAltitude(
+									Generation,
+									Data,
+									Error
+								);
+						}
 					}];
 				return SuccessWithAppliedInterval(Interval);
 			}
@@ -1678,12 +1791,18 @@ private:
 					);
 				const uint64 Generation = ++MotionActivityGeneration;
 				SetRegistrationGenerationLocked(Service, Generation);
-				FImpl* Self = this;
+				const TSharedPtr<FCallbackGate, ESPMode::ThreadSafe> Gate =
+					CallbackGate;
 				[ActivityManager
 					startActivityUpdatesToQueue:ActivityQueue
 					withHandler:^(CMMotionActivity* Activity)
 					{
-						Self->HandleMotionActivity(Generation, Activity);
+						FScopeLock GateLock(&Gate->Mutex);
+						if (Gate->Owner)
+						{
+							static_cast<FImpl*>(Gate->Owner)->
+								HandleMotionActivity(Generation, Activity);
+						}
 					}];
 				return {};
 			}
@@ -2546,6 +2665,10 @@ private:
 		OpenMobileSensorsIOSBridgePrivate::FPermissionCallbackGate,
 		ESPMode::ThreadSafe
 	> PermissionCallbackGate;
+	TSharedPtr<
+		OpenMobileSensorsIOSBridgePrivate::FCallbackGate,
+		ESPMode::ThreadSafe
+	> CallbackGate;
 	uint64 AccelerometerGeneration = 0;
 	uint64 GyroscopeGeneration = 0;
 	uint64 MagnetometerGeneration = 0;

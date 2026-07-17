@@ -103,6 +103,7 @@ public:
 	);
 	static int32 GetPhysicalStreamCountForTests();
 	static void ProcessPendingBackendOperationsForTests();
+	static void ProcessPendingBackendOperationsForTests(double NowSeconds);
 	static void ProcessFlushTimeoutsForTests(double NowSeconds);
 	static void SetSubscriptionStateForTests(
 		const FOpenMobileSensorSubscriptionHandle& Handle,

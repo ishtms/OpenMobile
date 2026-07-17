@@ -138,6 +138,14 @@ class SensorsIOSBackendTests(unittest.TestCase):
 		):
 			self.assertIn(token, bridge)
 
+	def test_shutdown_gates_callbacks_without_waiting_on_operation_queues(self):
+		bridge = BRIDGE.read_text(encoding="utf-8")
+
+		self.assertIn("FCallbackGate", bridge)
+		self.assertIn("CallbackGate->Owner = nullptr", bridge)
+		self.assertIn("cancelAllOperations", bridge)
+		self.assertNotIn("waitUntilAllOperationsAreFinished", bridge)
+
 	def test_attitude_frames_report_native_selection_and_dependencies(self):
 		backend = (PRIVATE / "OpenMobileSensorsIOSBackend.mm").read_text(
 			encoding="utf-8"
@@ -207,7 +215,6 @@ class SensorsIOSBackendTests(unittest.TestCase):
 			"NSMotionUsageDescription",
 			"FailPhysicalStreamFromBackend",
 			"removeObserver",
-			"waitUntilAllOperationsAreFinished",
 		):
 			self.assertIn(token, bridge)
 

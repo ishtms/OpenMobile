@@ -114,6 +114,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	{
 		FCriticalSection Mutex;
 		TAtomic<EReplayLoadState> State{EReplayLoadState::Loading};
+		TAtomic<bool> bCancelled{false};
 		FOpenMobileSensorRecordingDocument Document;
 		EOpenMobileSensorRecordingDecodeStatus DecodeStatus =
 			EOpenMobileSensorRecordingDecodeStatus::InvalidData;
@@ -845,6 +846,10 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		TSharedRef<FReplayLoadResult, ESPMode::ThreadSafe> LoadResult
 	)
 	{
+		if (LoadResult->bCancelled.Load())
+		{
+			return;
+		}
 		const int64 FileSize = IFileManager::Get().FileSize(*FilePath);
 		if (FileSize < 0 || FileSize > MaximumReplayFileBytes)
 		{
@@ -868,6 +873,10 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			LoadResult->State.Store(EReplayLoadState::Failed);
 			return;
 		}
+		if (LoadResult->bCancelled.Load())
+		{
+			return;
+		}
 		FOpenMobileSensorRecordingDocument Document;
 		EOpenMobileSensorRecordingDecodeStatus Status;
 		FString Error;
@@ -878,6 +887,10 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			LoadResult->Error = MoveTemp(Error);
 			LoadResult->DecodeStatus = Status;
 			LoadResult->State.Store(EReplayLoadState::Failed);
+			return;
+		}
+		if (LoadResult->bCancelled.Load())
+		{
 			return;
 		}
 		{
@@ -1334,6 +1347,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	void CancelEntries(const FGuid* OwnerIdentifier)
 	{
 		check(IsInGameThread());
+		TArray<TFunction<void()>> Callbacks;
 		TArray<TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>> Cancelled;
 		for (const TPair<
 			FGuid,
@@ -1351,7 +1365,40 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		for (const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>& Entry
 			: Cancelled)
 		{
-			Entry->WorkerFuture.Wait();
+			FOpenMobileSensorRecordingResult Result;
+			Result.Recording = MakeSnapshot(
+				*Entry,
+				EOpenMobileSensorRecordingState::Cancelled
+			);
+			Result.Operation = MakeFailure(
+				EOpenMobileSensorFailureReason::Cancelled,
+				TEXT("RecordingCancelled")
+			);
+			Entry->State = EOpenMobileSensorRecordingState::Cancelled;
+			Entry->FinalResult = Result;
+			if (!Entry->bStartCompletionDelivered && Entry->StartCompletion)
+			{
+				auto Completion = MoveTemp(Entry->StartCompletion);
+				Entry->bStartCompletionDelivered = true;
+				Callbacks.Add([
+					Completion = MoveTemp(Completion),
+					Result
+				]() mutable
+				{
+					Completion(Result);
+				});
+			}
+			if (Entry->StopCompletion)
+			{
+				auto Completion = MoveTemp(Entry->StopCompletion);
+				Callbacks.Add([
+					Completion = MoveTemp(Completion),
+					Result
+				]() mutable
+				{
+					Completion(Result);
+				});
+			}
 			Recordings.Remove(Entry->RequestId);
 		}
 		TArray<TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>> CancelledReplays;
@@ -1369,8 +1416,28 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		for (const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>& Entry
 			: CancelledReplays)
 		{
-			Entry->LoadFuture.Wait();
+			Entry->LoadResult->bCancelled.Store(true);
+			const FOpenMobileSensorReplayResult Result = MakeReplayFailure(
+				Entry->RequestId,
+				EOpenMobileSensorFailureReason::Cancelled,
+				TEXT("ReplayCancelled")
+			);
+			auto Completion = MoveTemp(Entry->Completion);
 			Replays.Remove(Entry->RequestId);
+			if (Completion)
+			{
+				Callbacks.Add([
+					Completion = MoveTemp(Completion),
+					Result
+				]() mutable
+				{
+					Completion(Result);
+				});
+			}
+		}
+		for (TFunction<void()>& Callback : Callbacks)
+		{
+			Callback();
 		}
 	}
 }

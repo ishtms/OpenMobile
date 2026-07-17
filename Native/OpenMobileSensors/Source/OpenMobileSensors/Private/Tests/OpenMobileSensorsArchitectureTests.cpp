@@ -93,6 +93,44 @@ bool FOpenMobileSensorsBackendRegistryTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBackendRegistryShutdownTest,
+	"OpenMobile.Sensors.Architecture.BackendRegistryShutdown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBackendRegistryShutdownTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileSensorsBackendRegistry::ResetForTests();
+	FOpenMobileSensorsMockBackend Backend(TEXT("Shutdown"));
+	TestTrue(TEXT("The shutdown backend registers"),
+		FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend));
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+
+	FOpenMobileSensorsBackendRegistry::BeginShutdown();
+	TestTrue(TEXT("Registry shutdown stops the backend"), Backend.WasShutdown());
+	TestEqual(TEXT("Registry shutdown stops the backend once"),
+		Backend.GetBeginShutdownCount(), 1);
+	TestFalse(TEXT("Registry shutdown unregisters the backend"),
+		FOpenMobileSensorsBackendRegistry::IsBackendRegistered(&Backend));
+	TestFalse(TEXT("Registry shutdown invalidates prior generations"),
+		FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token));
+	TestTrue(TEXT("Registry shutdown removes backend lookup"),
+		FOpenMobileSensorsBackendRegistry::FindBackend() == nullptr);
+	TestFalse(TEXT("Registry shutdown rejects new backends"),
+		FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend));
+	FOpenMobileSensorsBackendRegistry::BeginShutdown();
+	TestEqual(TEXT("Repeated registry shutdown remains idempotent"),
+		Backend.GetBeginShutdownCount(), 1);
+
+	FOpenMobileSensorsBackendRegistry::ResetForTests();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsMockScriptTest,
 	"OpenMobile.Sensors.Architecture.MockScript",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

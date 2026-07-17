@@ -330,9 +330,9 @@ bool FOpenMobileSensorsAbsoluteAltitudeErrorTest::RunTest(
 			Subscription.Handle,
 			State
 		));
-	TestEqual(TEXT("Native service failure is terminal for the stream"),
+	TestEqual(TEXT("Temporary native service failure queues recovery"),
 		State.State,
-		EOpenMobileSensorSubscriptionState::Failed);
+		EOpenMobileSensorSubscriptionState::Accepted);
 	TestEqual(TEXT("Temporary service reason is preserved"),
 		State.Failure.Reason,
 		EOpenMobileSensorFailureReason::TemporarilyUnavailable);
@@ -345,6 +345,19 @@ bool FOpenMobileSensorsAbsoluteAltitudeErrorTest::RunTest(
 	TestEqual(TEXT("Common error keeps the native code"),
 		State.Error.NativeCode,
 		FString(TEXT("109")));
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			TNumericLimits<double>::Max()
+		);
+	TestTrue(TEXT("Recovered absolute-altitude handle remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			Owner,
+			Subscription.Handle,
+			State
+		));
+	TestEqual(TEXT("Temporary native service failure recovers"),
+		State.State,
+		EOpenMobileSensorSubscriptionState::Active);
 	FinishBackend(Backend);
 	return true;
 }

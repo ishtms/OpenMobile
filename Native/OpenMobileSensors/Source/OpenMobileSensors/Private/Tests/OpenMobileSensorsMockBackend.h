@@ -235,6 +235,7 @@ public:
 
 	virtual void BeginShutdown() override
 	{
+		++BeginShutdownCount;
 		bShutdown = true;
 		ActiveSensorStreams.Reset();
 		PendingFlushes.Reset();
@@ -459,6 +460,11 @@ public:
 		return bShutdown;
 	}
 
+	int32 GetBeginShutdownCount() const
+	{
+		return BeginShutdownCount;
+	}
+
 	int32 GetCapabilityQueryCount() const
 	{
 		return CapabilityQueryCount;
@@ -537,6 +543,7 @@ private:
 	int32 Priority = 100;
 	bool bAvailable = true;
 	bool bShutdown = false;
+	int32 BeginShutdownCount = 0;
 	mutable int32 CapabilityQueryCount = 0;
 	FOpenMobileCapability BackendCapability;
 	TArray<FOpenMobileSensorCapability> SensorCapabilities;

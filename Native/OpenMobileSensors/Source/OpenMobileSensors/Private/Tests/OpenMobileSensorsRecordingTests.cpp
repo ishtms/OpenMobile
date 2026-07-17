@@ -840,4 +840,72 @@ bool FOpenMobileSensorsAccelerometerRecordingNativeStartFailureTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRecordingShutdownCancellationTest,
+	"OpenMobile.Sensors.Accelerometer.Recording.ShutdownCancellation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRecordingShutdownCancellationTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsRecordingTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorRecordingOptions RecordingOptions;
+	FOpenMobileSensorIdentifier& Sensor =
+		RecordingOptions.Sensors.AddDefaulted_GetRef();
+	Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	Sensor.InstanceId = TEXT("Default");
+	RecordingOptions.MaximumDurationSeconds = 30.0;
+	RecordingOptions.MaximumBytes = 1024ll * 1024;
+	int32 RecordingCompletionCount = 0;
+	FOpenMobileSensorRecordingResult RecordingResult;
+	FOpenMobileSensorsRecordingService::StartRecording(
+		FGuid::NewGuid(),
+		RecordingOptions,
+		[&](const FOpenMobileSensorRecordingResult& Result)
+		{
+			++RecordingCompletionCount;
+			RecordingResult = Result;
+		}
+	);
+
+	int32 ReplayCompletionCount = 0;
+	FOpenMobileSensorReplayResult ReplayResult;
+	FOpenMobileSensorsRecordingService::ReplayRecording(
+		FGuid::NewGuid(),
+		FPaths::Combine(
+			FPaths::ProjectSavedDir(),
+			TEXT("missing-shutdown-replay.omsensors")
+		),
+		{},
+		[&](const FOpenMobileSensorReplayResult& Result)
+		{
+			++ReplayCompletionCount;
+			ReplayResult = Result;
+		}
+	);
+
+	FOpenMobileSensorsRecordingService::BeginShutdown();
+	TestEqual(TEXT("Shutdown completes a pending recording once"),
+		RecordingCompletionCount, 1);
+	TestEqual(TEXT("Shutdown cancels the pending recording"),
+		RecordingResult.Operation.Code,
+		EOpenMobileSensorResultCode::Cancelled);
+	TestEqual(TEXT("Shutdown completes a pending replay once"),
+		ReplayCompletionCount, 1);
+	TestEqual(TEXT("Shutdown cancels the pending replay"),
+		ReplayResult.Operation.Code,
+		EOpenMobileSensorResultCode::Cancelled);
+	FOpenMobileSensorsRecordingService::BeginShutdown();
+	TestEqual(TEXT("Repeated shutdown does not repeat recording completion"),
+		RecordingCompletionCount, 1);
+	TestEqual(TEXT("Repeated shutdown does not repeat replay completion"),
+		ReplayCompletionCount, 1);
+	FOpenMobileSensorsRecordingService::ResetForTests();
+	return true;
+}
+
 #endif

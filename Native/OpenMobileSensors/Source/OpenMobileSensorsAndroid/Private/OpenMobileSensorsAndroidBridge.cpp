@@ -1156,6 +1156,8 @@ void FOpenMobileSensorsAndroidBridge::Shutdown()
 	{
 		return;
 	}
+	TArray<FOpenMobileNativePermissionCompletion>
+		PendingPermissionCompletions;
 	{
 		FScopeLock Lock(
 			&OpenMobileSensorsAndroidBridgePrivate::ActiveBridgeMutex
@@ -1178,6 +1180,14 @@ void FOpenMobileSensorsAndroidBridge::Shutdown()
 		FScopeLock Lock(&Mutex);
 		ActiveStreams.Reset();
 		PendingFlushes.Reset();
+		PendingPermissionCompletions.Reserve(
+			PendingPermissionRequests.Num()
+		);
+		for (TPair<FGuid, FOpenMobileNativePermissionCompletion>& Pair
+			: PendingPermissionRequests)
+		{
+			PendingPermissionCompletions.Add(MoveTemp(Pair.Value));
+		}
 		PendingPermissionRequests.Reset();
 	}
 	if (Env && BridgeObject)
@@ -1200,6 +1210,18 @@ void FOpenMobileSensorsAndroidBridge::Shutdown()
 	RequestActivityRecognitionPermissionMethod = nullptr;
 	CancelPermissionRequestMethod = nullptr;
 	ShutdownMethod = nullptr;
+	const FOpenMobileError PermissionShutdownError = FOpenMobileError::Make(
+		EOpenMobileErrorCode::Unavailable,
+		TEXT("The Android sensor permission service is shutting down.")
+	);
+	for (FOpenMobileNativePermissionCompletion& Completion
+		: PendingPermissionCompletions)
+	{
+		Completion.ExecuteIfBound(
+			EOpenMobilePermissionStatus::NotDetermined,
+			PermissionShutdownError
+		);
+	}
 }
 
 FOpenMobileSensorsAndroidBridgeResult

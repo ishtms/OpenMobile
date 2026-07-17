@@ -183,13 +183,20 @@ void FOpenMobileSensorsBackendRegistry::BeginShutdown()
 	}
 
 	AdvanceGeneration();
-	for (IOpenMobileSensorsBackend* Backend : GetBackends())
+	const TArray<IOpenMobileSensorsBackend*> Backends = GetBackends();
+	for (IOpenMobileSensorsBackend* Backend : Backends)
 	{
 		if (Backend)
 		{
 			StopBackend(*Backend);
+			IModularFeatures::Get().UnregisterModularFeature(
+				IOpenMobileSensorsBackend::GetModularFeatureName(),
+				Backend
+			);
+			ShutdownBackends.Remove(Backend);
 		}
 	}
+	AdvanceGeneration();
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
