@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Haptics Gameplay Abilities",
+	"Description": "Optional Gameplay Cue bindings for OpenMobile Haptics.",
+	"Category": "OpenMobile",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenMobileHapticsGameplayAbilities",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileHaptics",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		}
+	]
+}
