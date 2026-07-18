@@ -18,11 +18,52 @@ public:
 		const FGuid& RequestId,
 		TFunction<void(const FOpenMobileSensorRecordingResult&)>&& Completion
 	);
+	static FOpenMobileSensorOperationResult CancelRecording(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
 	static FGuid ReplayRecording(
 		const FGuid& OwnerIdentifier,
 		const FString& FilePath,
 		const FOpenMobileSensorReplayOptions& Options,
 		TFunction<void(const FOpenMobileSensorReplayResult&)>&& Completion
+	);
+	static FOpenMobileSensorOperationResult CancelReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
+	static FOpenMobileSensorOperationResult PauseReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
+	static FOpenMobileSensorOperationResult ResumeReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
+	static FOpenMobileSensorOperationResult SeekReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		double PlaybackTimeSeconds
+	);
+	static FOpenMobileSensorOperationResult SetReplaySpeed(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		double PlaybackSpeed
+	);
+	static FOpenMobileSensorOperationResult SetReplayLooping(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		bool bLoop
+	);
+	static FOpenMobileSensorOperationResult AdvanceReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		double DeltaSeconds
+	);
+	static bool GetReplaySnapshot(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		FOpenMobileSensorReplaySnapshot& OutSnapshot
 	);
 	static void CancelOwner(const FGuid& OwnerIdentifier);
 

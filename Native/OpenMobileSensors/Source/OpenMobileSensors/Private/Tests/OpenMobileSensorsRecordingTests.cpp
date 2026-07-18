@@ -110,7 +110,30 @@ bool FOpenMobileSensorsRecordingCodecRoundTripTest::RunTest(
 {
 	static_cast<void>(Parameters);
 	using namespace OpenMobileSensorsRecordingTestsPrivate;
-	const FOpenMobileSensorRecordingDocument Source = MakeDocument();
+	FOpenMobileSensorRecordingDocument Source = MakeDocument();
+	Source.Header.bHasSensitiveLocationContext = true;
+	Source.Header.SensitiveLocationContext.LatitudeDegrees = 51.5;
+	Source.Header.SensitiveLocationContext.LongitudeDegrees = -0.12;
+	Source.Header.SensitiveLocationContext.AltitudeMeters = 18.0;
+	Source.Header.SensitiveLocationContext.HorizontalAccuracyMeters = 3.0;
+	Source.Header.SensitiveLocationContext.TimestampSeconds = 1700000000.0;
+	FOpenMobileSensorRecordingStreamDescriptor& GyroscopeStream =
+		Source.Header.Streams.AddDefaulted_GetRef();
+	GyroscopeStream.Sensor.Type = EOpenMobileSensorType::Gyroscope;
+	GyroscopeStream.Sensor.InstanceId = TEXT("Default");
+	GyroscopeStream.Family = EOpenMobileSensorSampleFamily::Vector;
+	GyroscopeStream.Units = TEXT("rad/s");
+	GyroscopeStream.Capability.Sensor = GyroscopeStream.Sensor;
+	GyroscopeStream.Capability.MinimumFrequencyHz = 1.0;
+	GyroscopeStream.Capability.MaximumFrequencyHz = 200.0;
+	FOpenMobileVectorSensorBatch& GyroscopeBatch =
+		Source.VectorBatches.AddDefaulted_GetRef();
+	FOpenMobileVectorSensorSample& GyroscopeSample =
+		GyroscopeBatch.Samples.AddDefaulted_GetRef();
+	GyroscopeSample = Source.VectorBatches[0].Samples[0];
+	GyroscopeSample.Header.Sensor = GyroscopeStream.Sensor;
+	GyroscopeSample.Header.TimestampSeconds = 10.005;
+	GyroscopeSample.Value = FVector(0.1, 0.2, 0.3);
 	TArray<uint8> Bytes;
 	FString Error;
 	TestTrue(TEXT("A complete recording can be encoded"),
@@ -129,15 +152,21 @@ bool FOpenMobileSensorsRecordingCodecRoundTripTest::RunTest(
 		FOpenMobileSensorRecordingCodec::CurrentFormatVersion);
 	TestEqual(TEXT("The plugin version is retained"),
 		Decoded.Header.PluginVersion, Source.Header.PluginVersion);
-	TestEqual(TEXT("One stream descriptor is retained"),
-		Decoded.Header.Streams.Num(), 1);
-	if (Decoded.Header.Streams.Num() == 1)
+	TestEqual(TEXT("Mixed stream descriptors are retained"),
+		Decoded.Header.Streams.Num(), 2);
+	if (Decoded.Header.Streams.Num() == 2)
 	{
 		TestEqual(TEXT("The stream capability is retained"),
 			Decoded.Header.Streams[0].Capability.MaximumFrequencyHz, 200.0);
+		TestEqual(TEXT("The second stream units are retained"),
+			Decoded.Header.Streams[1].Units, FString(TEXT("rad/s")));
 	}
-	TestEqual(TEXT("One sample batch is retained"),
-		Decoded.VectorBatches.Num(), 1);
+	TestTrue(TEXT("Explicit sensitive context is retained"),
+		Decoded.Header.bHasSensitiveLocationContext);
+	TestEqual(TEXT("Sensitive latitude is retained"),
+		Decoded.Header.SensitiveLocationContext.LatitudeDegrees, 51.5);
+	TestEqual(TEXT("Mixed sample batches are retained"),
+		Decoded.VectorBatches.Num(), 2);
 	TestEqual(TEXT("Every sample is retained"),
 		Decoded.VectorBatches[0].Samples.Num(), 2);
 	if (Decoded.VectorBatches.Num() == 1
@@ -158,6 +187,19 @@ bool FOpenMobileSensorsRecordingCodecRoundTripTest::RunTest(
 		TestEqual(TEXT("The vector is retained"),
 			Sample.Value, FVector(2.0, 2.0, 9.81));
 	}
+	TArray<uint8> IncompatibleBytes = Bytes;
+	IncompatibleBytes[8] = 0xff;
+	IncompatibleBytes[9] = 0xff;
+	TestFalse(TEXT("An incompatible format version is rejected"),
+		FOpenMobileSensorRecordingCodec::DecodeComplete(
+			IncompatibleBytes,
+			Decoded,
+			Status,
+			Error
+		));
+	TestEqual(TEXT("Version failure has a distinct decode status"),
+		Status,
+		EOpenMobileSensorRecordingDecodeStatus::IncompatibleVersion);
 	FOpenMobileSensorRecordingDocument InvalidLag = MakeDocument();
 	InvalidLag.VectorBatches[0].Samples[0]
 		.Header.Fusion.EstimatedLagSeconds =
@@ -456,6 +498,9 @@ bool FOpenMobileSensorsAccelerometerReplayLifecycleTest::RunTest(
 
 	FOpenMobileSensorReplayOptions Options;
 	Options.PlaybackSpeed = 2.0;
+	Options.bLoop = true;
+	Options.bStartPaused = true;
+	Options.ClockMode = EOpenMobileSensorReplayClockMode::Manual;
 	bool bCompleted = false;
 	FOpenMobileSensorReplayResult ReplayResult;
 	const FGuid ReplayId = Subsystem->ReplayRecordingNative(
@@ -470,9 +515,41 @@ bool FOpenMobileSensorsAccelerometerReplayLifecycleTest::RunTest(
 	);
 	TestTrue(TEXT("The replay request has an identifier"),
 		ReplayId.IsValid());
-	TestTrue(TEXT("Replay completes"),
-		WaitUntil([&]() { return bCompleted; }));
+	FOpenMobileSensorReplaySnapshot ReplaySnapshot;
+	TestTrue(TEXT("The manual replay loads without advancing"),
+		WaitUntil([&]()
+		{
+			return Subsystem->GetReplayStateNative(
+				ReplayId,
+				ReplaySnapshot
+			) && ReplaySnapshot.State ==
+				EOpenMobileSensorReplayState::Paused;
+		}));
+	TestFalse(TEXT("A paused replay has no terminal result"), bCompleted);
+	TestTrue(TEXT("A paused replay accepts a seek"),
+		Subsystem->SeekReplayNative(ReplayId, 0.0).IsSuccess());
+	TestTrue(TEXT("A paused replay accepts a speed change"),
+		Subsystem->SetReplaySpeedNative(ReplayId, 2.0).IsSuccess());
+	TestTrue(TEXT("A paused replay resumes"),
+		Subsystem->ResumeReplayNative(ReplayId).IsSuccess());
+	TestTrue(TEXT("A running replay pauses again"),
+		Subsystem->PauseReplayNative(ReplayId).IsSuccess());
+	TestTrue(TEXT("The paused replay resumes again"),
+		Subsystem->ResumeReplayNative(ReplayId).IsSuccess());
+	TestTrue(TEXT("Manual time advances deterministically"),
+		Subsystem->AdvanceReplayNative(ReplayId, 0.005).IsSuccess());
+	TestFalse(TEXT("A looping replay stays active"), bCompleted);
+	TestTrue(TEXT("Looping can be disabled while replay is active"),
+		Subsystem->SetReplayLoopingNative(ReplayId, false).IsSuccess());
+	TestTrue(TEXT("The replay can seek into its next pass"),
+		Subsystem->SeekReplayNative(ReplayId, 0.0).IsSuccess());
+	TestTrue(TEXT("The final non-looping pass advances"),
+		Subsystem->AdvanceReplayNative(ReplayId, 0.005).IsSuccess());
+	TestTrue(TEXT("Manual replay completes at the final sample"), bCompleted);
 	TestTrue(TEXT("Replay succeeds"), ReplayResult.Operation.IsSuccess());
+	TestEqual(TEXT("Replay reports a valid decoded file"),
+		ReplayResult.FileStatus,
+		EOpenMobileSensorRecordingDecodeStatus::Success);
 
 	FOpenMobileSensorBufferReadResult ReadResult;
 	FOpenMobileVectorSensorBatch Replayed;
@@ -481,9 +558,9 @@ bool FOpenMobileSensorsAccelerometerReplayLifecycleTest::RunTest(
 		16,
 		ReadResult,
 		Replayed);
-	TestEqual(TEXT("Every recorded accelerometer sample is replayed"),
-		Replayed.Samples.Num(), 2);
-	if (Replayed.Samples.Num() == 2)
+	TestEqual(TEXT("Both replay passes publish every sample"),
+		Replayed.Samples.Num(), 4);
+	if (Replayed.Samples.Num() == 4)
 	{
 		TestTrue(TEXT("Replay is visibly tagged"),
 			(Replayed.Samples[0].Header.SourceFlags

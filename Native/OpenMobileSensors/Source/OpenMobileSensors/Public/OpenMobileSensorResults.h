@@ -185,4 +185,8 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReplayResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double PlaybackTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileSensorRecordingDecodeStatus FileStatus =
+		EOpenMobileSensorRecordingDecodeStatus::NotChecked;
 };

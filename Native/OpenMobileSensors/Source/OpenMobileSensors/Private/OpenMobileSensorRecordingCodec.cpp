@@ -10,6 +10,7 @@ namespace OpenMobileSensorRecordingCodecPrivate
 	constexpr uint8 BlockMagic[] = {'O', 'M', 'S', 'B'};
 	constexpr uint32 FooterMarker = 0xc0dec0de;
 	constexpr uint16 LegacyFormatVersion = 1;
+	constexpr uint16 PreviousFormatVersion = 2;
 	constexpr int32 MaximumStringBytes = 4096;
 	constexpr int32 MaximumStreams = 256;
 	constexpr int32 MaximumSamplesPerBatch = 4096;
@@ -275,18 +276,76 @@ namespace OpenMobileSensorRecordingCodecPrivate
 				EOpenMobileSensorType::PhysicalOrientation);
 	}
 
-	bool IsValidFamily(uint8 Value)
-	{
-		return Value > static_cast<uint8>(EOpenMobileSensorSampleFamily::Unknown)
-			&& Value <= static_cast<uint8>(
-				EOpenMobileSensorSampleFamily::Proximity);
-	}
-
 	bool IsFiniteVector(const FVector& Value)
 	{
 		return FMath::IsFinite(Value.X)
 			&& FMath::IsFinite(Value.Y)
 			&& FMath::IsFinite(Value.Z);
+	}
+
+	bool IsVectorSensorType(EOpenMobileSensorType Type)
+	{
+		switch (Type)
+		{
+		case EOpenMobileSensorType::Accelerometer:
+		case EOpenMobileSensorType::AccelerometerUncalibrated:
+		case EOpenMobileSensorType::Gyroscope:
+		case EOpenMobileSensorType::GyroscopeUncalibrated:
+		case EOpenMobileSensorType::Magnetometer:
+		case EOpenMobileSensorType::MagnetometerUncalibrated:
+		case EOpenMobileSensorType::Gravity:
+		case EOpenMobileSensorType::LinearAcceleration:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool HasRequiredText(const FString& Value)
+	{
+		return !Value.TrimStartAndEnd().IsEmpty();
+	}
+
+	bool IsValidLocationContext(
+		const FOpenMobileSensorLocationInput& Location
+	)
+	{
+		return FMath::IsFinite(Location.LatitudeDegrees)
+			&& Location.LatitudeDegrees >= -90.0
+			&& Location.LatitudeDegrees <= 90.0
+			&& FMath::IsFinite(Location.LongitudeDegrees)
+			&& Location.LongitudeDegrees >= -180.0
+			&& Location.LongitudeDegrees <= 180.0
+			&& FMath::IsFinite(Location.AltitudeMeters)
+			&& FMath::IsFinite(Location.HorizontalAccuracyMeters)
+			&& Location.HorizontalAccuracyMeters >= 0.0
+			&& FMath::IsFinite(Location.TimestampSeconds)
+			&& Location.TimestampSeconds > 0.0;
+	}
+
+	void WriteLocationContext(
+		FByteWriter& Writer,
+		const FOpenMobileSensorLocationInput& Location
+	)
+	{
+		Writer.WriteDouble(Location.LatitudeDegrees);
+		Writer.WriteDouble(Location.LongitudeDegrees);
+		Writer.WriteDouble(Location.AltitudeMeters);
+		Writer.WriteDouble(Location.HorizontalAccuracyMeters);
+		Writer.WriteDouble(Location.TimestampSeconds);
+	}
+
+	bool ReadLocationContext(
+		FByteReader& Reader,
+		FOpenMobileSensorLocationInput& OutLocation
+	)
+	{
+		return Reader.ReadDouble(OutLocation.LatitudeDegrees)
+			&& Reader.ReadDouble(OutLocation.LongitudeDegrees)
+			&& Reader.ReadDouble(OutLocation.AltitudeMeters)
+			&& Reader.ReadDouble(OutLocation.HorizontalAccuracyMeters)
+			&& Reader.ReadDouble(OutLocation.TimestampSeconds)
+			&& IsValidLocationContext(OutLocation);
 	}
 
 	bool WriteSensor(
@@ -679,7 +738,8 @@ namespace OpenMobileSensorRecordingCodecPrivate
 
 	bool DecodeHeaderPayload(
 		TConstArrayView<uint8> Payload,
-		FOpenMobileSensorRecordingHeader& OutHeader
+		FOpenMobileSensorRecordingHeader& OutHeader,
+		uint16 FormatVersion
 	)
 	{
 		FByteReader Reader(Payload);
@@ -688,26 +748,55 @@ namespace OpenMobileSensorRecordingCodecPrivate
 			|| !Reader.ReadString(OutHeader.PlatformName)
 			|| !Reader.ReadString(OutHeader.UnitsConvention)
 			|| !Reader.ReadString(OutHeader.CoordinateConvention)
-			|| !Reader.ReadUInt32(StreamCount)
+			|| !HasRequiredText(OutHeader.PluginVersion)
+			|| !HasRequiredText(OutHeader.PlatformName)
+			|| !HasRequiredText(OutHeader.UnitsConvention)
+			|| !HasRequiredText(OutHeader.CoordinateConvention))
+		{
+			return false;
+		}
+		if (FormatVersion >= 3)
+		{
+			if (!Reader.ReadBool(OutHeader.bHasSensitiveLocationContext)
+				|| (OutHeader.bHasSensitiveLocationContext
+					&& !ReadLocationContext(
+						Reader,
+						OutHeader.SensitiveLocationContext
+					)))
+			{
+				return false;
+			}
+		}
+		if (!Reader.ReadUInt32(StreamCount)
+			|| StreamCount == 0
 			|| StreamCount > MaximumStreams)
 		{
 			return false;
 		}
 		OutHeader.Streams.Reserve(static_cast<int32>(StreamCount));
+		TSet<FOpenMobileSensorIdentifier> DeclaredSensors;
 		for (uint32 Index = 0; Index < StreamCount; ++Index)
 		{
 			FOpenMobileSensorRecordingStreamDescriptor& Stream =
 				OutHeader.Streams.AddDefaulted_GetRef();
 			uint8 Family = 0;
 			if (!ReadSensor(Reader, Stream.Sensor)
+				|| !IsVectorSensorType(Stream.Sensor.Type)
 				|| !Reader.ReadUInt8(Family)
-				|| !IsValidFamily(Family)
+				|| Family != static_cast<uint8>(
+					EOpenMobileSensorSampleFamily::Vector)
 				|| !Reader.ReadString(Stream.Units)
+				|| !HasRequiredText(Stream.Units)
 				|| !ReadCapability(Reader, Stream.Capability)
-				|| Stream.Capability.Sensor != Stream.Sensor)
+				|| Stream.Capability.Sensor != Stream.Sensor
+				|| Stream.Capability.MinimumFrequencyHz < 0.0
+				|| Stream.Capability.MaximumFrequencyHz <
+					Stream.Capability.MinimumFrequencyHz
+				|| DeclaredSensors.Contains(Stream.Sensor))
 			{
 				return false;
 			}
+			DeclaredSensors.Add(Stream.Sensor);
 			Stream.Family =
 				static_cast<EOpenMobileSensorSampleFamily>(Family);
 		}
@@ -776,7 +865,11 @@ bool FOpenMobileSensorRecordingCodec::EncodeHeader(
 	OutError.Reset();
 	if (Header.FormatVersion != CurrentFormatVersion
 		|| Header.Streams.IsEmpty()
-		|| Header.Streams.Num() > MaximumStreams)
+		|| Header.Streams.Num() > MaximumStreams
+		|| !HasRequiredText(Header.PluginVersion)
+		|| !HasRequiredText(Header.PlatformName)
+		|| !HasRequiredText(Header.UnitsConvention)
+		|| !HasRequiredText(Header.CoordinateConvention))
 	{
 		OutError = TEXT("Recording header is invalid.");
 		return false;
@@ -790,12 +883,33 @@ bool FOpenMobileSensorRecordingCodec::EncodeHeader(
 	{
 		return false;
 	}
+	if (Header.bHasSensitiveLocationContext
+		&& !IsValidLocationContext(Header.SensitiveLocationContext))
+	{
+		OutError = TEXT("Recording location context is invalid.");
+		return false;
+	}
+	PayloadWriter.WriteBool(Header.bHasSensitiveLocationContext);
+	if (Header.bHasSensitiveLocationContext)
+	{
+		WriteLocationContext(
+			PayloadWriter,
+			Header.SensitiveLocationContext
+		);
+	}
 	PayloadWriter.WriteUInt32(static_cast<uint32>(Header.Streams.Num()));
+	TSet<FOpenMobileSensorIdentifier> DeclaredSensors;
 	for (const FOpenMobileSensorRecordingStreamDescriptor& Stream
 		: Header.Streams)
 	{
 		if (!WriteSensor(PayloadWriter, Stream.Sensor, OutError)
-			|| !IsValidFamily(static_cast<uint8>(Stream.Family)))
+			|| !IsVectorSensorType(Stream.Sensor.Type)
+			|| Stream.Family != EOpenMobileSensorSampleFamily::Vector
+			|| !HasRequiredText(Stream.Units)
+			|| Stream.Capability.MinimumFrequencyHz < 0.0
+			|| Stream.Capability.MaximumFrequencyHz <
+				Stream.Capability.MinimumFrequencyHz
+			|| DeclaredSensors.Contains(Stream.Sensor))
 		{
 			if (OutError.IsEmpty())
 			{
@@ -803,6 +917,7 @@ bool FOpenMobileSensorRecordingCodec::EncodeHeader(
 			}
 			return false;
 		}
+		DeclaredSensors.Add(Stream.Sensor);
 		PayloadWriter.WriteUInt8(static_cast<uint8>(Stream.Family));
 		if (!PayloadWriter.WriteString(Stream.Units, OutError)
 			|| Stream.Capability.Sensor != Stream.Sensor
@@ -843,6 +958,7 @@ bool FOpenMobileSensorRecordingCodec::EncodeVectorBatch(
 	for (const FOpenMobileVectorSensorSample& Sample : Batch.Samples)
 	{
 		if (!IsFiniteVector(Sample.Value)
+			|| !IsVectorSensorType(Sample.Header.Sensor.Type)
 			|| (Sample.bHasBias && !IsFiniteVector(Sample.Bias))
 			|| !FMath::IsFinite(Sample.Header.TimestampSeconds)
 			|| Sample.Header.TimestampSeconds < 0.0
@@ -892,6 +1008,7 @@ bool FOpenMobileSensorRecordingCodec::EncodeComplete(
 	FString& OutError
 )
 {
+	using namespace OpenMobileSensorRecordingCodecPrivate;
 	OutBytes.Reset();
 	TArray<uint8> Block;
 	if (!EncodeHeader(Document.Header, OutBytes, OutError))
@@ -901,8 +1018,44 @@ bool FOpenMobileSensorRecordingCodec::EncodeComplete(
 	FOpenMobileSensorRecordingFooter Footer = Document.Footer;
 	Footer.BatchCount = Document.VectorBatches.Num();
 	Footer.SampleCount = 0;
+	double FirstTimestampSeconds = 0.0;
+	double LastTimestampSeconds = 0.0;
+	bool bHasTimestamp = false;
+	TSet<FOpenMobileSensorIdentifier> DeclaredSensors;
+	DeclaredSensors.Reserve(Document.Header.Streams.Num());
+	for (const FOpenMobileSensorRecordingStreamDescriptor& Stream
+		: Document.Header.Streams)
+	{
+		DeclaredSensors.Add(Stream.Sensor);
+	}
 	for (const FOpenMobileVectorSensorBatch& Batch : Document.VectorBatches)
 	{
+		for (const FOpenMobileVectorSensorSample& Sample : Batch.Samples)
+		{
+			if (!DeclaredSensors.Contains(Sample.Header.Sensor))
+			{
+				OutBytes.Reset();
+				OutError = TEXT("Recording sample stream is not declared.");
+				return false;
+			}
+			if (!bHasTimestamp)
+			{
+				FirstTimestampSeconds = Sample.Header.TimestampSeconds;
+				LastTimestampSeconds = Sample.Header.TimestampSeconds;
+				bHasTimestamp = true;
+			}
+			else
+			{
+				FirstTimestampSeconds = FMath::Min(
+					FirstTimestampSeconds,
+					Sample.Header.TimestampSeconds
+				);
+				LastTimestampSeconds = FMath::Max(
+					LastTimestampSeconds,
+					Sample.Header.TimestampSeconds
+				);
+			}
+		}
 		if (!EncodeVectorBatch(Batch, Block, OutError))
 		{
 			OutBytes.Reset();
@@ -911,6 +1064,9 @@ bool FOpenMobileSensorRecordingCodec::EncodeComplete(
 		Footer.SampleCount += Batch.Samples.Num();
 		OutBytes.Append(Block);
 	}
+	Footer.DurationSeconds = bHasTimestamp
+		? LastTimestampSeconds - FirstTimestampSeconds
+		: 0.0;
 	if (!EncodeFooter(Footer, Block, OutError))
 	{
 		OutBytes.Reset();
@@ -957,6 +1113,7 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 		return false;
 	}
 	if (Version != CurrentFormatVersion
+		&& Version != PreviousFormatVersion
 		&& Version != LegacyFormatVersion)
 	{
 		OutStatus = EOpenMobileSensorRecordingDecodeStatus::IncompatibleVersion;
@@ -977,7 +1134,11 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 		return false;
 	}
 	if (BlockType != EBlockType::Header
-		|| !DecodeHeaderPayload(Payload, OutDocument.Header))
+		|| !DecodeHeaderPayload(
+			Payload,
+			OutDocument.Header,
+			Version
+		))
 	{
 		OutStatus = EOpenMobileSensorRecordingDecodeStatus::InvalidData;
 		OutError = TEXT("Recording header is invalid.");
@@ -985,6 +1146,16 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 	}
 	int64 BatchCount = 0;
 	int64 SampleCount = 0;
+	double FirstTimestampSeconds = 0.0;
+	double LastTimestampSeconds = 0.0;
+	bool bHasTimestamp = false;
+	TSet<FOpenMobileSensorIdentifier> DeclaredSensors;
+	DeclaredSensors.Reserve(OutDocument.Header.Streams.Num());
+	for (const FOpenMobileSensorRecordingStreamDescriptor& Stream
+		: OutDocument.Header.Streams)
+	{
+		DeclaredSensors.Add(Stream.Sensor);
+	}
 	bool bFoundFooter = false;
 	while (!Reader.AtEnd())
 	{
@@ -1009,6 +1180,33 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 				OutError = TEXT("Recording vector batch is invalid.");
 				return false;
 			}
+			for (const FOpenMobileVectorSensorSample& Sample : Batch.Samples)
+			{
+				if (!DeclaredSensors.Contains(Sample.Header.Sensor))
+				{
+					OutStatus =
+						EOpenMobileSensorRecordingDecodeStatus::InvalidData;
+					OutError = TEXT("Recording sample stream is not declared.");
+					return false;
+				}
+				if (!bHasTimestamp)
+				{
+					FirstTimestampSeconds = Sample.Header.TimestampSeconds;
+					LastTimestampSeconds = Sample.Header.TimestampSeconds;
+					bHasTimestamp = true;
+				}
+				else
+				{
+					FirstTimestampSeconds = FMath::Min(
+						FirstTimestampSeconds,
+						Sample.Header.TimestampSeconds
+					);
+					LastTimestampSeconds = FMath::Max(
+						LastTimestampSeconds,
+						Sample.Header.TimestampSeconds
+					);
+				}
+			}
 			++BatchCount;
 			SampleCount += Batch.Samples.Num();
 			continue;
@@ -1030,11 +1228,16 @@ bool FOpenMobileSensorRecordingCodec::DecodeComplete(
 		OutError = TEXT("Recording footer is missing.");
 		return false;
 	}
+	const double DecodedDurationSeconds = bHasTimestamp
+		? LastTimestampSeconds - FirstTimestampSeconds
+		: 0.0;
 	if (OutDocument.Footer.BatchCount != BatchCount
-		|| OutDocument.Footer.SampleCount != SampleCount)
+		|| OutDocument.Footer.SampleCount != SampleCount
+		|| (Version >= CurrentFormatVersion
+			&& OutDocument.Footer.DurationSeconds != DecodedDurationSeconds))
 	{
 		OutStatus = EOpenMobileSensorRecordingDecodeStatus::InvalidData;
-		OutError = TEXT("Recording footer counts do not match its data.");
+		OutError = TEXT("Recording footer summary does not match its data.");
 		return false;
 	}
 	OutStatus = EOpenMobileSensorRecordingDecodeStatus::Success;

@@ -66,6 +66,14 @@ void UOpenMobileSensorRecordingAsyncAction::Activate()
 	}
 }
 
+void UOpenMobileSensorRecordingAsyncAction::CancelNativeOperation()
+{
+	if (GetSensorsSubsystem() && RecordingRequestId.IsValid())
+	{
+		GetSensorsSubsystem()->CancelRecordingNative(RecordingRequestId);
+	}
+}
+
 void UOpenMobileSensorRecordingAsyncAction::OnActionSucceeded()
 {
 	Completed.Broadcast(Result);

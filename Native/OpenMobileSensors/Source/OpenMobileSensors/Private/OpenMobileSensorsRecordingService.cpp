@@ -11,7 +11,6 @@
 #include "HAL/PlatformTime.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileSensorRecordingCodec.h"
 #include "OpenMobileSensorSourcePolicy.h"
@@ -20,6 +19,7 @@
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsSubscriptionService.h"
+#include "OpenMobileSensorsTrueHeadingService.h"
 
 namespace OpenMobileSensorsRecordingServicePrivate
 {
@@ -32,6 +32,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	constexpr int64 MaximumReplayFileBytes = 256ll * 1024 * 1024;
 	constexpr double MinimumPlaybackSpeed = 0.01;
 	constexpr double MaximumPlaybackSpeed = 100.0;
+	constexpr double MaximumManualAdvanceSeconds = 3600.0;
 
 	enum class EWorkerState : uint8
 	{
@@ -51,6 +52,8 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	{
 		FCriticalSection Mutex;
 		TArray<FPendingVectorBatch> PendingBatches;
+		int32 PendingBatchHead = 0;
+		int32 PendingBatchCount = 0;
 		FEvent* WakeEvent = FPlatformProcess::GetSynchEventFromPool(false);
 		TAtomic<EWorkerState> State{EWorkerState::Initializing};
 		TAtomic<bool> bStopRequested{false};
@@ -68,6 +71,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		double FirstTimestampSeconds = 0.0;
 		double LastTimestampSeconds = 0.0;
 		bool bHasTimestamp = false;
+		bool bFinalFileCommitted = false;
 		FString FailureCode;
 		FString FailureMessage;
 
@@ -115,7 +119,9 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		FCriticalSection Mutex;
 		TAtomic<EReplayLoadState> State{EReplayLoadState::Loading};
 		TAtomic<bool> bCancelled{false};
-		FOpenMobileSensorRecordingDocument Document;
+		TArray<FOpenMobileVectorSensorSample> Samples;
+		double RecordingStartSeconds = 0.0;
+		double RecordingDurationSeconds = 0.0;
 		EOpenMobileSensorRecordingDecodeStatus DecodeStatus =
 			EOpenMobileSensorRecordingDecodeStatus::InvalidData;
 		FString Error;
@@ -135,9 +141,12 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		double RecordingStartSeconds = 0.0;
 		double RecordingDurationSeconds = 0.0;
 		double PlaybackWallStartSeconds = 0.0;
+		double PlaybackPositionAnchorSeconds = 0.0;
 		double TimestampBaseSeconds = 0.0;
+		double TimestampPlaybackAnchorSeconds = 0.0;
 		double LastPublishedTimestampSeconds = -1.0;
-		bool bPlaying = false;
+		bool bPrepared = false;
+		bool bPaused = false;
 	};
 
 	TMap<FGuid, TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>> Recordings;
@@ -244,6 +253,17 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			);
 			return false;
 		}
+		if (Options.bIncludeSensitiveLocationContext
+			&& (UE_BUILD_SHIPPING
+				|| !Settings->
+					bAllowSensitiveLocationContextInDevelopmentRecordings))
+		{
+			OutFailure = MakeFailure(
+				EOpenMobileSensorFailureReason::ConfigurationBlocked,
+				TEXT("SensitiveRecordingContextDisabled")
+			);
+			return false;
+		}
 		TSet<FOpenMobileSensorIdentifier> UniqueSensors;
 		for (const FOpenMobileSensorIdentifier& Sensor : Options.Sensors)
 		{
@@ -262,29 +282,52 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		return true;
 	}
 
-	FOpenMobileSensorRecordingHeader MakeHeader(
-		const FOpenMobileSensorRecordingOptions& Options
+	bool MakeHeader(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorRecordingOptions& Options,
+		FOpenMobileSensorRecordingHeader& OutHeader,
+		FOpenMobileSensorOperationResult& OutFailure
 	)
 	{
-		FOpenMobileSensorRecordingHeader Header;
-		Header.FormatVersion =
+		OutHeader = {};
+		OutHeader.FormatVersion =
 			FOpenMobileSensorRecordingCodec::CurrentFormatVersion;
 		const TSharedPtr<IPlugin> Plugin =
 			IPluginManager::Get().FindPlugin(TEXT("OpenMobileSensors"));
-		Header.PluginVersion = Plugin.IsValid()
+		OutHeader.PluginVersion = Plugin.IsValid()
 			? Plugin->GetDescriptor().VersionName
 			: TEXT("Unknown");
-		Header.PlatformName = ANSI_TO_TCHAR(
+		OutHeader.PlatformName = ANSI_TO_TCHAR(
 			FPlatformProperties::PlatformName());
-		Header.UnitsConvention = TEXT("SI units per stream descriptor");
-		Header.CoordinateConvention =
+		OutHeader.UnitsConvention = TEXT("SI units per stream descriptor");
+		OutHeader.CoordinateConvention =
 			TEXT("Unreal device-fixed: X forward, Y right, Z up");
+		if (Options.bIncludeSensitiveLocationContext)
+		{
+			double LocationAgeSeconds = 0.0;
+			const EOpenMobileSensorFailureReason LocationResult =
+				FOpenMobileSensorsTrueHeadingService::GetUsableLocationInput(
+					OwnerIdentifier,
+					FPlatformTime::Seconds(),
+					OutHeader.SensitiveLocationContext,
+					LocationAgeSeconds
+				);
+			if (LocationResult != EOpenMobileSensorFailureReason::None)
+			{
+				OutFailure = MakeFailure(
+					LocationResult,
+					TEXT("SensitiveRecordingLocationUnavailable")
+				);
+				return false;
+			}
+			OutHeader.bHasSensitiveLocationContext = true;
+		}
 		const FOpenMobileSensorCapabilitySnapshot Capabilities =
 			FOpenMobileSensorsCapabilityService::GetSnapshot();
 		for (const FOpenMobileSensorIdentifier& Sensor : Options.Sensors)
 		{
 			FOpenMobileSensorRecordingStreamDescriptor& Stream =
-				Header.Streams.AddDefaulted_GetRef();
+				OutHeader.Streams.AddDefaulted_GetRef();
 			Stream.Sensor = Sensor;
 			Stream.Family = EOpenMobileSensorSampleFamily::Vector;
 			Stream.Units = GetUnits(Sensor.Type);
@@ -310,7 +353,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 					EOpenMobileCapabilityState::Available;
 			}
 		}
-		return Header;
+		return true;
 	}
 
 	void SetWorkerFailure(
@@ -330,12 +373,18 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	)
 	{
 		FScopeLock Lock(&Worker->Mutex);
-		if (Worker->PendingBatches.IsEmpty())
+		if (Worker->PendingBatchCount == 0
+			|| Worker->PendingBatches.IsEmpty())
 		{
 			return false;
 		}
-		OutPending = MoveTemp(Worker->PendingBatches[0]);
-		Worker->PendingBatches.RemoveAt(0, 1, EAllowShrinking::No);
+		OutPending = MoveTemp(
+			Worker->PendingBatches[Worker->PendingBatchHead]
+		);
+		Worker->PendingBatches[Worker->PendingBatchHead] = {};
+		Worker->PendingBatchHead =
+			(Worker->PendingBatchHead + 1) % Worker->PendingBatches.Num();
+		--Worker->PendingBatchCount;
 		Worker->QueuedEstimatedBytes -= OutPending.EstimatedBytes;
 		return true;
 	}
@@ -563,6 +612,16 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			Worker->State.Store(EWorkerState::Failed);
 			return;
 		}
+		bool bDiscardCommittedFile = false;
+		{
+			FScopeLock Lock(&Worker->Mutex);
+			Worker->bFinalFileCommitted = true;
+			bDiscardCommittedFile = Worker->bDiscardFile.Load();
+		}
+		if (bDiscardCommittedFile)
+		{
+			IFileManager::Get().Delete(*Worker->FinalPath);
+		}
 		Worker->State.Store(EWorkerState::Completed);
 	}
 
@@ -574,8 +633,9 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		FOpenMobileSensorRecordingSnapshot Snapshot;
 		Snapshot.RequestId = Entry.RequestId;
 		Snapshot.State = State;
-		Snapshot.FormatVersion =
-			FOpenMobileSensorRecordingCodec::CurrentFormatVersion;
+		Snapshot.FormatVersion = Entry.Worker->Header.FormatVersion;
+		Snapshot.bContainsSensitiveLocationContext =
+			Entry.Worker->Header.bHasSensitiveLocationContext;
 		Snapshot.FilePath = Entry.Worker->FinalPath;
 		FScopeLock Lock(&Entry.Worker->Mutex);
 		Snapshot.BytesWritten = Entry.Worker->BytesWritten;
@@ -649,7 +709,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			{
 				FScopeLock Lock(&Entry->Worker->Mutex);
 				if (Entry->Worker->bStopRequested.Load()
-					|| Entry->Worker->PendingBatches.Num() >=
+					|| Entry->Worker->PendingBatchCount >=
 						Entry->Worker->MaximumBufferedBatches
 					|| Entry->Worker->BytesWritten
 						+ Entry->Worker->QueuedEstimatedBytes
@@ -660,10 +720,15 @@ namespace OpenMobileSensorsRecordingServicePrivate
 						RecordedBatch.Samples.Num();
 					return;
 				}
+				const int32 PendingIndex =
+					(Entry->Worker->PendingBatchHead
+						+ Entry->Worker->PendingBatchCount)
+					% Entry->Worker->PendingBatches.Num();
 				FPendingVectorBatch& Pending =
-					Entry->Worker->PendingBatches.AddDefaulted_GetRef();
+					Entry->Worker->PendingBatches[PendingIndex];
 				Pending.Batch = MoveTemp(RecordedBatch);
 				Pending.EstimatedBytes = EstimatedBytes;
+				++Entry->Worker->PendingBatchCount;
 				Entry->Worker->QueuedEstimatedBytes += EstimatedBytes;
 			}
 			Entry->Worker->WakeEvent->Trigger();
@@ -823,21 +888,41 @@ namespace OpenMobileSensorsRecordingServicePrivate
 
 	void RequestWorkerStop(FRecordingEntry& Entry, bool bDiscard)
 	{
-		Entry.Worker->bDiscardFile.Store(bDiscard);
+		bool bDeleteFinalFile = false;
+		{
+			FScopeLock Lock(&Entry.Worker->Mutex);
+			if (bDiscard)
+			{
+				Entry.Worker->bDiscardFile.Store(true);
+			}
+			bDeleteFinalFile = bDiscard
+				&& Entry.Worker->bFinalFileCommitted;
+		}
 		Entry.Worker->bStopRequested.Store(true);
 		Entry.Worker->WakeEvent->Trigger();
+		if (bDeleteFinalFile)
+		{
+			const FString FinalPath = Entry.Worker->FinalPath;
+			Async(EAsyncExecution::ThreadPool, [FinalPath]()
+			{
+				IFileManager::Get().Delete(*FinalPath);
+			});
+		}
 	}
 
 	FOpenMobileSensorReplayResult MakeReplayFailure(
 		const FGuid& RequestId,
 		EOpenMobileSensorFailureReason Reason,
 		const TCHAR* Code,
-		const FString& Message = FString()
+		const FString& Message = FString(),
+		EOpenMobileSensorRecordingDecodeStatus FileStatus =
+			EOpenMobileSensorRecordingDecodeStatus::NotChecked
 	)
 	{
 		FOpenMobileSensorReplayResult Result;
 		Result.RequestId = RequestId;
 		Result.Operation = MakeFailure(Reason, Code, Message);
+		Result.FileStatus = FileStatus;
 		return Result;
 	}
 
@@ -850,12 +935,24 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		{
 			return;
 		}
-		const int64 FileSize = IFileManager::Get().FileSize(*FilePath);
+		IPlatformFile& PlatformFile =
+			FPlatformFileManager::Get().GetPlatformFile();
+		TUniquePtr<IFileHandle> File(PlatformFile.OpenRead(*FilePath));
+		if (!File)
+		{
+			FScopeLock Lock(&LoadResult->Mutex);
+			LoadResult->Error = TEXT("The replay file could not be opened.");
+			LoadResult->DecodeStatus =
+				EOpenMobileSensorRecordingDecodeStatus::InvalidData;
+			LoadResult->State.Store(EReplayLoadState::Failed);
+			return;
+		}
+		const int64 FileSize = File->Size();
 		if (FileSize < 0 || FileSize > MaximumReplayFileBytes)
 		{
 			FScopeLock Lock(&LoadResult->Mutex);
 			LoadResult->Error = FileSize < 0
-				? TEXT("The replay file could not be found.")
+				? TEXT("The replay file size could not be read.")
 				: TEXT("The replay file exceeds the size limit.");
 			LoadResult->DecodeStatus = FileSize < 0
 				? EOpenMobileSensorRecordingDecodeStatus::InvalidData
@@ -863,8 +960,14 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			LoadResult->State.Store(EReplayLoadState::Failed);
 			return;
 		}
+		if (LoadResult->bCancelled.Load())
+		{
+			return;
+		}
 		TArray<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, *FilePath))
+		Bytes.SetNumUninitialized(static_cast<int32>(FileSize));
+		if (FileSize > 0
+			&& !File->Read(Bytes.GetData(), FileSize))
 		{
 			FScopeLock Lock(&LoadResult->Mutex);
 			LoadResult->Error = TEXT("The replay file could not be read.");
@@ -873,6 +976,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			LoadResult->State.Store(EReplayLoadState::Failed);
 			return;
 		}
+		File.Reset();
 		if (LoadResult->bCancelled.Load())
 		{
 			return;
@@ -889,25 +993,10 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			LoadResult->State.Store(EReplayLoadState::Failed);
 			return;
 		}
+		Bytes.Empty();
 		if (LoadResult->bCancelled.Load())
 		{
 			return;
-		}
-		{
-			FScopeLock Lock(&LoadResult->Mutex);
-			LoadResult->Document = MoveTemp(Document);
-			LoadResult->DecodeStatus =
-				EOpenMobileSensorRecordingDecodeStatus::Success;
-		}
-		LoadResult->State.Store(EReplayLoadState::Ready);
-	}
-
-	bool PrepareReplay(FReplayEntry& Entry, double NowSeconds)
-	{
-		FOpenMobileSensorRecordingDocument Document;
-		{
-			FScopeLock Lock(&Entry.LoadResult->Mutex);
-			Document = MoveTemp(Entry.LoadResult->Document);
 		}
 		int64 SampleCount = 0;
 		for (const FOpenMobileVectorSensorBatch& Batch
@@ -915,47 +1004,155 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		{
 			SampleCount += Batch.Samples.Num();
 		}
-		if (SampleCount <= 0 || SampleCount > MAX_int32)
+		if (SampleCount > MAX_int32)
 		{
-			return false;
+			FScopeLock Lock(&LoadResult->Mutex);
+			LoadResult->Error =
+				TEXT("The replay timeline exceeds the sample limit.");
+			LoadResult->DecodeStatus =
+				EOpenMobileSensorRecordingDecodeStatus::LimitExceeded;
+			LoadResult->State.Store(EReplayLoadState::Failed);
+			return;
 		}
-		Entry.Samples.Reserve(static_cast<int32>(SampleCount));
+		TArray<FOpenMobileVectorSensorSample> Samples;
+		Samples.Reserve(static_cast<int32>(SampleCount));
 		for (FOpenMobileVectorSensorBatch& Batch : Document.VectorBatches)
 		{
-			Entry.Samples.Append(MoveTemp(Batch.Samples));
+			Samples.Append(MoveTemp(Batch.Samples));
 		}
+		Document.VectorBatches.Empty();
 		Algo::StableSort(
-			Entry.Samples,
+			Samples,
 			[](const FOpenMobileVectorSensorSample& Left,
 				const FOpenMobileVectorSensorSample& Right)
 			{
 				return Left.Header.TimestampSeconds
 					< Right.Header.TimestampSeconds;
 			});
-		Entry.RecordingStartSeconds =
-			Entry.Samples[0].Header.TimestampSeconds;
-		Entry.RecordingDurationSeconds = FMath::Max(
-			0.0,
-			Entry.Samples.Last().Header.TimestampSeconds
-				- Entry.RecordingStartSeconds);
+		if (LoadResult->bCancelled.Load())
+		{
+			return;
+		}
+		const double RecordingStartSeconds = Samples.IsEmpty()
+			? 0.0
+			: Samples[0].Header.TimestampSeconds;
+		const double RecordingDurationSeconds = Samples.IsEmpty()
+			? 0.0
+			: FMath::Max(
+				0.0,
+				Samples.Last().Header.TimestampSeconds
+					- RecordingStartSeconds
+			);
+		{
+			FScopeLock Lock(&LoadResult->Mutex);
+			LoadResult->Samples = MoveTemp(Samples);
+			LoadResult->RecordingStartSeconds = RecordingStartSeconds;
+			LoadResult->RecordingDurationSeconds =
+				RecordingDurationSeconds;
+			LoadResult->DecodeStatus =
+				EOpenMobileSensorRecordingDecodeStatus::Success;
+		}
+		LoadResult->State.Store(EReplayLoadState::Ready);
+	}
+
+	bool PrepareReplay(
+		FReplayEntry& Entry,
+		double NowSeconds,
+		EOpenMobileSensorRecordingDecodeStatus& OutFileStatus,
+		const TCHAR*& OutFailureCode
+	)
+	{
+		OutFileStatus = EOpenMobileSensorRecordingDecodeStatus::Success;
+		OutFailureCode = TEXT("InvalidReplayTimeline");
+		{
+			FScopeLock Lock(&Entry.LoadResult->Mutex);
+			Entry.Samples = MoveTemp(Entry.LoadResult->Samples);
+			Entry.RecordingStartSeconds =
+				Entry.LoadResult->RecordingStartSeconds;
+			Entry.RecordingDurationSeconds =
+				Entry.LoadResult->RecordingDurationSeconds;
+		}
+		if (Entry.Samples.IsEmpty())
+		{
+			return false;
+		}
 		if (Entry.Options.StartTimeSeconds > Entry.RecordingDurationSeconds
 			|| (Entry.Options.bLoop
 				&& Entry.RecordingDurationSeconds
 					- Entry.Options.StartTimeSeconds <= 0.0))
 		{
+			OutFailureCode = TEXT("InvalidReplayOptions");
 			return false;
 		}
+		if (Entry.PlaybackPositionAnchorSeconds
+			> Entry.RecordingDurationSeconds)
+		{
+			OutFailureCode = TEXT("InvalidReplaySeek");
+			return false;
+		}
+		Entry.PlaybackWallStartSeconds = NowSeconds;
+		Entry.TimestampBaseSeconds = NowSeconds;
+		Entry.TimestampPlaybackAnchorSeconds =
+			Entry.PlaybackPositionAnchorSeconds;
 		Entry.NextSampleIndex = Algo::LowerBoundBy(
 			Entry.Samples,
-			Entry.RecordingStartSeconds + Entry.Options.StartTimeSeconds,
+			Entry.RecordingStartSeconds
+				+ Entry.PlaybackPositionAnchorSeconds,
 			[](const FOpenMobileVectorSensorSample& Sample)
 			{
 				return Sample.Header.TimestampSeconds;
 			});
-		Entry.PlaybackWallStartSeconds = NowSeconds;
-		Entry.TimestampBaseSeconds = NowSeconds;
-		Entry.bPlaying = true;
+		Entry.bPrepared = true;
+		Entry.bPaused = Entry.Options.bStartPaused;
 		return Entry.NextSampleIndex < Entry.Samples.Num();
+	}
+
+	double GetReplayPosition(
+		const FReplayEntry& Entry,
+		double NowSeconds
+	)
+	{
+		if (!Entry.bPrepared
+			|| Entry.bPaused
+			|| Entry.Options.ClockMode ==
+				EOpenMobileSensorReplayClockMode::Manual)
+		{
+			return Entry.PlaybackPositionAnchorSeconds;
+		}
+		return Entry.PlaybackPositionAnchorSeconds
+			+ FMath::Max(0.0, NowSeconds - Entry.PlaybackWallStartSeconds)
+				* Entry.Options.PlaybackSpeed;
+	}
+
+	void ReanchorReplay(
+		FReplayEntry& Entry,
+		double PlaybackTimeSeconds,
+		double NowSeconds
+	)
+	{
+		Entry.PlaybackPositionAnchorSeconds = PlaybackTimeSeconds;
+		Entry.PlaybackWallStartSeconds = NowSeconds;
+		Entry.TimestampPlaybackAnchorSeconds = PlaybackTimeSeconds;
+		Entry.TimestampBaseSeconds = FMath::Max(
+			NowSeconds,
+			Entry.LastPublishedTimestampSeconds + 0.000001
+		);
+	}
+
+	void SetReplayPosition(
+		FReplayEntry& Entry,
+		double PlaybackTimeSeconds,
+		double NowSeconds
+	)
+	{
+		ReanchorReplay(Entry, PlaybackTimeSeconds, NowSeconds);
+		Entry.NextSampleIndex = Algo::LowerBoundBy(
+			Entry.Samples,
+			Entry.RecordingStartSeconds + PlaybackTimeSeconds,
+			[](const FOpenMobileVectorSensorSample& Sample)
+			{
+				return Sample.Header.TimestampSeconds;
+			});
 	}
 
 	void TickReplays(
@@ -971,7 +1168,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		{
 			const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>& Entry =
 				Pair.Value;
-			if (!Entry->bPlaying)
+			if (!Entry->bPrepared)
 			{
 				const EReplayLoadState LoadState =
 					Entry->LoadResult->State.Load();
@@ -994,9 +1191,10 @@ namespace OpenMobileSensorsRecordingServicePrivate
 							EOpenMobileSensorFailureReason::InvalidRequest,
 							DecodeStatus ==
 								EOpenMobileSensorRecordingDecodeStatus::IncompatibleVersion
-								? TEXT("IncompatibleRecordingVersion")
-								: TEXT("InvalidRecordingFile"),
-							Message);
+									? TEXT("IncompatibleRecordingVersion")
+									: TEXT("InvalidRecordingFile"),
+								Message,
+								DecodeStatus);
 					auto Completion = MoveTemp(Entry->Completion);
 					Callbacks.Add([Completion = MoveTemp(Completion), Result]() mutable
 					{
@@ -1005,13 +1203,22 @@ namespace OpenMobileSensorsRecordingServicePrivate
 					RemoveAfterTick.Add(Entry->RequestId);
 					continue;
 				}
-				if (!PrepareReplay(*Entry, NowSeconds))
+				EOpenMobileSensorRecordingDecodeStatus FileStatus;
+				const TCHAR* FailureCode = nullptr;
+				if (!PrepareReplay(
+					*Entry,
+					NowSeconds,
+					FileStatus,
+					FailureCode
+				))
 				{
 					const FOpenMobileSensorReplayResult Result =
 						MakeReplayFailure(
 							Entry->RequestId,
 							EOpenMobileSensorFailureReason::InvalidRequest,
-							TEXT("InvalidReplayTimeline"));
+							FailureCode,
+							FString(),
+							FileStatus);
 					auto Completion = MoveTemp(Entry->Completion);
 					Callbacks.Add([Completion = MoveTemp(Completion), Result]() mutable
 					{
@@ -1021,12 +1228,16 @@ namespace OpenMobileSensorsRecordingServicePrivate
 					continue;
 				}
 			}
+			if (Entry->bPaused)
+			{
+				continue;
+			}
 
+			const double UnclampedPlaybackTimeSeconds =
+				GetReplayPosition(*Entry, NowSeconds);
 			const double PlaybackTimeSeconds = FMath::Min(
 				Entry->RecordingDurationSeconds,
-				Entry->Options.StartTimeSeconds
-					+ (NowSeconds - Entry->PlaybackWallStartSeconds)
-						* Entry->Options.PlaybackSpeed);
+				UnclampedPlaybackTimeSeconds);
 			FOpenMobileVectorSensorBatch DueBatch;
 			while (Entry->NextSampleIndex < Entry->Samples.Num()
 				&& DueBatch.Samples.Num() < 4096)
@@ -1045,7 +1256,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				Replayed.Header.TimestampSeconds = FMath::Max(
 					Entry->TimestampBaseSeconds
 						+ (RelativeSeconds
-							- Entry->Options.StartTimeSeconds)
+							- Entry->TimestampPlaybackAnchorSeconds)
 							/ Entry->Options.PlaybackSpeed,
 					Entry->LastPublishedTimestampSeconds + 0.000001);
 				Entry->LastPublishedTimestampSeconds =
@@ -1068,14 +1279,18 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			}
 			if (Entry->Options.bLoop)
 			{
-				const double CycleWallDuration =
-					(Entry->RecordingDurationSeconds
-						- Entry->Options.StartTimeSeconds)
-					/ Entry->Options.PlaybackSpeed;
-				Entry->PlaybackWallStartSeconds += CycleWallDuration;
-				Entry->TimestampBaseSeconds = FMath::Max(
-					Entry->PlaybackWallStartSeconds,
-					Entry->LastPublishedTimestampSeconds + 0.000001);
+				Entry->PlaybackPositionAnchorSeconds =
+					Entry->Options.StartTimeSeconds
+						+ FMath::Max(
+							0.0,
+							UnclampedPlaybackTimeSeconds
+								- Entry->RecordingDurationSeconds
+						);
+				Entry->PlaybackWallStartSeconds = NowSeconds;
+				Entry->TimestampPlaybackAnchorSeconds =
+					Entry->Options.StartTimeSeconds;
+				Entry->TimestampBaseSeconds =
+					Entry->LastPublishedTimestampSeconds + 0.000001;
 				Entry->NextSampleIndex = Algo::LowerBoundBy(
 					Entry->Samples,
 					Entry->RecordingStartSeconds
@@ -1090,6 +1305,8 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			Result.RequestId = Entry->RequestId;
 			Result.Operation = MakeSuccess();
 			Result.PlaybackTimeSeconds = Entry->RecordingDurationSeconds;
+			Result.FileStatus =
+				EOpenMobileSensorRecordingDecodeStatus::Success;
 			auto Completion = MoveTemp(Entry->Completion);
 			Callbacks.Add([Completion = MoveTemp(Completion), Result]() mutable
 			{
@@ -1104,6 +1321,27 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	}
 
 	bool Tick(float DeltaSeconds);
+
+	bool HasRecordingTickWork()
+	{
+		for (const TPair<
+			FGuid,
+			TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>
+		>& Pair : Recordings)
+		{
+			const FRecordingEntry& Entry = *Pair.Value;
+			if (Entry.State == EOpenMobileSensorRecordingState::Starting
+				|| Entry.State == EOpenMobileSensorRecordingState::Recording
+				|| Entry.State == EOpenMobileSensorRecordingState::Stopping
+				|| (Entry.State == EOpenMobileSensorRecordingState::Failed
+					&& !Entry.bRecordingWasActive
+					&& !Entry.WorkerFuture.IsReady()))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 
 	void EnsureTicker()
 	{
@@ -1337,11 +1575,132 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	bool Tick(float DeltaSeconds)
 	{
 		static_cast<void>(DeltaSeconds);
-		if (!bShuttingDown)
+		if (bShuttingDown)
 		{
-			TickAt(FPlatformTime::Seconds());
+			TickHandle.Reset();
+			return false;
 		}
-		return true;
+		TickAt(FPlatformTime::Seconds());
+		bool bHasTickWork = HasRecordingTickWork();
+		if (!bHasTickWork)
+		{
+			for (const TPair<
+				FGuid,
+				TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>
+			>& Pair : Replays)
+			{
+				const FReplayEntry& Entry = *Pair.Value;
+				if (!Entry.bPrepared
+					|| (!Entry.bPaused
+						&& Entry.Options.ClockMode ==
+							EOpenMobileSensorReplayClockMode::RealTime))
+				{
+					bHasTickWork = true;
+					break;
+				}
+			}
+		}
+		if (!bHasTickWork)
+		{
+			TickHandle.Reset();
+		}
+		return bHasTickWork;
+	}
+
+	void QueueRecordingCancellation(
+		const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>& Entry,
+		TArray<TFunction<void()>>& Callbacks
+	)
+	{
+		StopHiddenSubscriptions(*Entry);
+		RequestWorkerStop(*Entry, true);
+		FOpenMobileSensorRecordingResult Result;
+		Result.Recording = MakeSnapshot(
+			*Entry,
+			EOpenMobileSensorRecordingState::Cancelled
+		);
+		Result.Operation = MakeFailure(
+			EOpenMobileSensorFailureReason::Cancelled,
+			TEXT("RecordingCancelled")
+		);
+		Entry->State = EOpenMobileSensorRecordingState::Cancelled;
+		Entry->FinalResult = Result;
+		if (!Entry->bStartCompletionDelivered && Entry->StartCompletion)
+		{
+			auto Completion = MoveTemp(Entry->StartCompletion);
+			Entry->bStartCompletionDelivered = true;
+			Callbacks.Add([
+				Completion = MoveTemp(Completion),
+				Result
+			]() mutable
+			{
+				Completion(Result);
+			});
+		}
+		if (Entry->StopCompletion)
+		{
+			auto Completion = MoveTemp(Entry->StopCompletion);
+			Callbacks.Add([
+				Completion = MoveTemp(Completion),
+				Result
+			]() mutable
+			{
+				Completion(Result);
+			});
+		}
+		Recordings.Remove(Entry->RequestId);
+	}
+
+	void QueueReplayCancellation(
+		const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>& Entry,
+		TArray<TFunction<void()>>& Callbacks
+	)
+	{
+		Entry->LoadResult->bCancelled.Store(true);
+		const FOpenMobileSensorReplayResult Result = MakeReplayFailure(
+			Entry->RequestId,
+			EOpenMobileSensorFailureReason::Cancelled,
+			TEXT("ReplayCancelled"),
+			FString(),
+			Entry->bPrepared
+				? EOpenMobileSensorRecordingDecodeStatus::Success
+				: EOpenMobileSensorRecordingDecodeStatus::NotChecked
+		);
+		auto Completion = MoveTemp(Entry->Completion);
+		Replays.Remove(Entry->RequestId);
+		if (Completion)
+		{
+			Callbacks.Add([
+				Completion = MoveTemp(Completion),
+				Result
+			]() mutable
+			{
+				Completion(Result);
+			});
+		}
+	}
+
+	void RunCallbacks(TArray<TFunction<void()>>& Callbacks)
+	{
+		for (TFunction<void()>& Callback : Callbacks)
+		{
+			Callback();
+		}
+	}
+
+	TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> FindOwnedReplay(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	)
+	{
+		const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>* Found =
+			Replays.Find(RequestId);
+		return OwnerIdentifier.IsValid()
+			&& RequestId.IsValid()
+			&& Found
+			&& (*Found)->OwnerIdentifier == OwnerIdentifier
+			? *Found
+			: nullptr;
 	}
 
 	void CancelEntries(const FGuid* OwnerIdentifier)
@@ -1357,49 +1716,13 @@ namespace OpenMobileSensorsRecordingServicePrivate
 			if (!OwnerIdentifier
 				|| Pair.Value->OwnerIdentifier == *OwnerIdentifier)
 			{
-				StopHiddenSubscriptions(*Pair.Value);
-				RequestWorkerStop(*Pair.Value, true);
 				Cancelled.Add(Pair.Value);
 			}
 		}
 		for (const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>& Entry
 			: Cancelled)
 		{
-			FOpenMobileSensorRecordingResult Result;
-			Result.Recording = MakeSnapshot(
-				*Entry,
-				EOpenMobileSensorRecordingState::Cancelled
-			);
-			Result.Operation = MakeFailure(
-				EOpenMobileSensorFailureReason::Cancelled,
-				TEXT("RecordingCancelled")
-			);
-			Entry->State = EOpenMobileSensorRecordingState::Cancelled;
-			Entry->FinalResult = Result;
-			if (!Entry->bStartCompletionDelivered && Entry->StartCompletion)
-			{
-				auto Completion = MoveTemp(Entry->StartCompletion);
-				Entry->bStartCompletionDelivered = true;
-				Callbacks.Add([
-					Completion = MoveTemp(Completion),
-					Result
-				]() mutable
-				{
-					Completion(Result);
-				});
-			}
-			if (Entry->StopCompletion)
-			{
-				auto Completion = MoveTemp(Entry->StopCompletion);
-				Callbacks.Add([
-					Completion = MoveTemp(Completion),
-					Result
-				]() mutable
-				{
-					Completion(Result);
-				});
-			}
-			Recordings.Remove(Entry->RequestId);
+			QueueRecordingCancellation(Entry, Callbacks);
 		}
 		TArray<TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>> CancelledReplays;
 		for (const TPair<
@@ -1416,29 +1739,9 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		for (const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>& Entry
 			: CancelledReplays)
 		{
-			Entry->LoadResult->bCancelled.Store(true);
-			const FOpenMobileSensorReplayResult Result = MakeReplayFailure(
-				Entry->RequestId,
-				EOpenMobileSensorFailureReason::Cancelled,
-				TEXT("ReplayCancelled")
-			);
-			auto Completion = MoveTemp(Entry->Completion);
-			Replays.Remove(Entry->RequestId);
-			if (Completion)
-			{
-				Callbacks.Add([
-					Completion = MoveTemp(Completion),
-					Result
-				]() mutable
-				{
-					Completion(Result);
-				});
-			}
+			QueueReplayCancellation(Entry, Callbacks);
 		}
-		for (TFunction<void()>& Callback : Callbacks)
-		{
-			Callback();
-		}
+		RunCallbacks(Callbacks);
 	}
 }
 
@@ -1463,7 +1766,6 @@ void FOpenMobileSensorsRecordingService::Start()
 				&HandleSubscriptionStateChanged
 			);
 	}
-	EnsureTicker();
 }
 
 void FOpenMobileSensorsRecordingService::BeginShutdown()
@@ -1517,6 +1819,21 @@ FGuid FOpenMobileSensorsRecordingService::StartRecording(
 		Completion(Result);
 		return RequestId;
 	}
+	FOpenMobileSensorRecordingHeader Header;
+	if (!MakeHeader(
+		OwnerIdentifier,
+		Options,
+		Header,
+		Failure
+	))
+	{
+		FOpenMobileSensorRecordingResult Result;
+		Result.Recording.RequestId = RequestId;
+		Result.Recording.State = EOpenMobileSensorRecordingState::Failed;
+		Result.Operation = Failure;
+		Completion(Result);
+		return RequestId;
+	}
 
 	const FString BaseName = RequestId.ToString(EGuidFormats::Digits);
 	const FString Directory = FPaths::Combine(
@@ -1530,13 +1847,14 @@ FGuid FOpenMobileSensorsRecordingService::StartRecording(
 		Directory, BaseName + TEXT(".omsensors.partial"));
 	Worker->FinalPath = FPaths::Combine(
 		Directory, BaseName + TEXT(".omsensors"));
-	Worker->Header = MakeHeader(Options);
+	Worker->Header = MoveTemp(Header);
 	Worker->MaximumBytes = Options.MaximumBytes;
 	Worker->MaximumBufferedBatches = FMath::Clamp(
 		GetDefault<UOpenMobileSensorsSettings>()->
 			MaximumRecordingBufferedBatches,
 		1,
 		4096);
+	Worker->PendingBatches.SetNum(Worker->MaximumBufferedBatches);
 
 	TSharedRef<FRecordingEntry, ESPMode::ThreadSafe> Entry =
 		MakeShared<FRecordingEntry, ESPMode::ThreadSafe>();
@@ -1628,6 +1946,32 @@ FGuid FOpenMobileSensorsRecordingService::StopRecording(
 	return RequestId;
 }
 
+FOpenMobileSensorOperationResult
+FOpenMobileSensorsRecordingService::CancelRecording(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>* Found =
+		Recordings.Find(RequestId);
+	if (!OwnerIdentifier.IsValid()
+		|| !RequestId.IsValid()
+		|| !Found
+		|| (*Found)->OwnerIdentifier != OwnerIdentifier)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidRecordingHandle")
+		);
+	}
+	TArray<TFunction<void()>> Callbacks;
+	QueueRecordingCancellation(*Found, Callbacks);
+	RunCallbacks(Callbacks);
+	return MakeSuccess();
+}
+
 FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 	const FGuid& OwnerIdentifier,
 	const FString& FilePath,
@@ -1638,6 +1982,13 @@ FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 	check(IsInGameThread());
 	using namespace OpenMobileSensorsRecordingServicePrivate;
 	const FGuid RequestId = FGuid::NewGuid();
+#if UE_BUILD_SHIPPING
+	Completion(MakeReplayFailure(
+		RequestId,
+		EOpenMobileSensorFailureReason::ConfigurationBlocked,
+		TEXT("ReplayDisabledInShipping")));
+	return RequestId;
+#else
 	if (bShuttingDown
 		|| Replays.Num() >= MaximumConcurrentReplays
 		|| !OwnerIdentifier.IsValid()
@@ -1646,7 +1997,10 @@ FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 		|| Options.PlaybackSpeed < MinimumPlaybackSpeed
 		|| Options.PlaybackSpeed > MaximumPlaybackSpeed
 		|| !FMath::IsFinite(Options.StartTimeSeconds)
-		|| Options.StartTimeSeconds < 0.0)
+		|| Options.StartTimeSeconds < 0.0
+		|| !StaticEnum<EOpenMobileSensorReplayClockMode>()->IsValidEnumValue(
+			static_cast<int64>(Options.ClockMode)
+		))
 	{
 		Completion(MakeReplayFailure(
 			RequestId,
@@ -1654,13 +2008,6 @@ FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 			TEXT("InvalidReplayOptions")));
 		return RequestId;
 	}
-#if UE_BUILD_SHIPPING
-	Completion(MakeReplayFailure(
-		RequestId,
-		EOpenMobileSensorFailureReason::ConfigurationBlocked,
-		TEXT("ReplayDisabledInShipping")));
-	return RequestId;
-#else
 	TSharedRef<FReplayLoadResult, ESPMode::ThreadSafe> LoadResult =
 		MakeShared<FReplayLoadResult, ESPMode::ThreadSafe>();
 	TSharedRef<FReplayEntry, ESPMode::ThreadSafe> Entry =
@@ -1669,6 +2016,7 @@ FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 	Entry->RequestId = RequestId;
 	Entry->FilePath = FilePath;
 	Entry->Options = Options;
+	Entry->PlaybackPositionAnchorSeconds = Options.StartTimeSeconds;
 	Entry->LoadResult = LoadResult;
 	Entry->Completion = MoveTemp(Completion);
 	Entry->LoadFuture = Async(
@@ -1681,6 +2029,312 @@ FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
 	EnsureTicker();
 	return RequestId;
 #endif
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+CancelReplay(const FGuid& OwnerIdentifier, const FGuid& RequestId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	TArray<TFunction<void()>> Callbacks;
+	QueueReplayCancellation(Entry, Callbacks);
+	RunCallbacks(Callbacks);
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+PauseReplay(const FGuid& OwnerIdentifier, const FGuid& RequestId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	if (!Entry->bPrepared)
+	{
+		Entry->Options.bStartPaused = true;
+		Entry->bPaused = true;
+		return MakeSuccess();
+	}
+	if (!Entry->bPaused)
+	{
+		const double NowSeconds = FPlatformTime::Seconds();
+		Entry->PlaybackPositionAnchorSeconds = FMath::Min(
+			Entry->RecordingDurationSeconds,
+			GetReplayPosition(*Entry, NowSeconds)
+		);
+		Entry->PlaybackWallStartSeconds = NowSeconds;
+		Entry->bPaused = true;
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+ResumeReplay(const FGuid& OwnerIdentifier, const FGuid& RequestId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	Entry->Options.bStartPaused = false;
+	if (!Entry->bPrepared || !Entry->bPaused)
+	{
+		Entry->bPaused = false;
+		return MakeSuccess();
+	}
+	const double NowSeconds = FPlatformTime::Seconds();
+	Entry->PlaybackWallStartSeconds = NowSeconds;
+	Entry->TimestampPlaybackAnchorSeconds =
+		Entry->PlaybackPositionAnchorSeconds;
+	Entry->TimestampBaseSeconds = FMath::Max(
+		NowSeconds,
+		Entry->LastPublishedTimestampSeconds + 0.000001
+	);
+	Entry->bPaused = false;
+	if (Entry->Options.ClockMode ==
+		EOpenMobileSensorReplayClockMode::RealTime)
+	{
+		EnsureTicker();
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::SeekReplay(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	double PlaybackTimeSeconds
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	if (!FMath::IsFinite(PlaybackTimeSeconds)
+		|| PlaybackTimeSeconds < 0.0
+		|| (Entry->bPrepared
+			&& PlaybackTimeSeconds > Entry->RecordingDurationSeconds))
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidRequest,
+			TEXT("InvalidReplaySeek")
+		);
+	}
+	if (!Entry->bPrepared)
+	{
+		Entry->PlaybackPositionAnchorSeconds = PlaybackTimeSeconds;
+		return MakeSuccess();
+	}
+	SetReplayPosition(
+		*Entry,
+		PlaybackTimeSeconds,
+		FPlatformTime::Seconds()
+	);
+	if (!Entry->bPaused
+		&& Entry->Options.ClockMode ==
+			EOpenMobileSensorReplayClockMode::RealTime)
+	{
+		EnsureTicker();
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+SetReplaySpeed(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	double PlaybackSpeed
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	if (!FMath::IsFinite(PlaybackSpeed)
+		|| PlaybackSpeed < MinimumPlaybackSpeed
+		|| PlaybackSpeed > MaximumPlaybackSpeed)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidRequest,
+			TEXT("InvalidReplaySpeed")
+		);
+	}
+	if (!Entry->bPrepared)
+	{
+		Entry->Options.PlaybackSpeed = PlaybackSpeed;
+		return MakeSuccess();
+	}
+	const double NowSeconds = FPlatformTime::Seconds();
+	const double PlaybackTimeSeconds = FMath::Min(
+		Entry->RecordingDurationSeconds,
+		GetReplayPosition(*Entry, NowSeconds)
+	);
+	Entry->Options.PlaybackSpeed = PlaybackSpeed;
+	ReanchorReplay(*Entry, PlaybackTimeSeconds, NowSeconds);
+	if (!Entry->bPaused
+		&& Entry->Options.ClockMode ==
+			EOpenMobileSensorReplayClockMode::RealTime)
+	{
+		EnsureTicker();
+	}
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+SetReplayLooping(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	bool bLoop
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	if (bLoop
+		&& Entry->bPrepared
+		&& Entry->RecordingDurationSeconds
+			- Entry->Options.StartTimeSeconds <= 0.0)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidRequest,
+			TEXT("InvalidReplayLoop")
+		);
+	}
+	Entry->Options.bLoop = bLoop;
+	return MakeSuccess();
+}
+
+FOpenMobileSensorOperationResult FOpenMobileSensorsRecordingService::
+AdvanceReplay(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	double DeltaSeconds
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidHandle,
+			TEXT("InvalidReplayHandle")
+		);
+	}
+	if (!FMath::IsFinite(DeltaSeconds)
+		|| DeltaSeconds < 0.0
+		|| DeltaSeconds > MaximumManualAdvanceSeconds)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::InvalidRequest,
+			TEXT("InvalidReplayAdvance")
+		);
+	}
+	if (Entry->Options.ClockMode !=
+		EOpenMobileSensorReplayClockMode::Manual)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::ConfigurationBlocked,
+			TEXT("ManualReplayClockRequired")
+		);
+	}
+	if (!Entry->bPrepared)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable,
+			TEXT("ReplayLoading")
+		);
+	}
+	if (Entry->bPaused)
+	{
+		return MakeFailure(
+			EOpenMobileSensorFailureReason::TemporarilyUnavailable,
+			TEXT("ReplayPaused")
+		);
+	}
+	Entry->PlaybackPositionAnchorSeconds +=
+		DeltaSeconds * Entry->Options.PlaybackSpeed;
+	TickAt(FPlatformTime::Seconds());
+	return MakeSuccess();
+}
+
+bool FOpenMobileSensorsRecordingService::GetReplaySnapshot(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	FOpenMobileSensorReplaySnapshot& OutSnapshot
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	OutSnapshot = {};
+	const TSharedPtr<FReplayEntry, ESPMode::ThreadSafe> Entry =
+		FindOwnedReplay(OwnerIdentifier, RequestId);
+	if (!Entry)
+	{
+		return false;
+	}
+	OutSnapshot.RequestId = RequestId;
+	OutSnapshot.State = !Entry->bPrepared
+		? EOpenMobileSensorReplayState::Loading
+		: Entry->bPaused
+			? EOpenMobileSensorReplayState::Paused
+			: EOpenMobileSensorReplayState::Playing;
+	OutSnapshot.PlaybackTimeSeconds = Entry->bPrepared
+		? FMath::Clamp(
+			GetReplayPosition(*Entry, FPlatformTime::Seconds()),
+			0.0,
+			Entry->RecordingDurationSeconds
+		)
+		: Entry->PlaybackPositionAnchorSeconds;
+	OutSnapshot.DurationSeconds = Entry->RecordingDurationSeconds;
+	OutSnapshot.PlaybackSpeed = Entry->Options.PlaybackSpeed;
+	OutSnapshot.bLoop = Entry->Options.bLoop;
+	OutSnapshot.ClockMode = Entry->Options.ClockMode;
+	return true;
 }
 
 void FOpenMobileSensorsRecordingService::CancelOwner(

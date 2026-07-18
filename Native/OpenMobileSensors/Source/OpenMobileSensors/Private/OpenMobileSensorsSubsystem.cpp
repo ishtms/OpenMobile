@@ -924,6 +924,15 @@ FGuid UOpenMobileSensorsSubsystem::StopRecordingNative(
 	);
 }
 
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::CancelRecordingNative(FGuid RequestId)
+{
+	return FOpenMobileSensorsRecordingService::CancelRecording(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
+}
+
 FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
 	const FString& FilePath,
 	const FOpenMobileSensorReplayOptions& Options,
@@ -939,6 +948,96 @@ FGuid UOpenMobileSensorsSubsystem::ReplayRecordingNative(
 		{
 			Completion.ExecuteIfBound(Result);
 		}
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::CancelReplayNative(FGuid RequestId)
+{
+	return FOpenMobileSensorsRecordingService::CancelReplay(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::PauseReplayNative(FGuid RequestId)
+{
+	return FOpenMobileSensorsRecordingService::PauseReplay(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::ResumeReplayNative(FGuid RequestId)
+{
+	return FOpenMobileSensorsRecordingService::ResumeReplay(
+		SubscriptionOwnerIdentifier,
+		RequestId
+	);
+}
+
+FOpenMobileSensorOperationResult UOpenMobileSensorsSubsystem::SeekReplayNative(
+	FGuid RequestId,
+	double PlaybackTimeSeconds
+)
+{
+	return FOpenMobileSensorsRecordingService::SeekReplay(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		PlaybackTimeSeconds
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::SetReplaySpeedNative(
+	FGuid RequestId,
+	double PlaybackSpeed
+)
+{
+	return FOpenMobileSensorsRecordingService::SetReplaySpeed(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		PlaybackSpeed
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::SetReplayLoopingNative(
+	FGuid RequestId,
+	bool bLoop
+)
+{
+	return FOpenMobileSensorsRecordingService::SetReplayLooping(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		bLoop
+	);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorsSubsystem::AdvanceReplayNative(
+	FGuid RequestId,
+	double DeltaSeconds
+)
+{
+	return FOpenMobileSensorsRecordingService::AdvanceReplay(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		DeltaSeconds
+	);
+}
+
+bool UOpenMobileSensorsSubsystem::GetReplayStateNative(
+	FGuid RequestId,
+	FOpenMobileSensorReplaySnapshot& OutSnapshot
+) const
+{
+	return FOpenMobileSensorsRecordingService::GetReplaySnapshot(
+		SubscriptionOwnerIdentifier,
+		RequestId,
+		OutSnapshot
 	);
 }
 

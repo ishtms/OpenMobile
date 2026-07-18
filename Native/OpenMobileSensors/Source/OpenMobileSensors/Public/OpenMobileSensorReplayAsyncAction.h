@@ -34,9 +34,16 @@ public:
 		FOpenMobileSensorReplayOptions Options
 	);
 
+	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Replay Request ID", ToolTip = "Returns the request ID used by replay control functions after this action activates."))
+	FGuid GetReplayRequestId() const
+	{
+		return RequestId;
+	}
+
 	virtual void Activate() override;
 
 protected:
+	virtual void CancelNativeOperation() override;
 	virtual void OnActionSucceeded() override;
 	virtual void OnActionFailed(const FOpenMobileError& Error) override;
 	virtual void OnActionCancelled(const FOpenMobileError& Error) override;
@@ -49,5 +56,6 @@ private:
 
 	FString FilePath;
 	FOpenMobileSensorReplayOptions Options;
+	FGuid RequestId;
 	FOpenMobileSensorReplayResult Result;
 };

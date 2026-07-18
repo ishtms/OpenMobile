@@ -26,7 +26,7 @@ void UOpenMobileSensorReplayAsyncAction::Activate()
 	}
 
 	TWeakObjectPtr<UOpenMobileSensorReplayAsyncAction> WeakThis(this);
-	GetSensorsSubsystem()->ReplayRecordingNative(
+	RequestId = GetSensorsSubsystem()->ReplayRecordingNative(
 		FilePath,
 		Options,
 		FOnOpenMobileSensorReplayComplete::CreateLambda(
@@ -39,6 +39,14 @@ void UOpenMobileSensorReplayAsyncAction::Activate()
 			}
 		)
 	);
+}
+
+void UOpenMobileSensorReplayAsyncAction::CancelNativeOperation()
+{
+	if (GetSensorsSubsystem() && RequestId.IsValid())
+	{
+		GetSensorsSubsystem()->CancelReplayNative(RequestId);
+	}
 }
 
 void UOpenMobileSensorReplayAsyncAction::OnActionSucceeded()

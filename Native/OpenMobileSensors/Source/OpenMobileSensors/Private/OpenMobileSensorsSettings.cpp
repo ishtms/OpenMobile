@@ -189,6 +189,11 @@ bool UOpenMobileSensorsSettings::Validate(
 	{
 		OutErrors.Add(TEXT("Maximum buffered recording batches must be between 1 and 4096."));
 	}
+	if (bShipping
+		&& bAllowSensitiveLocationContextInDevelopmentRecordings)
+	{
+		OutErrors.Add(TEXT("Sensitive location recording must be disabled in Shipping builds."));
+	}
 	if (IOSMotionUsageDescription.TrimStartAndEnd().IsEmpty())
 	{
 		OutErrors.Add(TEXT("IOSMotionUsageDescription is required for the iOS sensor backend."));

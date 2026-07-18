@@ -2,18 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorPermissions.h"
+#include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorSamples.h"
-
-enum class EOpenMobileSensorRecordingDecodeStatus : uint8
-{
-	Success,
-	InvalidMagic,
-	IncompatibleVersion,
-	Truncated,
-	ChecksumMismatch,
-	InvalidData,
-	LimitExceeded
-};
 
 struct FOpenMobileSensorRecordingStreamDescriptor
 {
@@ -26,11 +17,13 @@ struct FOpenMobileSensorRecordingStreamDescriptor
 
 struct FOpenMobileSensorRecordingHeader
 {
-	int32 FormatVersion = 2;
+	int32 FormatVersion = 3;
 	FString PluginVersion;
 	FString PlatformName;
 	FString UnitsConvention;
 	FString CoordinateConvention;
+	bool bHasSensitiveLocationContext = false;
+	FOpenMobileSensorLocationInput SensitiveLocationContext;
 	TArray<FOpenMobileSensorRecordingStreamDescriptor> Streams;
 };
 
@@ -52,7 +45,7 @@ struct FOpenMobileSensorRecordingDocument
 class OPENMOBILESENSORS_API FOpenMobileSensorRecordingCodec final
 {
 public:
-	static constexpr int32 CurrentFormatVersion = 2;
+	static constexpr int32 CurrentFormatVersion = 3;
 
 	static bool EncodeHeader(
 		const FOpenMobileSensorRecordingHeader& Header,

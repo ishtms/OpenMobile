@@ -124,6 +124,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1", ClampMax = "4096", DisplayName = "Maximum Buffered Recording Batches"))
 	int32 MaximumRecordingBufferedBatches = 32;
 
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Development", meta = (DisplayName = "Allow Sensitive Location in Recordings", ToolTip = "Allows an explicit non-Shipping recording request to store caller-supplied location context."))
+	bool bAllowSensitiveLocationContextInDevelopmentRecordings = false;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Permissions", meta = (DisplayName = "Enable Permission-Sensitive Sensors", ToolTip = "Enables motion activity and other sensor paths that require runtime permission."))
 	bool bEnablePermissionSensitiveSensors = false;
 
