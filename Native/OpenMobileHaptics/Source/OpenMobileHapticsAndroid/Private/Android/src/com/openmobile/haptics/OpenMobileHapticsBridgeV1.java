@@ -135,6 +135,7 @@ public final class OpenMobileHapticsBridgeV1 {
         Runnable startRunnable;
         Runnable completionRunnable;
         long controlRevision;
+        long eventSequence;
         boolean started;
         boolean paused;
 
@@ -301,6 +302,7 @@ public final class OpenMobileHapticsBridgeV1 {
     ) {
         final long requestId = state.requestId;
         final long controlRevision = state.controlRevision;
+        final long eventSequence = ++state.eventSequence;
         final int controlledEvent = event;
         SCHEDULED_HANDLER.post(new Runnable() {
             @Override
@@ -310,6 +312,7 @@ public final class OpenMobileHapticsBridgeV1 {
                     nativeOnControlledWaveformEvent(
                         requestId,
                         controlRevision,
+                        eventSequence,
                         controlledEvent
                     );
                 } catch (UnsatisfiedLinkError ignored) {
@@ -2032,6 +2035,7 @@ public final class OpenMobileHapticsBridgeV1 {
     private static native void nativeOnControlledWaveformEvent(
         long requestId,
         long controlRevision,
+        long eventSequence,
         int event
     );
 }

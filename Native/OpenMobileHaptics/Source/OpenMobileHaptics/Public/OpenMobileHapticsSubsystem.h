@@ -309,6 +309,9 @@ private:
 	);
 	TFunction<void(const FOpenMobileHapticsBackendCallback&)>
 	MakeBackendCallback();
+	void EnsureNativeEventDispatcher(
+		FOpenMobileHapticsSubsystemState& LocalState
+	) const;
 	void HandleBackendCallback(
 		const FOpenMobileHapticsBackendCallback& Callback
 	);

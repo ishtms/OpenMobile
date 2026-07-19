@@ -18,6 +18,7 @@
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsLifecyclePolicy.h"
+#include "OpenMobileHapticsNativeEventDispatcher.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
 #include "OpenMobileHapticsOverlapPolicy.h"
 #include "OpenMobileHapticsPerformanceTracker.h"
@@ -111,6 +112,10 @@ struct FOpenMobileHapticsSubsystemState
 	FOpenMobileHapticsTimingPolicy TimingPolicy;
 	FOpenMobileHapticsChannelArbiter ChannelArbiter;
 	TArray<FOpenMobileHapticsPendingRecoveryPlayback> PendingRecoveryPlaybacks;
+	TSharedPtr<
+		FOpenMobileHapticsNativeEventDispatcher,
+		ESPMode::ThreadSafe
+	> NativeEventDispatcher;
 	FTSTicker::FDelegateHandle DynamicParameterTickerHandle;
 	double ActivePreparationStartTimeSeconds = -1.0;
 	bool bOverlapQueueDrainScheduled = false;
@@ -867,6 +872,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 		if (const FOpenMobileHapticsSubsystemRequestState* Request =
 			State.Requests.Find(RequestId))
 		{
+			if (State.NativeEventDispatcher)
+			{
+				State.NativeEventDispatcher->UnregisterToken(Request->Token);
+			}
 			if (Request->EstimatedStartTickerHandle.IsValid())
 			{
 				FTSTicker::GetCoreTicker().RemoveTicker(
@@ -1087,6 +1096,7 @@ void UOpenMobileHapticsSubsystem::Initialize(
 			: 1.0f;
 	bUserPolicyEnabled.Store(UserPolicy.bEnabled);
 	State.Reset(new FOpenMobileHapticsSubsystemState());
+	EnsureNativeEventDispatcher(*State);
 	State->RecentPlaybackEvents.Reserve(
 		FOpenMobileHapticsBudgetPolicy::ResolveMaximumDiagnosticEvents(
 			Settings->MaximumDiagnosticEvents
@@ -1111,6 +1121,10 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 		return;
 	}
 	UnbindRecoveryEvents();
+	if (State && State->NativeEventDispatcher)
+	{
+		State->NativeEventDispatcher->Close();
+	}
 	if (State && State->DynamicParameterTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(
@@ -2515,6 +2529,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::QueueOverlapRequest
 		RequestState.QueuedNamedRequest = *NamedRequest;
 	}
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	LocalState.NativeEventDispatcher->RegisterToken(Token);
 	LocalState.RequestByHandle.Add(Token.PlaybackHandle, Token.RequestId);
 	LocalState.PlaybackStates.Add(
 		Token.PlaybackHandle,
@@ -3241,6 +3256,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 			OverrideState
 		);
 		LocalState.Requests.Add(OverrideToken.RequestId, OverrideState);
+		LocalState.NativeEventDispatcher->RegisterToken(OverrideToken);
 		const double NativeSubmissionStartTimeSeconds =
 			FPlatformTime::Seconds();
 		FOpenMobileHapticsBackendSubmission OverrideSubmission =
@@ -3395,6 +3411,7 @@ UOpenMobileHapticsSubsystem::SubmitSemanticOrOverride(
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	LocalState.NativeEventDispatcher->RegisterToken(Token);
 	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
 	FOpenMobileHapticsBackendSubmission Submission = Backend->SubmitSemantic(
 		AdjustedRequest,
@@ -3812,6 +3829,7 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitOneShotIntern
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, MoveTemp(RequestState));
+	LocalState.NativeEventDispatcher->RegisterToken(Token);
 	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
 	FOpenMobileHapticsBackendSubmission Submission = Backend->SubmitOneShot(
 		AdjustedRequest,
@@ -4279,6 +4297,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		RequestState
 	);
 	LocalState.Requests.Add(Token.RequestId, RequestState);
+	LocalState.NativeEventDispatcher->RegisterToken(Token);
 	const double NativeSubmissionStartTimeSeconds = FPlatformTime::Seconds();
 	FOpenMobileHapticsBackendSubmission Submission =
 		Backend->SubmitNamedPattern(
@@ -5598,7 +5617,36 @@ UOpenMobileHapticsSubsystem::GetOrCreateState() const
 	{
 		State.Reset(new FOpenMobileHapticsSubsystemState());
 	}
+	if (!bDeinitialized)
+	{
+		EnsureNativeEventDispatcher(*State);
+	}
 	return *State;
+}
+
+void UOpenMobileHapticsSubsystem::EnsureNativeEventDispatcher(
+	FOpenMobileHapticsSubsystemState& LocalState
+) const
+{
+	check(IsInGameThread());
+	if (LocalState.NativeEventDispatcher)
+	{
+		return;
+	}
+	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(
+		const_cast<UOpenMobileHapticsSubsystem*>(this)
+	);
+	LocalState.NativeEventDispatcher = MakeShared<
+		FOpenMobileHapticsNativeEventDispatcher,
+		ESPMode::ThreadSafe
+	>([WeakSubsystem](const FOpenMobileHapticsBackendCallback& Callback)
+	{
+		check(IsInGameThread());
+		if (UOpenMobileHapticsSubsystem* Subsystem = WeakSubsystem.Get())
+		{
+			Subsystem->HandleBackendCallback(Callback);
+		}
+	});
 }
 
 void UOpenMobileHapticsSubsystem::PublishSubmissionEvents(
@@ -6008,20 +6056,13 @@ void UOpenMobileHapticsSubsystem::PublishPlaybackEvent(
 TFunction<void(const FOpenMobileHapticsBackendCallback&)>
 UOpenMobileHapticsSubsystem::MakeBackendCallback()
 {
-	const TWeakObjectPtr<UOpenMobileHapticsSubsystem> WeakSubsystem(this);
-	return [WeakSubsystem](const FOpenMobileHapticsBackendCallback& Callback)
+	const TSharedRef<
+		FOpenMobileHapticsNativeEventDispatcher,
+		ESPMode::ThreadSafe
+	> Dispatcher = GetOrCreateState().NativeEventDispatcher.ToSharedRef();
+	return [Dispatcher](const FOpenMobileHapticsBackendCallback& Callback)
 	{
-		FOpenMobileHapticsBackendCallback CallbackCopy = Callback;
-		AsyncTask(
-			ENamedThreads::GameThread,
-			[WeakSubsystem, CallbackCopy = MoveTemp(CallbackCopy)]()
-			{
-				if (UOpenMobileHapticsSubsystem* Subsystem = WeakSubsystem.Get())
-				{
-					Subsystem->HandleBackendCallback(CallbackCopy);
-				}
-			}
-		);
+		Dispatcher->Enqueue(Callback);
 	};
 }
 

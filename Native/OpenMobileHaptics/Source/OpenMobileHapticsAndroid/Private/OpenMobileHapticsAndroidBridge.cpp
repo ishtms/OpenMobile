@@ -88,6 +88,7 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnCo
 	jclass Class,
 	jlong RequestId,
 	jlong ControlRevision,
+	jlong EventSequence,
 	jint Event
 )
 {
@@ -102,6 +103,7 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnCo
 			->HandleControlledWaveformEvent(
 				static_cast<uint64>(RequestId),
 				static_cast<uint64>(ControlRevision),
+				static_cast<uint64>(EventSequence),
 				static_cast<int32>(Event)
 			);
 	}
@@ -1184,6 +1186,7 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 	FOpenMobileHapticsBackendCallback Callback;
 	Callback.Token = Pending.Token;
 	Callback.Sequence = 1;
+	Callback.PreviousSequence = 0;
 	Callback.Event.PatternOrEffect = Pending.PatternOrEffect;
 	Callback.Event.Channel = Pending.Channel;
 	Callback.Event.ResolvedPath = Pending.ResolvedPath;
@@ -1210,18 +1213,28 @@ void FOpenMobileHapticsAndroidBridge::HandleBridgeResult(
 void FOpenMobileHapticsAndroidBridge::HandleControlledWaveformEvent(
 	uint64 RequestId,
 	uint64 ControlRevision,
+	uint64 EventSequence,
 	int32 Event
 )
 {
 	FPendingCallback Pending;
+	uint64 CallbackSequence = 0;
 	{
 		FScopeLock Lock(&Mutex);
 		FPendingCallback* Found = PendingCallbacks.Find(RequestId);
 		if (!Found || !Found->bControlledWaveform
+			|| EventSequence == 0
+			|| EventSequence <= Found->LastNativeEventSequence
 			|| ControlRevision < Found->LastControlRevision)
 		{
 			return;
 		}
+		Found->LastNativeEventSequence = EventSequence;
+		if (Found->LastForwardedEventSequence == MAX_uint64)
+		{
+			return;
+		}
+		CallbackSequence = ++Found->LastForwardedEventSequence;
 		Pending = *Found;
 		const bool bTerminal = Event
 			!= OpenMobileHapticsAndroidBridgePrivate::ControlledEventStarted;
@@ -1236,13 +1249,8 @@ void FOpenMobileHapticsAndroidBridge::HandleControlledWaveformEvent(
 	}
 	FOpenMobileHapticsBackendCallback Callback;
 	Callback.Token = Pending.Token;
-	const uint64 TerminalSequence = ControlRevision > MAX_uint64 - 2
-		? MAX_uint64
-		: FMath::Max<uint64>(2, ControlRevision + 2);
-	Callback.Sequence = Event
-		== OpenMobileHapticsAndroidBridgePrivate::ControlledEventStarted
-			? 1
-			: TerminalSequence;
+	Callback.Sequence = CallbackSequence;
+	Callback.PreviousSequence = CallbackSequence - 1;
 	Callback.Event.PatternOrEffect = Pending.PatternOrEffect;
 	Callback.Event.Channel = Pending.Channel;
 	Callback.Event.ResolvedPath = Pending.ResolvedPath;

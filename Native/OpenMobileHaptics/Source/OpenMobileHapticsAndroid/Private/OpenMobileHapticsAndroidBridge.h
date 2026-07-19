@@ -147,6 +147,7 @@ public:
 	void HandleControlledWaveformEvent(
 		uint64 RequestId,
 		uint64 ControlRevision,
+		uint64 EventSequence,
 		int32 Event
 	);
 
@@ -163,6 +164,8 @@ private:
 		FName ResolvedPath;
 		FOpenMobileHapticsBackendEventCallback Callback;
 		uint64 LastControlRevision = 0;
+		uint64 LastNativeEventSequence = 0;
+		uint64 LastForwardedEventSequence = 0;
 		bool bControlledWaveform = false;
 	};
 

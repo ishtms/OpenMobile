@@ -124,7 +124,13 @@ struct FOpenMobileHapticsBackendCallback
 {
 	FOpenMobileHapticsBackendRequestToken Token;
 	uint64 Sequence = 0;
+	uint64 PreviousSequence = MAX_uint64;
 	FOpenMobileHapticPlaybackEvent Event;
+
+	bool HasExplicitPredecessor() const
+	{
+		return PreviousSequence != MAX_uint64;
+	}
 };
 
 using FOpenMobileHapticsBackendEventCallback =

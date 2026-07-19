@@ -205,6 +205,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 			FOpenMobileHapticsBackendCallback BackendCallback;
 			BackendCallback.Token = Token;
 			BackendCallback.Sequence = 1;
+			BackendCallback.PreviousSequence = 0;
 			BackendCallback.Event.Handle = Token.PlaybackHandle;
 			switch (Event)
 			{
