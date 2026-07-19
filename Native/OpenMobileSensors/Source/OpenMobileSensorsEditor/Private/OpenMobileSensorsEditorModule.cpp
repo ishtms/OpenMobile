@@ -1,3 +1,6 @@
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "IOpenMobilePermissionProvider.h"
 #include "Interfaces/IPluginManager.h"
 #include "IMessageLogListing.h"
 #include "Logging/MessageLog.h"
@@ -6,9 +9,14 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "OpenMobileSensorsBackendRegistry.h"
+#include "OpenMobileSensorsDevelopmentInputService.h"
+#include "OpenMobileSensorsEditorMockBackend.h"
+#include "OpenMobileSensorsEditorMockSettings.h"
 #include "OpenMobileSensorsPackagingValidation.h"
 #include "OpenMobileSensorsSettings.h"
 #include "Runtime/Launch/Resources/Version.h"
+#include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "OpenMobileSensorsEditor"
 
@@ -118,18 +126,31 @@ public:
 		GetMutableDefault<UOpenMobileSensorsSettings>()
 			->OnSettingChanged()
 			.AddRaw(this, &FOpenMobileSensorsEditorModule::HandleSettingsChanged);
+		GetMutableDefault<UOpenMobileSensorsEditorMockSettings>()
+			->OnSettingChanged()
+			.AddRaw(
+				this,
+				&FOpenMobileSensorsEditorModule::HandleMockSettingsChanged
+			);
+		MockBackend = MakeUnique<FOpenMobileSensorsEditorMockBackend>();
+		UpdateDevelopmentInput();
 		ValidateCurrentProject();
 	}
 
 	virtual void ShutdownModule() override
 	{
 		using namespace OpenMobileSensorsEditorPrivate;
+		DeactivateMock();
 		if (UObjectInitialized())
 		{
 			GetMutableDefault<UOpenMobileSensorsSettings>()
 				->OnSettingChanged()
 				.RemoveAll(this);
+			GetMutableDefault<UOpenMobileSensorsEditorMockSettings>()
+				->OnSettingChanged()
+				.RemoveAll(this);
 		}
+		MockBackend.Reset();
 		if (FModuleManager::Get().IsModuleLoaded(TEXT("MessageLog")))
 		{
 			FMessageLogModule& MessageLogModule =
@@ -149,7 +170,175 @@ private:
 	{
 		static_cast<void>(SettingsObject);
 		static_cast<void>(PropertyChangedEvent);
+		UpdateDevelopmentInput();
 		ValidateCurrentProject();
+	}
+
+	void HandleMockSettingsChanged(
+		UObject* SettingsObject,
+		FPropertyChangedEvent& PropertyChangedEvent
+	)
+	{
+		static_cast<void>(SettingsObject);
+		if (!MockBackend || !MockBackend->IsActive())
+		{
+			return;
+		}
+		const UOpenMobileSensorsEditorMockSettings* Settings =
+			GetDefault<UOpenMobileSensorsEditorMockSettings>();
+		if (PropertyChangedEvent.GetPropertyName() ==
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileSensorsEditorMockSettings,
+				Preset
+			))
+		{
+			if (Settings->Preset == EOpenMobileSensorsMockPreset::Custom)
+			{
+				MockBackend->ApplyInput(Settings->Input);
+			}
+			else
+			{
+				MockBackend->ApplyPreset(Settings->Preset);
+			}
+			return;
+		}
+		if (PropertyChangedEvent.GetMemberPropertyName() ==
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileSensorsEditorMockSettings,
+				Input
+			))
+		{
+			MockBackend->ApplyInput(Settings->Input);
+		}
+	}
+
+	void UpdateDevelopmentInput()
+	{
+		const UOpenMobileSensorsSettings* Settings =
+			GetDefault<UOpenMobileSensorsSettings>();
+		if (Settings
+			&& Settings->DevelopmentInputMode ==
+				EOpenMobileSensorsDevelopmentInputMode::Mock)
+		{
+			ActivateMock();
+			return;
+		}
+		DeactivateMock();
+	}
+
+	void ActivateMock()
+	{
+		if (!MockBackend || bDevelopmentProviderRegistered)
+		{
+			ShowMockIndicator();
+			return;
+		}
+		MockBackend->Activate();
+		bBackendRegistered =
+			FOpenMobileSensorsBackendRegistry::RegisterBackend(*MockBackend);
+		if (!bBackendRegistered)
+		{
+			MockBackend->BeginShutdown();
+			return;
+		}
+		bPermissionProviderRegistered =
+			FOpenMobilePermissionProviderRegistry::RegisterProvider(*MockBackend);
+		if (!bPermissionProviderRegistered)
+		{
+			FOpenMobileSensorsBackendRegistry::UnregisterBackend(*MockBackend);
+			bBackendRegistered = false;
+			return;
+		}
+		bDevelopmentProviderRegistered =
+			FOpenMobileSensorsDevelopmentInputService::RegisterProvider(
+				*MockBackend
+			);
+		if (!bDevelopmentProviderRegistered)
+		{
+			FOpenMobilePermissionProviderRegistry::UnregisterProvider(
+				*MockBackend
+			);
+			FOpenMobileSensorsBackendRegistry::UnregisterBackend(*MockBackend);
+			bPermissionProviderRegistered = false;
+			bBackendRegistered = false;
+			return;
+		}
+
+		const UOpenMobileSensorsEditorMockSettings* MockSettings =
+			GetDefault<UOpenMobileSensorsEditorMockSettings>();
+		if (MockSettings->Preset == EOpenMobileSensorsMockPreset::Custom)
+		{
+			MockBackend->ApplyInput(MockSettings->Input);
+		}
+		else
+		{
+			MockBackend->ApplyPreset(MockSettings->Preset);
+		}
+		ShowMockIndicator();
+	}
+
+	void DeactivateMock()
+	{
+		HideMockIndicator();
+		if (!MockBackend)
+		{
+			return;
+		}
+		if (bDevelopmentProviderRegistered)
+		{
+			FOpenMobileSensorsDevelopmentInputService::UnregisterProvider(
+				*MockBackend
+			);
+			bDevelopmentProviderRegistered = false;
+		}
+		if (bPermissionProviderRegistered)
+		{
+			FOpenMobilePermissionProviderRegistry::UnregisterProvider(
+				*MockBackend
+			);
+			bPermissionProviderRegistered = false;
+		}
+		if (bBackendRegistered)
+		{
+			FOpenMobileSensorsBackendRegistry::UnregisterBackend(*MockBackend);
+			bBackendRegistered = false;
+		}
+		else if (MockBackend->IsActive())
+		{
+			MockBackend->BeginShutdown();
+		}
+	}
+
+	void ShowMockIndicator()
+	{
+		if (MockNotification.IsValid()
+			|| !FSlateApplication::IsInitialized())
+		{
+			return;
+		}
+		FNotificationInfo Info(LOCTEXT(
+			"MockActive",
+			"OpenMobile sensor mocks are active"
+		));
+		Info.bFireAndForget = false;
+		Info.bUseLargeFont = false;
+		Info.bUseSuccessFailIcons = false;
+		Info.ExpireDuration = 0.0f;
+		MockNotification =
+			FSlateNotificationManager::Get().AddNotification(Info);
+		if (const TSharedPtr<SNotificationItem> Item = MockNotification.Pin())
+		{
+			Item->SetCompletionState(SNotificationItem::CS_Pending);
+		}
+	}
+
+	void HideMockIndicator()
+	{
+		if (const TSharedPtr<SNotificationItem> Item = MockNotification.Pin())
+		{
+			Item->ExpireAndFadeout();
+		}
+		MockNotification.Reset();
 	}
 
 	void ValidateCurrentProject() const
@@ -262,6 +451,12 @@ private:
 			);
 		}
 	}
+
+	TUniquePtr<FOpenMobileSensorsEditorMockBackend> MockBackend;
+	TWeakPtr<SNotificationItem> MockNotification;
+	bool bBackendRegistered = false;
+	bool bPermissionProviderRegistered = false;
+	bool bDevelopmentProviderRegistered = false;
 };
 
 IMPLEMENT_MODULE(FOpenMobileSensorsEditorModule, OpenMobileSensorsEditor)

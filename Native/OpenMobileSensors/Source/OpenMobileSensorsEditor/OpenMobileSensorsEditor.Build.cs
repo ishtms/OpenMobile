@@ -15,8 +15,11 @@ public class OpenMobileSensorsEditor : ModuleRules
 			"Engine",
 			"Kismet",
 			"MessageLog",
+			"OpenMobilePermissions",
 			"OpenMobileSensors",
 			"Projects",
+			"Slate",
+			"SlateCore",
 			"UnrealEd"
 		});
 	}
