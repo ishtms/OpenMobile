@@ -80,6 +80,14 @@ public:
 	static TArray<FOpenMobileSensorStreamDiagnostics> GetStreamDiagnostics(
 		const FGuid& OwnerIdentifier
 	);
+	static TArray<FOpenMobileSensorStreamDiagnostics> GetAllStreamDiagnostics();
+	static TArray<FOpenMobileSensorPhysicalStreamDiagnostics>
+	GetPhysicalStreamDiagnostics(
+		const FGuid* OwnerIdentifier = nullptr
+	);
+	static TArray<FOpenMobileError> GetRecentErrors(
+		const FGuid* OwnerIdentifier = nullptr
+	);
 	static TArray<FOpenMobileSensorSubscriptionHandle>
 	SelectSubscribersForSample(
 		const FOpenMobileSensorIdentifier& Sensor,

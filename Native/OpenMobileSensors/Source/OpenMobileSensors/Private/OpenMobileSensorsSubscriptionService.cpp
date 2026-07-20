@@ -80,6 +80,12 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		TFunction<void(const FOpenMobileSensorFlushResult&)> Completion;
 	};
 
+	struct FRecentErrorEntry
+	{
+		FGuid OwnerIdentifier;
+		FOpenMobileError Error;
+	};
+
 	TMap<FGuid, FSubscriptionEntry> Subscriptions;
 	TMap<FPhysicalStreamKey, FPhysicalStreamEntry> PhysicalStreams;
 	FOnOpenMobileSensorSubscriptionServiceStateChanged StateChangedEvent;
@@ -87,6 +93,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	double PendingOperationsDeadlineSeconds = 0.0;
 	FTSTicker::FDelegateHandle FlushTimeoutTickHandle;
 	TMap<FGuid, FPendingFlush> PendingFlushes;
+	TArray<FRecentErrorEntry> RecentErrors;
 	uint32 NextHandleGeneration = 1;
 	bool bShuttingDown = false;
 	bool bApplicationActive = true;
@@ -104,6 +111,29 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorOperationResult Result;
 		Result.Code = ResultCode;
 		return Result;
+	}
+
+	void RecordRecentError(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileError& Error
+	)
+	{
+		if (!Error.IsSet())
+		{
+			return;
+		}
+		constexpr int32 MaximumRecentErrors = 32;
+		FRecentErrorEntry& Entry = RecentErrors.AddDefaulted_GetRef();
+		Entry.OwnerIdentifier = OwnerIdentifier;
+		Entry.Error = Error;
+		if (RecentErrors.Num() > MaximumRecentErrors)
+		{
+			RecentErrors.RemoveAt(
+				0,
+				RecentErrors.Num() - MaximumRecentErrors,
+				EAllowShrinking::No
+			);
+		}
 	}
 
 	FOpenMobileSensorOperationResult MakeHandleFailure(
@@ -1307,6 +1337,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		Entry->State = State;
 		Entry->Error = Error;
 		Entry->Failure = Failure;
+		RecordRecentError(Entry->OwnerIdentifier, Error);
 		FOpenMobileSensorsSampleService::SetSubscriptionState(
 			Entry->Handle,
 			State
@@ -2164,6 +2195,7 @@ void FOpenMobileSensorsSubscriptionService::Start()
 	bApplicationInForeground = true;
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
+	RecentErrors.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
 	RegisterLifecycleDelegates();
 }
@@ -2182,6 +2214,7 @@ void FOpenMobileSensorsSubscriptionService::BeginShutdown()
 	CancelAllFlushes();
 	StopPhysicalStreams();
 	Subscriptions.Reset();
+	RecentErrors.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
 	StateChangedEvent.Clear();
 }
@@ -3148,6 +3181,109 @@ FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
 	return Streams;
 }
 
+TArray<FOpenMobileSensorStreamDiagnostics>
+FOpenMobileSensorsSubscriptionService::GetAllStreamDiagnostics()
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileSensorStreamDiagnostics> Streams;
+	for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+	{
+		const FSubscriptionEntry& Entry = Pair.Value;
+		FOpenMobileSensorStreamDiagnostics& Diagnostics =
+			Streams.AddDefaulted_GetRef();
+		Diagnostics.Subscription = MakeSnapshot(Entry);
+		FOpenMobileSensorsSampleService::GetRateDiagnostics(
+			Entry.OwnerIdentifier,
+			Entry.Handle,
+			Diagnostics.Rate
+		);
+		FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
+			Entry.OwnerIdentifier,
+			Entry.Handle,
+			FPlatformTime::Seconds(),
+			Diagnostics
+		);
+		Diagnostics.Rate.RequestedFrequencyHz =
+			Entry.RateResolution.RequestedFrequencyHz;
+		Diagnostics.Rate.AppliedFrequencyHz =
+			Entry.RateResolution.AppliedNativeFrequencyHz;
+		Diagnostics.BatchingMode = GetBatchingMode(Entry);
+	}
+	return Streams;
+}
+
+TArray<FOpenMobileSensorPhysicalStreamDiagnostics>
+FOpenMobileSensorsSubscriptionService::GetPhysicalStreamDiagnostics(
+	const FGuid* OwnerIdentifier
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileSensorPhysicalStreamDiagnostics> Streams;
+	for (const TPair<FPhysicalStreamKey, FPhysicalStreamEntry>& Pair
+		: PhysicalStreams)
+	{
+		const FPhysicalStreamEntry& Physical = Pair.Value;
+		FOpenMobileSensorPhysicalStreamDiagnostics Diagnostics;
+		Diagnostics.Sensor = Physical.Key.Sensor;
+		Diagnostics.BackendName = Physical.Backend
+			? Physical.Backend->GetBackendName()
+			: NAME_None;
+		Diagnostics.AttitudeReferenceFrame =
+			Physical.Key.AttitudeReferenceFrame;
+		Diagnostics.AppliedFrequencyHz =
+			Physical.Request.RequestedFrequencyHz;
+		Diagnostics.MaximumDeliveryLatencySeconds =
+			Physical.Request.MaximumDeliveryLatencySeconds;
+		Diagnostics.bLowLatency = Physical.Request.bLowLatency;
+		Diagnostics.bNativeBatchingRequested =
+			Physical.Request.bNativeBatchingRequested;
+		Diagnostics.bNativeBatchingApplied =
+			Physical.Request.bNativeBatchingApplied;
+		bool bVisibleToOwner = OwnerIdentifier == nullptr;
+		for (const TPair<FGuid, FSubscriptionEntry>& Subscription
+			: Subscriptions)
+		{
+			const FSubscriptionEntry& Entry = Subscription.Value;
+			if (Entry.PhysicalKey == Physical.Key
+				&& (Entry.State == EOpenMobileSensorSubscriptionState::Accepted
+					|| Entry.State ==
+						EOpenMobileSensorSubscriptionState::Starting
+					|| Entry.State ==
+						EOpenMobileSensorSubscriptionState::Active))
+			{
+				++Diagnostics.SubscriberCount;
+				bVisibleToOwner |= !OwnerIdentifier
+					|| Entry.OwnerIdentifier == *OwnerIdentifier;
+			}
+		}
+		if (bVisibleToOwner)
+		{
+			Streams.Add(MoveTemp(Diagnostics));
+		}
+	}
+	return Streams;
+}
+
+TArray<FOpenMobileError>
+FOpenMobileSensorsSubscriptionService::GetRecentErrors(
+	const FGuid* OwnerIdentifier
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileError> Result;
+	for (const FRecentErrorEntry& Entry : RecentErrors)
+	{
+		if (!OwnerIdentifier || Entry.OwnerIdentifier == *OwnerIdentifier)
+		{
+			Result.Add(Entry.Error);
+		}
+	}
+	return Result;
+}
+
 TArray<FOpenMobileSensorSubscriptionHandle>
 FOpenMobileSensorsSubscriptionService::SelectSubscribersForSample(
 	const FOpenMobileSensorIdentifier& Sensor,
@@ -3353,6 +3489,7 @@ void FOpenMobileSensorsSubscriptionService::ResetForTests()
 	CancelAllFlushes();
 	Subscriptions.Reset();
 	PhysicalStreams.Reset();
+	RecentErrors.Reset();
 	FOpenMobileSensorsSampleService::UnregisterAll();
 	StateChangedEvent.Clear();
 	NextHandleGeneration = 1;

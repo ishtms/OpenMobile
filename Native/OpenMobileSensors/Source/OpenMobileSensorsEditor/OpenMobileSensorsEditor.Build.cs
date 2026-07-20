@@ -8,13 +8,17 @@ public class OpenMobileSensorsEditor : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"ApplicationCore",
 			"BlueprintGraph",
 			"Core",
 			"CoreUObject",
+			"DesktopPlatform",
 			"DeveloperSettings",
 			"Engine",
+			"Json",
 			"Kismet",
 			"MessageLog",
+			"OpenMobileCore",
 			"OpenMobilePermissions",
 			"OpenMobileSensors",
 			"Projects",

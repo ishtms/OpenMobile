@@ -2337,6 +2337,43 @@ bool FOpenMobileSensorsRecordingService::GetReplaySnapshot(
 	return true;
 }
 
+void FOpenMobileSensorsRecordingService::GetActiveOperationCounts(
+	const FGuid* OwnerIdentifier,
+	int32& OutRecordingCount,
+	int32& OutReplayCount
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	OutRecordingCount = 0;
+	OutReplayCount = 0;
+	for (const TPair<
+		FGuid,
+		TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>
+	>& Pair : Recordings)
+	{
+		const FRecordingEntry& Entry = *Pair.Value;
+		if ((!OwnerIdentifier || Entry.OwnerIdentifier == *OwnerIdentifier)
+			&& (Entry.State == EOpenMobileSensorRecordingState::Starting
+				|| Entry.State == EOpenMobileSensorRecordingState::Recording
+				|| Entry.State == EOpenMobileSensorRecordingState::Stopping))
+		{
+			++OutRecordingCount;
+		}
+	}
+	for (const TPair<
+		FGuid,
+		TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>
+	>& Pair : Replays)
+	{
+		if (!OwnerIdentifier
+			|| Pair.Value->OwnerIdentifier == *OwnerIdentifier)
+		{
+			++OutReplayCount;
+		}
+	}
+}
+
 void FOpenMobileSensorsRecordingService::CancelOwner(
 	const FGuid& OwnerIdentifier
 )

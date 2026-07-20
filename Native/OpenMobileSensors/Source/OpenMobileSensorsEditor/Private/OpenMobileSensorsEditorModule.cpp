@@ -11,6 +11,7 @@
 #include "Modules/ModuleManager.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsDevelopmentInputService.h"
+#include "OpenMobileSensorsDiagnosticsScreen.h"
 #include "OpenMobileSensorsEditorMockBackend.h"
 #include "OpenMobileSensorsEditorMockSettings.h"
 #include "OpenMobileSensorsPackagingValidation.h"
@@ -134,12 +135,14 @@ public:
 			);
 		MockBackend = MakeUnique<FOpenMobileSensorsEditorMockBackend>();
 		UpdateDevelopmentInput();
+		FOpenMobileSensorsDiagnosticsScreen::Register();
 		ValidateCurrentProject();
 	}
 
 	virtual void ShutdownModule() override
 	{
 		using namespace OpenMobileSensorsEditorPrivate;
+		FOpenMobileSensorsDiagnosticsScreen::Unregister();
 		DeactivateMock();
 		if (UObjectInitialized())
 		{

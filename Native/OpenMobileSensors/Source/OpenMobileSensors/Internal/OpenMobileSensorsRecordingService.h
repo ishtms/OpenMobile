@@ -65,6 +65,11 @@ public:
 		const FGuid& RequestId,
 		FOpenMobileSensorReplaySnapshot& OutSnapshot
 	);
+	static void GetActiveOperationCounts(
+		const FGuid* OwnerIdentifier,
+		int32& OutRecordingCount,
+		int32& OutReplayCount
+	);
 	static void CancelOwner(const FGuid& OwnerIdentifier);
 
 #if WITH_DEV_AUTOMATION_TESTS

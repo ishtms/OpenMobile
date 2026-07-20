@@ -3304,6 +3304,14 @@ bool FOpenMobileSensorsSampleService::GetDeliveryDiagnostics(
 	OutDiagnostics.GameThreadProcessingSeconds =
 		Slot.LastGameThreadProcessingSeconds;
 #endif
+	OutDiagnostics.bHasSample = Slot.bHasSample;
+	OutDiagnostics.SourceFlags = Slot.bHasSourceState
+		? Slot.LastSourceFlags
+		: 0;
+	OutDiagnostics.bHasAccuracy = Slot.bHasAccuracyState;
+	OutDiagnostics.Accuracy = Slot.bHasAccuracyState
+		? Slot.AccuracyState
+		: FOpenMobileSensorAccuracySnapshot();
 	return true;
 }
 

@@ -7,6 +7,7 @@
 #include "OpenMobileSensorScreenRotationService.h"
 #include "HAL/PlatformTime.h"
 #include "OpenMobileSensorsCapabilityService.h"
+#include "OpenMobileSensorsDiagnosticsService.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsMetadataService.h"
 #include "OpenMobileSensorsPermissionPolicy.h"
@@ -1044,17 +1045,9 @@ bool UOpenMobileSensorsSubsystem::GetReplayStateNative(
 FOpenMobileSensorDiagnosticsSnapshot
 UOpenMobileSensorsSubsystem::GetDiagnosticsSnapshotNative() const
 {
-	FOpenMobileSensorDiagnosticsSnapshot Snapshot;
-	const FOpenMobileSensorCapabilitySnapshot Capabilities =
-		FOpenMobileSensorsCapabilityService::GetSnapshot();
-	Snapshot.BackendName = Capabilities.BackendName;
-	Snapshot.BackendGeneration = Capabilities.BackendGeneration;
-	Snapshot.Capabilities = Capabilities.Sensors;
-	Snapshot.Streams =
-		FOpenMobileSensorsSubscriptionService::GetStreamDiagnostics(
-			SubscriptionOwnerIdentifier
-		);
-	return Snapshot;
+	return FOpenMobileSensorsDiagnosticsService::Capture(
+		&SubscriptionOwnerIdentifier
+	);
 }
 
 FOnOpenMobileSensorCapabilitiesChanged&

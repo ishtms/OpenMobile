@@ -2,7 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "OpenMobileCoreTypes.h"
+#include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorMetadata.h"
+#include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorSubscription.h"
 #include "OpenMobileSensorDiagnostics.generated.h"
 
@@ -96,6 +99,52 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double GameThreadProcessingSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasSample = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 SourceFlags = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bHasAccuracy = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorAccuracySnapshot Accuracy;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorPhysicalStreamDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileSensorIdentifier Sensor;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FName BackendName;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::GameRelative;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 SubscriberCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double AppliedFrequencyHz = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	double MaximumDeliveryLatencySeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bLowLatency = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bNativeBatchingRequested = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	bool bNativeBatchingApplied = false;
 };
 
 USTRUCT(BlueprintType)
@@ -104,7 +153,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorDiagnosticsSnapshot
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FString CapturedAtUtc;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FName BackendName;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FOpenMobileCapability BackendAvailability;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	int64 BackendGeneration = 0;
@@ -113,7 +168,22 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorDiagnosticsSnapshot
 	TArray<FOpenMobileSensorCapability> Capabilities;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorMetadata> Metadata;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorPermissionDescriptor> Permissions;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileSensorStreamDiagnostics> Streams;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorPhysicalStreamDiagnostics> PhysicalStreams;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 ActiveRecordingCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	int32 ActiveReplayCount = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileError> RecentErrors;
