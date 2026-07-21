@@ -4,6 +4,7 @@
 #include "OpenMobileHapticsAppleAudioResourcePolicy.h"
 #include "OpenMobileHapticsEnvelopePolicy.h"
 #include "OpenMobileHapticsSettings.h"
+#include "UObject/ObjectSaveContext.h"
 
 #if WITH_EDITORONLY_DATA
 #include "EditorFramework/AssetImportData.h"
@@ -61,6 +62,8 @@ namespace OpenMobileHapticPlatformAssetsPrivate
 	}
 }
 
+DEFINE_LOG_CATEGORY_STATIC(LogOpenMobileHapticPlatformAsset, Log, All);
+
 bool UOpenMobileHapticPlatformPatternAsset::ShouldCookForPlatform(
 	FName PlatformName
 ) const
@@ -76,6 +79,27 @@ bool UOpenMobileHapticPlatformPatternAsset::ShouldCookForPlatform(
 				->IOS.bPackageAHAPResources;
 	}
 	return false;
+}
+
+void UOpenMobileHapticPlatformPatternAsset::PreSave(
+	FObjectPreSaveContext SaveContext
+)
+{
+	TArray<FString> Errors;
+	if (!IsTemplate() && !Validate(Errors))
+	{
+		for (const FString& Error : Errors)
+		{
+			UE_LOG(
+				LogOpenMobileHapticPlatformAsset,
+				Error,
+				TEXT("%s: %s"),
+				*GetPathName(),
+				*Error
+			);
+		}
+	}
+	Super::PreSave(SaveContext);
 }
 
 bool UOpenMobileHapticPlatformPatternAsset::NeedsLoadForTargetPlatform(

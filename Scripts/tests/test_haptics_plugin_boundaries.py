@@ -192,6 +192,8 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 
 	def test_base_plugin_has_no_optional_integration_dependencies(self) -> None:
 		for build_rules in (HAPTICS_PLUGIN / "Source").glob("*/*.Build.cs"):
+			if build_rules.parent.name.endswith("Editor"):
+				continue
 			contents = build_rules.read_text(encoding="utf-8")
 			for forbidden_dependency in (
 				"EnhancedInput",

@@ -98,6 +98,18 @@ struct TStructOpsTypeTraits<FOpenMobileHapticCookedPatternData>
 	};
 };
 
+USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticPatternMarker
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Open Mobile|Haptics")
+	FName Name;
+
+	UPROPERTY(EditAnywhere, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", Units = "s"))
+	double TimeSeconds = 0.0;
+};
+
 UCLASS(BlueprintType)
 class OPENMOBILEHAPTICS_API UOpenMobileHapticPatternAsset
 	: public UPrimaryDataAsset
@@ -152,6 +164,9 @@ public:
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(EditAnywhere, Category = "Pattern")
 	FOpenMobileHapticPattern SourcePattern;
+
+	UPROPERTY(EditAnywhere, Category = "Pattern")
+	TArray<FOpenMobileHapticPatternMarker> Markers;
 #endif
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
@@ -173,9 +188,14 @@ public:
 	bool IsDerivedDataCurrent() const;
 	bool RebuildDerivedData(TArray<FString>& Errors);
 
+#if WITH_EDITORONLY_DATA
+	void NormalizeEditorData();
+#endif
+
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 
 #if WITH_EDITOR
+	bool ValidateForEditor(TArray<FString>& Errors) const;
 	virtual void PostEditChangeProperty(
 		FPropertyChangedEvent& PropertyChangedEvent
 	) override;
@@ -187,6 +207,11 @@ public:
 private:
 	uint32 ComputeSourceHash() const;
 	bool ValidateMetadata(TArray<FString>& Errors) const;
+	bool ValidatePlatformOverrides(TArray<FString>& Errors) const;
+
+#if WITH_EDITOR
+	bool ValidateEditorData(TArray<FString>& Errors) const;
+#endif
 
 	UPROPERTY(VisibleAnywhere, Category = "Cooked Pattern")
 	FOpenMobileHapticCookedPatternData CookedPattern;

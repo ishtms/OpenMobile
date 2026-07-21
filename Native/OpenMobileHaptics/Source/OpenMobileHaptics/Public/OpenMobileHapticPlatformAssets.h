@@ -124,6 +124,7 @@ public:
 	);
 
 	bool ShouldCookForPlatform(FName PlatformName) const;
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 	virtual bool NeedsLoadForTargetPlatform(
 		const ITargetPlatform* TargetPlatform
 	) const override;

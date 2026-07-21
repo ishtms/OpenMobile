@@ -207,6 +207,97 @@ namespace OpenMobileHapticPatternAssetPrivate
 	{
 		Hash = FCrc::TypeCrc32(Value, Hash);
 	}
+
+	bool LessEvent(
+		const FOpenMobileHapticPatternEvent& Left,
+		const FOpenMobileHapticPatternEvent& Right
+	)
+	{
+		if (Left.StartTimeSeconds != Right.StartTimeSeconds)
+		{
+			return Left.StartTimeSeconds < Right.StartTimeSeconds;
+		}
+		if (Left.Type != Right.Type)
+		{
+			return static_cast<uint8>(Left.Type)
+				< static_cast<uint8>(Right.Type);
+		}
+		if (Left.DurationSeconds != Right.DurationSeconds)
+		{
+			return Left.DurationSeconds < Right.DurationSeconds;
+		}
+		if (Left.Intensity != Right.Intensity)
+		{
+			return Left.Intensity < Right.Intensity;
+		}
+		if (Left.Sharpness != Right.Sharpness)
+		{
+			return Left.Sharpness < Right.Sharpness;
+		}
+		return Left.FrequencyIntent < Right.FrequencyIntent;
+	}
+
+	bool LessCurvePoint(
+		const FOpenMobileHapticCurvePoint& Left,
+		const FOpenMobileHapticCurvePoint& Right
+	)
+	{
+		if (Left.RelativeTimeSeconds != Right.RelativeTimeSeconds)
+		{
+			return Left.RelativeTimeSeconds < Right.RelativeTimeSeconds;
+		}
+		return Left.Value < Right.Value;
+	}
+
+	bool LessCurve(
+		const FOpenMobileHapticParameterCurve& Left,
+		const FOpenMobileHapticParameterCurve& Right
+	)
+	{
+		if (Left.StartTimeSeconds != Right.StartTimeSeconds)
+		{
+			return Left.StartTimeSeconds < Right.StartTimeSeconds;
+		}
+		if (Left.Parameter != Right.Parameter)
+		{
+			return static_cast<uint8>(Left.Parameter)
+				< static_cast<uint8>(Right.Parameter);
+		}
+		if (Left.ControlPoints.Num() != Right.ControlPoints.Num())
+		{
+			return Left.ControlPoints.Num() < Right.ControlPoints.Num();
+		}
+		for (int32 Index = 0; Index < Left.ControlPoints.Num(); ++Index)
+		{
+			const FOpenMobileHapticCurvePoint& LeftPoint =
+				Left.ControlPoints[Index];
+			const FOpenMobileHapticCurvePoint& RightPoint =
+				Right.ControlPoints[Index];
+			if (LeftPoint.RelativeTimeSeconds
+				!= RightPoint.RelativeTimeSeconds)
+			{
+				return LeftPoint.RelativeTimeSeconds
+					< RightPoint.RelativeTimeSeconds;
+			}
+			if (LeftPoint.Value != RightPoint.Value)
+			{
+				return LeftPoint.Value < RightPoint.Value;
+			}
+		}
+		return false;
+	}
+
+	bool LessMarker(
+		const FOpenMobileHapticPatternMarker& Left,
+		const FOpenMobileHapticPatternMarker& Right
+	)
+	{
+		if (Left.TimeSeconds != Right.TimeSeconds)
+		{
+			return Left.TimeSeconds < Right.TimeSeconds;
+		}
+		return Left.Name.LexicalLess(Right.Name);
+	}
 }
 
 FSoftObjectPath UOpenMobileHapticPatternAsset::GetOverrideForPlatform(
@@ -470,6 +561,150 @@ bool UOpenMobileHapticPatternAsset::ValidateMetadata(
 	return Errors.IsEmpty();
 }
 
+bool UOpenMobileHapticPatternAsset::ValidatePlatformOverrides(
+	TArray<FString>& Errors
+) const
+{
+	auto ValidateOverride = [&Errors](
+		const UOpenMobileHapticPlatformPatternAsset* Override,
+		EOpenMobileHapticOverridePlatform Platform,
+		const TCHAR* Label
+	)
+	{
+		if (!Override)
+		{
+			Errors.Add(FString::Printf(
+				TEXT("%s could not be loaded."),
+				Label
+			));
+			return;
+		}
+		if (Override->GetOverridePlatform() != Platform)
+		{
+			Errors.Add(FString::Printf(
+				TEXT("%s targets the wrong platform."),
+				Label
+			));
+			return;
+		}
+		TArray<FString> OverrideErrors;
+		if (!Override->Validate(OverrideErrors))
+		{
+			for (const FString& Error : OverrideErrors)
+			{
+				Errors.Add(FString::Printf(
+					TEXT("%s: %s"),
+					Label,
+					*Error
+				));
+			}
+		}
+	};
+
+	if (!AndroidOverride.IsNull())
+	{
+		const UOpenMobileHapticAndroidPatternAsset* Override =
+			AndroidOverride.LoadSynchronous();
+		ValidateOverride(
+			Override,
+			EOpenMobileHapticOverridePlatform::Android,
+			TEXT("AndroidOverride")
+		);
+		if (Override
+			&& (!Override->ShouldCookForPlatform(TEXT("Android"))
+				|| Override->ShouldCookForPlatform(TEXT("IOS"))))
+		{
+			Errors.Add(TEXT("AndroidOverride cook filtering is invalid."));
+		}
+	}
+	if (!IOSOverride.IsNull())
+	{
+		const UOpenMobileHapticIOSPatternAsset* Override =
+			IOSOverride.LoadSynchronous();
+		ValidateOverride(
+			Override,
+			EOpenMobileHapticOverridePlatform::IOS,
+			TEXT("IOSOverride")
+		);
+		if (Override
+			&& Override->ShouldCookForPlatform(TEXT("Android")))
+		{
+			Errors.Add(TEXT("IOSOverride cook filtering is invalid."));
+		}
+	}
+	return Errors.IsEmpty();
+}
+
+#if WITH_EDITORONLY_DATA
+void UOpenMobileHapticPatternAsset::NormalizeEditorData()
+{
+	for (FOpenMobileHapticParameterCurve& Curve :
+		SourcePattern.ParameterCurves)
+	{
+		Curve.ControlPoints.StableSort(
+			OpenMobileHapticPatternAssetPrivate::LessCurvePoint
+		);
+	}
+	SourcePattern.Events.StableSort(
+		OpenMobileHapticPatternAssetPrivate::LessEvent
+	);
+	SourcePattern.ParameterCurves.StableSort(
+		OpenMobileHapticPatternAssetPrivate::LessCurve
+	);
+	Markers.StableSort(OpenMobileHapticPatternAssetPrivate::LessMarker);
+}
+#endif
+
+#if WITH_EDITOR
+bool UOpenMobileHapticPatternAsset::ValidateEditorData(
+	TArray<FString>& Errors
+) const
+{
+#if WITH_EDITORONLY_DATA
+	constexpr int32 MaximumMarkerCount = 64;
+	if (Markers.Num() > MaximumMarkerCount)
+	{
+		Errors.Add(TEXT("Markers exceed the editor limit of 64."));
+	}
+	TSet<FName> MarkerNames;
+	double PreviousTime = -1.0;
+	for (int32 Index = 0; Index < Markers.Num(); ++Index)
+	{
+		const FOpenMobileHapticPatternMarker& Marker = Markers[Index];
+		if (Marker.Name.IsNone())
+		{
+			Errors.Add(FString::Printf(
+				TEXT("Marker %d must have a name."),
+				Index
+			));
+		}
+		else if (MarkerNames.Contains(Marker.Name))
+		{
+			Errors.Add(FString::Printf(
+				TEXT("Marker name %s is duplicated."),
+				*Marker.Name.ToString()
+			));
+		}
+		MarkerNames.Add(Marker.Name);
+		if (!FMath::IsFinite(Marker.TimeSeconds)
+			|| Marker.TimeSeconds < 0.0)
+		{
+			Errors.Add(FString::Printf(
+				TEXT("Marker %d TimeSeconds must be finite and nonnegative."),
+				Index
+			));
+		}
+		if (Marker.TimeSeconds < PreviousTime)
+		{
+			Errors.Add(TEXT("Markers must be sorted by time."));
+		}
+		PreviousTime = Marker.TimeSeconds;
+	}
+#endif
+	return Errors.IsEmpty();
+}
+#endif
+
 bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 	TArray<FString>& Errors
 )
@@ -578,6 +813,7 @@ bool UOpenMobileHapticPatternAsset::RebuildDerivedData(
 void UOpenMobileHapticPatternAsset::PreSave(FObjectPreSaveContext SaveContext)
 {
 #if WITH_EDITORONLY_DATA
+	NormalizeEditorData();
 	if (!IsTemplate() && !IsDerivedDataCurrent())
 	{
 		TArray<FString> Errors;
@@ -595,34 +831,33 @@ void UOpenMobileHapticPatternAsset::PreSave(FObjectPreSaveContext SaveContext)
 			}
 		}
 	}
+	TArray<FString> ValidationErrors;
+	if (!IsTemplate() && !ValidateForEditor(ValidationErrors))
+	{
+		for (const FString& Error : ValidationErrors)
+		{
+			UE_LOG(
+				LogOpenMobileHapticPatternAsset,
+				Error,
+				TEXT("%s: %s"),
+				*GetPathName(),
+				*Error
+			);
+		}
+	}
 #endif
 	Super::PreSave(SaveContext);
 }
 
 #if WITH_EDITOR
-void UOpenMobileHapticPatternAsset::PostEditChangeProperty(
-	FPropertyChangedEvent& PropertyChangedEvent
-)
-{
-	Super::PostEditChangeProperty(PropertyChangedEvent);
-	TArray<FString> Errors;
-	RebuildDerivedData(Errors);
-}
-
-EDataValidationResult UOpenMobileHapticPatternAsset::IsDataValid(
-	FDataValidationContext& Context
+bool UOpenMobileHapticPatternAsset::ValidateForEditor(
+	TArray<FString>& Errors
 ) const
 {
-	EDataValidationResult Result = Super::IsDataValid(Context);
-	TArray<FString> MetadataErrors;
-	if (!ValidateMetadata(MetadataErrors))
-	{
-		for (const FString& Error : MetadataErrors)
-		{
-			Context.AddError(FText::FromString(Error));
-		}
-		return EDataValidationResult::Invalid;
-	}
+	Errors.Reset();
+	ValidateMetadata(Errors);
+	ValidateEditorData(Errors);
+	ValidatePlatformOverrides(Errors);
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	const FOpenMobileHapticsPatternCompileResult CompileResult =
@@ -632,22 +867,43 @@ EDataValidationResult UOpenMobileHapticPatternAsset::IsDataValid(
 		);
 	if (!CompileResult.IsSuccess())
 	{
-		Context.AddError(FText::FromString(
-			OpenMobileHapticPatternAssetPrivate::DescribeCompileError(
-				CompileResult.Error,
-				CompileResult.EventIndex,
-				CompileResult.CurveIndex,
-				CompileResult.ControlPointIndex,
-				SourcePattern
-			)
+		Errors.Add(OpenMobileHapticPatternAssetPrivate::DescribeCompileError(
+			CompileResult.Error,
+			CompileResult.EventIndex,
+			CompileResult.CurveIndex,
+			CompileResult.ControlPointIndex,
+			SourcePattern
 		));
-		return EDataValidationResult::Invalid;
 	}
 	if (!IsDerivedDataCurrent())
 	{
-		Context.AddError(FText::FromString(
-			TEXT("Cooked pattern data is out of date.")
-		));
+		Errors.Add(TEXT("Cooked pattern data is out of date."));
+	}
+	return Errors.IsEmpty();
+}
+
+void UOpenMobileHapticPatternAsset::PostEditChangeProperty(
+	FPropertyChangedEvent& PropertyChangedEvent
+)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	NormalizeEditorData();
+	TArray<FString> Errors;
+	RebuildDerivedData(Errors);
+}
+
+EDataValidationResult UOpenMobileHapticPatternAsset::IsDataValid(
+	FDataValidationContext& Context
+) const
+{
+	EDataValidationResult Result = Super::IsDataValid(Context);
+	TArray<FString> Errors;
+	if (!ValidateForEditor(Errors))
+	{
+		for (const FString& Error : Errors)
+		{
+			Context.AddError(FText::FromString(Error));
+		}
 		return EDataValidationResult::Invalid;
 	}
 	return CombineDataValidationResults(Result, EDataValidationResult::Valid);
