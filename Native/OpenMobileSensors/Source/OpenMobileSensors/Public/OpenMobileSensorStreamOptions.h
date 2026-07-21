@@ -43,6 +43,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRateResolution
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorRateAdjustmentReason AdjustmentReason =
 		EOpenMobileSensorRateAdjustmentReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FText AdjustmentExplanation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	FText AdjustmentCorrection;
 };
 
 UENUM(BlueprintType)

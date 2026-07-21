@@ -4,6 +4,7 @@
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorAccuracy.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorErrorReport.h"
 #include "OpenMobileSensorMetadata.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorSubscription.h"
@@ -187,4 +188,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorDiagnosticsSnapshot
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	TArray<FOpenMobileError> RecentErrors;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	TArray<FOpenMobileSensorErrorReport> RecentErrorReports;
 };

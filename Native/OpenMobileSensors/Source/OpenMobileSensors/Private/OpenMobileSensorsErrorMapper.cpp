@@ -1,5 +1,7 @@
 #include "OpenMobileSensorsErrorMapper.h"
 
+#include "HAL/PlatformTime.h"
+
 namespace OpenMobileSensorsErrorMapperPrivate
 {
 	struct FMapping
@@ -7,8 +9,8 @@ namespace OpenMobileSensorsErrorMapperPrivate
 		EOpenMobileSensorFailureReason Reason;
 		EOpenMobileSensorResultCode ResultCode;
 		EOpenMobileErrorCode CommonCode;
-		const TCHAR* Message;
-		const TCHAR* Correction;
+		FText Message;
+		FText Correction;
 	};
 
 	FString SanitizeNativeIdentifier(const FString& Value)
@@ -32,6 +34,8 @@ namespace OpenMobileSensorsErrorMapperPrivate
 
 	FMapping GetMapping(EOpenMobileSensorFailureReason Reason)
 	{
+#define OPENMOBILE_SENSOR_ERROR_TEXT(Key, Source) \
+		NSLOCTEXT("OpenMobileSensorsErrors", Key, Source)
 		switch (Reason)
 		{
 		case EOpenMobileSensorFailureReason::UnsupportedPlatform:
@@ -39,184 +43,184 @@ namespace OpenMobileSensorsErrorMapperPrivate
 				Reason,
 				EOpenMobileSensorResultCode::NotSupported,
 				EOpenMobileErrorCode::NotSupported,
-				TEXT("Sensors are not supported on this platform."),
-				TEXT("Use an explicit development mock or a supported mobile platform.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("UnsupportedPlatformCause", "Sensors are not supported on this platform."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("UnsupportedPlatformCorrection", "Use an explicit development mock or a supported mobile platform.")
 			};
 		case EOpenMobileSensorFailureReason::UnsupportedOperation:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::NotSupported,
 				EOpenMobileErrorCode::NotSupported,
-				TEXT("The active sensor backend does not support this operation."),
-				TEXT("Query capabilities and choose a supported operation.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("UnsupportedOperationCause", "The active sensor backend does not support this operation."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("UnsupportedOperationCorrection", "Query capabilities and choose a supported operation.")
 			};
 		case EOpenMobileSensorFailureReason::MissingHardware:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("The requested sensor hardware is unavailable."),
-				TEXT("Query the sensor capability matrix and select an available source.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("MissingHardwareCause", "The requested sensor hardware is unavailable."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("MissingHardwareCorrection", "Query the sensor capability matrix and select an available source.")
 			};
 		case EOpenMobileSensorFailureReason::DerivedInputUnavailable:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("A required input for the derived sensor is unavailable."),
-				TEXT("Enable an available fallback or provide the required input.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("DerivedInputUnavailableCause", "A required input for the derived sensor is unavailable."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("DerivedInputUnavailableCorrection", "Enable an available fallback or provide the required input.")
 			};
 		case EOpenMobileSensorFailureReason::PermissionRequired:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("The sensor operation requires permission."),
-				TEXT("Request the reported permission before retrying.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionRequiredCause", "The sensor operation requires permission."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionRequiredCorrection", "Request the reported permission before retrying.")
 			};
 		case EOpenMobileSensorFailureReason::PermissionDenied:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("The sensor operation was denied permission."),
-				TEXT("Respect the decision or direct the user to system settings when appropriate.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionDeniedCause", "The sensor operation was denied permission."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionDeniedCorrection", "Respect the decision or direct the user to system settings when appropriate.")
 			};
 		case EOpenMobileSensorFailureReason::PermissionRestricted:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("System policy restricts the required sensor permission."),
-				TEXT("Use a feature path that does not require the restricted permission.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionRestrictedCause", "System policy restricts the required sensor permission."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("PermissionRestrictedCorrection", "Use a feature path that does not require the restricted permission.")
 			};
 		case EOpenMobileSensorFailureReason::RateLimited:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Busy,
-				TEXT("The sensor request was rate limited."),
-				TEXT("Reduce the requested rate or retry after the reported limit clears.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("RateLimitedCause", "The sensor request was rate limited."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("RateLimitedCorrection", "Reduce the requested rate or retry after the reported limit clears.")
 			};
 		case EOpenMobileSensorFailureReason::InvalidRequest:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::InvalidArgument,
 				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The sensor request contains an invalid argument."),
-				TEXT("Correct the reported request field before retrying.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidRequestCause", "The sensor request contains an invalid argument."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidRequestCorrection", "Correct the reported request field before retrying.")
 			};
 		case EOpenMobileSensorFailureReason::InvalidHandle:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::InvalidHandle,
 				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The sensor subscription handle is invalid."),
-				TEXT("Use a handle returned by the owning Game Instance.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidHandleCause", "The sensor subscription handle is invalid."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidHandleCorrection", "Use a handle returned by the owning Game Instance.")
 			};
 		case EOpenMobileSensorFailureReason::StaleHandle:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::InvalidHandle,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("The sensor subscription handle is stale or belongs to another owner."),
-				TEXT("Start a new subscription from the owning Game Instance.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("StaleHandleCause", "The sensor subscription handle is stale or belongs to another owner."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("StaleHandleCorrection", "Start a new subscription from the owning Game Instance.")
 			};
 		case EOpenMobileSensorFailureReason::InvalidFrequency:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::InvalidArgument,
 				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The requested sensor frequency is invalid."),
-				TEXT("Use a finite positive frequency within project policy limits.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidFrequencyCause", "The requested sensor frequency is invalid."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidFrequencyCorrection", "Use a finite positive frequency within project policy limits.")
 			};
 		case EOpenMobileSensorFailureReason::InvalidReferenceFrame:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::InvalidArgument,
 				EOpenMobileErrorCode::InvalidArgument,
-				TEXT("The requested attitude reference frame is invalid or unsupported."),
-				TEXT("Select a reference frame reported by the active backend.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidReferenceFrameCause", "The requested attitude reference frame is invalid or unsupported."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("InvalidReferenceFrameCorrection", "Select a reference frame reported by the active backend.")
 			};
 		case EOpenMobileSensorFailureReason::PoorCalibration:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("Sensor calibration quality is below the required level."),
-				TEXT("Prompt for calibration or accept lower-quality polling explicitly.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("PoorCalibrationCause", "Sensor calibration quality is below the required level."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("PoorCalibrationCorrection", "Prompt for calibration or accept lower-quality polling explicitly.")
 			};
 		case EOpenMobileSensorFailureReason::BackgroundRestricted:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("Background policy restricts this sensor operation."),
-				TEXT("Resume in the foreground or select a supported lifecycle policy.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("BackgroundRestrictedCause", "Background policy restricts this sensor operation."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("BackgroundRestrictedCorrection", "Resume in the foreground or select a supported lifecycle policy.")
 			};
 		case EOpenMobileSensorFailureReason::BufferOverflow:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Busy,
-				TEXT("The bounded sensor buffer overflowed."),
-				TEXT("Drain more often, lower the rate, or choose a larger bounded capacity.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("BufferOverflowCause", "The bounded sensor buffer overflowed."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("BufferOverflowCorrection", "Drain more often, lower the rate, or choose a larger bounded capacity.")
 			};
 		case EOpenMobileSensorFailureReason::MissingLocationInput:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("True-heading location input is missing."),
-				TEXT("Provide a recent caller-owned location sample before retrying.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("MissingLocationInputCause", "True-heading location input is missing."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("MissingLocationInputCorrection", "Provide a recent caller-owned location sample before retrying.")
 			};
 		case EOpenMobileSensorFailureReason::StaleLocationInput:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("True-heading location input is stale."),
-				TEXT("Provide a recent caller-owned location sample before retrying.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("StaleLocationInputCause", "True-heading location input is stale."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("StaleLocationInputCorrection", "Provide a recent caller-owned location sample before retrying.")
 			};
 		case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("True-heading location accuracy is insufficient."),
-				TEXT("Provide caller-owned location with horizontal accuracy of 100 metres or better.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("PoorLocationAccuracyCause", "True-heading location accuracy is insufficient."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("PoorLocationAccuracyCorrection", "Provide caller-owned location with horizontal accuracy of 100 metres or better.")
 			};
 		case EOpenMobileSensorFailureReason::TemporarilyUnavailable:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::Unavailable,
-				TEXT("The sensor service is temporarily unavailable."),
-				TEXT("Wait for lifecycle or backend recovery and query capabilities again.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("TemporarilyUnavailableCause", "The sensor service is temporarily unavailable."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("TemporarilyUnavailableCorrection", "Wait for lifecycle or backend recovery and query capabilities again.")
 			};
 		case EOpenMobileSensorFailureReason::ConfigurationBlocked:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Unavailable,
 				EOpenMobileErrorCode::NotConfigured,
-				TEXT("Project configuration blocks this sensor operation."),
-				TEXT("Update the Sensors project settings and rebuild the application.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("ConfigurationBlockedCause", "Project configuration blocks this sensor operation."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("ConfigurationBlockedCorrection", "Update the Sensors project settings and rebuild the application.")
 			};
 		case EOpenMobileSensorFailureReason::Cancelled:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Cancelled,
 				EOpenMobileErrorCode::Cancelled,
-				TEXT("The sensor operation was cancelled."),
-				TEXT("No correction is required for an intentional cancellation.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("CancelledCause", "The sensor operation was cancelled."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("CancelledCorrection", "No correction is required for an intentional cancellation.")
 			};
 		case EOpenMobileSensorFailureReason::Internal:
 			return {
 				Reason,
 				EOpenMobileSensorResultCode::Failed,
 				EOpenMobileErrorCode::Internal,
-				TEXT("Sensors detected an inconsistent internal state."),
-				TEXT("Capture sanitized diagnostics and report the failure.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("InternalCause", "Sensors detected an inconsistent internal state."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("InternalCorrection", "Capture sanitized diagnostics and report the failure.")
 			};
 		case EOpenMobileSensorFailureReason::OperationalFailure:
 		case EOpenMobileSensorFailureReason::None:
@@ -225,9 +229,48 @@ namespace OpenMobileSensorsErrorMapperPrivate
 				EOpenMobileSensorFailureReason::OperationalFailure,
 				EOpenMobileSensorResultCode::Failed,
 				EOpenMobileErrorCode::NativeFailure,
-				TEXT("The native sensor operation failed."),
-				TEXT("Query capabilities and sanitized diagnostics before retrying.")
+				OPENMOBILE_SENSOR_ERROR_TEXT("OperationalFailureCause", "The native sensor operation failed."),
+				OPENMOBILE_SENSOR_ERROR_TEXT("OperationalFailureCorrection", "Query capabilities and sanitized diagnostics before retrying.")
 			};
+		}
+#undef OPENMOBILE_SENSOR_ERROR_TEXT
+	}
+
+	FText GetOperationText(EOpenMobileSensorOperation Operation)
+	{
+		switch (Operation)
+		{
+		case EOpenMobileSensorOperation::CapabilityQuery:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationCapabilityQuery", "query capabilities");
+		case EOpenMobileSensorOperation::StartStream:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationStartStream", "start stream");
+		case EOpenMobileSensorOperation::ReconfigureStream:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationReconfigureStream", "reconfigure stream");
+		case EOpenMobileSensorOperation::StopStream:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationStopStream", "stop stream");
+		case EOpenMobileSensorOperation::ReadLatest:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationReadLatest", "read latest sample");
+		case EOpenMobileSensorOperation::ReadBuffer:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationReadBuffer", "read buffer");
+		case EOpenMobileSensorOperation::Flush:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationFlush", "flush stream");
+		case EOpenMobileSensorOperation::Permission:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationPermission", "request permission");
+		case EOpenMobileSensorOperation::Calibration:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationCalibration", "calibrate sensor");
+		case EOpenMobileSensorOperation::Recenter:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationRecenter", "recenter sensor");
+		case EOpenMobileSensorOperation::Recording:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationRecording", "record samples");
+		case EOpenMobileSensorOperation::Replay:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationReplay", "replay samples");
+		case EOpenMobileSensorOperation::Lifecycle:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationLifecycle", "apply lifecycle policy");
+		case EOpenMobileSensorOperation::BackendCallback:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationBackendCallback", "process backend update");
+		case EOpenMobileSensorOperation::Unknown:
+		default:
+			return NSLOCTEXT("OpenMobileSensorsErrors", "OperationUnknown", "perform sensor operation");
 		}
 	}
 }
@@ -245,14 +288,121 @@ FOpenMobileSensorOperationResult FOpenMobileSensorsErrorMapper::Map(
 	Result.Failure.Reason = Mapping.Reason;
 	Result.Failure.NativeDomain = SanitizeNativeIdentifier(NativeDomain);
 	Result.Failure.NativeCode = SanitizeNativeIdentifier(NativeCode);
-	Result.Failure.Correction = Mapping.Correction;
+	Result.Failure.Correction = Mapping.Correction.ToString();
 	Result.Error = FOpenMobileError::Make(
 		Mapping.CommonCode,
-		Mapping.Message,
+		Mapping.Message.ToString(),
 		Result.Failure.NativeCode,
 		TEXT("OpenMobileSensors")
 	);
 	return Result;
+}
+
+FOpenMobileSensorErrorReport FOpenMobileSensorsErrorMapper::Describe(
+	const FOpenMobileSensorOperationResult& Result,
+	const FOpenMobileSensorErrorContext& Context,
+	double TimestampSeconds
+)
+{
+	using namespace OpenMobileSensorsErrorMapperPrivate;
+	const FMapping Mapping = GetMapping(Result.Failure.Reason);
+	FOpenMobileSensorErrorReport Report;
+	Report.TimestampSeconds = TimestampSeconds >= 0.0
+		? TimestampSeconds
+		: FPlatformTime::Seconds();
+	Report.Context = Context;
+	Report.Context.Sensor.InstanceId = NAME_None;
+	Report.Context.BackendName = FName(*SanitizeNativeIdentifier(Context.BackendName.ToString()));
+	Report.ResultCode = Result.Code;
+	Report.Failure = Result.Failure;
+	Report.Failure.Reason = Mapping.Reason;
+	Report.Failure.NativeDomain = SanitizeNativeIdentifier(Result.Failure.NativeDomain);
+	Report.Failure.NativeCode = SanitizeNativeIdentifier(Result.Failure.NativeCode);
+	Report.Failure.Correction = Mapping.Correction.ToString();
+	Report.Error = FOpenMobileError::Make(
+		Result.Error.Code == EOpenMobileErrorCode::None
+			? Mapping.CommonCode
+			: Result.Error.Code,
+		Mapping.Message.ToString(),
+		Report.Failure.NativeCode,
+		TEXT("OpenMobileSensors")
+	);
+	Report.LikelyCause = Mapping.Message;
+	Report.Correction = Mapping.Correction;
+
+	const FText SensorText = FText::FromName(
+		FOpenMobileSensorTypes::GetStableName(Context.Sensor.Type)
+	);
+	const FText BackendText = Report.Context.BackendName.IsNone()
+		? NSLOCTEXT("OpenMobileSensorsErrors", "NoBackend", "no backend")
+		: FText::FromName(Report.Context.BackendName);
+	if (Context.bHasRateContext)
+	{
+		Report.Summary = FText::Format(
+			NSLOCTEXT(
+				"OpenMobileSensorsErrors",
+				"RateErrorSummary",
+				"Could not {Operation} for {Sensor} through {Backend}. Requested {Requested} Hz; applied {Applied} Hz."
+			),
+			FFormatNamedArguments{
+				{TEXT("Operation"), GetOperationText(Context.Operation)},
+				{TEXT("Sensor"), SensorText},
+				{TEXT("Backend"), BackendText},
+				{TEXT("Requested"), Context.RequestedFrequencyHz},
+				{TEXT("Applied"), Context.AppliedFrequencyHz}
+			}
+		);
+	}
+	else
+	{
+		Report.Summary = FText::Format(
+			NSLOCTEXT(
+				"OpenMobileSensorsErrors",
+				"ErrorSummary",
+				"Could not {Operation} for {Sensor} through {Backend}."
+			),
+			FFormatNamedArguments{
+				{TEXT("Operation"), GetOperationText(Context.Operation)},
+				{TEXT("Sensor"), SensorText},
+				{TEXT("Backend"), BackendText}
+			}
+		);
+	}
+	return Report;
+}
+
+void FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
+	FOpenMobileSensorRateResolution& Resolution
+)
+{
+	switch (Resolution.AdjustmentReason)
+	{
+	case EOpenMobileSensorRateAdjustmentReason::ProjectPolicy:
+		Resolution.AdjustmentExplanation = NSLOCTEXT("OpenMobileSensorsErrors", "RateProjectPolicyCause", "Project policy or this request did not opt in to high-rate sensor access.");
+		Resolution.AdjustmentCorrection = NSLOCTEXT("OpenMobileSensorsErrors", "RateProjectPolicyCorrection", "Enable high-rate sensors in project settings and opt in on the request, or request a lower rate.");
+		break;
+	case EOpenMobileSensorRateAdjustmentReason::HardwareLimit:
+		Resolution.AdjustmentExplanation = NSLOCTEXT("OpenMobileSensorsErrors", "RateHardwareLimitCause", "The requested rate exceeds the sensor hardware limit.");
+		Resolution.AdjustmentCorrection = NSLOCTEXT("OpenMobileSensorsErrors", "RateHardwareLimitCorrection", "Request a rate at or below the reported hardware maximum.");
+		break;
+	case EOpenMobileSensorRateAdjustmentReason::MissingPlatformDeclaration:
+		Resolution.AdjustmentExplanation = NSLOCTEXT("OpenMobileSensorsErrors", "RateDeclarationCause", "Android high-rate sensor access was not declared in the packaged application.");
+		Resolution.AdjustmentCorrection = NSLOCTEXT("OpenMobileSensorsErrors", "RateDeclarationCorrection", "Enable the Android high-rate sensor declaration in project settings and rebuild the application.");
+		break;
+	case EOpenMobileSensorRateAdjustmentReason::OperatingSystemLimit:
+		Resolution.AdjustmentExplanation = NSLOCTEXT("OpenMobileSensorsErrors", "RateOperatingSystemLimitCause", "The operating system limited the requested sensor rate.");
+		Resolution.AdjustmentCorrection = NSLOCTEXT("OpenMobileSensorsErrors", "RateOperatingSystemLimitCorrection", "Use the applied rate or request a lower rate supported by the operating system.");
+		break;
+	case EOpenMobileSensorRateAdjustmentReason::BackendLimit:
+		Resolution.AdjustmentExplanation = NSLOCTEXT("OpenMobileSensorsErrors", "RateBackendLimitCause", "The active sensor backend limited the requested rate.");
+		Resolution.AdjustmentCorrection = NSLOCTEXT("OpenMobileSensorsErrors", "RateBackendLimitCorrection", "Use the applied rate or select a backend with a higher supported rate.");
+		break;
+	case EOpenMobileSensorRateAdjustmentReason::None:
+	default:
+		Resolution.AdjustmentExplanation = FText::GetEmpty();
+		Resolution.AdjustmentCorrection = FText::GetEmpty();
+		break;
+	}
 }
 
 FOpenMobileSensorOperationResult FOpenMobileSensorsErrorMapper::FromCommon(
@@ -304,6 +454,7 @@ FOpenMobileSensorOperationResult FOpenMobileSensorsErrorMapper::FromCommon(
 
 FString FOpenMobileSensorsErrorMapper::FormatForLog(
 	const FOpenMobileSensorOperationResult& Result,
+	const FOpenMobileSensorErrorContext* Context,
 	bool bShipping
 )
 {
@@ -324,6 +475,24 @@ FString FOpenMobileSensorsErrorMapper::FormatForLog(
 			*Result.Failure.NativeDomain,
 			*Result.Failure.NativeCode
 		);
+	}
+	if (!bShipping && Context != nullptr)
+	{
+		Formatted += FString::Printf(
+			TEXT(" [sensor=%s operation=%s backend=%s"),
+			*FOpenMobileSensorTypes::GetStableName(Context->Sensor.Type).ToString(),
+			*UEnum::GetValueAsString(Context->Operation),
+			*OpenMobileSensorsErrorMapperPrivate::SanitizeNativeIdentifier(Context->BackendName.ToString())
+		);
+		if (Context->bHasRateContext)
+		{
+			Formatted += FString::Printf(
+				TEXT(" requested=%.3fHz applied=%.3fHz"),
+				Context->RequestedFrequencyHz,
+				Context->AppliedFrequencyHz
+			);
+		}
+		Formatted += TEXT("]");
 	}
 	return Formatted;
 }

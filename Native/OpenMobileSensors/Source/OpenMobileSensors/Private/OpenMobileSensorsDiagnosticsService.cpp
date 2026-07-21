@@ -62,6 +62,10 @@ FOpenMobileSensorsDiagnosticsService::Capture(const FGuid* OwnerIdentifier)
 		);
 	Snapshot.RecentErrors =
 		FOpenMobileSensorsSubscriptionService::GetRecentErrors(OwnerIdentifier);
+	Snapshot.RecentErrorReports =
+		FOpenMobileSensorsSubscriptionService::GetRecentErrorReports(
+			OwnerIdentifier
+		);
 	FOpenMobileSensorsRecordingService::GetActiveOperationCounts(
 		OwnerIdentifier,
 		Snapshot.ActiveRecordingCount,

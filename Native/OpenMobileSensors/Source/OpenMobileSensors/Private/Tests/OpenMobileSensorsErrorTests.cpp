@@ -292,4 +292,122 @@ bool FOpenMobileSensorsSideEffectFreeQueriesTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsHumanReadableErrorReportTest,
+	"OpenMobile.Sensors.Errors.HumanReadableReports",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsHumanReadableErrorReportTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	for (uint8 Value = static_cast<uint8>(
+			EOpenMobileSensorFailureReason::UnsupportedPlatform
+		);
+		Value <= static_cast<uint8>(EOpenMobileSensorFailureReason::Internal);
+		++Value)
+	{
+		const EOpenMobileSensorFailureReason Reason =
+			static_cast<EOpenMobileSensorFailureReason>(Value);
+		FOpenMobileSensorErrorContext Context;
+		Context.Sensor.Type = EOpenMobileSensorType::Accelerometer;
+		Context.Operation = EOpenMobileSensorOperation::StartStream;
+		Context.BackendName = TEXT("ContractBackend");
+		const FOpenMobileSensorErrorReport Report =
+			FOpenMobileSensorsErrorMapper::Describe(
+				FOpenMobileSensorsErrorMapper::Map(Reason),
+				Context,
+				12.0
+			);
+		TestFalse(TEXT("Every reason has a summary"), Report.Summary.IsEmpty());
+		TestFalse(TEXT("Every reason has a likely cause"),
+			Report.LikelyCause.IsEmpty());
+		TestFalse(TEXT("Every reason has a correction"),
+			Report.Correction.IsEmpty());
+	}
+
+	FOpenMobileSensorOperationResult Unsafe =
+		FOpenMobileSensorsErrorMapper::Map(
+			static_cast<EOpenMobileSensorFailureReason>(255),
+			TEXT("/Users/player/private"),
+			TEXT("token\nsecret")
+		);
+	Unsafe.Error.Message = TEXT("location=/private/path token=secret");
+	FOpenMobileSensorErrorContext UnsafeContext;
+	UnsafeContext.Sensor.Type = EOpenMobileSensorType::TrueHeading;
+	UnsafeContext.Sensor.InstanceId = TEXT("device-serial-42");
+	UnsafeContext.Operation = EOpenMobileSensorOperation::BackendCallback;
+	UnsafeContext.BackendName = TEXT("CoreMotion.Manager");
+	UnsafeContext.bHasRateContext = true;
+	UnsafeContext.RequestedFrequencyHz = 120.0;
+	UnsafeContext.AppliedFrequencyHz = 60.0;
+	const FOpenMobileSensorErrorReport Redacted =
+		FOpenMobileSensorsErrorMapper::Describe(Unsafe, UnsafeContext, 42.0);
+	TestEqual(TEXT("Unknown reasons remain stable"),
+		Redacted.Failure.Reason,
+		EOpenMobileSensorFailureReason::OperationalFailure);
+	TestTrue(TEXT("Sensor instance identifiers are removed"),
+		Redacted.Context.Sensor.InstanceId.IsNone());
+	TestEqual(TEXT("Unsafe native domains are redacted"),
+		Redacted.Failure.NativeDomain,
+		FString(TEXT("redacted")));
+	TestEqual(TEXT("Unsafe native codes are redacted"),
+		Redacted.Failure.NativeCode,
+		FString(TEXT("redacted")));
+	TestFalse(TEXT("Raw native messages are not retained"),
+		Redacted.Error.Message.Contains(TEXT("private"))
+			|| Redacted.Error.Message.Contains(TEXT("secret")));
+	TestTrue(TEXT("Context includes requested rate"),
+		Redacted.Summary.ToString().Contains(TEXT("120")));
+	TestTrue(TEXT("Context includes applied rate"),
+		Redacted.Summary.ToString().Contains(TEXT("60")));
+
+	FOpenMobileSensorRateResolution Rate;
+	Rate.AdjustmentReason =
+		EOpenMobileSensorRateAdjustmentReason::MissingPlatformDeclaration;
+	FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(Rate);
+	TestFalse(TEXT("Rate adjustment has localized explanation"),
+		Rate.AdjustmentExplanation.IsEmpty());
+	TestFalse(TEXT("Rate adjustment has localized correction"),
+		Rate.AdjustmentCorrection.IsEmpty());
+
+	FOpenMobileSensorsSubscriptionService::ResetForTests();
+	const FGuid OwnerA = FGuid::NewGuid();
+	const FGuid OwnerB = FGuid::NewGuid();
+	const FGuid HandleA = FGuid::NewGuid();
+	const FGuid HandleB = FGuid::NewGuid();
+	FOpenMobileSensorErrorContext ContextA = UnsafeContext;
+	ContextA.SubscriptionIdentifier = HandleA;
+	FOpenMobileSensorErrorContext ContextB = UnsafeContext;
+	ContextB.SubscriptionIdentifier = HandleB;
+	FOpenMobileSensorsSubscriptionService::RecordErrorReportForTests(
+		OwnerA,
+		Unsafe,
+		ContextA
+	);
+	FOpenMobileSensorsSubscriptionService::RecordErrorReportForTests(
+		OwnerB,
+		Unsafe,
+		ContextB
+	);
+	const TArray<FOpenMobileSensorErrorReport> OwnerAHandleA =
+		FOpenMobileSensorsSubscriptionService::GetRecentErrorReports(
+			&OwnerA,
+			&HandleA
+		);
+	const TArray<FOpenMobileSensorErrorReport> OwnerAHandleB =
+		FOpenMobileSensorsSubscriptionService::GetRecentErrorReports(
+			&OwnerA,
+			&HandleB
+		);
+	TestEqual(TEXT("Reports remain isolated to their owner and handle"),
+		OwnerAHandleA.Num(), 1);
+	TestEqual(TEXT("Other handles do not leak reports"),
+		OwnerAHandleB.Num(), 0);
+	FOpenMobileSensorsSubscriptionService::ResetForTests();
+	return true;
+}
+
 #endif

@@ -88,6 +88,10 @@ public:
 	static TArray<FOpenMobileError> GetRecentErrors(
 		const FGuid* OwnerIdentifier = nullptr
 	);
+	static TArray<FOpenMobileSensorErrorReport> GetRecentErrorReports(
+		const FGuid* OwnerIdentifier = nullptr,
+		const FGuid* SubscriptionIdentifier = nullptr
+	);
 	static TArray<FOpenMobileSensorSubscriptionHandle>
 	SelectSubscribersForSample(
 		const FOpenMobileSensorIdentifier& Sensor,
@@ -116,6 +120,11 @@ public:
 	static void SetSubscriptionStateForTests(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorSubscriptionState State
+	);
+	static void RecordErrorReportForTests(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorOperationResult& Operation,
+		const FOpenMobileSensorErrorContext& Context
 	);
 	static void ResetForTests();
 #endif

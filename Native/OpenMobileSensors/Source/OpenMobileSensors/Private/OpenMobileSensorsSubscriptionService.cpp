@@ -4,6 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "IOpenMobileSensorsBackend.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/ScopeExit.h"
 #include "OpenMobileAsync.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsBackendRegistry.h"
@@ -83,7 +84,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	struct FRecentErrorEntry
 	{
 		FGuid OwnerIdentifier;
-		FOpenMobileError Error;
+		FOpenMobileSensorErrorReport Report;
 	};
 
 	TMap<FGuid, FSubscriptionEntry> Subscriptions;
@@ -115,17 +116,17 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 
 	void RecordRecentError(
 		const FGuid& OwnerIdentifier,
-		const FOpenMobileError& Error
+		FOpenMobileSensorErrorReport Report
 	)
 	{
-		if (!Error.IsSet())
+		if (!Report.Error.IsSet())
 		{
 			return;
 		}
 		constexpr int32 MaximumRecentErrors = 32;
 		FRecentErrorEntry& Entry = RecentErrors.AddDefaulted_GetRef();
 		Entry.OwnerIdentifier = OwnerIdentifier;
-		Entry.Error = Error;
+		Entry.Report = MoveTemp(Report);
 		if (RecentErrors.Num() > MaximumRecentErrors)
 		{
 			RecentErrors.RemoveAt(
@@ -134,6 +135,39 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				EAllowShrinking::No
 			);
 		}
+	}
+
+	FName GetBackendName(const FSubscriptionEntry* Subscription = nullptr)
+	{
+		if (Subscription)
+		{
+			if (const FPhysicalStreamEntry* Physical =
+				PhysicalStreams.Find(Subscription->PhysicalKey))
+			{
+				return Physical->Backend
+					? Physical->Backend->GetBackendName()
+					: NAME_None;
+			}
+		}
+		const IOpenMobileSensorsBackend* Backend =
+			FOpenMobileSensorsBackendRegistry::FindBackend();
+		return Backend ? Backend->GetBackendName() : NAME_None;
+	}
+
+	void RecordOperationFailure(
+		const FGuid& OwnerIdentifier,
+		const FOpenMobileSensorOperationResult& Operation,
+		const FOpenMobileSensorErrorContext& Context
+	)
+	{
+		if (!OwnerIdentifier.IsValid() || Operation.IsSuccess())
+		{
+			return;
+		}
+		RecordRecentError(
+			OwnerIdentifier,
+			FOpenMobileSensorsErrorMapper::Describe(Operation, Context)
+		);
 	}
 
 	FOpenMobileSensorOperationResult MakeHandleFailure(
@@ -1079,6 +1113,9 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		Snapshot.RequestedOptions = Entry.Request.Options;
 		Snapshot.AppliedOptions = Entry.AppliedOptions;
 		Snapshot.RateResolution = Entry.RateResolution;
+		FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
+			Snapshot.RateResolution
+		);
 		Snapshot.AttitudeReference.RequestedReferenceFrame =
 			Entry.Request.Options.AttitudeReferenceFrame;
 		Snapshot.AttitudeReference.AppliedReferenceFrame =
@@ -1337,7 +1374,51 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		Entry->State = State;
 		Entry->Error = Error;
 		Entry->Failure = Failure;
-		RecordRecentError(Entry->OwnerIdentifier, Error);
+		if (Error.IsSet() || Failure.IsSet())
+		{
+			FOpenMobileSensorOperationResult Operation = Failure.IsSet()
+				? FOpenMobileSensorsErrorMapper::Map(
+					Failure.Reason,
+					Failure.NativeDomain,
+					Failure.NativeCode
+				)
+				: FOpenMobileSensorsErrorMapper::FromCommon(Error);
+			if (Error.Code != EOpenMobileErrorCode::None)
+			{
+				Operation.Error.Code = Error.Code;
+			}
+			FOpenMobileSensorErrorContext Context;
+			Context.Sensor = Entry->Request.Sensor;
+			Context.SubscriptionIdentifier = Entry->Handle.GetIdentifier();
+			Context.BackendName = GetBackendName(Entry);
+			Context.bHasRateContext = true;
+			Context.RequestedFrequencyHz =
+				Entry->RateResolution.RequestedFrequencyHz;
+			Context.AppliedFrequencyHz =
+				Entry->RateResolution.AppliedNativeFrequencyHz;
+			switch (Operation.Failure.Reason)
+			{
+			case EOpenMobileSensorFailureReason::PermissionRequired:
+			case EOpenMobileSensorFailureReason::PermissionDenied:
+			case EOpenMobileSensorFailureReason::PermissionRestricted:
+				Context.Operation = EOpenMobileSensorOperation::Permission;
+				break;
+			case EOpenMobileSensorFailureReason::PoorCalibration:
+				Context.Operation = EOpenMobileSensorOperation::Calibration;
+				break;
+			case EOpenMobileSensorFailureReason::BackgroundRestricted:
+				Context.Operation = EOpenMobileSensorOperation::Lifecycle;
+				break;
+			default:
+				Context.Operation = EOpenMobileSensorOperation::BackendCallback;
+				break;
+			}
+			RecordOperationFailure(
+				Entry->OwnerIdentifier,
+				Operation,
+				Context
+			);
+		}
 		FOpenMobileSensorsSampleService::SetSubscriptionState(
 			Entry->Handle,
 			State
@@ -1443,6 +1524,9 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 					? AppliedRequest.AppliedRateAdjustmentReason
 					: EOpenMobileSensorRateAdjustmentReason::BackendLimit;
 			}
+			FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
+				Entry.RateResolution
+			);
 		}
 	}
 
@@ -2242,6 +2326,30 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	Result.RequestedOptions = Request.Options;
 	Result.RateResolution.RequestedFrequencyHz =
 		Request.Options.CustomFrequencyHz;
+	ON_SCOPE_EXIT
+	{
+		FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
+			Result.RateResolution
+		);
+		if (!Result.Operation.IsSuccess() && OwnerIdentifier.IsValid())
+		{
+			FOpenMobileSensorErrorContext Context;
+			Context.Sensor = Request.Sensor;
+			Context.Operation = EOpenMobileSensorOperation::StartStream;
+			Context.SubscriptionIdentifier = Result.Handle.GetIdentifier();
+			Context.BackendName = GetBackendName();
+			Context.bHasRateContext = true;
+			Context.RequestedFrequencyHz =
+				Result.RateResolution.RequestedFrequencyHz;
+			Context.AppliedFrequencyHz =
+				Result.RateResolution.AppliedNativeFrequencyHz;
+			RecordOperationFailure(
+				OwnerIdentifier,
+				Result.Operation,
+				Context
+			);
+		}
+	};
 	if (!OwnerIdentifier.IsValid())
 	{
 		Result.AppliedOptions = Request.Options;
@@ -3278,7 +3386,29 @@ FOpenMobileSensorsSubscriptionService::GetRecentErrors(
 	{
 		if (!OwnerIdentifier || Entry.OwnerIdentifier == *OwnerIdentifier)
 		{
-			Result.Add(Entry.Error);
+			Result.Add(Entry.Report.Error);
+		}
+	}
+	return Result;
+}
+
+TArray<FOpenMobileSensorErrorReport>
+FOpenMobileSensorsSubscriptionService::GetRecentErrorReports(
+	const FGuid* OwnerIdentifier,
+	const FGuid* SubscriptionIdentifier
+)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileSensorErrorReport> Result;
+	for (const FRecentErrorEntry& Entry : RecentErrors)
+	{
+		if ((!OwnerIdentifier || Entry.OwnerIdentifier == *OwnerIdentifier)
+			&& (!SubscriptionIdentifier
+				|| Entry.Report.Context.SubscriptionIdentifier ==
+					*SubscriptionIdentifier))
+		{
+			Result.Add(Entry.Report);
 		}
 	}
 	return Result;
@@ -3478,6 +3608,20 @@ void FOpenMobileSensorsSubscriptionService::SetSubscriptionStateForTests(
 	OpenMobileSensorsSubscriptionServicePrivate::SetState(
 		Handle.GetIdentifier(),
 		State
+	);
+}
+
+void FOpenMobileSensorsSubscriptionService::RecordErrorReportForTests(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorOperationResult& Operation,
+	const FOpenMobileSensorErrorContext& Context
+)
+{
+	check(IsInGameThread());
+	OpenMobileSensorsSubscriptionServicePrivate::RecordOperationFailure(
+		OwnerIdentifier,
+		Operation,
+		Context
 	);
 }
 

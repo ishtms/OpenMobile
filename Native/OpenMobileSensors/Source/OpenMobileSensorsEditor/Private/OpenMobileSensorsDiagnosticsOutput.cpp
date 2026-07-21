@@ -59,16 +59,7 @@ namespace OpenMobileSensorsDiagnosticsOutputPrivate
 
 	FString SensorName(const FOpenMobileSensorIdentifier& Sensor)
 	{
-		const FName StableName = FOpenMobileSensorTypes::GetStableName(
-			Sensor.Type
-		);
-		return Sensor.InstanceId.IsNone()
-			? StableName.ToString()
-			: FString::Printf(
-				TEXT("%s:%s"),
-				*StableName.ToString(),
-				*Sensor.InstanceId.ToString()
-			);
+		return FOpenMobileSensorTypes::GetStableName(Sensor.Type).ToString();
 	}
 
 	FOpenMobileSensorsDiagnosticsOutputResult MakeFailure(
@@ -336,24 +327,74 @@ FOpenMobileSensorsDiagnosticsOutput::Serialize(
 	Root->SetArrayField(TEXT("physicalStreams"), PhysicalStreams);
 
 	TArray<TSharedPtr<FJsonValue>> Errors;
-	for (int32 Index = FMath::Max(0, Snapshot.RecentErrors.Num() - MaximumErrors);
-		Index < Snapshot.RecentErrors.Num();
+	for (int32 Index = FMath::Max(
+			0,
+			Snapshot.RecentErrorReports.Num() - MaximumErrors
+		);
+		Index < Snapshot.RecentErrorReports.Num();
 		++Index)
 	{
-		const FOpenMobileError& Source = Snapshot.RecentErrors[Index];
+		const FOpenMobileSensorErrorReport& Source =
+			Snapshot.RecentErrorReports[Index];
 		const TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
-		Item->SetStringField(TEXT("code"), EnumName(Source.Code));
+		Item->SetStringField(TEXT("sensor"), SensorName(Source.Context.Sensor));
 		Item->SetStringField(
-			TEXT("provider"),
-			SafeString(Source.Provider, bTruncated)
+			TEXT("operation"),
+			EnumName(Source.Context.Operation)
 		);
 		Item->SetStringField(
-			TEXT("message"),
-			SafeString(Source.Message, bTruncated)
+			TEXT("backend"),
+			SafeString(Source.Context.BackendName.ToString(), bTruncated)
 		);
+		Item->SetStringField(TEXT("result"), EnumName(Source.ResultCode));
+		Item->SetStringField(TEXT("reason"), EnumName(Source.Failure.Reason));
+		Item->SetStringField(TEXT("code"), EnumName(Source.Error.Code));
+		Item->SetStringField(
+			TEXT("summary"),
+			SafeString(Source.Summary.ToString(), bTruncated)
+		);
+		Item->SetStringField(
+			TEXT("likelyCause"),
+			SafeString(Source.LikelyCause.ToString(), bTruncated)
+		);
+		Item->SetStringField(
+			TEXT("correction"),
+			SafeString(Source.Correction.ToString(), bTruncated)
+		);
+		if (Source.Context.bHasRateContext)
+		{
+			Item->SetNumberField(
+				TEXT("requestedHz"),
+				Source.Context.RequestedFrequencyHz
+			);
+			Item->SetNumberField(
+				TEXT("appliedHz"),
+				Source.Context.AppliedFrequencyHz
+			);
+		}
 		Errors.Add(MakeShared<FJsonValueObject>(Item));
 	}
-	bTruncated |= Snapshot.RecentErrors.Num() > MaximumErrors;
+	if (Snapshot.RecentErrorReports.IsEmpty())
+	{
+		for (int32 Index = FMath::Max(
+				0,
+				Snapshot.RecentErrors.Num() - MaximumErrors
+			);
+			Index < Snapshot.RecentErrors.Num();
+			++Index)
+		{
+			const FOpenMobileError& Source = Snapshot.RecentErrors[Index];
+			const TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
+			Item->SetStringField(TEXT("code"), EnumName(Source.Code));
+			Item->SetStringField(
+				TEXT("message"),
+				SafeString(Source.Message, bTruncated)
+			);
+			Errors.Add(MakeShared<FJsonValueObject>(Item));
+		}
+	}
+	bTruncated |= Snapshot.RecentErrorReports.Num() > MaximumErrors
+		|| Snapshot.RecentErrors.Num() > MaximumErrors;
 	Root->SetArrayField(TEXT("recentErrors"), Errors);
 	Root->SetBoolField(TEXT("truncated"), bTruncated);
 
