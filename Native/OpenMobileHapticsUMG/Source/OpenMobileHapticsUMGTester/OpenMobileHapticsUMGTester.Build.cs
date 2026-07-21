@@ -1,25 +1,27 @@
 using UnrealBuildTool;
 
-public class OpenMobileHapticsPreview : ModuleRules
+public class OpenMobileHapticsUMGTester : ModuleRules
 {
-	public OpenMobileHapticsPreview(ReadOnlyTargetRules Target) : base(Target)
+	public OpenMobileHapticsUMGTester(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
 			"CoreUObject",
-			"Engine",
-			"OpenMobileHaptics"
+			"OpenMobileHaptics",
+			"OpenMobileHapticsPreview",
+			"UMG"
 		});
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
-			"Json",
-			"Networking",
-			"Sockets"
+			"ApplicationCore",
+			"Engine",
+			"Slate",
+			"SlateCore"
 		});
 		PublicDefinitions.Add(
-			"OPENMOBILE_HAPTICS_PREVIEW_ENABLED="
+			"OPENMOBILE_HAPTICS_TESTER_ENABLED="
 			+ (Target.Configuration == UnrealTargetConfiguration.Development
 				? "1" : "0")
 		);

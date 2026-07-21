@@ -15,6 +15,14 @@
 			"Name": "OpenMobileHapticsUMG",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileHapticsUMGTester",
+			"Type": "DeveloperTool",
+			"LoadingPhase": "Default",
+			"TargetConfigurationAllowList": [
+				"Development"
+			]
 		}
 	],
 	"Plugins": [

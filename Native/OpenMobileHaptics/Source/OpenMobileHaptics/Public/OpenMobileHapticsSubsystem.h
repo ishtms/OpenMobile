@@ -229,6 +229,10 @@ public:
 		UOpenMobileHapticPatternAsset* PatternAsset,
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
+	FOpenMobileHapticPlaybackResult SubmitCapabilityTestPattern(
+		UOpenMobileHapticPatternAsset* PatternAsset,
+		const FOpenMobileHapticPlaybackOptions& Options
+	);
 #endif
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "On Haptic Playback Event", ToolTip = "Broadcasts ordered playback state changes on the game thread."))

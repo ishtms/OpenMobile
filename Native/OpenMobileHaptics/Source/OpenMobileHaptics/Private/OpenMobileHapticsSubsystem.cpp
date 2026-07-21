@@ -8,6 +8,7 @@
 #include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
 #include "OpenMobileHapticsBudgetPolicy.h"
@@ -130,6 +131,73 @@ void FOpenMobileHapticsSubsystemStateDeleter::operator()(
 
 namespace OpenMobileHapticsSubsystemPrivate
 {
+#if !UE_BUILD_SHIPPING
+	bool IsCapabilityTestPlatformOverrideSafe(
+		const FSoftObjectPath& OverridePath
+	)
+	{
+		if (OverridePath.IsNull())
+		{
+			return true;
+		}
+		UObject* LoadedOverride = OverridePath.TryLoad();
+		if (!LoadedOverride)
+		{
+			return true;
+		}
+		TArray<FString> Errors;
+		if (const UOpenMobileHapticIOSPatternAsset* IOS =
+			Cast<UOpenMobileHapticIOSPatternAsset>(LoadedOverride))
+		{
+			return IOS->Validate(Errors)
+				&& FMath::IsFinite(IOS->GetAHAPDurationSeconds())
+				&& IOS->GetAHAPDurationSeconds() <= 0.5;
+		}
+		const UOpenMobileHapticAndroidPatternAsset* Android =
+			Cast<UOpenMobileHapticAndroidPatternAsset>(LoadedOverride);
+		if (!Android || !Android->Validate(Errors))
+		{
+			return false;
+		}
+		switch (Android->Format)
+		{
+		case EOpenMobileHapticAndroidPatternFormat::Primitives:
+		{
+			if (Android->Primitives.Num() > 4)
+			{
+				return false;
+			}
+			int64 DelayMilliseconds = 0;
+			for (const FOpenMobileHapticAndroidPrimitiveStep& Step
+				: Android->Primitives)
+			{
+				DelayMilliseconds += Step.DelayMilliseconds;
+			}
+			return DelayMilliseconds <= 500;
+		}
+		case EOpenMobileHapticAndroidPatternFormat::Waveform:
+		{
+			if (Android->WaveformRepeatIndex != -1)
+			{
+				return false;
+			}
+			int64 DurationMilliseconds = 0;
+			for (const int32 Timing : Android->WaveformTimingsMilliseconds)
+			{
+				DurationMilliseconds += Timing;
+			}
+			return DurationMilliseconds <= 500;
+		}
+		case EOpenMobileHapticAndroidPatternFormat::BasicEnvelope:
+		case EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope:
+			return !Android->EnvelopePoints.IsEmpty()
+				&& Android->EnvelopePoints.Last().TimeSeconds <= 0.5;
+		default:
+			return false;
+		}
+	}
+#endif
+
 	int64 ToPublicCounter(uint64 Value)
 	{
 		return static_cast<int64>(FMath::Min<uint64>(
@@ -3910,6 +3978,40 @@ FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitCookedPreview
 	Request.PatternName = TEXT("LivePreview");
 	Request.PatternAsset = FSoftObjectPath(PatternAsset);
 	Request.Intensity = 1.0f;
+	Request.Options = Options;
+	return TrackInitialSubmissionResult(
+		SubmitNamedPatternInternal(Request, nullptr, true)
+	);
+}
+
+FOpenMobileHapticPlaybackResult
+UOpenMobileHapticsSubsystem::SubmitCapabilityTestPattern(
+	UOpenMobileHapticPatternAsset* PatternAsset,
+	const FOpenMobileHapticPlaybackOptions& Options
+)
+{
+	check(IsInGameThread());
+	constexpr uint32 MaximumTesterDurationMicroseconds = 500000;
+	const FSoftObjectPath PlatformOverride = PatternAsset
+		? PatternAsset->GetOverrideForCurrentPlatform()
+		: FSoftObjectPath();
+	if (!PatternAsset || !PatternAsset->IsDerivedDataCurrent()
+		|| PatternAsset->Loop.bLoop
+		|| PatternAsset->GetCookedPattern().DurationMicroseconds
+			> MaximumTesterDurationMicroseconds
+		|| !OpenMobileHapticsSubsystemPrivate::
+			IsCapabilityTestPlatformOverrideSafe(PlatformOverride))
+	{
+		return FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("Capability test patterns must be valid, non-looping, and no longer than 0.5 seconds.")
+		);
+	}
+	FOpenMobileHapticNamedPatternRequest Request;
+	Request.PatternName = TEXT("CapabilityTester");
+	Request.PatternAsset = FSoftObjectPath(PatternAsset);
+	Request.PlatformOverrideAsset = PlatformOverride;
+	Request.Intensity = 0.65f;
 	Request.Options = Options;
 	return TrackInitialSubmissionResult(
 		SubmitNamedPatternInternal(Request, nullptr, true)
