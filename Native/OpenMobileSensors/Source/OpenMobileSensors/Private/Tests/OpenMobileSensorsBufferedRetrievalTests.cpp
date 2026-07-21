@@ -2,6 +2,8 @@
 
 #include "Async/Async.h"
 #include "Engine/GameInstance.h"
+#include "HAL/PlatformMemory.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsMockBackend.h"
@@ -520,6 +522,98 @@ bool FOpenMobileSensorsBufferedAllSampleFamiliesTest::RunTest(
 
 #undef OPENMOBILE_TEST_BUFFER_FAMILY
 
+	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsFixedBudgetPerformanceTest,
+	"OpenMobile.Sensors.Performance.FixedBudget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsFixedBudgetPerformanceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsBufferedRetrievalTestsPrivate;
+	constexpr int32 BufferCapacity = 4096;
+	constexpr int32 BatchSize = 128;
+	constexpr int32 SampleCount = BufferCapacity * 2;
+	constexpr double MaximumPublishSeconds = 5.0;
+	constexpr double MaximumDrainSeconds = 2.0;
+	constexpr uint64 MaximumResidentGrowthBytes = 64ull * 1024ull * 1024ull;
+
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("FixedBudget"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionRequest Request = MakeRequest(
+		EOpenMobileSensorType::Accelerometer,
+		BufferCapacity
+	);
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		StartActive(Owner, Request);
+	const FOpenMobileSensorsBackendToken Token =
+		FOpenMobileSensorsBackendRegistry::CaptureToken();
+	const FOpenMobileSensorBackendStreamHandle PhysicalHandle =
+		Backend.GetLastStartedPhysicalHandle();
+	const uint64 MemoryBefore =
+		FPlatformMemory::GetStats().UsedPhysical;
+	const double PublishStarted = FPlatformTime::Seconds();
+	bool bAllAccepted = true;
+	for (int32 Offset = 0; Offset < SampleCount; Offset += BatchSize)
+	{
+		bAllAccepted &=
+			FOpenMobileSensorsSampleService::PublishVectorBatchFromBackend(
+				Token,
+				PhysicalHandle,
+				MakeVectorBatch(Request.Sensor, Offset + 1, BatchSize)
+			);
+	}
+	const double PublishSeconds =
+		FPlatformTime::Seconds() - PublishStarted;
+	const uint64 MemoryAfter = FPlatformMemory::GetStats().UsedPhysical;
+	const uint64 ResidentGrowthBytes = MemoryAfter > MemoryBefore
+		? MemoryAfter - MemoryBefore
+		: 0;
+
+	FOpenMobileSensorBufferReadResult Result;
+	FOpenMobileVectorSensorBatch Batch;
+	const double DrainStarted = FPlatformTime::Seconds();
+	const bool bDrained =
+		FOpenMobileSensorsSampleService::DrainBufferedVector(
+			Owner,
+			Subscription.Handle,
+			BufferCapacity,
+			Result,
+			Batch
+		);
+	const double DrainSeconds = FPlatformTime::Seconds() - DrainStarted;
+
+	AddInfo(FString::Printf(
+		TEXT("%d samples: publish %.3f ms, drain %.3f ms, resident growth %.2f MiB"),
+		SampleCount,
+		PublishSeconds * 1000.0,
+		DrainSeconds * 1000.0,
+		static_cast<double>(ResidentGrowthBytes) / (1024.0 * 1024.0)
+	));
+	TestTrue(TEXT("Every fixed batch is accepted"), bAllAccepted);
+	TestTrue(TEXT("The bounded queue drains"), bDrained);
+	TestEqual(TEXT("The queue retains only its fixed capacity"),
+		Batch.Samples.Num(), BufferCapacity);
+	TestEqual(TEXT("Overflow remains exactly accounted"),
+		Result.DroppedSamples,
+		static_cast<int64>(SampleCount - BufferCapacity));
+	TestTrue(TEXT("The queue high-water mark stays bounded"),
+		Result.BufferHighWaterMark <= BufferCapacity);
+	TestTrue(TEXT("Fixed-count publishing stays within its time budget"),
+		PublishSeconds <= MaximumPublishSeconds);
+	TestTrue(TEXT("Game-thread drain stays within its time budget"),
+		DrainSeconds <= MaximumDrainSeconds);
+	TestTrue(TEXT("Resident memory growth stays within its fixed budget"),
+		ResidentGrowthBytes <= MaximumResidentGrowthBytes);
 	FinishBackend(Backend);
 	return true;
 }
