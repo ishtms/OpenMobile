@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Sensors-only architecture fixture.",
+	"Modules": [
+		{
+			"Name": "OpenMobileSensorsSensorsOnly",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../../Foundation",
+		"../../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		}
+	]
+}

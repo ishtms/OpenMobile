@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Sensors Activity Provider Fixture",
+	"Category": "OpenMobile Tests",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Modules": [
+		{
+			"Name": "OpenMobileSensorsActivityProviderFixture",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": ["Android"]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		}
+	]
+}

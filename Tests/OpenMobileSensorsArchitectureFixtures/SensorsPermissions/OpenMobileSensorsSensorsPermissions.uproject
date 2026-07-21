@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Sensors plus Permissions architecture fixture.",
+	"Modules": [
+		{
+			"Name": "OpenMobileSensorsSensorsPermissions",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../../Foundation",
+		"../../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobilePermissions",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		}
+	]
+}

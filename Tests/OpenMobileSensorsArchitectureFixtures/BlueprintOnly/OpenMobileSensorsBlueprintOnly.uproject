@@ -1,0 +1,16 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "Blueprint-only OpenMobile Sensors architecture fixture.",
+	"AdditionalPluginDirectories": [
+		"../../../Foundation",
+		"../../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		}
+	]
+}

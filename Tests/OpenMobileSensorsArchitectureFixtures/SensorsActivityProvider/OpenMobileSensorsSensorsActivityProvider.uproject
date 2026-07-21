@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Sensors optional activity-provider fixture.",
+	"Modules": [
+		{
+			"Name": "OpenMobileSensorsSensorsActivityProvider",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../../Foundation",
+		"../../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileSensorsActivityProviderFixture",
+			"Enabled": true
+		}
+	]
+}
