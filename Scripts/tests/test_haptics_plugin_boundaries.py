@@ -58,6 +58,7 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 				"OpenMobileHapticsAndroid",
 				"OpenMobileHapticsIOS",
 				"OpenMobileHapticsEditor",
+				"OpenMobileHapticsPreview",
 			},
 			set(modules),
 		)
@@ -72,6 +73,10 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			modules["OpenMobileHapticsIOS"]["PlatformAllowList"],
 		)
 		self.assertEqual("Editor", modules["OpenMobileHapticsEditor"]["Type"])
+		self.assertEqual(
+			"DeveloperTool",
+			modules["OpenMobileHapticsPreview"]["Type"],
+		)
 
 		for module_name in modules:
 			module_root = HAPTICS_PLUGIN / "Source" / module_name

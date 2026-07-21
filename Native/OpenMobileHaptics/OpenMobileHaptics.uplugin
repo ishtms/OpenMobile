@@ -32,6 +32,11 @@
 			"Name": "OpenMobileHapticsEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileHapticsPreview",
+			"Type": "DeveloperTool",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

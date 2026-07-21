@@ -4,6 +4,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "InputCoreTypes.h"
 #include "OpenMobileHapticTimelineEditorModel.h"
+#include "OpenMobileHapticsPreviewTransport.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Input/SButton.h"
@@ -587,11 +588,25 @@ namespace OpenMobileHapticTimelineEditorPrivate
 	};
 }
 
+SOpenMobileHapticTimelineEditor::~SOpenMobileHapticTimelineEditor()
+{
+	if (PreviewTransport)
+	{
+		PreviewTransport->OnChanged().RemoveAll(this);
+		PreviewTransport->Shutdown();
+	}
+}
+
 void SOpenMobileHapticTimelineEditor::Construct(const FArguments& InArgs)
 {
 	using namespace OpenMobileHapticTimelineEditorPrivate;
 	Model = InArgs._Model;
 	check(Model);
+	PreviewTransport = MakeShared<FOpenMobileHapticsPreviewTransport>();
+	PreviewTransport->OnChanged().AddSP(
+		this,
+		&SOpenMobileHapticTimelineEditor::HandleTransportChanged
+	);
 
 	auto AddEvent = [this](EOpenMobileHapticPatternEventType Type)
 	{
@@ -853,6 +868,74 @@ void SOpenMobileHapticTimelineEditor::Construct(const FArguments& InArgs)
 					return FReply::Handled();
 				})
 			]
+			+ SWrapBox::Slot().Padding(12.0f, 3.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("FindDevice", "Find Device"))
+				.OnClicked_Lambda([this]
+				{
+					PreviewTransport->Discover();
+					return FReply::Handled();
+				})
+			]
+			+ SWrapBox::Slot().Padding(3.0f)
+			[
+				SNew(SButton)
+				.Text_Lambda([this]
+				{
+					return PreviewTransport->GetSelectedDeviceText();
+				})
+				.OnClicked_Lambda([this]
+				{
+					PreviewTransport->SelectNextDevice();
+					return FReply::Handled();
+				})
+			]
+			+ SWrapBox::Slot().Padding(3.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("PairDevice", "Pair"))
+				.IsEnabled_Lambda([this]
+				{
+					return PreviewTransport->CanRequestPairing();
+				})
+				.OnClicked_Lambda([this]
+				{
+					PreviewTransport->RequestPairing();
+					return FReply::Handled();
+				})
+			]
+			+ SWrapBox::Slot().Padding(3.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("SendDevicePreview", "Preview on Device"))
+				.IsEnabled_Lambda([this]
+				{
+					return PreviewTransport->CanSendPreview();
+				})
+				.OnClicked_Lambda([this]
+				{
+					if (const UOpenMobileHapticPatternAsset* Asset = Model->GetAsset())
+					{
+						PreviewTransport->SendPreview(*Asset);
+					}
+					return FReply::Handled();
+				})
+			]
+			+ SWrapBox::Slot().Padding(3.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("StopDevicePreview", "Stop Device"))
+				.IsEnabled_Lambda([this]
+				{
+					return PreviewTransport->CanSendPreview();
+				})
+				.OnClicked_Lambda([this]
+				{
+					PreviewTransport->StopPreview();
+					return FReply::Handled();
+				})
+			]
 		]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -861,6 +944,17 @@ void SOpenMobileHapticTimelineEditor::Construct(const FArguments& InArgs)
 			SNew(STextBlock)
 			.AutoWrapText(true)
 			.Text(this, &SOpenMobileHapticTimelineEditor::GetPreviewText)
+		]
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(8.0f, 0.0f, 8.0f, 6.0f)
+		[
+			SNew(STextBlock)
+			.AutoWrapText(true)
+			.Text_Lambda([this]
+			{
+				return PreviewTransport->GetStatusText();
+			})
 		]
 		+ SVerticalBox::Slot()
 		.FillHeight(1.0f)
@@ -1197,6 +1291,11 @@ SOpenMobileHapticTimelineEditor::GetMarkerInspectorVisibility() const
 {
 	return Model->GetPrimaryMarkerIndex() == INDEX_NONE
 		? EVisibility::Collapsed : EVisibility::Visible;
+}
+
+void SOpenMobileHapticTimelineEditor::HandleTransportChanged()
+{
+	Invalidate(EInvalidateWidgetReason::PaintAndVolatility);
 }
 
 #undef LOCTEXT_NAMESPACE

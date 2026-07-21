@@ -18,6 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 );
 
 class UOpenMobileHapticLibrary;
+class UOpenMobileHapticPatternAsset;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsBackendRequestToken;
@@ -223,6 +224,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptics Diagnostics", ToolTip = "Returns a bounded snapshot of Haptics state and the latest sanitized error."))
 	FOpenMobileHapticsDiagnostics GetDiagnostics() const;
 
+#if !UE_BUILD_SHIPPING
+	FOpenMobileHapticPlaybackResult SubmitCookedPreview(
+		UOpenMobileHapticPatternAsset* PatternAsset,
+		const FOpenMobileHapticPlaybackOptions& Options
+	);
+#endif
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "On Haptic Playback Event", ToolTip = "Broadcasts ordered playback state changes on the game thread."))
 	FOpenMobileHapticPlaybackEventDynamic OnPlaybackEvent;
 
@@ -381,7 +389,8 @@ private:
 	);
 	FOpenMobileHapticPlaybackResult SubmitNamedPatternInternal(
 		const FOpenMobileHapticNamedPatternRequest& Request,
-		const FOpenMobileHapticsBackendRequestToken* ExistingToken
+		const FOpenMobileHapticsBackendRequestToken* ExistingToken,
+		bool bBypassNamedLibraries = false
 	);
 	bool ResolveAndApplyOverlap(
 		const FOpenMobileHapticPlaybackOptions& Options,

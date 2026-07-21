@@ -188,6 +188,19 @@ public:
 	bool IsDerivedDataCurrent() const;
 	bool RebuildDerivedData(TArray<FString>& Errors);
 
+#if !UE_BUILD_SHIPPING
+	bool InitializeCookedPreviewData(
+		const FOpenMobileHapticCookedPatternData& InCookedPattern,
+		const FOpenMobileHapticLoopOptions& InLoop,
+		FName InCategory,
+		EOpenMobileHapticFallbackPolicy InFallbackPolicy,
+		EOpenMobileHapticFallbackFloor InLowestAllowedFallback,
+		FName InPrimitiveOrPresetFallback,
+		bool bInAllowSemanticFallback,
+		EOpenMobileHapticSemanticEffect InSemanticFallback
+	);
+#endif
+
 #if WITH_EDITORONLY_DATA
 	void NormalizeEditorData();
 #endif
@@ -215,4 +228,8 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Cooked Pattern")
 	FOpenMobileHapticCookedPatternData CookedPattern;
+
+#if !UE_BUILD_SHIPPING
+	bool bHasCookedPreviewData = false;
+#endif
 };

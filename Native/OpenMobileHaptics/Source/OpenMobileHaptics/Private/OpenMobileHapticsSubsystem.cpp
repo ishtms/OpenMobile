@@ -3892,10 +3892,36 @@ UOpenMobileHapticsSubsystem::SubmitNamedPattern(
 	);
 }
 
+#if !UE_BUILD_SHIPPING
+FOpenMobileHapticPlaybackResult UOpenMobileHapticsSubsystem::SubmitCookedPreview(
+	UOpenMobileHapticPatternAsset* PatternAsset,
+	const FOpenMobileHapticPlaybackOptions& Options
+)
+{
+	check(IsInGameThread());
+	if (!PatternAsset || !PatternAsset->IsDerivedDataCurrent())
+	{
+		return FOpenMobileHapticPlaybackResult::MakeRejected(
+			EOpenMobileErrorCode::InvalidArgument,
+			TEXT("Preview pattern data is invalid.")
+		);
+	}
+	FOpenMobileHapticNamedPatternRequest Request;
+	Request.PatternName = TEXT("LivePreview");
+	Request.PatternAsset = FSoftObjectPath(PatternAsset);
+	Request.Intensity = 1.0f;
+	Request.Options = Options;
+	return TrackInitialSubmissionResult(
+		SubmitNamedPatternInternal(Request, nullptr, true)
+	);
+}
+#endif
+
 FOpenMobileHapticPlaybackResult
 UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	const FOpenMobileHapticNamedPatternRequest& Request,
-	const FOpenMobileHapticsBackendRequestToken* ExistingToken
+	const FOpenMobileHapticsBackendRequestToken* ExistingToken,
+	bool bBypassNamedLibraries
 )
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(OpenMobileHaptics_SubmitNamedPattern);
@@ -3905,7 +3931,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 		GetDefault<UOpenMobileHapticsSettings>();
 	FOpenMobileHapticNamedPatternRequest ResolvedRequest = Request;
 	FSoftObjectPath LifecyclePatternPath = Request.PatternAsset;
-	if (Settings->NamedLibraries.Num() > 0
+	if (!bBypassNamedLibraries && Settings->NamedLibraries.Num() > 0
 		&& LocalState.LibraryResolver.Find(
 			Request.PatternName,
 			LifecyclePatternPath
@@ -3913,7 +3939,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	{
 		ResolvedRequest.PatternAsset = LifecyclePatternPath;
 	}
-	else if (Settings->NamedLibraries.Num() > 0)
+	else if (!bBypassNamedLibraries && Settings->NamedLibraries.Num() > 0)
 	{
 		LifecyclePatternPath.Reset();
 	}
@@ -4072,7 +4098,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 			TEXT("ZeroIntensity")
 		);
 	}
-	if (!Settings->NamedLibraries.IsEmpty())
+	if (!bBypassNamedLibraries && !Settings->NamedLibraries.IsEmpty())
 	{
 		LocalState.LastNamedPattern = Request.PatternName;
 		LocalState.LastNamedPatternStatus =
@@ -4111,7 +4137,7 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 				Pattern->GetOverrideForCurrentPlatform();
 		}
 	}
-	if (!Settings->NamedLibraries.IsEmpty()
+	if (!bBypassNamedLibraries && !Settings->NamedLibraries.IsEmpty()
 		&& LocalState.PreparationState
 			== EOpenMobileHapticPreparationState::Prepared
 		&& Backend->GetPreparationState()
@@ -4287,7 +4313,8 @@ UOpenMobileHapticsSubsystem::SubmitNamedPatternInternal(
 	RequestState.Priority = ResolvedChannel.EffectivePriority;
 	RequestState.ResolvedUserPolicyScale = MutablePolicyScale;
 	RequestState.bSupportsDynamicParameters = bSupportsDynamicParameters;
-	RequestState.bRequiresPreparedAsset = !Settings->NamedLibraries.IsEmpty();
+	RequestState.bRequiresPreparedAsset =
+		!bBypassNamedLibraries && !Settings->NamedLibraries.IsEmpty();
 	RequestState.RecoveryRequest = ReplayRequest;
 	RequestState.ScheduledStartGuard =
 		PlaybackParameters.ScheduledStartGuard;

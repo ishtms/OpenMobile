@@ -514,11 +514,57 @@ uint32 UOpenMobileHapticPatternAsset::ComputeSourceHash() const
 
 bool UOpenMobileHapticPatternAsset::IsDerivedDataCurrent() const
 {
+#if !UE_BUILD_SHIPPING
+	if (bHasCookedPreviewData)
+	{
+		return CookedPattern.DataFormatVersion
+				== FOpenMobileHapticCookedPatternData::CurrentFormatVersion
+			&& !CookedPattern.Events.IsEmpty();
+	}
+#endif
 	return CookedPattern.DataFormatVersion
 			== FOpenMobileHapticCookedPatternData::CurrentFormatVersion
 		&& !CookedPattern.Events.IsEmpty()
 		&& CookedPattern.SourceHash == ComputeSourceHash();
 }
+
+#if !UE_BUILD_SHIPPING
+bool UOpenMobileHapticPatternAsset::InitializeCookedPreviewData(
+	const FOpenMobileHapticCookedPatternData& InCookedPattern,
+	const FOpenMobileHapticLoopOptions& InLoop,
+	FName InCategory,
+	EOpenMobileHapticFallbackPolicy InFallbackPolicy,
+	EOpenMobileHapticFallbackFloor InLowestAllowedFallback,
+	FName InPrimitiveOrPresetFallback,
+	bool bInAllowSemanticFallback,
+	EOpenMobileHapticSemanticEffect InSemanticFallback
+)
+{
+	if (InCookedPattern.DataFormatVersion
+			!= FOpenMobileHapticCookedPatternData::CurrentFormatVersion
+		|| InCookedPattern.Events.IsEmpty()
+		|| InCategory.IsNone()
+		|| static_cast<uint8>(InFallbackPolicy) > static_cast<uint8>(
+			EOpenMobileHapticFallbackPolicy::NoEffectAllowed)
+		|| static_cast<uint8>(InLowestAllowedFallback) > static_cast<uint8>(
+			EOpenMobileHapticFallbackFloor::BasicVibration)
+		|| static_cast<uint8>(InSemanticFallback) > static_cast<uint8>(
+			EOpenMobileHapticSemanticEffect::Achievement))
+	{
+		return false;
+	}
+	CookedPattern = InCookedPattern;
+	Loop = InLoop;
+	DefaultCategory = InCategory;
+	FallbackPolicy = InFallbackPolicy;
+	LowestAllowedFallback = InLowestAllowedFallback;
+	PrimitiveOrPresetFallback = InPrimitiveOrPresetFallback;
+	bAllowSemanticFallback = bInAllowSemanticFallback;
+	SemanticFallback = InSemanticFallback;
+	bHasCookedPreviewData = true;
+	return true;
+}
+#endif
 
 bool UOpenMobileHapticPatternAsset::ValidateMetadata(
 	TArray<FString>& Errors

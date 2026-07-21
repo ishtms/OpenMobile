@@ -18,9 +18,12 @@ public class OpenMobileHapticsEditor : ModuleRules
 			"InputCore",
 			"Json",
 			"OpenMobileHaptics",
+			"OpenMobileHapticsPreview",
 			"PropertyEditor",
 			"Slate",
 			"SlateCore",
+			"Sockets",
+			"Networking",
 			"ToolMenus",
 			"UnrealEd"
 		});
