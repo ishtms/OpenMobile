@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Sensors sample and device validation host.",
+	"Modules": [
+		{
+			"Name": "OpenMobileSensorsSampleHost",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../Foundation",
+		"../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobilePermissions",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileSensors",
+			"Enabled": true
+		}
+	]
+}
