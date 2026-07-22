@@ -93,6 +93,7 @@ struct FOpenMobileHapticsSubsystemState
 	FName LastResolvedPath;
 	TArray<FName> LastFallbackAttempts;
 	TArray<FOpenMobileHapticPlaybackEvent> RecentPlaybackEvents;
+	uint64 FallbackPlaybackCount = 0;
 	FOpenMobileHapticsLibraryResolver LibraryResolver;
 	TSharedPtr<FStreamableHandle> LibraryLoadHandle;
 	TSharedPtr<FStreamableHandle> PatternLoadHandle;
@@ -131,6 +132,26 @@ void FOpenMobileHapticsSubsystemStateDeleter::operator()(
 
 namespace OpenMobileHapticsSubsystemPrivate
 {
+	constexpr int32 MaximumDiagnosticChannelCount = 64;
+	constexpr int32 MaximumDiagnosticHandleCount = 64;
+
+	FName ApplicationStateName(EOpenMobileHapticsApplicationState State)
+	{
+		switch (State)
+		{
+		case EOpenMobileHapticsApplicationState::Active:
+			return TEXT("Active");
+		case EOpenMobileHapticsApplicationState::Inactive:
+			return TEXT("Inactive");
+		case EOpenMobileHapticsApplicationState::Background:
+			return TEXT("Background");
+		case EOpenMobileHapticsApplicationState::Terminating:
+			return TEXT("Terminating");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+
 #if !UE_BUILD_SHIPPING
 	bool IsCapabilityTestPlatformOverrideSafe(
 		const FSoftObjectPath& OverridePath
@@ -2992,6 +3013,11 @@ UOpenMobileHapticsSubsystem::TrackInitialSubmissionResult(
 	FOpenMobileHapticPlaybackResult Result
 )
 {
+	if (State && Result.Outcome == EOpenMobileHapticPlaybackOutcome::Fallback
+		&& State->FallbackPlaybackCount != MAX_uint64)
+	{
+		++State->FallbackPlaybackCount;
+	}
 	if (State && !Result.IsAccepted())
 	{
 		State->PerformanceTracker.RecordDroppedRequest();
@@ -5414,6 +5440,14 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 {
 	FOpenMobileHapticsDiagnostics Diagnostics;
 	Diagnostics.Capabilities = GetCapabilitiesNative();
+	Diagnostics.ApplicationState =
+		OpenMobileHapticsSubsystemPrivate::ApplicationStateName(
+			FOpenMobileHapticsBackendRegistry::GetApplicationState()
+		);
+	Diagnostics.bBackendRecovering =
+		FOpenMobileHapticsBackendRegistry::IsRecovering();
+	Diagnostics.bBackendShuttingDown =
+		FOpenMobileHapticsBackendRegistry::IsShuttingDown();
 	const FOpenMobileHapticsTimelineCacheStatistics CacheStatistics =
 		FOpenMobileHapticsBackendRegistry::GetTimelineManager().GetStatistics();
 	Diagnostics.Performance.TimelineCacheHitCount =
@@ -5464,6 +5498,47 @@ UOpenMobileHapticsSubsystem::GetDiagnosticsNative() const
 			Performance.MaximumNativeSubmissionLatencyMilliseconds;
 		Diagnostics.ActivePlaybackCount = State->ChannelArbiter.GetActiveCount();
 		Diagnostics.QueuedPlaybackCount = State->ChannelArbiter.GetQueuedCount();
+		Diagnostics.FallbackPlaybackCount =
+			OpenMobileHapticsSubsystemPrivate::ToPublicCounter(
+				State->FallbackPlaybackCount
+			);
+		Diagnostics.bTruncated |= State->ChannelArbiter.BuildDiagnostics(
+			Diagnostics.Channels,
+			OpenMobileHapticsSubsystemPrivate::MaximumDiagnosticChannelCount
+		);
+		TArray<uint64> RequestIds;
+		State->Requests.GenerateKeyArray(RequestIds);
+		RequestIds.Sort();
+		for (const uint64 RequestId : RequestIds)
+		{
+			const FOpenMobileHapticsSubsystemRequestState& Request =
+				State->Requests.FindChecked(RequestId);
+			if (!Request.Token.PlaybackHandle.IsValid())
+			{
+				continue;
+			}
+			if (Diagnostics.ActiveHandles.Num()
+				>= OpenMobileHapticsSubsystemPrivate::
+					MaximumDiagnosticHandleCount)
+			{
+				Diagnostics.bTruncated = true;
+				break;
+			}
+			FOpenMobileHapticHandleDiagnostics& Handle =
+				Diagnostics.ActiveHandles.AddDefaulted_GetRef();
+			Handle.Ordinal = Diagnostics.ActiveHandles.Num();
+			Handle.State = Request.LastPublishedState
+				!= EOpenMobileHapticPlaybackState::Invalid
+					? Request.LastPublishedState
+					: Request.SubmissionState;
+			Handle.Channel = Request.Channel;
+			Handle.PatternOrEffect = Request.Effect;
+			Handle.ResolvedPath = Request.ResolvedPath;
+			Handle.bQueued = Request.bWaitingForOverlap
+				|| Request.QueuedSemanticRequest.IsSet()
+				|| Request.QueuedOneShotRequest.IsSet()
+				|| Request.QueuedNamedRequest.IsSet();
+		}
 		Diagnostics.LastError = State->LastError;
 		Diagnostics.LastDuration = State->LastDuration;
 		Diagnostics.LastIntensity = State->LastIntensity;

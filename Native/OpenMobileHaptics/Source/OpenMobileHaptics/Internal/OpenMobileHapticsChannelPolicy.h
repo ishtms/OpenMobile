@@ -75,6 +75,10 @@ public:
 
 	int32 GetActiveCount() const { return ActiveCount; }
 	int32 GetQueuedCount() const { return QueuedCount; }
+	bool BuildDiagnostics(
+		TArray<FOpenMobileHapticChannelDiagnostics>& OutDiagnostics,
+		int32 MaximumEntries
+	) const;
 
 private:
 	FOpenMobileHapticsChannelLimits Limits;

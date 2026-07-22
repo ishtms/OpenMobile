@@ -1271,6 +1271,46 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsPerformanceDiagnostics
 };
 
 USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName Channel;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 ActivePlaybackCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 QueuedPlaybackCount = 0;
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticHandleDiagnostics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int32 Ordinal = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	EOpenMobileHapticPlaybackState State =
+		EOpenMobileHapticPlaybackState::Invalid;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName Channel;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName PatternOrEffect;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName ResolvedPath;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bQueued = false;
+};
+
+USTRUCT(BlueprintType)
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 {
 	GENERATED_BODY()
@@ -1283,6 +1323,18 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	int32 QueuedPlaybackCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	FName ApplicationState = TEXT("Active");
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bBackendRecovering = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bBackendShuttingDown = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	int64 FallbackPlaybackCount = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	FOpenMobileHapticsPerformanceDiagnostics Performance;
@@ -1318,4 +1370,13 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	TArray<FOpenMobileHapticPlaybackEvent> RecentPlaybackEvents;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticChannelDiagnostics> Channels;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	TArray<FOpenMobileHapticHandleDiagnostics> ActiveHandles;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	bool bTruncated = false;
 };

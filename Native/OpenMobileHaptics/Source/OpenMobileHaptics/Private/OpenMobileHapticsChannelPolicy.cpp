@@ -268,3 +268,41 @@ void FOpenMobileHapticsChannelArbiter::Reset()
 	ActiveCount = 0;
 	QueuedCount = 0;
 }
+
+bool FOpenMobileHapticsChannelArbiter::BuildDiagnostics(
+	TArray<FOpenMobileHapticChannelDiagnostics>& OutDiagnostics,
+	int32 MaximumEntries
+) const
+{
+	OutDiagnostics.Reset();
+	TArray<FName> Channels;
+	ActiveCountsByChannel.GenerateKeyArray(Channels);
+	for (const TPair<FName, int32>& Pair : QueuedCountsByChannel)
+	{
+		Channels.AddUnique(Pair.Key);
+	}
+	Channels.Sort([](FName Left, FName Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+	const int32 Count = FMath::Min(
+		Channels.Num(),
+		FMath::Max(0, MaximumEntries)
+	);
+	OutDiagnostics.Reserve(Count);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		FOpenMobileHapticChannelDiagnostics& Entry =
+			OutDiagnostics.AddDefaulted_GetRef();
+		Entry.Channel = Channels[Index];
+		Entry.ActivePlaybackCount = FMath::Max(
+			0,
+			ActiveCountsByChannel.FindRef(Channels[Index])
+		);
+		Entry.QueuedPlaybackCount = FMath::Max(
+			0,
+			QueuedCountsByChannel.FindRef(Channels[Index])
+		);
+	}
+	return Channels.Num() > Count;
+}
