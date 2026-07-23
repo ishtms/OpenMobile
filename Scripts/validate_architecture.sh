@@ -111,8 +111,64 @@ grep -q 'IOpenMobileMotionActivityProvider' \
 	"$fixture_root/SensorsActivityProvider/Plugins/OpenMobileSensorsActivityProviderFixture/Source/OpenMobileSensorsActivityProviderFixture/Private/OpenMobileSensorsActivityProviderFixtureModule.cpp" \
 	|| fail "Sensors activity-provider fixture does not compile the public provider SPI"
 
-if find "$fixture_root/BlueprintOnly" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.Build.cs' -o -name '*.Target.cs' \) -print -quit | grep -q .; then
+if find "$fixture_root/BlueprintOnly" \
+	\( -name Binaries -o -name Build -o -name Intermediate -o -name Saved \) -prune -o \
+	-type f \( -name '*.cpp' -o -name '*.h' -o -name '*.Build.cs' -o -name '*.Target.cs' \) -print -quit | grep -q .; then
 	fail "Blueprint-only Sensors fixture contains native consumer code"
+fi
+
+haptics_descriptor="Native/OpenMobileHaptics/OpenMobileHaptics.uplugin"
+haptics_runtime_rules="Native/OpenMobileHaptics/Source/OpenMobileHaptics/OpenMobileHaptics.Build.cs"
+
+[[ -f "$haptics_descriptor" ]] || fail "missing Haptics descriptor"
+grep -q '"Name": "OpenMobileCore"' "$haptics_descriptor" \
+	|| fail "Haptics descriptor does not declare OpenMobileCore"
+grep -q '"OpenMobileCore"' "$haptics_runtime_rules" \
+	|| fail "Haptics runtime module does not depend on OpenMobileCore"
+
+for platform in Android IOS
+do
+	grep -q '"Name": "OpenMobileHaptics'"$platform"'"' "$haptics_descriptor" \
+		|| fail "Haptics descriptor is missing the $platform module"
+	grep -q '"PlatformAllowList": \["'"$platform"'"\]' "$haptics_descriptor" \
+		|| fail "Haptics $platform module is not platform isolated"
+done
+
+if grep -R -nE 'AndroidJNI|jni\.h|CoreHaptics/|UIKit/|CHHaptic' \
+	Native/OpenMobileHaptics/Source/OpenMobileHaptics/Public \
+	--include='*.h'; then
+	fail "a public Haptics header leaks platform APIs"
+fi
+
+for dependency in UMG GameplayAbilities MovieScene OpenMobileDevice OpenMobileSensors
+do
+	if grep -q '"'"$dependency"'"' "$haptics_runtime_rules"; then
+		fail "base Haptics runtime depends on optional module $dependency"
+	fi
+done
+
+for integration in OpenMobileHapticsUMG OpenMobileHapticsGameplayAbilities OpenMobileHapticsSequencer
+do
+	integration_descriptor="Native/$integration/$integration.uplugin"
+	[[ -f "$integration_descriptor" ]] || fail "missing Haptics integration $integration"
+	grep -q '"Name": "OpenMobileHaptics"' "$integration_descriptor" \
+		|| fail "$integration does not declare its Haptics dependency"
+done
+
+if grep -R -n 'OpenMobileHaptics' \
+	Foundation/OpenMobileCore/Source \
+	Foundation/OpenMobileCore/OpenMobileCore.uplugin \
+	--include='*.h' --include='*.cpp' --include='*.cs' --include='*.uplugin'; then
+	fail "OpenMobileCore depends on Haptics"
+fi
+
+haptics_blueprint_fixture="Tests/OpenMobileHapticsArchitectureFixtures/BlueprintOnly"
+[[ -f "$haptics_blueprint_fixture/OpenMobileHapticsBlueprintOnly.uproject" ]] \
+	|| fail "missing Blueprint-only Haptics fixture"
+if find "$haptics_blueprint_fixture" \
+	\( -name Binaries -o -name Build -o -name Intermediate -o -name Saved \) -prune -o \
+	-type f \( -name '*.cpp' -o -name '*.h' -o -name '*.Build.cs' -o -name '*.Target.cs' \) -print -quit | grep -q .; then
+	fail "Blueprint-only Haptics fixture contains native consumer code"
 fi
 
 echo "OpenMobile architecture validation passed ($descriptor_count plugins)."
