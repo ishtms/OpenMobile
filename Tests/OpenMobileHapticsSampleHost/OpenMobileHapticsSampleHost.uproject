@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Mobile",
+	"Description": "OpenMobile Haptics sample and validation host.",
+	"Modules": [
+		{
+			"Name": "OpenMobileHapticsSampleHost",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"AdditionalPluginDirectories": [
+		"../../Foundation",
+		"../../Native"
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenMobileHaptics",
+			"Enabled": true
+		}
+	]
+}
