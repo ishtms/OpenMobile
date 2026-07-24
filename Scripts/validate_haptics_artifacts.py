@@ -236,11 +236,11 @@ def validate_ios(
 		if enabled and not present:
 			fail(f"iOS framework state does not match Haptics mode: {framework}")
 
-	receipts = list((project_root / "Binaries" / "IOS").glob("*.target"))
-	if receipts:
-		evidence = "\n".join(
-			path.read_text(encoding="utf-8") for path in receipts
-		)
+	try:
+		evidence = read_evidence(project_root, "IOS")
+	except ArtifactValidationError:
+		evidence = ""
+	if evidence:
 		if enabled:
 			require_modules(evidence, ("OpenMobileHaptics", "OpenMobileHapticsIOS"))
 			forbid_modules(evidence, OPTIONAL_MODULES)

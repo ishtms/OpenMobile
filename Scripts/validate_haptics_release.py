@@ -394,6 +394,7 @@ class Runner:
 				"Scripts.tests.test_haptics_plugin_boundaries",
 				"Scripts.tests.test_haptics_android_manifest",
 				"Scripts.tests.test_haptics_artifacts",
+				"Scripts.tests.test_haptics_device_validation",
 			],
 		)
 
