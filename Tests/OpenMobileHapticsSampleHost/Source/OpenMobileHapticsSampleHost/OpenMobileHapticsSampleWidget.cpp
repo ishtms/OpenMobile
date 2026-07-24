@@ -11,9 +11,16 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "HAL/PlatformApplicationMisc.h"
 #include "OpenMobileHapticsSampleRecipes.h"
 #include "OpenMobileHapticsSubsystem.h"
 #include "TimerManager.h"
+
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+#include "OpenMobileHapticsCapabilityTester.h"
+#endif
+
+DEFINE_LOG_CATEGORY_STATIC(LogOpenMobileHapticsSample, Log, All);
 
 namespace OpenMobileHapticsSampleWidgetPrivate
 {
@@ -176,7 +183,7 @@ void UOpenMobileHapticsSampleWidget::BuildWidgetTree()
 	);
 	Grid->SetMinDesiredSlotWidth(190.0f);
 	Grid->SetMinDesiredSlotHeight(44.0f);
-	const TArray<TPair<FName, FString>> ButtonDefinitions = {
+	TArray<TPair<FName, FString>> ButtonDefinitions = {
 		{TEXT("RefreshButton"), TEXT("Refresh status")},
 		{TEXT("PrepareButton"), TEXT("Prepare starter patterns")},
 		{TEXT("ReleaseButton"), TEXT("Release prepared patterns")},
@@ -197,6 +204,12 @@ void UOpenMobileHapticsSampleWidget::BuildWidgetTree()
 		{TEXT("SofterButton"), TEXT("Master intensity 35%")},
 		{TEXT("FullIntensityButton"), TEXT("Master intensity 100%")}
 	};
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	ButtonDefinitions.Add({
+		TEXT("CapabilitySnapshotButton"),
+		TEXT("Copy capability snapshot")
+	});
+#endif
 	Buttons.Reset(ButtonDefinitions.Num());
 	for (int32 Index = 0; Index < ButtonDefinitions.Num(); ++Index)
 	{
@@ -258,7 +271,7 @@ void UOpenMobileHapticsSampleWidget::BuildWidgetTree()
 void UOpenMobileHapticsSampleWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	if (Buttons.Num() != 19)
+	if (Buttons.Num() != 19 + OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED)
 	{
 		return;
 	}
@@ -281,6 +294,9 @@ void UOpenMobileHapticsSampleWidget::NativeConstruct()
 	Buttons[16]->OnClicked.AddUniqueDynamic(this, &UOpenMobileHapticsSampleWidget::HandleToggleEnabledClicked);
 	Buttons[17]->OnClicked.AddUniqueDynamic(this, &UOpenMobileHapticsSampleWidget::HandleSofterClicked);
 	Buttons[18]->OnClicked.AddUniqueDynamic(this, &UOpenMobileHapticsSampleWidget::HandleFullIntensityClicked);
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	Buttons[19]->OnClicked.AddUniqueDynamic(this, &UOpenMobileHapticsSampleWidget::HandleSnapshotClicked);
+#endif
 
 	Haptics = UOpenMobileHapticsSampleRecipes::GetHapticsSubsystem(this);
 	if (!Haptics)
@@ -451,6 +467,45 @@ void UOpenMobileHapticsSampleWidget::StopVehicleTimer()
 void UOpenMobileHapticsSampleWidget::HandleRefreshClicked()
 {
 	RefreshSummary();
+}
+
+void UOpenMobileHapticsSampleWidget::HandleSnapshotClicked()
+{
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	FOpenMobileHapticsCapabilityTesterSnapshot Snapshot;
+	FString Json;
+	FString Error;
+	if (!UOpenMobileHapticsCapabilityTesterLibrary::
+		CreateSanitizedCapabilitySnapshot(this, Snapshot, Json, Error))
+	{
+		SetStatus(
+			Error.IsEmpty()
+				? TEXT("Capability snapshot generation failed.")
+				: Error,
+			OpenMobileHapticsSampleWidgetPrivate::ErrorColor
+		);
+		return;
+	}
+	FPlatformApplicationMisc::ClipboardCopy(*Json);
+	UE_LOG(
+		LogOpenMobileHapticsSample,
+		Display,
+		TEXT("SANITIZED_CAPABILITY_SNAPSHOT %s"),
+		*Json
+	);
+	SetStatus(
+		FString::Printf(
+			TEXT("Copied sanitized capability snapshot (%d bytes)."),
+			Json.Len()
+		),
+		OpenMobileHapticsSampleWidgetPrivate::SuccessColor
+	);
+#else
+	SetStatus(
+		TEXT("Capability snapshots are available only in Development builds."),
+		OpenMobileHapticsSampleWidgetPrivate::WarningColor
+	);
+#endif
 }
 
 void UOpenMobileHapticsSampleWidget::HandlePrepareClicked()

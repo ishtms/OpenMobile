@@ -665,6 +665,7 @@ def new_report() -> dict[str, object]:
 			"installStatus": "pending",
 			"installActual": "Installation has not been attempted.",
 			"launched": False,
+			"processRunning": False,
 			"launchStatus": "pending",
 			"launchActual": "Foreground launch has not been attempted.",
 		},
@@ -771,6 +772,7 @@ def load_report(output_root: Path) -> dict[str, object]:
 		if deployment.get("launched")
 		else "Foreground launch has not been attempted.",
 	)
+	deployment.setdefault("processRunning", bool(deployment.get("launched")))
 	return report
 
 
@@ -850,8 +852,27 @@ def deploy(
 				output_root,
 				secrets,
 			)
+			processes = run_devicectl(
+				"running-processes",
+				["device", "info", "processes", "--device", device],
+				output_root,
+				secrets,
+			)
+			running_processes = processes.get("result", {}).get("runningProcesses", [])
+			if not any(
+				str(process.get("executable", "")).endswith(
+					"/OpenMobileHapticsSampleHost.app/OpenMobileHapticsSampleHost"
+				)
+				for process in running_processes
+			):
+				raise DeviceCommandError(
+					"verify-ios-process",
+					"process_missing",
+					output_root / "private" / "running-processes.log",
+				)
 		except DeviceCommandError as error:
 			report["deployment"]["launchStatus"] = "fail"
+			report["deployment"]["processRunning"] = False
 			report["deployment"]["launchActual"] = (
 				"CoreDevice rejected foreground launch because the device was locked."
 				if error.reason == "device_locked"
@@ -860,8 +881,9 @@ def deploy(
 			save_report(output_root, report, secrets)
 			raise
 		report["deployment"]["launched"] = True
+		report["deployment"]["processRunning"] = True
 		report["deployment"]["launchStatus"] = "pass"
-		report["deployment"]["launchActual"] = "CoreDevice launched the app in the foreground."
+		report["deployment"]["launchActual"] = "CoreDevice launched the app in the foreground and confirmed its process is running."
 		save_report(output_root, report, secrets)
 		print("[launch-ios-app] passed", flush=True)
 	return secrets

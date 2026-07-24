@@ -39,6 +39,9 @@ private:
 	void HandleRefreshClicked();
 
 	UFUNCTION()
+	void HandleSnapshotClicked();
+
+	UFUNCTION()
 	void HandlePrepareClicked();
 
 	UFUNCTION()

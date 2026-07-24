@@ -3,6 +3,10 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileHapticsSampleRecipes.h"
 
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+#include "OpenMobileHapticsCapabilityTester.h"
+#endif
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsSampleRecipesTest,
 	"OpenMobile.Haptics.Sample.Recipes",
@@ -74,6 +78,30 @@ bool FOpenMobileHapticsSampleRecipesTest::RunTest(
 		Cancel.Error.Code,
 		EOpenMobileHapticErrorCode::BackendUnavailable
 	);
+
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	FOpenMobileHapticsCapabilityTesterSnapshot Snapshot;
+	FString SnapshotJson;
+	FString SnapshotError;
+	TestFalse(
+		TEXT("Snapshot export fails safely without a world"),
+		UOpenMobileHapticsCapabilityTesterLibrary::
+			CreateSanitizedCapabilitySnapshot(
+				nullptr,
+				Snapshot,
+				SnapshotJson,
+				SnapshotError
+			)
+	);
+	TestTrue(
+		TEXT("Snapshot export reports the missing subsystem"),
+		!SnapshotError.IsEmpty()
+	);
+	TestTrue(
+		TEXT("Failed snapshot export returns no JSON"),
+		SnapshotJson.IsEmpty()
+	);
+#endif
 
 	const UClass* RecipeClass = UOpenMobileHapticsSampleRecipes::StaticClass();
 	for (const FName FunctionName : {
