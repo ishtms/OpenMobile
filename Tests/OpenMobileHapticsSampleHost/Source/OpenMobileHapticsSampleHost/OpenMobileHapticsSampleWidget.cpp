@@ -315,6 +315,12 @@ void UOpenMobileHapticsSampleWidget::NativeConstruct()
 		this,
 		&UOpenMobileHapticsSampleWidget::HandleLibrariesPrepared
 	);
+	FString SnapshotJson;
+	FString SnapshotError;
+	if (CreateCapabilitySnapshot(SnapshotJson, SnapshotError))
+	{
+		LogCapabilitySnapshot(SnapshotJson);
+	}
 	RefreshSummary();
 }
 
@@ -471,12 +477,9 @@ void UOpenMobileHapticsSampleWidget::HandleRefreshClicked()
 
 void UOpenMobileHapticsSampleWidget::HandleSnapshotClicked()
 {
-#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
-	FOpenMobileHapticsCapabilityTesterSnapshot Snapshot;
 	FString Json;
 	FString Error;
-	if (!UOpenMobileHapticsCapabilityTesterLibrary::
-		CreateSanitizedCapabilitySnapshot(this, Snapshot, Json, Error))
+	if (!CreateCapabilitySnapshot(Json, Error))
 	{
 		SetStatus(
 			Error.IsEmpty()
@@ -487,12 +490,7 @@ void UOpenMobileHapticsSampleWidget::HandleSnapshotClicked()
 		return;
 	}
 	FPlatformApplicationMisc::ClipboardCopy(*Json);
-	UE_LOG(
-		LogOpenMobileHapticsSample,
-		Display,
-		TEXT("SANITIZED_CAPABILITY_SNAPSHOT %s"),
-		*Json
-	);
+	LogCapabilitySnapshot(Json);
 	SetStatus(
 		FString::Printf(
 			TEXT("Copied sanitized capability snapshot (%d bytes)."),
@@ -500,11 +498,45 @@ void UOpenMobileHapticsSampleWidget::HandleSnapshotClicked()
 		),
 		OpenMobileHapticsSampleWidgetPrivate::SuccessColor
 	);
+}
+
+bool UOpenMobileHapticsSampleWidget::CreateCapabilitySnapshot(
+	FString& OutJson,
+	FString& OutError
+) const
+{
+	OutJson.Reset();
+	OutError.Reset();
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	FOpenMobileHapticsCapabilityTesterSnapshot Snapshot;
+	return UOpenMobileHapticsCapabilityTesterLibrary::
+		CreateSanitizedCapabilitySnapshot(
+			this,
+			Snapshot,
+			OutJson,
+			OutError
+		);
 #else
-	SetStatus(
-		TEXT("Capability snapshots are available only in Development builds."),
-		OpenMobileHapticsSampleWidgetPrivate::WarningColor
+	OutError = TEXT(
+		"Capability snapshots are available only in Development builds."
 	);
+	return false;
+#endif
+}
+
+void UOpenMobileHapticsSampleWidget::LogCapabilitySnapshot(
+	const FString& Json
+) const
+{
+#if OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED
+	UE_LOG(
+		LogOpenMobileHapticsSample,
+		Display,
+		TEXT("SANITIZED_CAPABILITY_SNAPSHOT %s"),
+		*Json
+	);
+#else
+	static_cast<void>(Json);
 #endif
 }
 

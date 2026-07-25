@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_ROOT = REPOSITORY_ROOT / "Tests" / "OpenMobileHapticsSampleHost"
 DEFAULT_ENGINE_ROOT = Path("/Users/Shared/Epic Games/UE_5.8")
 BUNDLE_IDENTIFIER = "com.openmobile.hapticssample"
+CAPABILITY_SNAPSHOT_MARKER = "SANITIZED_CAPABILITY_SNAPSHOT "
 GENERATED_DIRECTORIES = {
 	"Binaries",
 	"DerivedDataCache",
@@ -154,6 +156,46 @@ class SigningMaterial:
 
 def utc_now() -> str:
 	return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def source_revision() -> dict[str, str]:
+	revision = subprocess.run(
+		["git", "rev-parse", "--verify", "HEAD"],
+		cwd=REPOSITORY_ROOT,
+		capture_output=True,
+		text=True,
+		check=False,
+	)
+	status = subprocess.run(
+		[
+			"git",
+			"status",
+			"--porcelain",
+			"--untracked-files=normal",
+			"--",
+			"Foundation/OpenMobileCore",
+			"Native/OpenMobileHaptics",
+			"Tests/OpenMobileHapticsSampleHost",
+		],
+		cwd=REPOSITORY_ROOT,
+		capture_output=True,
+		text=True,
+		check=False,
+	)
+	return {
+		"repositoryRevision": (
+			revision.stdout.strip()
+			if revision.returncode == 0 and revision.stdout.strip()
+			else "unavailable"
+		),
+		"hapticsWorkingTree": (
+			"modified"
+			if status.returncode == 0 and status.stdout.strip()
+			else "clean"
+			if status.returncode == 0
+			else "unavailable"
+		),
+	}
 
 
 def write_json(path: Path, value: object) -> None:
@@ -647,6 +689,7 @@ def new_report() -> dict[str, object]:
 		"schemaVersion": 1,
 		"generatedAt": utc_now(),
 		"plugin": "OpenMobileHaptics",
+		"source": source_revision(),
 		"platform": "iOS",
 		"device": {
 			"model": "Pending",
@@ -706,11 +749,16 @@ def render_report(report: dict[str, object]) -> str:
 		"# OpenMobile Haptics device validation",
 		"",
 		f"Generated: {report['generatedAt']}",
+		(
+			f"Revision: {report.get('source', {}).get('repositoryRevision', 'unavailable')} "
+			f"({report.get('source', {}).get('hapticsWorkingTree', 'unavailable')})"
+		),
 		f"Device: {device['model']}, iOS {device['osVersion']}",
 		f"Build: {build['configuration']}, {', '.join(build['architecture']) or 'pending'}, signed: {str(build['signed']).lower()}",
 		f"Deployment: installed: {str(deployment['installed']).lower()}, launched: {str(deployment['launched']).lower()}",
+		f"Capability snapshot: {report['capabilitySnapshot']['status']}",
 		"",
-		"Copy the sanitized capability snapshot into `report.json`. For each applicable scenario, replace `pending` with `pass` or `fail` and record the observed result. Do not add a device name, UDID, serial number, signing team, or personal data.",
+		"Review the captured capability snapshot. For each applicable scenario, replace `pending` with `pass` or `fail` and record the observed result. Do not add a device name, UDID, serial number, signing team, or personal data.",
 		"",
 		"| Scenario | Status | Expected | Actual |",
 		"| --- | --- | --- | --- |",
@@ -776,6 +824,86 @@ def load_report(output_root: Path) -> dict[str, object]:
 	return report
 
 
+def extract_capability_snapshot(contents: str) -> dict[str, object] | None:
+	for line in reversed(contents.splitlines()):
+		if CAPABILITY_SNAPSHOT_MARKER not in line:
+			continue
+		payload = line.split(CAPABILITY_SNAPSHOT_MARKER, 1)[1].strip()
+		try:
+			snapshot = json.loads(payload)
+		except json.JSONDecodeError as error:
+			raise DeviceValidationError(
+				"device log contains an invalid capability snapshot"
+			) from error
+		if not isinstance(snapshot, dict):
+			raise DeviceValidationError("device capability snapshot is not an object")
+		for key in ("schemaVersion", "backend", "nativeApiTier", "availability", "features"):
+			if key not in snapshot:
+				raise DeviceValidationError(
+					f"device capability snapshot is missing {key}"
+				)
+		return snapshot
+	return None
+
+
+def capture_capability_snapshot(
+	output_root: Path,
+	device: str,
+	report: dict[str, object],
+	secrets: set[str],
+) -> bool:
+	source = (
+		"Documents/OpenMobileHapticsSampleHost/Saved/Logs/"
+		"OpenMobileHapticsSampleHost.log"
+	)
+	for attempt in range(5):
+		destination = (
+			output_root
+			/ "private"
+			/ f"device-app-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{attempt}.log"
+		)
+		run_devicectl(
+			"copy-device-app-log",
+			[
+				"device",
+				"copy",
+				"from",
+				"--device",
+				device,
+				"--source",
+				source,
+				"--destination",
+				str(destination),
+				"--domain-type",
+				"appDataContainer",
+				"--domain-identifier",
+				BUNDLE_IDENTIFIER,
+			],
+			output_root,
+			secrets,
+		)
+		snapshot = extract_capability_snapshot(
+			destination.read_text(encoding="utf-8", errors="replace")
+		)
+		if snapshot is not None:
+			report["capabilitySnapshot"] = {
+				"status": "pass",
+				"actual": snapshot,
+			}
+			save_report(output_root, report, secrets)
+			print("[capture-capability-snapshot] passed", flush=True)
+			return True
+		if attempt < 4:
+			time.sleep(1.0)
+	report["capabilitySnapshot"] = {
+		"status": "pending",
+		"actual": "No marked snapshot was present in the current Development app log.",
+	}
+	save_report(output_root, report, secrets)
+	print("[capture-capability-snapshot] pending", flush=True)
+	return False
+
+
 def deploy(
 	output_root: Path,
 	app: Path | None,
@@ -785,6 +913,7 @@ def deploy(
 	*,
 	install: bool,
 	launch: bool,
+	capture: bool,
 ) -> set[str]:
 	base_secrets = {device}
 	if signing:
@@ -886,6 +1015,8 @@ def deploy(
 		report["deployment"]["launchActual"] = "CoreDevice launched the app in the foreground and confirmed its process is running."
 		save_report(output_root, report, secrets)
 		print("[launch-ios-app] passed", flush=True)
+	if capture:
+		capture_capability_snapshot(output_root, device, report, secrets)
 	return secrets
 
 
@@ -905,7 +1036,7 @@ def parse_arguments() -> argparse.Namespace:
 	parser.add_argument(
 		"--phase",
 		action="append",
-		choices=("prepare", "package", "install", "launch", "deploy", "all"),
+		choices=("prepare", "package", "install", "launch", "capture", "deploy", "all"),
 		help="Run one or more phases. The default is all.",
 	)
 	return parser.parse_args()
@@ -961,7 +1092,12 @@ def main() -> int:
 			app = extract_signed_app(output_root, signing.team_id)
 			report["build"] = app_metadata(app, signing.team_id)
 			save_report(output_root, report, secrets)
-		if "install" in phases or "launch" in phases or "deploy" in phases:
+		if (
+			"install" in phases
+			or "launch" in phases
+			or "capture" in phases
+			or "deploy" in phases
+		):
 			device = select_device(output_root, arguments.device)
 			secrets |= deploy(
 				output_root,
@@ -971,6 +1107,11 @@ def main() -> int:
 				signing,
 				install="install" in phases or "deploy" in phases,
 				launch="launch" in phases or "deploy" in phases,
+				capture=(
+					"capture" in phases
+					or "launch" in phases
+					or "deploy" in phases
+				),
 			)
 		save_report(output_root, report, secrets)
 	except (OSError, DeviceValidationError, zipfile.BadZipFile) as error:

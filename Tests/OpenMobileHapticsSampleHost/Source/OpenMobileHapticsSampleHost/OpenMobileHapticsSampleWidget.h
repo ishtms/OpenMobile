@@ -32,6 +32,8 @@ private:
 		const FOpenMobileHapticControlResult& Result
 	);
 	void SetStatus(const FString& Message, const FLinearColor& Color);
+	bool CreateCapabilitySnapshot(FString& OutJson, FString& OutError) const;
+	void LogCapabilitySnapshot(const FString& Json) const;
 	void StopOwnedPlayback();
 	void StopVehicleTimer();
 

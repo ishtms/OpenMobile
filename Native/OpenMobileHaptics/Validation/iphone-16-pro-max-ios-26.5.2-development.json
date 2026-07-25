@@ -1,0 +1,296 @@
+{
+  "build": {
+    "architecture": [
+      "arm64"
+    ],
+    "bundleIdentifier": "com.openmobile.hapticssample",
+    "configuration": "Development",
+    "signed": true
+  },
+  "capabilitySnapshot": {
+    "actual": {
+      "activePlayback": 0,
+      "availability": "RichHaptics",
+      "backend": "IOS",
+      "cachedTimelineBytes": "0",
+      "cachedTimelines": 0,
+      "engineState": "Idle",
+      "features": [
+        {
+          "name": "BasicVibration",
+          "state": "Supported"
+        },
+        {
+          "name": "SemanticFeedback",
+          "state": "Supported"
+        },
+        {
+          "name": "SemanticEffects",
+          "state": "Supported"
+        },
+        {
+          "name": "RichHaptics",
+          "state": "Supported"
+        },
+        {
+          "name": "AmplitudeControl",
+          "state": "Supported"
+        },
+        {
+          "name": "PredefinedEffects",
+          "state": "Unsupported"
+        },
+        {
+          "name": "WaveformTiming",
+          "state": "Supported"
+        },
+        {
+          "name": "Looping",
+          "state": "Supported"
+        },
+        {
+          "name": "Primitives",
+          "state": "Unsupported"
+        },
+        {
+          "name": "Envelopes",
+          "state": "Unsupported"
+        },
+        {
+          "name": "FrequencyControl",
+          "state": "Unsupported"
+        },
+        {
+          "name": "TransientEvents",
+          "state": "Supported"
+        },
+        {
+          "name": "ContinuousEvents",
+          "state": "Supported"
+        },
+        {
+          "name": "DynamicParameters",
+          "state": "Supported"
+        },
+        {
+          "name": "AudioEvents",
+          "state": "Supported"
+        },
+        {
+          "name": "AHAP",
+          "state": "Supported"
+        },
+        {
+          "name": "Scheduling",
+          "state": "Supported"
+        },
+        {
+          "name": "Mixing",
+          "state": "Supported"
+        },
+        {
+          "name": "BackgroundAlerts",
+          "state": "Unsupported"
+        },
+        {
+          "name": "Pause",
+          "state": "Supported"
+        },
+        {
+          "name": "Resume",
+          "state": "Supported"
+        },
+        {
+          "name": "Seek",
+          "state": "Supported"
+        }
+      ],
+      "limits": [
+        {
+          "name": "MaximumEvents",
+          "unit": "count",
+          "value": null
+        },
+        {
+          "name": "MaximumControlPoints",
+          "unit": "count",
+          "value": null
+        },
+        {
+          "name": "MaximumQueueDepth",
+          "unit": "count",
+          "value": null
+        },
+        {
+          "name": "MaximumDuration",
+          "unit": "seconds",
+          "value": null
+        },
+        {
+          "name": "MinimumTimingGranularity",
+          "unit": "seconds",
+          "value": null
+        },
+        {
+          "name": "MaximumControlPointDuration",
+          "unit": "seconds",
+          "value": null
+        }
+      ],
+      "masterIntensity": 1,
+      "nativeApiTier": "CoreHapticsAHAP",
+      "playerEnabled": true,
+      "plugin": "OpenMobileHaptics",
+      "preparationState": "Unprepared",
+      "preparedNamedPatterns": 0,
+      "presets": [],
+      "primitives": [],
+      "queuedPlayback": 0,
+      "schemaVersion": 1,
+      "truncated": false
+    },
+    "status": "pass"
+  },
+  "deployment": {
+    "installActual": "CoreDevice accepted the signed app installation.",
+    "installStatus": "pass",
+    "installed": true,
+    "launchActual": "CoreDevice launched the app in the foreground and confirmed its process is running.",
+    "launchStatus": "pass",
+    "launched": true,
+    "processRunning": true
+  },
+  "device": {
+    "developerMode": "enabled",
+    "model": "iPhone 16 Pro Max",
+    "osVersion": "26.5.2",
+    "platform": "iOS"
+  },
+  "generatedAt": "2026-08-23T14:12:25+00:00",
+  "limitations": [
+    "Technical launch evidence does not prove actuator feel or hardware timing.",
+    "This record covers one Apple device only and does not satisfy the Android or iPad matrix."
+  ],
+  "platform": "iOS",
+  "plugin": "OpenMobileHaptics",
+  "redaction": {
+    "deviceIdentifiersIncluded": false,
+    "personalDeviceNameIncluded": false,
+    "signingTeamIncluded": false
+  },
+  "source": {
+    "hapticsWorkingTree": "modified",
+    "repositoryRevision": "43f69066e91a638f21cd249a966151cb3533ecd5"
+  },
+  "scenarios": [
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Copy the sanitized in-app capability snapshot and confirm it matches the visible tier.",
+      "id": "capability_snapshot",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Record cold-engine and prepared warm-start latency without treating scheduler estimates as actuator measurements.",
+      "id": "cold_and_warm_latency",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Short and bounded long effects feel distinct, and intensity scaling is monotonic where the capability snapshot reports control.",
+      "id": "duration_and_intensity",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Prepared patterns keep event order, finite loops end, indefinite loops remain controllable, and the vehicle sample stops at its two-second cap.",
+      "id": "patterns_and_loops",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Handle, channel, and global stops end owned playback; supported pause, resume, seek, intensity, and sharpness controls report their actual path.",
+      "id": "stop_and_controls",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Delayed cancellation prevents output, scheduled feedback starts once, and audio-clock feedback has no obvious duplicate or gross drift.",
+      "id": "schedules_and_audio_sync",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Unavailable rich paths resolve to the declared semantic, primitive, or basic fallback without an unexpected stronger effect.",
+      "id": "fallback_feel",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "An incoming call interrupts active work once and later requests recover without replaying stale feedback.",
+      "id": "phone_call_interruption",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Locking or leaving the app stops disallowed work; foreground return restores later playback without replay.",
+      "id": "lock_home_and_foreground",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Rotation preserves the sample controls and does not duplicate the subsystem or active playback.",
+      "id": "rotation",
+      "status": "pending"
+    },
+    {
+      "actual": "Android-only scenario.",
+      "expected": "Android activity recreation retains valid policy and creates no duplicate callbacks or stale presenter reference.",
+      "id": "activity_recreation",
+      "status": "not_applicable"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Audio-session changes and a Core Haptics engine reset terminate stale work once and permit a later prepared request.",
+      "id": "audio_session_and_engine_reset",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Force termination clears all handles and a clean process launch prepares and plays normally.",
+      "id": "process_restart",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Global disable suppresses ordinary feedback, and category scaling changes only later requests in that category.",
+      "id": "global_disable_and_category_scaling",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Changing the operating-system touch-feedback setting produces documented semantic behavior without bypassing app policy.",
+      "id": "system_touch_feedback",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Rapid repeated input stays bounded and reports suppression instead of producing an excessive burst.",
+      "id": "rate_limits",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "Feedback is never the only cue, the accessibility sample respects player policy, and screen-reader use remains operable.",
+      "id": "accessibility",
+      "status": "pending"
+    },
+    {
+      "actual": "Requires observation on this device.",
+      "expected": "A bounded repeated-use observation shows no runaway loop, retained playback, or abnormal battery warning.",
+      "id": "battery",
+      "status": "pending"
+    }
+  ],
+  "schemaVersion": 1
+}
