@@ -94,6 +94,35 @@ bool FOpenMobileSensorsBlueprintReflectionTest::RunTest(
 			);
 		}
 	}
+	for (const FName EventName : {
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnVectorSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnAttitudeSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnScalarSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnHeadingSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnStepsSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnActivitySamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnOrientationSamples),
+		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorsSubsystem, OnProximitySamples)})
+	{
+		const FMulticastDelegateProperty* Event =
+			FindFProperty<FMulticastDelegateProperty>(
+				UOpenMobileSensorsSubsystem::StaticClass(),
+				EventName
+			);
+		TestNotNull(TEXT("The raw sample event is reflected"), Event);
+		if (Event)
+		{
+			TestTrue(
+				*FString::Printf(
+					TEXT("%s states its delivery requirement"),
+					*EventName.ToString()
+				),
+				Event->GetMetaData(TEXT("ToolTip")).Contains(
+					TEXT("Requires Delivery Mode = Event Batches")
+				)
+			);
+		}
+	}
 	return true;
 }
 

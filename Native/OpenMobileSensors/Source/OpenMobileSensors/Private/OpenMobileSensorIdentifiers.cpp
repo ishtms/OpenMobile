@@ -85,3 +85,46 @@ FName FOpenMobileSensorTypes::GetStableName(EOpenMobileSensorType Type)
 		return NAME_None;
 	}
 }
+
+EOpenMobileSensorSampleFamily FOpenMobileSensorTypes::GetSampleFamily(
+	EOpenMobileSensorType Type
+)
+{
+	switch (Type)
+	{
+	case EOpenMobileSensorType::Accelerometer:
+	case EOpenMobileSensorType::AccelerometerUncalibrated:
+	case EOpenMobileSensorType::Gyroscope:
+	case EOpenMobileSensorType::GyroscopeUncalibrated:
+	case EOpenMobileSensorType::Magnetometer:
+	case EOpenMobileSensorType::MagnetometerUncalibrated:
+	case EOpenMobileSensorType::Gravity:
+	case EOpenMobileSensorType::LinearAcceleration:
+	case EOpenMobileSensorType::Shake:
+		return EOpenMobileSensorSampleFamily::Vector;
+	case EOpenMobileSensorType::Attitude:
+		return EOpenMobileSensorSampleFamily::Attitude;
+	case EOpenMobileSensorType::BarometricPressure:
+	case EOpenMobileSensorType::RelativeAltitude:
+	case EOpenMobileSensorType::AbsoluteAltitude:
+	case EOpenMobileSensorType::AmbientLight:
+		return EOpenMobileSensorSampleFamily::Scalar;
+	case EOpenMobileSensorType::MagneticHeading:
+	case EOpenMobileSensorType::TrueHeading:
+		return EOpenMobileSensorSampleFamily::Heading;
+	case EOpenMobileSensorType::StepCounter:
+	case EOpenMobileSensorType::StepDetector:
+	case EOpenMobileSensorType::Pedometer:
+		return EOpenMobileSensorSampleFamily::Steps;
+	case EOpenMobileSensorType::MotionActivity:
+	case EOpenMobileSensorType::ActivityTransition:
+		return EOpenMobileSensorSampleFamily::Activity;
+	case EOpenMobileSensorType::PhysicalOrientation:
+		return EOpenMobileSensorSampleFamily::Orientation;
+	case EOpenMobileSensorType::Proximity:
+		return EOpenMobileSensorSampleFamily::Proximity;
+	case EOpenMobileSensorType::Unknown:
+	default:
+		return EOpenMobileSensorSampleFamily::Unknown;
+	}
+}

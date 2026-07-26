@@ -13,7 +13,7 @@ UENUM(BlueprintType)
 enum class EOpenMobileSensorResultCode : uint8
 {
 	Success,
-	Accepted,
+	Accepted UMETA(DisplayName = "Accepted, Starting Asynchronously", ToolTip = "The request was accepted and its final state will arrive asynchronously."),
 	NotSupported,
 	InvalidHandle,
 	InvalidArgument,

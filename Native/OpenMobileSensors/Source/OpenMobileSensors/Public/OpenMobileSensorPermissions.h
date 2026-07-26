@@ -9,7 +9,7 @@ enum class EOpenMobileSensorPermission : uint8
 {
 	MotionActivity,
 	ActivityRecognition,
-	TrueHeadingLocation
+	TrueHeadingLocation UMETA(Hidden)
 };
 
 USTRUCT(BlueprintType)

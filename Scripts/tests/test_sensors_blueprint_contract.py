@@ -94,6 +94,29 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 		for editor_module in ("BlueprintGraph", "Kismet", "UnrealEd"):
 			self.assertNotIn(f'"{editor_module}"', build_rules)
 
+	def test_raw_sample_events_state_their_delivery_requirement(self) -> None:
+		header = (COMMON_SOURCE / "Public" / "OpenMobileSensorsSubsystem.h").read_text(
+			encoding="utf-8"
+		)
+		for event_name in (
+			"OnVectorSamples",
+			"OnAttitudeSamples",
+			"OnScalarSamples",
+			"OnHeadingSamples",
+			"OnStepsSamples",
+			"OnActivitySamples",
+			"OnOrientationSamples",
+			"OnProximitySamples",
+		):
+			event_offset = header.index(event_name)
+			property_start = header.rfind("\tUPROPERTY", 0, event_offset)
+			declaration = header[property_start : event_offset + len(event_name)]
+			self.assertIn(
+				"Requires Delivery Mode = Event Batches",
+				declaration,
+				msg=f"{event_name} must explain why a default raw stream is silent",
+			)
+
 
 if __name__ == "__main__":
 	unittest.main()

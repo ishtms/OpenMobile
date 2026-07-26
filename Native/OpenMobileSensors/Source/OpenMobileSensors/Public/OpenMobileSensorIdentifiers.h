@@ -32,13 +32,6 @@ enum class EOpenMobileSensorType : uint8
 	Shake
 };
 
-class OPENMOBILESENSORS_API FOpenMobileSensorTypes final
-{
-public:
-	static const TArray<EOpenMobileSensorType>& GetAll();
-	static FName GetStableName(EOpenMobileSensorType Type);
-};
-
 UENUM(BlueprintType)
 enum class EOpenMobileSensorSampleFamily : uint8
 {
@@ -51,6 +44,16 @@ enum class EOpenMobileSensorSampleFamily : uint8
 	Activity,
 	Orientation,
 	Proximity
+};
+
+class OPENMOBILESENSORS_API FOpenMobileSensorTypes final
+{
+public:
+	static const TArray<EOpenMobileSensorType>& GetAll();
+	static FName GetStableName(EOpenMobileSensorType Type);
+	static EOpenMobileSensorSampleFamily GetSampleFamily(
+		EOpenMobileSensorType Type
+	);
 };
 
 USTRUCT(BlueprintType)

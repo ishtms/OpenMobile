@@ -55,7 +55,7 @@ UENUM(BlueprintType)
 enum class EOpenMobileSensorDeliveryMode : uint8
 {
 	LatestValue,
-	EventBatches,
+	EventBatches UMETA(DisplayName = "Event Batches", ToolTip = "Feeds listener and raw sample events with rate-capped batches."),
 	Buffered
 };
 
