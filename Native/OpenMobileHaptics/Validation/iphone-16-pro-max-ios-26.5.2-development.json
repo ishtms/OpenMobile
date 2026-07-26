@@ -169,7 +169,8 @@
   "generatedAt": "2026-08-23T14:12:25+00:00",
   "limitations": [
     "Technical launch evidence does not prove actuator feel or hardware timing.",
-    "This record covers one Apple device only and does not satisfy the Android or iPad matrix."
+    "This record covers one Apple device only and does not satisfy the Android or iPad matrix.",
+    "CoreDevice reports remote orientation control unsupported on this phone, so rotation remains a hands-on observation."
   ],
   "platform": "iOS",
   "plugin": "OpenMobileHaptics",
@@ -238,7 +239,7 @@
       "status": "pending"
     },
     {
-      "actual": "Requires observation on this device.",
+      "actual": "The sample process remained running before the attempted check, but CoreDevice reports remote orientation control unsupported on this phone. Manual rotation and visible-control inspection remain required.",
       "expected": "Rotation preserves the sample controls and does not duplicate the subsystem or active playback.",
       "id": "rotation",
       "status": "pending"
@@ -256,7 +257,7 @@
       "status": "pending"
     },
     {
-      "actual": "Requires observation on this device.",
+      "actual": "CoreDevice terminated any existing sample instance, launched a clean process, confirmed the exact executable was running, and captured a fresh startup capability snapshot. Preparation and actuator playback still require observation.",
       "expected": "Force termination clears all handles and a clean process launch prepares and plays normally.",
       "id": "process_restart",
       "status": "pending"

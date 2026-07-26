@@ -615,12 +615,18 @@ def run_devicectl(
 		context = "\n".join((log_contents + "\n" + completed.stderr).splitlines()[-16:])
 		if context:
 			print(redact(context, secrets), file=sys.stderr)
-		reason = (
-			"device_locked"
-			if "could not be, unlocked" in log_contents
+		reason = "command_rejected"
+		if (
+			"could not be, unlocked" in log_contents
 			or "reason: Locked" in log_contents
-			else "command_rejected"
-		)
+		):
+			reason = "device_locked"
+		elif (
+			"file service client failed to read data from the network socket"
+			in log_contents
+			or "NSPOSIXErrorDomain error 60" in log_contents
+		):
+			reason = "connection_interrupted"
 		raise DeviceCommandError(label, reason, log_path)
 	try:
 		return json.loads(json_path.read_text(encoding="utf-8"))
@@ -862,26 +868,36 @@ def capture_capability_snapshot(
 			/ "private"
 			/ f"device-app-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{attempt}.log"
 		)
-		run_devicectl(
-			"copy-device-app-log",
-			[
-				"device",
-				"copy",
-				"from",
-				"--device",
-				device,
-				"--source",
-				source,
-				"--destination",
-				str(destination),
-				"--domain-type",
-				"appDataContainer",
-				"--domain-identifier",
-				BUNDLE_IDENTIFIER,
-			],
-			output_root,
-			secrets,
-		)
+		try:
+			run_devicectl(
+				"copy-device-app-log",
+				[
+					"device",
+					"copy",
+					"from",
+					"--device",
+					device,
+					"--source",
+					source,
+					"--destination",
+					str(destination),
+					"--domain-type",
+					"appDataContainer",
+					"--domain-identifier",
+					BUNDLE_IDENTIFIER,
+				],
+				output_root,
+				secrets,
+			)
+		except DeviceCommandError as error:
+			if error.reason != "connection_interrupted" or attempt == 4:
+				raise
+			print(
+				"[capture-capability-snapshot] device connection interrupted; retrying",
+				flush=True,
+			)
+			time.sleep(1.0)
+			continue
 		snapshot = extract_capability_snapshot(
 			destination.read_text(encoding="utf-8", errors="replace")
 		)
