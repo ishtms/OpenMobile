@@ -17,6 +17,7 @@
 #include "OpenMobileSensorsPackagingValidation.h"
 #include "OpenMobileSensorsSettings.h"
 #include "Runtime/Launch/Resources/Version.h"
+#include "UObject/Package.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "OpenMobileSensorsEditor"
