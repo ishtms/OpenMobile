@@ -382,6 +382,39 @@ void UOpenMobileHapticsSampleWidget::RefreshSummary()
 		*EnumName(Haptics->GetNamedPatternStatus(TEXT("Reward_Success"))),
 		*EnumName(Haptics->GetNamedPatternStatus(TEXT("Vehicle_Bump")))
 	)));
+	RefreshControls();
+}
+
+void UOpenMobileHapticsSampleWidget::RefreshControls()
+{
+	if (!Haptics || Buttons.Num()
+		!= 19 + OPENMOBILE_HAPTICS_SAMPLE_SNAPSHOT_ENABLED)
+	{
+		return;
+	}
+	const EOpenMobileHapticPreparationState PreparationState =
+		Haptics->GetPreparationState();
+	Buttons[1]->SetIsEnabled(
+		PreparationState == EOpenMobileHapticPreparationState::Unprepared
+		|| PreparationState == EOpenMobileHapticPreparationState::Failed
+	);
+	Buttons[2]->SetIsEnabled(
+		PreparationState != EOpenMobileHapticPreparationState::Unprepared
+	);
+	const bool bPrepared = PreparationState
+		== EOpenMobileHapticPreparationState::Prepared;
+	for (const int32 Index : {4, 5, 8, 9, 11, 13})
+	{
+		Buttons[Index]->SetIsEnabled(bPrepared);
+	}
+	if (UTextBlock* ToggleLabel = Cast<UTextBlock>(Buttons[16]->GetContent()))
+	{
+		ToggleLabel->SetText(FText::FromString(
+			Haptics->IsHapticsEnabled()
+				? TEXT("Disable Haptics")
+				: TEXT("Enable Haptics")
+		));
+	}
 }
 
 void UOpenMobileHapticsSampleWidget::ShowPlaybackResult(
@@ -394,19 +427,33 @@ void UOpenMobileHapticsSampleWidget::ShowPlaybackResult(
 	{
 		ActiveHandle = Result.Handle;
 	}
-	const FString Detail = Result.Error.IsSet()
+	FString Detail = Result.Error.IsSet()
 		? Result.Error.Message
 		: Result.ResolvedPath.ToString();
-	SetStatus(
-		FString::Printf(
-			TEXT("%s: %s | %s | %s"),
-			*Action,
-			*EnumName(Result.Outcome),
-			*EnumName(Result.State),
-			Detail.IsEmpty() ? TEXT("No detail") : *Detail
-		),
-		Result.IsAccepted() ? SuccessColor : ErrorColor
+	if (Result.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed
+		&& Result.SuppressionReason
+			== EOpenMobileHapticSuppressionReason::PlayerPolicy)
+	{
+		Detail = TEXT(
+			"Player policy disabled output. Tap Enable Haptics to restore it."
+		);
+	}
+	const FString Message = FString::Printf(
+		TEXT("%s: %s | %s | %s"),
+		*Action,
+		*EnumName(Result.Outcome),
+		*EnumName(Result.State),
+		Detail.IsEmpty() ? TEXT("No detail") : *Detail
 	);
+	SetStatus(
+		Message,
+		Result.IsAccepted()
+			? SuccessColor
+			: Result.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed
+				? WarningColor
+				: ErrorColor
+	);
+	UE_LOG(LogOpenMobileHapticsSample, Display, TEXT("DEVICE_RESULT %s"), *Message);
 	RefreshSummary();
 }
 
@@ -416,19 +463,21 @@ void UOpenMobileHapticsSampleWidget::ShowControlResult(
 )
 {
 	using namespace OpenMobileHapticsSampleWidgetPrivate;
+	const FString Message = FString::Printf(
+		TEXT("%s: %s | %s"),
+		*Action,
+		*EnumName(Result.Outcome),
+		Result.Error.IsSet()
+			? *Result.Error.Message
+			: *EnumName(Result.State)
+	);
 	SetStatus(
-		FString::Printf(
-			TEXT("%s: %s | %s"),
-			*Action,
-			*EnumName(Result.Outcome),
-			Result.Error.IsSet()
-				? *Result.Error.Message
-				: *EnumName(Result.State)
-		),
+		Message,
 		Result.Outcome == EOpenMobileHapticControlOutcome::Accepted
 			? SuccessColor
 			: WarningColor
 	);
+	UE_LOG(LogOpenMobileHapticsSample, Display, TEXT("DEVICE_CONTROL %s"), *Message);
 	RefreshSummary();
 }
 
@@ -547,14 +596,16 @@ void UOpenMobileHapticsSampleWidget::HandlePrepareClicked()
 		return;
 	}
 	PreloadHandle = Haptics->PreloadNamedLibraries();
+	const FString Message = PreloadHandle.IsValid()
+		? TEXT("Preparing named Haptics libraries. Wait for Prepared before playback.")
+		: TEXT("Preparation did not start. Check the current preparation state.");
 	SetStatus(
-		PreloadHandle.IsValid()
-			? TEXT("Preparing named Haptics libraries asynchronously.")
-			: TEXT("Preparation did not start. Check the current preparation state."),
+		Message,
 		PreloadHandle.IsValid()
 			? OpenMobileHapticsSampleWidgetPrivate::MutedColor
 			: OpenMobileHapticsSampleWidgetPrivate::WarningColor
 	);
+	UE_LOG(LogOpenMobileHapticsSample, Display, TEXT("DEVICE_PREPARATION %s"), *Message);
 	RefreshSummary();
 }
 
@@ -779,9 +830,10 @@ void UOpenMobileHapticsSampleWidget::HandleToggleEnabledClicked()
 {
 	if (Haptics)
 	{
+		const bool bWasEnabled = Haptics->IsHapticsEnabled();
 		ShowControlResult(
-			TEXT("Toggle global enabled"),
-			Haptics->SetHapticsEnabled(!Haptics->IsHapticsEnabled())
+			bWasEnabled ? TEXT("Disable Haptics") : TEXT("Enable Haptics"),
+			Haptics->SetHapticsEnabled(!bWasEnabled)
 		);
 	}
 }
@@ -888,15 +940,17 @@ void UOpenMobileHapticsSampleWidget::HandleLibrariesPrepared(
 		return;
 	}
 	PreloadHandle = {};
+	const FString Message = FString::Printf(
+		TEXT("Library preparation: %s | %d patterns"),
+		*EnumName(Result.Outcome),
+		Result.PreparedPatternCount
+	);
 	SetStatus(
-		FString::Printf(
-			TEXT("Library preparation: %s | %d patterns"),
-			*EnumName(Result.Outcome),
-			Result.PreparedPatternCount
-		),
+		Message,
 		Result.Outcome == EOpenMobileHapticLibraryPreloadOutcome::Prepared
 			? SuccessColor
 			: ErrorColor
 	);
+	UE_LOG(LogOpenMobileHapticsSample, Display, TEXT("DEVICE_PREPARATION %s"), *Message);
 	RefreshSummary();
 }

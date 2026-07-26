@@ -23,6 +23,7 @@ protected:
 private:
 	void BuildWidgetTree();
 	void RefreshSummary();
+	void RefreshControls();
 	void ShowPlaybackResult(
 		const FString& Action,
 		const FOpenMobileHapticPlaybackResult& Result
