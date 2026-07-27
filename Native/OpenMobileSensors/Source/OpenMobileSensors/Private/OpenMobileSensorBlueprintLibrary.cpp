@@ -16,6 +16,28 @@ bool UOpenMobileSensorBlueprintLibrary::BranchOnSensorOperationResult(
 	return Result.IsSuccess();
 }
 
+void UOpenMobileSensorBlueprintLibrary::BranchOnSensorReadResult(
+	const FOpenMobileSensorReadResult& Result,
+	EOpenMobileSensorReadOutcome& Outcome
+)
+{
+	if (Result.Status == EOpenMobileSensorReadStatus::InvalidHandle)
+	{
+		Outcome = EOpenMobileSensorReadOutcome::InvalidListener;
+	}
+	else if (Result.Status == EOpenMobileSensorReadStatus::NoSample
+		|| Result.Sequence <= 0)
+	{
+		Outcome = EOpenMobileSensorReadOutcome::NoSample;
+	}
+	else
+	{
+		Outcome = Result.bHasNewerSample
+			? EOpenMobileSensorReadOutcome::NewSample
+			: EOpenMobileSensorReadOutcome::SameSample;
+	}
+}
+
 bool UOpenMobileSensorBlueprintLibrary::IsSensorSubscriptionHandleValid(
 	const FOpenMobileSensorSubscriptionHandle& Handle
 )

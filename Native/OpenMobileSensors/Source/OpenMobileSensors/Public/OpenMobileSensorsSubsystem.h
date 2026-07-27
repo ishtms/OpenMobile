@@ -237,7 +237,7 @@ public:
 		FOpenMobileSensorSubscriptionStateSnapshot& OutState
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Vector Sample", ToolTip = "Copies the latest vector sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Vector Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached vector snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestVectorSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -245,7 +245,7 @@ public:
 		FOpenMobileVectorSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Attitude Sample", ToolTip = "Copies the latest attitude sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Attitude Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached attitude snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestAttitudeSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -253,7 +253,7 @@ public:
 		FOpenMobileAttitudeSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Scalar Sample", ToolTip = "Copies the latest scalar sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Scalar Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached scalar snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestScalarSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -261,7 +261,7 @@ public:
 		FOpenMobileScalarSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Heading Sample", ToolTip = "Copies the latest heading sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Heading Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached heading snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestHeadingSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -269,7 +269,7 @@ public:
 		FOpenMobileHeadingSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Steps Sample", ToolTip = "Copies the latest steps sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Steps Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached steps snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestStepsSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -277,7 +277,7 @@ public:
 		FOpenMobileStepsSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Activity Sample", ToolTip = "Copies the latest activity sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Activity Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached activity snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestActivitySampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -285,7 +285,7 @@ public:
 		FOpenMobileActivitySensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Orientation Sample", ToolTip = "Copies the latest physical-orientation sample and reports age and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Orientation Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached orientation snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestOrientationSampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -293,7 +293,7 @@ public:
 		FOpenMobileOrientationSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Latest Proximity Sample", ToolTip = "Copies the latest proximity sample and reports age, validity, and sequence state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Latest Proximity Sample", ReturnDisplayName = "Has Sample", AdvancedDisplay = "LastSeenSequence", ToolTip = "Copies one coherent cached proximity snapshot. Has Sample may still be stale, paused, or invalid; inspect the read result."))
 	bool GetLatestProximitySampleNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,

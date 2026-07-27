@@ -7,6 +7,15 @@
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorBlueprintLibrary.generated.h"
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorReadOutcome : uint8
+{
+	NewSample UMETA(DisplayName = "New Sample", ToolTip = "A sample exists with a sequence newer than the caller's previous sequence."),
+	SameSample UMETA(DisplayName = "Same Sample", ToolTip = "A cached sample exists, but its sequence has not changed."),
+	NoSample UMETA(DisplayName = "No Sample", ToolTip = "The listener has not received a sample yet."),
+	InvalidListener UMETA(DisplayName = "Invalid Listener", ToolTip = "The raw subscription handle is invalid or no longer owned by this Game Instance.")
+};
+
 UCLASS()
 class OPENMOBILESENSORS_API UOpenMobileSensorBlueprintLibrary final
 	: public UBlueprintFunctionLibrary
@@ -22,6 +31,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Branch on Sensor Operation Result", ExpandBoolAsExecs = "ReturnValue", Keywords = "OpenMobile sensors result success accepted branch", ToolTip = "Routes both completed success and accepted asynchronous work through the True execution pin."))
 	static bool BranchOnSensorOperationResult(
 		const FOpenMobileSensorOperationResult& Result
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Branch on Sensor Read Result", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors latest read new same missing invalid branch", ToolTip = "Routes one executed raw read snapshot without re-reading time-varying sensor state."))
+	static void BranchOnSensorReadResult(
+		const FOpenMobileSensorReadResult& Result,
+		EOpenMobileSensorReadOutcome& Outcome
 	);
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Is Sensor Subscription Handle Valid", Keywords = "OpenMobile sensors subscription handle valid", ToolTip = "Returns whether this raw subscription handle identifies an owned sensor stream."))

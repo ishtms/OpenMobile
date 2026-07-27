@@ -4,6 +4,7 @@
 #include "OpenMobileSensorBlueprintLibrary.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsSettings.h"
+#include "OpenMobileSensorsSubsystem.h"
 #include "UObject/UnrealType.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -64,6 +65,92 @@ bool FOpenMobileSensorsBlueprintOperationHelperTest::RunTest(
 		TEXT("Invalidating an invalid handle stays safe"),
 		Handle.IsValid()
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintReadOutcomeHelperTest,
+	"OpenMobile.Sensors.Blueprint.Helpers.ReadOutcome",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintReadOutcomeHelperTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileSensorReadResult Read;
+	EOpenMobileSensorReadOutcome Outcome =
+		EOpenMobileSensorReadOutcome::NewSample;
+	Read.Status = EOpenMobileSensorReadStatus::InvalidHandle;
+	UOpenMobileSensorBlueprintLibrary::BranchOnSensorReadResult(Read, Outcome);
+	TestEqual(TEXT("Invalid handles use the invalid listener branch"),
+		Outcome,
+		EOpenMobileSensorReadOutcome::InvalidListener);
+	Read.Status = EOpenMobileSensorReadStatus::NoSample;
+	UOpenMobileSensorBlueprintLibrary::BranchOnSensorReadResult(Read, Outcome);
+	TestEqual(TEXT("Missing samples use the no sample branch"),
+		Outcome,
+		EOpenMobileSensorReadOutcome::NoSample);
+	Read.Status = EOpenMobileSensorReadStatus::Valid;
+	Read.Sequence = 4;
+	Read.bHasNewerSample = false;
+	UOpenMobileSensorBlueprintLibrary::BranchOnSensorReadResult(Read, Outcome);
+	TestEqual(TEXT("An unchanged cached sample uses the same sample branch"),
+		Outcome,
+		EOpenMobileSensorReadOutcome::SameSample);
+	Read.bHasNewerSample = true;
+	UOpenMobileSensorBlueprintLibrary::BranchOnSensorReadResult(Read, Outcome);
+	TestEqual(TEXT("A newer cached sample uses the new sample branch"),
+		Outcome,
+		EOpenMobileSensorReadOutcome::NewSample);
+
+#if WITH_METADATA
+	const UFunction* BranchFunction =
+		UOpenMobileSensorBlueprintLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorBlueprintLibrary,
+				BranchOnSensorReadResult
+			)
+		);
+	TestNotNull(TEXT("The read branch helper is reflected"), BranchFunction);
+	if (BranchFunction)
+	{
+		TestEqual(TEXT("The read outcome expands into execution pins"),
+			BranchFunction->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome")));
+	}
+	for (const FName FunctionName : {
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestVectorSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestAttitudeSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestScalarSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestHeadingSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestStepsSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestActivitySampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestOrientationSampleNative),
+		GET_FUNCTION_NAME_CHECKED(UOpenMobileSensorsSubsystem,
+			GetLatestProximitySampleNative)})
+	{
+		const UFunction* ReadFunction =
+			UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+				FunctionName
+			);
+		TestNotNull(TEXT("The raw latest read is reflected"), ReadFunction);
+		if (ReadFunction)
+		{
+			TestEqual(TEXT("The raw Boolean is named Has Sample"),
+				ReadFunction->GetMetaData(TEXT("ReturnDisplayName")),
+				FString(TEXT("Has Sample")));
+		}
+	}
+#endif
 	return true;
 }
 
