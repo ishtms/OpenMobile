@@ -193,6 +193,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 GyroscopeSampleCount = 0;
 		int32 EventHighWaterMark = 0;
 		int64 EventDroppedSamples = 0;
+		int64 LastNotifiedDroppedSamples = 0;
 		int64 FilteredSamples = 0;
 		int64 SuppressedSamples = 0;
 		int32 PendingTimestampIssueFlags = 0;
@@ -291,6 +292,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	FOnOpenMobileProximitySensorBatchReady ProximityBatchEvent;
 	FOnOpenMobileSensorAccuracyChangedReady AccuracyChangedEvent;
 	FOnOpenMobileSensorCalibrationChangedReady CalibrationChangedEvent;
+	FOnOpenMobileSensorSamplesDroppedReady SamplesDroppedEvent;
 	struct FBackendActivityTransitionTrackerState
 	{
 		uint64 BackendGeneration = 0;
@@ -829,7 +831,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			if (Slot.OverflowPolicy ==
 				EOpenMobileSensorOverflowPolicy::RejectNewest)
 			{
-				return false;
+				return true;
 			}
 			Pending.RemoveAt(0, 1, EAllowShrinking::No);
 		}
@@ -843,16 +845,20 @@ namespace OpenMobileSensorsSampleServicePrivate
 	}
 
 	template <typename SampleType>
-	void EnqueueBufferedSample(
+	bool EnqueueBufferedSample(
 		FLatestSlot& Slot,
 		const SampleType& Sample,
 		TFixedSampleRingBuffer<SampleType> FLatestSlot::* BufferedMember
 	)
 	{
-		if (Slot.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered)
+		if (Slot.DeliveryMode != EOpenMobileSensorDeliveryMode::Buffered)
 		{
-			(Slot.*BufferedMember).Enqueue(Sample, Slot.OverflowPolicy);
+			return false;
 		}
+		TFixedSampleRingBuffer<SampleType>& Buffer = Slot.*BufferedMember;
+		const int64 PreviousDroppedSamples = Buffer.DroppedSamples;
+		Buffer.Enqueue(Sample, Slot.OverflowPolicy);
+		return Buffer.DroppedSamples > PreviousDroppedSamples;
 	}
 
 	void NormalizeHeaderAccuracy(FOpenMobileSensorSampleHeader& Header)
@@ -1814,7 +1820,11 @@ namespace OpenMobileSensorsSampleServicePrivate
 						Destination,
 						PendingMember
 					);
-					EnqueueBufferedSample(Slot, Destination, BufferedMember);
+					bQueuedEvent |= EnqueueBufferedSample(
+						Slot,
+						Destination,
+						BufferedMember
+					);
 				}
 			}
 		}
@@ -2400,6 +2410,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileSensorCalibrationEvent Event;
 	};
 
+	struct FSamplesDroppedDelivery
+	{
+		FGuid OwnerIdentifier;
+		FOpenMobileSensorSubscriptionHandle Handle;
+		FOpenMobileSensorDropInfo Drop;
+	};
+
 	bool HasPendingSamples(const FLatestSlot& Slot)
 	{
 		return !Slot.PendingVector.IsEmpty()
@@ -2608,6 +2625,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 			if (Slot.State == EOpenMobileSensorSubscriptionState::Active
 				&& (!Slot.PendingAccuracyChanges.IsEmpty()
 					|| !Slot.PendingCalibrationChanges.IsEmpty()
+					|| GetPluginDroppedSamples(Slot) >
+						Slot.LastNotifiedDroppedSamples
 					|| (Slot.DeliveryMode ==
 							EOpenMobileSensorDeliveryMode::EventBatches
 						&& HasPendingSamples(Slot))))
@@ -2640,6 +2659,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 			ProximityDeliveries;
 		TArray<FAccuracyDelivery> AccuracyDeliveries;
 		TArray<FCalibrationDelivery> CalibrationDeliveries;
+		TArray<FSamplesDroppedDelivery> SamplesDroppedDeliveries;
 		{
 			FReadScopeLock RegistryLock(SlotsLock);
 			for (TPair<
@@ -2652,6 +2672,27 @@ namespace OpenMobileSensorsSampleServicePrivate
 				if (Slot.State != EOpenMobileSensorSubscriptionState::Active)
 				{
 					continue;
+				}
+				const int64 TotalDroppedSamples =
+					GetPluginDroppedSamples(Slot);
+				if (TotalDroppedSamples > Slot.LastNotifiedDroppedSamples)
+				{
+					FSamplesDroppedDelivery& Delivery =
+						SamplesDroppedDeliveries.AddDefaulted_GetRef();
+					Delivery.OwnerIdentifier = Slot.OwnerIdentifier;
+					Delivery.Handle = Slot.Handle;
+					Delivery.Drop.DeliveryMode = Slot.DeliveryMode;
+					Delivery.Drop.DroppedSamples =
+						TotalDroppedSamples -
+						Slot.LastNotifiedDroppedSamples;
+					Delivery.Drop.TotalDroppedSamples = TotalDroppedSamples;
+					Delivery.Drop.OverflowPolicy = Slot.OverflowPolicy;
+					Slot.LastNotifiedDroppedSamples = TotalDroppedSamples;
+				}
+				else if (TotalDroppedSamples <
+					Slot.LastNotifiedDroppedSamples)
+				{
+					Slot.LastNotifiedDroppedSamples = TotalDroppedSamples;
 				}
 				for (FOpenMobileSensorAccuracySnapshot& Snapshot
 					: Slot.PendingAccuracyChanges)
@@ -2755,6 +2796,15 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.OwnerIdentifier,
 				Delivery.Handle,
 				Delivery.Event
+			);
+		}
+		for (const FSamplesDroppedDelivery& Delivery
+			: SamplesDroppedDeliveries)
+		{
+			SamplesDroppedEvent.Broadcast(
+				Delivery.OwnerIdentifier,
+				Delivery.Handle,
+				Delivery.Drop
 			);
 		}
 		for (const TEventDelivery<FOpenMobileVectorSensorBatch>& Delivery
@@ -2911,6 +2961,7 @@ void FOpenMobileSensorsSampleService::BeginShutdown()
 	ProximityBatchEvent.Clear();
 	AccuracyChangedEvent.Clear();
 	CalibrationChangedEvent.Clear();
+	SamplesDroppedEvent.Clear();
 }
 
 void FOpenMobileSensorsSampleService::RegisterSubscription(
@@ -4100,6 +4151,12 @@ FOpenMobileSensorsSampleService::OnCalibrationChanged()
 	return OpenMobileSensorsSampleServicePrivate::CalibrationChangedEvent;
 }
 
+FOnOpenMobileSensorSamplesDroppedReady&
+FOpenMobileSensorsSampleService::OnSamplesDropped()
+{
+	return OpenMobileSensorsSampleServicePrivate::SamplesDroppedEvent;
+}
+
 #if WITH_DEV_AUTOMATION_TESTS
 void FOpenMobileSensorsSampleService::DrainPendingEventsForTests(
 	double NowSeconds
@@ -4126,5 +4183,6 @@ void FOpenMobileSensorsSampleService::ResetForTests()
 	ProximityBatchEvent.Clear();
 	AccuracyChangedEvent.Clear();
 	CalibrationChangedEvent.Clear();
+	SamplesDroppedEvent.Clear();
 }
 #endif

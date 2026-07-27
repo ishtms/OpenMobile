@@ -66,6 +66,9 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 		Settings->DefaultStreamOptions;
 	Settings->DefaultStreamOptions.Filters.bEnableLowPass = true;
 	Settings->DefaultStreamOptions.Filters.LowPassTimeConstantSeconds = 0.25;
+	Settings->DefaultStreamOptions.BufferCapacitySamples = 1;
+	Settings->DefaultStreamOptions.OverflowPolicy =
+		EOpenMobileSensorOverflowPolicy::RejectNewest;
 
 	const FOpenMobileSensorStreamOptions EmptyAdvancedOptions;
 	UOpenMobileGyroscopeListener* Listener =
@@ -108,6 +111,13 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 	Sample.Header.bValid = true;
 	Sample.Value = FVector(1.0, 2.0, 3.0);
 	FOpenMobileSensorsSampleService::PublishVector(Sample);
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		FOpenMobileVectorSensorSample OverflowSample = Sample;
+		OverflowSample.Header.TimestampSeconds = 1.01 + Index * 0.01;
+		OverflowSample.Value.X += Index + 1.0;
+		FOpenMobileSensorsSampleService::PublishVector(OverflowSample);
+	}
 	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.01);
 	FVector AngularVelocity;
 	FOpenMobileSensorSampleInfo SampleInfo;
@@ -124,6 +134,12 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 		FVector(1.0, 2.0, 3.0)
 	);
 	TestEqual(TEXT("The compact sample info keeps sequence"), SampleInfo.Sequence, 1ll);
+	FOpenMobileSensorDropInfo DropInfo;
+	TestTrue(TEXT("The listener caches its latest drop notification"),
+		Listener->GetLastSampleDrop(DropInfo));
+	TestEqual(TEXT("The listener reports dropped samples"),
+		DropInfo.DroppedSamples,
+		2ll);
 
 	Owner->MarkAsGarbage();
 	TestFalse(
@@ -201,6 +217,15 @@ bool FOpenMobileSensorsGyroscopeListenerReflectionTest::RunTest(
 			);
 		}
 	}
+	const FMulticastDelegateProperty* DroppedEvent =
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileSensorListener::StaticClass(),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileSensorListener,
+				SamplesDropped
+			)
+		);
+	TestNotNull(TEXT("Listeners expose scoped sample loss"), DroppedEvent);
 #endif
 	return true;
 }

@@ -123,6 +123,26 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorBufferReadResult
 	int32 BufferHighWaterMark = 0;
 };
 
+USTRUCT(BlueprintType, meta = (DisplayName = "Sensor Sample Drop Info"))
+struct OPENMOBILESENSORS_API FOpenMobileSensorDropInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Delivery path that lost samples."))
+	EOpenMobileSensorDeliveryMode DeliveryMode =
+		EOpenMobileSensorDeliveryMode::LatestValue;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Samples lost since the previous notification for this subscription."))
+	int64 DroppedSamples = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Cumulative samples lost by this subscription."))
+	int64 TotalDroppedSamples = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Policy used when the bounded sample queue became full."))
+	EOpenMobileSensorOverflowPolicy OverflowPolicy =
+		EOpenMobileSensorOverflowPolicy::DropOldest;
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorFlushResult
 {

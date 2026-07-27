@@ -61,6 +61,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
 	FOpenMobileSensorOperationResult,
 	Details
 );
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileSensorListenerSamplesDroppedDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	FOpenMobileSensorDropInfo,
+	DropInfo
+);
 
 UCLASS(Abstract, BlueprintType, Transient, meta = (ExposedAsyncProxy = "Listener"))
 class OPENMOBILESENSORS_API UOpenMobileSensorListener
@@ -90,6 +97,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stopped", ToolTip = "Broadcast once after explicit stop, owner destruction, or world cleanup."))
 	FOpenMobileSensorListenerStateDynamic Stopped;
 
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Samples Dropped", ToolTip = "Broadcast one coalesced loss report per game-thread dispatch cycle when this listener's bounded sample queue overflows."))
+	FOpenMobileSensorListenerSamplesDroppedDynamic SamplesDropped;
+
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stop Sensor Listener", Keywords = "OpenMobile sensors cancel cleanup", ToolTip = "Stops this listener. Calling Stop more than once is safe."))
 	void Stop();
 
@@ -103,6 +113,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Applied Sensor Listener Options", ToolTip = "Returns the resolved stream options used by this listener."))
 	FOpenMobileSensorStreamOptions GetAppliedOptions() const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Sample Drop", ToolTip = "Returns the most recent sample-loss report cached by this listener."))
+	bool GetLastSampleDrop(FOpenMobileSensorDropInfo& OutDropInfo) const;
 
 	virtual void Activate() override;
 
@@ -142,6 +155,10 @@ private:
 		FOpenMobileSensorSubscriptionHandle InHandle,
 		const FOpenMobileVectorSensorBatch& Batch
 	);
+	void HandleSamplesDropped(
+		FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileSensorDropInfo& DropInfo
+	);
 	void FinishFromOperation(
 		const FOpenMobileSensorOperationResult& Operation
 	);
@@ -161,10 +178,13 @@ private:
 	FOpenMobileSensorOperationResult LastOperation;
 	FDelegateHandle StateChangedHandle;
 	FDelegateHandle SampleHandle;
+	FDelegateHandle SamplesDroppedHandle;
 	FTSTicker::FDelegateHandle OwnerTickerHandle;
 	EOpenMobileSensorSubscriptionState CachedState =
 		EOpenMobileSensorSubscriptionState::Invalid;
 	bool bStartedBroadcast = false;
+	FOpenMobileSensorDropInfo LastDropInfo;
+	bool bHasDropInfo = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(

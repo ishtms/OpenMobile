@@ -69,6 +69,12 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(
 	const FOpenMobileSensorSubscriptionHandle&,
 	const FOpenMobileSensorCalibrationEvent&
 );
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileSensorSamplesDroppedReady,
+	const FGuid&,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileSensorDropInfo&
+);
 
 class OPENMOBILESENSORS_API FOpenMobileSensorsSampleService final
 {
@@ -340,6 +346,7 @@ public:
 	static FOnOpenMobileProximitySensorBatchReady& OnProximityBatch();
 	static FOnOpenMobileSensorAccuracyChangedReady& OnAccuracyChanged();
 	static FOnOpenMobileSensorCalibrationChangedReady& OnCalibrationChanged();
+	static FOnOpenMobileSensorSamplesDroppedReady& OnSamplesDropped();
 
 #if WITH_DEV_AUTOMATION_TESTS
 	static void DrainPendingEventsForTests(double NowSeconds);

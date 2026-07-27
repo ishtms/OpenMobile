@@ -112,6 +112,14 @@ UOpenMobileSensorListener::GetAppliedOptions() const
 	return AppliedOptions;
 }
 
+bool UOpenMobileSensorListener::GetLastSampleDrop(
+	FOpenMobileSensorDropInfo& OutDropInfo
+) const
+{
+	OutDropInfo = LastDropInfo;
+	return bHasDropInfo;
+}
+
 FOpenMobileSensorSampleInfo UOpenMobileSensorListener::MakeSampleInfo(
 	const FOpenMobileSensorSampleHeader& Header
 )
@@ -201,6 +209,10 @@ void UOpenMobileSensorListener::BindEvents()
 		this,
 		&UOpenMobileSensorListener::HandleStateChanged
 	);
+	SamplesDroppedHandle = Subsystem->OnSamplesDroppedNative().AddUObject(
+		this,
+		&UOpenMobileSensorListener::HandleSamplesDropped
+	);
 	if (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type) ==
 		EOpenMobileSensorSampleFamily::Vector)
 	{
@@ -229,8 +241,13 @@ void UOpenMobileSensorListener::UnbindEvents()
 	{
 		Subsystem->OnVectorSamplesNative().Remove(SampleHandle);
 	}
+	if (Subsystem && SamplesDroppedHandle.IsValid())
+	{
+		Subsystem->OnSamplesDroppedNative().Remove(SamplesDroppedHandle);
+	}
 	StateChangedHandle.Reset();
 	SampleHandle.Reset();
+	SamplesDroppedHandle.Reset();
 	BoundSubsystem.Reset();
 }
 
@@ -307,6 +324,20 @@ void UOpenMobileSensorListener::HandleVectorBatch(
 	{
 		HandleVectorSample(Batch.Samples.Last());
 	}
+}
+
+void UOpenMobileSensorListener::HandleSamplesDropped(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileSensorDropInfo& DropInfo
+)
+{
+	if (IsFinished() || InHandle != Handle)
+	{
+		return;
+	}
+	LastDropInfo = DropInfo;
+	bHasDropInfo = true;
+	SamplesDropped.Broadcast(this, LastDropInfo);
 }
 
 void UOpenMobileSensorListener::FinishFromOperation(

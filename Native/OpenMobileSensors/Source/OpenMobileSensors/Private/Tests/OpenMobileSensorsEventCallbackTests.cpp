@@ -343,4 +343,112 @@ bool FOpenMobileSensorsEventLateCallbackTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsEventOverflowNotificationTest,
+	"OpenMobile.Sensors.Events.OverflowNotification",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsEventOverflowNotificationTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsEventCallbackTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("OverflowNotification"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	FOpenMobileSensorSubscriptionRequest Request = MakeRequest();
+	Request.Options.BufferCapacitySamples = 2;
+	Request.Options.OverflowPolicy =
+		EOpenMobileSensorOverflowPolicy::RejectNewest;
+	const FOpenMobileSensorSubscriptionResult Subscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			Request
+		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	int32 NotificationCount = 0;
+	FOpenMobileSensorDropInfo LastDrop;
+	FOpenMobileSensorSubscriptionHandle ExpectedHandle = Subscription.Handle;
+	FOpenMobileSensorsSampleService::OnSamplesDropped().AddLambda(
+		[&](
+			const FGuid& InOwner,
+			const FOpenMobileSensorSubscriptionHandle& InHandle,
+			const FOpenMobileSensorDropInfo& Drop
+		)
+		{
+			TestEqual(TEXT("The drop event keeps its owner"), InOwner, Owner);
+			TestTrue(
+				TEXT("The drop event keeps its subscription handle"),
+				InHandle == ExpectedHandle
+			);
+			++NotificationCount;
+			LastDrop = Drop;
+		}
+	);
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		FOpenMobileSensorsSampleService::PublishVector(
+			MakeSample(1.0 + Index * 0.01, Index + 1.0)
+		);
+	}
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.03);
+	TestEqual(
+		TEXT("Overflow is coalesced into one notification per drain"),
+		NotificationCount,
+		1
+	);
+	TestEqual(TEXT("The notification reports the dropped delta"),
+		LastDrop.DroppedSamples,
+		2ll);
+	TestEqual(TEXT("The notification reports the cumulative total"),
+		LastDrop.TotalDroppedSamples,
+		2ll);
+	TestEqual(TEXT("The notification reports the delivery mode"),
+		LastDrop.DeliveryMode,
+		EOpenMobileSensorDeliveryMode::EventBatches);
+	TestEqual(TEXT("The notification reports the overflow policy"),
+		LastDrop.OverflowPolicy,
+		EOpenMobileSensorOverflowPolicy::RejectNewest);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.04);
+	TestEqual(TEXT("No new loss produces no new notification"),
+		NotificationCount,
+		1);
+	FOpenMobileSensorsSubscriptionService::StopSubscription(
+		Owner,
+		Subscription.Handle
+	);
+	Request.Options.DeliveryMode = EOpenMobileSensorDeliveryMode::Buffered;
+	Request.Options.BufferCapacitySamples = 1;
+	const FOpenMobileSensorSubscriptionResult BufferedSubscription =
+		FOpenMobileSensorsSubscriptionService::StartSubscription(
+			Owner,
+			Request
+		);
+	ExpectedHandle = BufferedSubscription.Handle;
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		FOpenMobileSensorsSampleService::PublishVector(
+			MakeSample(2.0 + Index * 0.01, Index + 1.0)
+		);
+	}
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(2.02);
+	TestEqual(TEXT("Buffered overflow also emits a notification"),
+		NotificationCount,
+		2);
+	TestEqual(TEXT("Buffered overflow reports its delivery mode"),
+		LastDrop.DeliveryMode,
+		EOpenMobileSensorDeliveryMode::Buffered);
+	TestEqual(TEXT("Buffered overflow reports its dropped delta"),
+		LastDrop.DroppedSamples,
+		2ll);
+	FinishBackend(Backend);
+	return true;
+}
+
 #endif

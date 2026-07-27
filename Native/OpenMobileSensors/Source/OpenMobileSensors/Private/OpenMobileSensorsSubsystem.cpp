@@ -108,6 +108,13 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 		);
 		CalibrationChangedReadyHandle.Reset();
 	}
+	if (SamplesDroppedReadyHandle.IsValid())
+	{
+		FOpenMobileSensorsSampleService::OnSamplesDropped().Remove(
+			SamplesDroppedReadyHandle
+		);
+		SamplesDroppedReadyHandle.Reset();
+	}
 	if (VectorBatchReadyHandle.IsValid())
 	{
 		FOpenMobileSensorsSampleService::OnVectorBatch().Remove(
@@ -184,6 +191,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	OnSubscriptionStateChanged.Clear();
 	OnAccuracyChanged.Clear();
 	OnCalibrationChanged.Clear();
+	OnSamplesDropped.Clear();
 	OnVectorSamples.Clear();
 	OnAttitudeSamples.Clear();
 	OnScalarSamples.Clear();
@@ -196,6 +204,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	SubscriptionStateChangedEvent.Clear();
 	AccuracyChangedEvent.Clear();
 	CalibrationChangedEvent.Clear();
+	SamplesDroppedEvent.Clear();
 	VectorSamplesEvent.Clear();
 	AttitudeSamplesEvent.Clear();
 	ScalarSamplesEvent.Clear();
@@ -1077,6 +1086,13 @@ UOpenMobileSensorsSubsystem::OnCalibrationChangedNative()
 	return CalibrationChangedEvent;
 }
 
+FOnOpenMobileSensorSamplesDropped&
+UOpenMobileSensorsSubsystem::OnSamplesDroppedNative()
+{
+	EnsureSampleListeners();
+	return SamplesDroppedEvent;
+}
+
 FOnOpenMobileVectorSensorBatch&
 UOpenMobileSensorsSubsystem::OnVectorSamplesNative()
 {
@@ -1189,6 +1205,11 @@ void UOpenMobileSensorsSubsystem::EnsureSampleListeners() const
 		FOpenMobileSensorsSampleService::OnCalibrationChanged().AddUObject(
 			MutableThis,
 			&UOpenMobileSensorsSubsystem::HandleCalibrationChanged
+		);
+	SamplesDroppedReadyHandle =
+		FOpenMobileSensorsSampleService::OnSamplesDropped().AddUObject(
+			MutableThis,
+			&UOpenMobileSensorsSubsystem::HandleSamplesDropped
 		);
 	VectorBatchReadyHandle =
 		FOpenMobileSensorsSampleService::OnVectorBatch().AddUObject(
@@ -1318,6 +1339,20 @@ void UOpenMobileSensorsSubsystem::HandleCalibrationChanged(
 	}
 	OnCalibrationChanged.Broadcast(Handle, Event);
 	CalibrationChangedEvent.Broadcast(Handle, Event);
+}
+
+void UOpenMobileSensorsSubsystem::HandleSamplesDropped(
+	const FGuid& OwnerIdentifier,
+	const FOpenMobileSensorSubscriptionHandle& Handle,
+	const FOpenMobileSensorDropInfo& DropInfo
+)
+{
+	if (bDeinitialized || OwnerIdentifier != SubscriptionOwnerIdentifier)
+	{
+		return;
+	}
+	OnSamplesDropped.Broadcast(Handle, DropInfo);
+	SamplesDroppedEvent.Broadcast(Handle, DropInfo);
 }
 
 #define OPENMOBILE_IMPLEMENT_BATCH_HANDLER(FamilyName, BatchType) \
