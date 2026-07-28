@@ -7,6 +7,7 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorPoseEnvironmentListeners.h"
+#include "OpenMobileSensorActivityListeners.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsCapabilityService.h"
@@ -467,7 +468,9 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 		MakeCapability(EOpenMobileSensorType::BarometricPressure),
 		MakeCapability(EOpenMobileSensorType::MagneticHeading),
 		MakeCapability(EOpenMobileSensorType::Proximity),
-		MakeCapability(EOpenMobileSensorType::PhysicalOrientation)
+		MakeCapability(EOpenMobileSensorType::PhysicalOrientation),
+		MakeCapability(EOpenMobileSensorType::StepCounter),
+		MakeCapability(EOpenMobileSensorType::MotionActivity)
 	});
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
@@ -495,8 +498,17 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 		UOpenMobilePhysicalOrientationListener::ListenForPhysicalOrientation(
 			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
 			false, Owner);
+	UOpenMobileStepCountListener* StepCount =
+		UOpenMobileStepCountListener::ListenForStepCount(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	UOpenMobileMotionActivityListener* MotionActivity =
+		UOpenMobileMotionActivityListener::ListenForMotionActivity(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
 	const TArray<UOpenMobileSensorListener*> Listeners = {
-		Attitude, Pressure, Heading, Proximity, Orientation
+		Attitude, Pressure, Heading, Proximity, Orientation,
+		StepCount, MotionActivity
 	};
 	for (UOpenMobileSensorListener* Listener : Listeners)
 	{
@@ -546,6 +558,21 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	OrientationSample.Orientation = EOpenMobilePhysicalOrientation::FaceUp;
 	OrientationSample.Confidence = 0.8;
 	FOpenMobileSensorsSampleService::PublishOrientation(OrientationSample);
+	FOpenMobileStepsSensorSample StepsSample;
+	StepsSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::StepCounter).Sensor;
+	StepsSample.Header.TimestampSeconds = 1.0;
+	StepsSample.Header.bValid = true;
+	StepsSample.Count = 123;
+	FOpenMobileSensorsSampleService::PublishSteps(StepsSample);
+	FOpenMobileActivitySensorSample ActivitySample;
+	ActivitySample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::MotionActivity).Sensor;
+	ActivitySample.Header.TimestampSeconds = 1.0;
+	ActivitySample.Header.bValid = true;
+	ActivitySample.Activity = EOpenMobileMotionActivity::Walking;
+	ActivitySample.Confidence = EOpenMobileActivityConfidence::High;
+	FOpenMobileSensorsSampleService::PublishActivity(ActivitySample);
 	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.0);
 
 	FOpenMobileSensorSampleInfo SampleInfo;
@@ -581,6 +608,21 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 		PhysicalOrientation,
 		EOpenMobilePhysicalOrientation::FaceUp);
 	TestEqual(TEXT("Orientation listeners keep confidence"), Confidence, 0.8);
+	int64 Steps = 0;
+	TestTrue(TEXT("Steps listeners receive steps batches"),
+		StepCount->GetLatestSteps(Steps, SampleInfo));
+	TestEqual(TEXT("Steps listeners keep the count"), Steps, 123ll);
+	EOpenMobileMotionActivity Activity;
+	EOpenMobileActivityConfidence ActivityConfidence;
+	TestTrue(TEXT("Activity listeners receive activity batches"),
+		MotionActivity->GetLatestActivity(
+			Activity, ActivityConfidence, SampleInfo));
+	TestEqual(TEXT("Activity listeners keep the classification"),
+		Activity,
+		EOpenMobileMotionActivity::Walking);
+	TestEqual(TEXT("Activity listeners keep confidence"),
+		ActivityConfidence,
+		EOpenMobileActivityConfidence::High);
 
 	for (UOpenMobileSensorListener* Listener : Listeners)
 	{
@@ -591,6 +633,96 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	GEngine->DestroyWorldContext(World);
 	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
 	ResetServices();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsActivityListenerReflectionTest,
+	"OpenMobile.Sensors.Blueprint.Listener.ActivityReflection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsActivityListenerReflectionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+#if WITH_METADATA
+	struct FActivityListenerContract
+	{
+		UClass* Class;
+		FName FactoryName;
+		FName SampleName;
+		const TCHAR* SearchTerm;
+		const TCHAR* ValueParameter;
+		const TCHAR* ValueDisplayName;
+	};
+	const FActivityListenerContract Contracts[] = {
+		{UOpenMobileStepCountListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileStepCountListener,
+				ListenForStepCount),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileStepCountListener, Sample),
+			TEXT("step count"), TEXT("Steps"), TEXT("Steps")},
+		{UOpenMobileStepEventListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileStepEventListener,
+				ListenForStepEvents),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileStepEventListener, Sample),
+			TEXT("step event"),
+			TEXT("DetectedStepDelta"), TEXT("Detected Step Delta")},
+		{UOpenMobilePedometerListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobilePedometerListener,
+				ListenForPedometer),
+			GET_MEMBER_NAME_CHECKED(UOpenMobilePedometerListener, Sample),
+			TEXT("pedometer"), TEXT("Steps"), TEXT("Steps")},
+		{UOpenMobileMotionActivityListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileMotionActivityListener,
+				ListenForMotionActivity),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileMotionActivityListener, Sample),
+			TEXT("motion activity"),
+			TEXT("Activity"), TEXT("Activity")},
+		{UOpenMobileActivityTransitionListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileActivityTransitionListener,
+				ListenForActivityTransitions),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileActivityTransitionListener,
+				Sample),
+			TEXT("activity transition"),
+			TEXT("Activity"), TEXT("Activity")}
+	};
+	for (const FActivityListenerContract& Contract : Contracts)
+	{
+		const UFunction* Factory =
+			Contract.Class->FindFunctionByName(Contract.FactoryName);
+		TestNotNull(TEXT("The activity listener factory is reflected"), Factory);
+		if (Factory)
+		{
+			TestTrue(TEXT("The activity listener is searchable by feature name"),
+				Factory->GetMetaData(TEXT("Keywords")).Contains(
+					Contract.SearchTerm));
+		}
+		const FMulticastDelegateProperty* SampleEvent =
+			FindFProperty<FMulticastDelegateProperty>(
+				Contract.Class,
+				Contract.SampleName
+			);
+		TestNotNull(TEXT("The activity sample event is reflected"), SampleEvent);
+		if (SampleEvent)
+		{
+			const FProperty* Value = FindFProperty<FProperty>(
+				SampleEvent->SignatureFunction,
+				Contract.ValueParameter
+			);
+			TestNotNull(TEXT("The activity event exposes its primary value"), Value);
+			if (Value)
+			{
+				TestEqual(TEXT("The activity value pin states its meaning"),
+					Value->GetMetaData(TEXT("DisplayName")),
+					FString(Contract.ValueDisplayName));
+			}
+		}
+	}
+#endif
 	return true;
 }
 
