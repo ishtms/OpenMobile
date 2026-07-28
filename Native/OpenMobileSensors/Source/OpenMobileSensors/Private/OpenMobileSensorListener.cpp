@@ -147,6 +147,48 @@ void UOpenMobileSensorListener::HandleVectorSample(
 	static_cast<void>(Sample);
 }
 
+void UOpenMobileSensorListener::HandleAttitudeSample(
+	const FOpenMobileAttitudeSensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleScalarSample(
+	const FOpenMobileScalarSensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleHeadingSample(
+	const FOpenMobileHeadingSensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleStepsSample(
+	const FOpenMobileStepsSensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleActivitySample(
+	const FOpenMobileActivitySensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleOrientationSample(
+	const FOpenMobileOrientationSensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
+void UOpenMobileSensorListener::HandleProximitySample(
+	const FOpenMobileProximitySensorSample& Sample)
+{
+	static_cast<void>(Sample);
+}
+
 void UOpenMobileSensorListener::CancelNativeOperation()
 {
 	if (!Handle.IsValid())
@@ -213,13 +255,44 @@ void UOpenMobileSensorListener::BindEvents()
 		this,
 		&UOpenMobileSensorListener::HandleSamplesDropped
 	);
-	if (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type) ==
-		EOpenMobileSensorSampleFamily::Vector)
+	switch (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type))
 	{
+	case EOpenMobileSensorSampleFamily::Vector:
 		SampleHandle = Subsystem->OnVectorSamplesNative().AddUObject(
 			this,
 			&UOpenMobileSensorListener::HandleVectorBatch
 		);
+		break;
+	case EOpenMobileSensorSampleFamily::Attitude:
+		SampleHandle = Subsystem->OnAttitudeSamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleAttitudeBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Scalar:
+		SampleHandle = Subsystem->OnScalarSamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleScalarBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Heading:
+		SampleHandle = Subsystem->OnHeadingSamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleHeadingBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Steps:
+		SampleHandle = Subsystem->OnStepsSamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleStepsBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Activity:
+		SampleHandle = Subsystem->OnActivitySamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleActivityBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Orientation:
+		SampleHandle = Subsystem->OnOrientationSamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleOrientationBatch);
+		break;
+	case EOpenMobileSensorSampleFamily::Proximity:
+		SampleHandle = Subsystem->OnProximitySamplesNative().AddUObject(
+			this, &UOpenMobileSensorListener::HandleProximityBatch);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -239,7 +312,35 @@ void UOpenMobileSensorListener::UnbindEvents()
 	}
 	if (Subsystem && SampleHandle.IsValid())
 	{
-		Subsystem->OnVectorSamplesNative().Remove(SampleHandle);
+		switch (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type))
+		{
+		case EOpenMobileSensorSampleFamily::Vector:
+			Subsystem->OnVectorSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Attitude:
+			Subsystem->OnAttitudeSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Scalar:
+			Subsystem->OnScalarSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Heading:
+			Subsystem->OnHeadingSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Steps:
+			Subsystem->OnStepsSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Activity:
+			Subsystem->OnActivitySamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Orientation:
+			Subsystem->OnOrientationSamplesNative().Remove(SampleHandle);
+			break;
+		case EOpenMobileSensorSampleFamily::Proximity:
+			Subsystem->OnProximitySamplesNative().Remove(SampleHandle);
+			break;
+		default:
+			break;
+		}
 	}
 	if (Subsystem && SamplesDroppedHandle.IsValid())
 	{
@@ -323,6 +424,76 @@ void UOpenMobileSensorListener::HandleVectorBatch(
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
 		HandleVectorSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleAttitudeBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileAttitudeSensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleAttitudeSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleScalarBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileScalarSensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleScalarSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleHeadingBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileHeadingSensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleHeadingSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleStepsBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileStepsSensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleStepsSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleActivityBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileActivitySensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleActivitySample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleOrientationBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileOrientationSensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleOrientationSample(Batch.Samples.Last());
+	}
+}
+
+void UOpenMobileSensorListener::HandleProximityBatch(
+	FOpenMobileSensorSubscriptionHandle InHandle,
+	const FOpenMobileProximitySensorBatch& Batch)
+{
+	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	{
+		HandleProximitySample(Batch.Samples.Last());
 	}
 }
 

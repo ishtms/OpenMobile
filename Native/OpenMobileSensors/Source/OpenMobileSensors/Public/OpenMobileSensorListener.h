@@ -139,6 +139,13 @@ protected:
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& Sample
 	);
+	virtual void HandleAttitudeSample(const FOpenMobileAttitudeSensorSample& Sample);
+	virtual void HandleScalarSample(const FOpenMobileScalarSensorSample& Sample);
+	virtual void HandleHeadingSample(const FOpenMobileHeadingSensorSample& Sample);
+	virtual void HandleStepsSample(const FOpenMobileStepsSensorSample& Sample);
+	virtual void HandleActivitySample(const FOpenMobileActivitySensorSample& Sample);
+	virtual void HandleOrientationSample(const FOpenMobileOrientationSensorSample& Sample);
+	virtual void HandleProximitySample(const FOpenMobileProximitySensorSample& Sample);
 	virtual void CancelNativeOperation() override;
 	virtual void OnActionSucceeded() override;
 	virtual void OnActionFailed(const FOpenMobileError& Error) override;
@@ -155,6 +162,20 @@ private:
 		FOpenMobileSensorSubscriptionHandle InHandle,
 		const FOpenMobileVectorSensorBatch& Batch
 	);
+	void HandleAttitudeBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileAttitudeSensorBatch& Batch);
+	void HandleScalarBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileScalarSensorBatch& Batch);
+	void HandleHeadingBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileHeadingSensorBatch& Batch);
+	void HandleStepsBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileStepsSensorBatch& Batch);
+	void HandleActivityBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileActivitySensorBatch& Batch);
+	void HandleOrientationBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileOrientationSensorBatch& Batch);
+	void HandleProximityBatch(FOpenMobileSensorSubscriptionHandle InHandle,
+		const FOpenMobileProximitySensorBatch& Batch);
 	void HandleSamplesDropped(
 		FOpenMobileSensorSubscriptionHandle InHandle,
 		const FOpenMobileSensorDropInfo& DropInfo

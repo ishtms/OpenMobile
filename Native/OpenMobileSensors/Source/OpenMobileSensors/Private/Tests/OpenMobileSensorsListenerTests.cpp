@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorListener.h"
+#include "OpenMobileSensorPoseEnvironmentListeners.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsCapabilityService.h"
@@ -35,6 +36,14 @@ namespace OpenMobileSensorsListenerTestsPrivate
 		Capability.Source = EOpenMobileSensorAvailabilitySource::Mock;
 		Capability.MinimumFrequencyHz = 1.0;
 		Capability.MaximumFrequencyHz = 200.0;
+		return Capability;
+	}
+
+	FOpenMobileSensorCapability MakeCapability(EOpenMobileSensorType Type)
+	{
+		FOpenMobileSensorCapability Capability = MakeGyroscopeCapability();
+		Capability.Sensor.Type = Type;
+		Capability.Availability.Name = FOpenMobileSensorTypes::GetStableName(Type);
 		return Capability;
 	}
 }
@@ -323,6 +332,265 @@ bool FOpenMobileSensorsMotionListenerReflectionTest::RunTest(
 		}
 	}
 #endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsPoseEnvironmentListenerReflectionTest,
+	"OpenMobile.Sensors.Blueprint.Listener.PoseEnvironmentReflection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsPoseEnvironmentListenerReflectionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+#if WITH_METADATA
+	struct FListenerContract
+	{
+		UClass* Class;
+		FName FactoryName;
+		FName SampleName;
+		const TCHAR* SearchTerm;
+		const TCHAR* ValueParameter;
+		const TCHAR* ValueDisplayName;
+	};
+	const FListenerContract Contracts[] = {
+		{UOpenMobileAttitudeListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAttitudeListener,
+				ListenForAttitude),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileAttitudeListener, Sample),
+			TEXT("attitude"), TEXT("Rotation"), TEXT("Rotation")},
+		{UOpenMobileMagneticHeadingListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileMagneticHeadingListener,
+				ListenForMagneticHeading),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileMagneticHeadingListener, Sample),
+			TEXT("magnetic heading"),
+			TEXT("HeadingDegrees"), TEXT("Heading (degrees)")},
+		{UOpenMobileTrueHeadingListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileTrueHeadingListener,
+				ListenForTrueHeading),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileTrueHeadingListener, Sample),
+			TEXT("true heading"),
+			TEXT("HeadingDegrees"), TEXT("Heading (degrees)")},
+		{UOpenMobilePressureListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobilePressureListener,
+				ListenForPressure),
+			GET_MEMBER_NAME_CHECKED(UOpenMobilePressureListener, Sample),
+			TEXT("pressure"),
+			TEXT("PressureHectopascals"), TEXT("Pressure (hPa)")},
+		{UOpenMobileRelativeAltitudeListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileRelativeAltitudeListener,
+				ListenForRelativeAltitude),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileRelativeAltitudeListener, Sample),
+			TEXT("relative altitude"),
+			TEXT("AltitudeMetres"), TEXT("Altitude (m)")},
+		{UOpenMobileAbsoluteAltitudeListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAbsoluteAltitudeListener,
+				ListenForAbsoluteAltitude),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileAbsoluteAltitudeListener, Sample),
+			TEXT("absolute altitude"),
+			TEXT("AltitudeMetres"), TEXT("Altitude (m)")},
+		{UOpenMobileAmbientLightListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAmbientLightListener,
+				ListenForAmbientLight),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileAmbientLightListener, Sample),
+			TEXT("ambient light"),
+			TEXT("IlluminanceLux"), TEXT("Illuminance (lux)")},
+		{UOpenMobileProximityListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileProximityListener,
+				ListenForProximity),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileProximityListener, Sample),
+			TEXT("proximity"), TEXT("bIsNear"), TEXT("Is Near")},
+		{UOpenMobilePhysicalOrientationListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobilePhysicalOrientationListener,
+				ListenForPhysicalOrientation),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobilePhysicalOrientationListener,
+				Sample),
+			TEXT("physical orientation"),
+			TEXT("Orientation"), TEXT("Orientation")}
+	};
+	for (const FListenerContract& Contract : Contracts)
+	{
+		const UFunction* Factory =
+			Contract.Class->FindFunctionByName(Contract.FactoryName);
+		TestNotNull(TEXT("The typed listener factory is reflected"), Factory);
+		if (Factory)
+		{
+			TestTrue(TEXT("The typed listener is searchable by feature name"),
+				Factory->GetMetaData(TEXT("Keywords")).Contains(
+					Contract.SearchTerm));
+		}
+		const FMulticastDelegateProperty* SampleEvent =
+			FindFProperty<FMulticastDelegateProperty>(
+				Contract.Class,
+				Contract.SampleName
+			);
+		TestNotNull(TEXT("The typed sample event is reflected"), SampleEvent);
+		if (SampleEvent)
+		{
+			const FProperty* Value = FindFProperty<FProperty>(
+				SampleEvent->SignatureFunction,
+				Contract.ValueParameter
+			);
+			TestNotNull(TEXT("The typed event exposes its primary value"), Value);
+			if (Value)
+			{
+				TestEqual(TEXT("The typed value pin states its meaning and unit"),
+					Value->GetMetaData(TEXT("DisplayName")),
+					FString(Contract.ValueDisplayName));
+			}
+		}
+	}
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsListenerSampleFamiliesTest,
+	"OpenMobile.Sensors.Blueprint.Listener.SampleFamilies",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsListenerTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("ListenerSampleFamilies"));
+	Backend.SetSensorCapabilities({
+		MakeCapability(EOpenMobileSensorType::Attitude),
+		MakeCapability(EOpenMobileSensorType::BarometricPressure),
+		MakeCapability(EOpenMobileSensorType::MagneticHeading),
+		MakeCapability(EOpenMobileSensorType::Proximity),
+		MakeCapability(EOpenMobileSensorType::PhysicalOrientation)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->InitializeStandalone(TEXT("OpenMobileSensorsFamilyListenerTest"));
+	UWorld* World = GameInstance->GetWorld();
+	USceneComponent* Owner = NewObject<USceneComponent>(World);
+	const FOpenMobileSensorStreamOptions AdvancedOptions;
+	UOpenMobileAttitudeListener* Attitude =
+		UOpenMobileAttitudeListener::ListenForAttitude(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::Game,
+			EOpenMobileSensorCoordinateSpace::DeviceFixed, false, Owner);
+	UOpenMobilePressureListener* Pressure =
+		UOpenMobilePressureListener::ListenForPressure(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	UOpenMobileMagneticHeadingListener* Heading =
+		UOpenMobileMagneticHeadingListener::ListenForMagneticHeading(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			EOpenMobileSensorCoordinateSpace::DeviceFixed, false, Owner);
+	UOpenMobileProximityListener* Proximity =
+		UOpenMobileProximityListener::ListenForProximity(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	UOpenMobilePhysicalOrientationListener* Orientation =
+		UOpenMobilePhysicalOrientationListener::ListenForPhysicalOrientation(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	const TArray<UOpenMobileSensorListener*> Listeners = {
+		Attitude, Pressure, Heading, Proximity, Orientation
+	};
+	for (UOpenMobileSensorListener* Listener : Listeners)
+	{
+		Listener->Activate();
+	}
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	for (UOpenMobileSensorListener* Listener : Listeners)
+	{
+		TestTrue(TEXT("Each sample-family listener becomes active"),
+			Listener->IsActive());
+	}
+
+	FOpenMobileAttitudeSensorSample AttitudeSample;
+	AttitudeSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::Attitude).Sensor;
+	AttitudeSample.Header.TimestampSeconds = 1.0;
+	AttitudeSample.Header.bValid = true;
+	AttitudeSample.Quaternion = FQuat(FVector::UpVector, 0.5);
+	FOpenMobileSensorsSampleService::PublishAttitude(AttitudeSample);
+	FOpenMobileScalarSensorSample PressureSample;
+	PressureSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::BarometricPressure).Sensor;
+	PressureSample.Header.TimestampSeconds = 1.0;
+	PressureSample.Header.bValid = true;
+	PressureSample.Value = 1001.25;
+	FOpenMobileSensorsSampleService::PublishScalar(PressureSample);
+	FOpenMobileHeadingSensorSample HeadingSample;
+	HeadingSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::MagneticHeading).Sensor;
+	HeadingSample.Header.TimestampSeconds = 1.0;
+	HeadingSample.Header.bValid = true;
+	HeadingSample.HeadingDegrees = 42.0;
+	FOpenMobileSensorsSampleService::PublishHeading(HeadingSample);
+	FOpenMobileProximitySensorSample ProximitySample;
+	ProximitySample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::Proximity).Sensor;
+	ProximitySample.Header.TimestampSeconds = 1.0;
+	ProximitySample.Header.bValid = true;
+	ProximitySample.bNear = true;
+	FOpenMobileSensorsSampleService::PublishProximity(ProximitySample);
+	FOpenMobileOrientationSensorSample OrientationSample;
+	OrientationSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::PhysicalOrientation).Sensor;
+	OrientationSample.Header.TimestampSeconds = 1.0;
+	OrientationSample.Header.bValid = true;
+	OrientationSample.Orientation = EOpenMobilePhysicalOrientation::FaceUp;
+	OrientationSample.Confidence = 0.8;
+	FOpenMobileSensorsSampleService::PublishOrientation(OrientationSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.0);
+
+	FOpenMobileSensorSampleInfo SampleInfo;
+	FQuat Rotation;
+	bool bHasEuler = false;
+	FRotator Euler;
+	TestTrue(TEXT("Attitude listeners receive attitude batches"),
+		Attitude->GetLatestAttitude(
+			Rotation, bHasEuler, Euler, SampleInfo));
+	TestTrue(TEXT("Attitude listeners keep the rotation"),
+		Rotation.Equals(AttitudeSample.Quaternion));
+	double ScalarValue = 0.0;
+	TestTrue(TEXT("Scalar listeners receive scalar batches"),
+		Pressure->GetLatestPressure(ScalarValue, SampleInfo));
+	TestEqual(TEXT("Scalar listeners keep the value"), ScalarValue, 1001.25);
+	double HeadingValue = 0.0;
+	TestTrue(TEXT("Heading listeners receive heading batches"),
+		Heading->GetLatestHeading(HeadingValue, SampleInfo));
+	TestEqual(TEXT("Heading listeners keep degrees"), HeadingValue, 42.0);
+	bool bNear = false;
+	bool bHasDistance = false;
+	double Distance = 0.0;
+	TestTrue(TEXT("Proximity listeners receive proximity batches"),
+		Proximity->GetLatestProximity(
+			bNear, bHasDistance, Distance, SampleInfo));
+	TestTrue(TEXT("Proximity listeners keep the near state"), bNear);
+	EOpenMobilePhysicalOrientation PhysicalOrientation;
+	double Confidence = 0.0;
+	TestTrue(TEXT("Orientation listeners receive orientation batches"),
+		Orientation->GetLatestOrientation(
+			PhysicalOrientation, Confidence, SampleInfo));
+	TestEqual(TEXT("Orientation listeners keep the classified pose"),
+		PhysicalOrientation,
+		EOpenMobilePhysicalOrientation::FaceUp);
+	TestEqual(TEXT("Orientation listeners keep confidence"), Confidence, 0.8);
+
+	for (UOpenMobileSensorListener* Listener : Listeners)
+	{
+		Listener->Stop();
+	}
+	GameInstance->Shutdown();
+	World->DestroyWorld(true);
+	GEngine->DestroyWorldContext(World);
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	ResetServices();
 	return true;
 }
 
