@@ -219,7 +219,7 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Gyroscope Sample", Keywords = "OpenMobile sensors gyro angular velocity cached", ToolTip = "Returns the last sample delivered to this listener without querying live service state."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Gyroscope Sample", Keywords = "OpenMobile sensors gyro angular velocity cached", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestAngularVelocity(
 		UPARAM(DisplayName = "Angular Velocity (rad/s)") FVector& OutAngularVelocityRadiansPerSecond,
 		FOpenMobileSensorSampleInfo& OutSampleInfo
@@ -229,6 +229,229 @@ protected:
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& InSample
 	) override;
+
+private:
+	FOpenMobileVectorSensorSample LatestSample;
+	bool bHasSample = false;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOpenMobileAccelerometerSampleDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Acceleration (m/s2)") FVector,
+	AccelerationMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo,
+	SampleInfo
+);
+
+UCLASS(meta = (ExposedAsyncProxy = "Listener"))
+class OPENMOBILESENSORS_API UOpenMobileAccelerometerListener final
+	: public UOpenMobileSensorListener
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast acceleration in metres per second squared."))
+	FOpenMobileAccelerometerSampleDynamic Sample;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Accelerometer", Keywords = "OpenMobile sensors accelerometer acceleration motion movement tilt", ToolTip = "Starts an owner-scoped accelerometer listener with automatic cleanup."))
+	static UOpenMobileAccelerometerListener* ListenForAccelerometer(
+		const UObject* WorldContextObject,
+		const FOpenMobileSensorStreamOptions& AdvancedOptions,
+		EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::Game,
+		EOpenMobileSensorCoordinateSpace CoordinateSpace = EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		bool bUseAdvancedOptions = false,
+		UObject* ListenerOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Accelerometer Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
+	bool GetLatestAcceleration(
+		UPARAM(DisplayName = "Acceleration (m/s2)") FVector& OutAccelerationMetresPerSecondSquared,
+		FOpenMobileSensorSampleInfo& OutSampleInfo
+	) const;
+
+protected:
+	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
+
+private:
+	FOpenMobileVectorSensorSample LatestSample;
+	bool bHasSample = false;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOpenMobileMagnetometerSampleDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Magnetic Field (uT)") FVector,
+	MagneticFieldMicroteslas,
+	FOpenMobileSensorSampleInfo,
+	SampleInfo
+);
+
+UCLASS(meta = (ExposedAsyncProxy = "Listener"))
+class OPENMOBILESENSORS_API UOpenMobileMagnetometerListener final
+	: public UOpenMobileSensorListener
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast magnetic field strength in microteslas."))
+	FOpenMobileMagnetometerSampleDynamic Sample;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Magnetometer", Keywords = "OpenMobile sensors magnetometer magnetic field compass microtesla", ToolTip = "Starts an owner-scoped magnetometer listener with automatic cleanup."))
+	static UOpenMobileMagnetometerListener* ListenForMagnetometer(
+		const UObject* WorldContextObject,
+		const FOpenMobileSensorStreamOptions& AdvancedOptions,
+		EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::Game,
+		EOpenMobileSensorCoordinateSpace CoordinateSpace = EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		bool bUseAdvancedOptions = false,
+		UObject* ListenerOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Magnetometer Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
+	bool GetLatestMagneticField(
+		UPARAM(DisplayName = "Magnetic Field (uT)") FVector& OutMagneticFieldMicroteslas,
+		FOpenMobileSensorSampleInfo& OutSampleInfo
+	) const;
+
+protected:
+	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
+
+private:
+	FOpenMobileVectorSensorSample LatestSample;
+	bool bHasSample = false;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOpenMobileGravitySampleDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Gravity (m/s2)") FVector,
+	GravityMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo,
+	SampleInfo
+);
+
+UCLASS(meta = (ExposedAsyncProxy = "Listener"))
+class OPENMOBILESENSORS_API UOpenMobileGravityListener final
+	: public UOpenMobileSensorListener
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast the gravity vector in metres per second squared."))
+	FOpenMobileGravitySampleDynamic Sample;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Gravity", Keywords = "OpenMobile sensors gravity down vector tilt motion", ToolTip = "Starts an owner-scoped gravity listener with automatic cleanup."))
+	static UOpenMobileGravityListener* ListenForGravity(
+		const UObject* WorldContextObject,
+		const FOpenMobileSensorStreamOptions& AdvancedOptions,
+		EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::Game,
+		EOpenMobileSensorCoordinateSpace CoordinateSpace = EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		bool bUseAdvancedOptions = false,
+		UObject* ListenerOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Gravity Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
+	bool GetLatestGravity(
+		UPARAM(DisplayName = "Gravity (m/s2)") FVector& OutGravityMetresPerSecondSquared,
+		FOpenMobileSensorSampleInfo& OutSampleInfo
+	) const;
+
+protected:
+	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
+
+private:
+	FOpenMobileVectorSensorSample LatestSample;
+	bool bHasSample = false;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOpenMobileLinearAccelerationSampleDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Linear Acceleration (m/s2)") FVector,
+	LinearAccelerationMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo,
+	SampleInfo
+);
+
+UCLASS(meta = (ExposedAsyncProxy = "Listener"))
+class OPENMOBILESENSORS_API UOpenMobileLinearAccelerationListener final
+	: public UOpenMobileSensorListener
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast acceleration with gravity removed in metres per second squared."))
+	FOpenMobileLinearAccelerationSampleDynamic Sample;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Linear Acceleration", Keywords = "OpenMobile sensors linear acceleration user acceleration movement gravity removed", ToolTip = "Starts an owner-scoped linear-acceleration listener with automatic cleanup."))
+	static UOpenMobileLinearAccelerationListener* ListenForLinearAcceleration(
+		const UObject* WorldContextObject,
+		const FOpenMobileSensorStreamOptions& AdvancedOptions,
+		EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::Game,
+		EOpenMobileSensorCoordinateSpace CoordinateSpace = EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		bool bUseAdvancedOptions = false,
+		UObject* ListenerOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Linear Acceleration Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
+	bool GetLatestLinearAcceleration(
+		UPARAM(DisplayName = "Linear Acceleration (m/s2)") FVector& OutLinearAccelerationMetresPerSecondSquared,
+		FOpenMobileSensorSampleInfo& OutSampleInfo
+	) const;
+
+protected:
+	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
+
+private:
+	FOpenMobileVectorSensorSample LatestSample;
+	bool bHasSample = false;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(
+	FOpenMobileShakeSampleDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Strength (m/s2)") double,
+	StrengthMetresPerSecondSquared,
+	UPARAM(DisplayName = "Duration (s)") double,
+	DurationSeconds,
+	int32,
+	ImpulseCount,
+	FOpenMobileSensorSampleInfo,
+	SampleInfo
+);
+
+UCLASS(meta = (ExposedAsyncProxy = "Listener"))
+class OPENMOBILESENSORS_API UOpenMobileShakeListener final
+	: public UOpenMobileSensorListener
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast a detected shake with strength, duration, and impulse count."))
+	FOpenMobileShakeSampleDynamic Sample;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Shake", Keywords = "OpenMobile sensors shake gesture impulse movement", ToolTip = "Starts an owner-scoped shake detector with automatic cleanup."))
+	static UOpenMobileShakeListener* ListenForShake(
+		const UObject* WorldContextObject,
+		const FOpenMobileSensorStreamOptions& AdvancedOptions,
+		EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::Game,
+		bool bUseAdvancedOptions = false,
+		UObject* ListenerOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Shake", ToolTip = "Copies one coherent snapshot of the last shake delivered to this listener."))
+	bool GetLatestShake(
+		UPARAM(DisplayName = "Shake") FOpenMobileShakeEventData& OutShake,
+		FOpenMobileSensorSampleInfo& OutSampleInfo
+	) const;
+
+protected:
+	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
 	FOpenMobileVectorSensorSample LatestSample;

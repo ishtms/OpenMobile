@@ -230,4 +230,100 @@ bool FOpenMobileSensorsGyroscopeListenerReflectionTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsMotionListenerReflectionTest,
+	"OpenMobile.Sensors.Blueprint.Listener.MotionReflection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsMotionListenerReflectionTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+#if WITH_METADATA
+	struct FMotionListenerContract
+	{
+		UClass* Class;
+		FName FactoryName;
+		FName SampleName;
+		const TCHAR* SearchTerm;
+		const TCHAR* ValueParameter;
+		const TCHAR* ValueDisplayName;
+	};
+	const FMotionListenerContract Contracts[] = {
+		{UOpenMobileAccelerometerListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileAccelerometerListener,
+				ListenForAccelerometer),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileAccelerometerListener, Sample),
+			TEXT("accelerometer"),
+			TEXT("AccelerationMetresPerSecondSquared"),
+			TEXT("Acceleration (m/s2)")},
+		{UOpenMobileMagnetometerListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileMagnetometerListener,
+				ListenForMagnetometer),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileMagnetometerListener, Sample),
+			TEXT("magnetometer"),
+			TEXT("MagneticFieldMicroteslas"),
+			TEXT("Magnetic Field (uT)")},
+		{UOpenMobileGravityListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileGravityListener,
+				ListenForGravity),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileGravityListener, Sample),
+			TEXT("gravity"),
+			TEXT("GravityMetresPerSecondSquared"),
+			TEXT("Gravity (m/s2)")},
+		{UOpenMobileLinearAccelerationListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileLinearAccelerationListener,
+				ListenForLinearAcceleration),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileLinearAccelerationListener,
+				Sample),
+			TEXT("linear acceleration"),
+			TEXT("LinearAccelerationMetresPerSecondSquared"),
+			TEXT("Linear Acceleration (m/s2)")},
+		{UOpenMobileShakeListener::StaticClass(),
+			GET_FUNCTION_NAME_CHECKED(UOpenMobileShakeListener,
+				ListenForShake),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileShakeListener, Sample),
+			TEXT("shake"),
+			TEXT("StrengthMetresPerSecondSquared"),
+			TEXT("Strength (m/s2)")}
+	};
+	for (const FMotionListenerContract& Contract : Contracts)
+	{
+		const UFunction* Factory =
+			Contract.Class->FindFunctionByName(Contract.FactoryName);
+		TestNotNull(TEXT("The motion listener factory is reflected"), Factory);
+		if (Factory)
+		{
+			TestTrue(TEXT("The motion listener is searchable by feature name"),
+				Factory->GetMetaData(TEXT("Keywords")).Contains(
+					Contract.SearchTerm));
+		}
+		const FMulticastDelegateProperty* SampleEvent =
+			FindFProperty<FMulticastDelegateProperty>(
+				Contract.Class,
+				Contract.SampleName
+			);
+		TestNotNull(TEXT("The motion sample event is reflected"), SampleEvent);
+		if (SampleEvent)
+		{
+			const FProperty* Value = FindFProperty<FProperty>(
+				SampleEvent->SignatureFunction,
+				Contract.ValueParameter
+			);
+			TestNotNull(TEXT("The motion event exposes its primary value"), Value);
+			if (Value)
+			{
+				TestEqual(TEXT("The motion value pin states its unit"),
+					Value->GetMetaData(TEXT("DisplayName")),
+					FString(Contract.ValueDisplayName));
+			}
+		}
+	}
+#endif
+	return true;
+}
+
 #endif

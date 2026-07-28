@@ -467,3 +467,254 @@ void UOpenMobileGyroscopeListener::HandleVectorSample(
 	bHasSample = true;
 	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
 }
+
+UOpenMobileAccelerometerListener*
+UOpenMobileAccelerometerListener::ListenForAccelerometer(
+	const UObject* WorldContextObject,
+	const FOpenMobileSensorStreamOptions& AdvancedOptions,
+	EOpenMobileSensorRatePreset RatePreset,
+	EOpenMobileSensorCoordinateSpace CoordinateSpace,
+	bool bUseAdvancedOptions,
+	UObject* ListenerOwner
+)
+{
+	UOpenMobileAccelerometerListener* Listener =
+		NewObject<UOpenMobileAccelerometerListener>();
+	Listener->ConfigureListener(
+		WorldContextObject,
+		ListenerOwner,
+		EOpenMobileSensorType::Accelerometer,
+		AdvancedOptions,
+		RatePreset,
+		CoordinateSpace,
+		bUseAdvancedOptions
+	);
+	return Listener;
+}
+
+bool UOpenMobileAccelerometerListener::GetLatestAcceleration(
+	FVector& OutAccelerationMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo& OutSampleInfo
+) const
+{
+	OutAccelerationMetresPerSecondSquared = FVector::ZeroVector;
+	OutSampleInfo = {};
+	if (!bHasSample)
+	{
+		return false;
+	}
+	OutAccelerationMetresPerSecondSquared = LatestSample.Value;
+	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
+	return true;
+}
+
+void UOpenMobileAccelerometerListener::HandleVectorSample(
+	const FOpenMobileVectorSensorSample& InSample
+)
+{
+	LatestSample = InSample;
+	bHasSample = true;
+	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
+}
+
+UOpenMobileMagnetometerListener*
+UOpenMobileMagnetometerListener::ListenForMagnetometer(
+	const UObject* WorldContextObject,
+	const FOpenMobileSensorStreamOptions& AdvancedOptions,
+	EOpenMobileSensorRatePreset RatePreset,
+	EOpenMobileSensorCoordinateSpace CoordinateSpace,
+	bool bUseAdvancedOptions,
+	UObject* ListenerOwner
+)
+{
+	UOpenMobileMagnetometerListener* Listener =
+		NewObject<UOpenMobileMagnetometerListener>();
+	Listener->ConfigureListener(
+		WorldContextObject,
+		ListenerOwner,
+		EOpenMobileSensorType::Magnetometer,
+		AdvancedOptions,
+		RatePreset,
+		CoordinateSpace,
+		bUseAdvancedOptions
+	);
+	return Listener;
+}
+
+bool UOpenMobileMagnetometerListener::GetLatestMagneticField(
+	FVector& OutMagneticFieldMicroteslas,
+	FOpenMobileSensorSampleInfo& OutSampleInfo
+) const
+{
+	OutMagneticFieldMicroteslas = FVector::ZeroVector;
+	OutSampleInfo = {};
+	if (!bHasSample)
+	{
+		return false;
+	}
+	OutMagneticFieldMicroteslas = LatestSample.Value;
+	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
+	return true;
+}
+
+void UOpenMobileMagnetometerListener::HandleVectorSample(
+	const FOpenMobileVectorSensorSample& InSample
+)
+{
+	LatestSample = InSample;
+	bHasSample = true;
+	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
+}
+
+UOpenMobileGravityListener* UOpenMobileGravityListener::ListenForGravity(
+	const UObject* WorldContextObject,
+	const FOpenMobileSensorStreamOptions& AdvancedOptions,
+	EOpenMobileSensorRatePreset RatePreset,
+	EOpenMobileSensorCoordinateSpace CoordinateSpace,
+	bool bUseAdvancedOptions,
+	UObject* ListenerOwner
+)
+{
+	UOpenMobileGravityListener* Listener =
+		NewObject<UOpenMobileGravityListener>();
+	Listener->ConfigureListener(
+		WorldContextObject,
+		ListenerOwner,
+		EOpenMobileSensorType::Gravity,
+		AdvancedOptions,
+		RatePreset,
+		CoordinateSpace,
+		bUseAdvancedOptions
+	);
+	return Listener;
+}
+
+bool UOpenMobileGravityListener::GetLatestGravity(
+	FVector& OutGravityMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo& OutSampleInfo
+) const
+{
+	OutGravityMetresPerSecondSquared = FVector::ZeroVector;
+	OutSampleInfo = {};
+	if (!bHasSample)
+	{
+		return false;
+	}
+	OutGravityMetresPerSecondSquared = LatestSample.Value;
+	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
+	return true;
+}
+
+void UOpenMobileGravityListener::HandleVectorSample(
+	const FOpenMobileVectorSensorSample& InSample
+)
+{
+	LatestSample = InSample;
+	bHasSample = true;
+	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
+}
+
+UOpenMobileLinearAccelerationListener*
+UOpenMobileLinearAccelerationListener::ListenForLinearAcceleration(
+	const UObject* WorldContextObject,
+	const FOpenMobileSensorStreamOptions& AdvancedOptions,
+	EOpenMobileSensorRatePreset RatePreset,
+	EOpenMobileSensorCoordinateSpace CoordinateSpace,
+	bool bUseAdvancedOptions,
+	UObject* ListenerOwner
+)
+{
+	UOpenMobileLinearAccelerationListener* Listener =
+		NewObject<UOpenMobileLinearAccelerationListener>();
+	Listener->ConfigureListener(
+		WorldContextObject,
+		ListenerOwner,
+		EOpenMobileSensorType::LinearAcceleration,
+		AdvancedOptions,
+		RatePreset,
+		CoordinateSpace,
+		bUseAdvancedOptions
+	);
+	return Listener;
+}
+
+bool UOpenMobileLinearAccelerationListener::GetLatestLinearAcceleration(
+	FVector& OutLinearAccelerationMetresPerSecondSquared,
+	FOpenMobileSensorSampleInfo& OutSampleInfo
+) const
+{
+	OutLinearAccelerationMetresPerSecondSquared = FVector::ZeroVector;
+	OutSampleInfo = {};
+	if (!bHasSample)
+	{
+		return false;
+	}
+	OutLinearAccelerationMetresPerSecondSquared = LatestSample.Value;
+	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
+	return true;
+}
+
+void UOpenMobileLinearAccelerationListener::HandleVectorSample(
+	const FOpenMobileVectorSensorSample& InSample
+)
+{
+	LatestSample = InSample;
+	bHasSample = true;
+	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
+}
+
+UOpenMobileShakeListener* UOpenMobileShakeListener::ListenForShake(
+	const UObject* WorldContextObject,
+	const FOpenMobileSensorStreamOptions& AdvancedOptions,
+	EOpenMobileSensorRatePreset RatePreset,
+	bool bUseAdvancedOptions,
+	UObject* ListenerOwner
+)
+{
+	UOpenMobileShakeListener* Listener = NewObject<UOpenMobileShakeListener>();
+	Listener->ConfigureListener(
+		WorldContextObject,
+		ListenerOwner,
+		EOpenMobileSensorType::Shake,
+		AdvancedOptions,
+		RatePreset,
+		EOpenMobileSensorCoordinateSpace::DeviceFixed,
+		bUseAdvancedOptions
+	);
+	return Listener;
+}
+
+bool UOpenMobileShakeListener::GetLatestShake(
+	FOpenMobileShakeEventData& OutShake,
+	FOpenMobileSensorSampleInfo& OutSampleInfo
+) const
+{
+	OutShake = {};
+	OutSampleInfo = {};
+	if (!bHasSample)
+	{
+		return false;
+	}
+	OutShake = LatestSample.ShakeEvent;
+	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
+	return true;
+}
+
+void UOpenMobileShakeListener::HandleVectorSample(
+	const FOpenMobileVectorSensorSample& InSample
+)
+{
+	if (!InSample.bHasShakeEvent)
+	{
+		return;
+	}
+	LatestSample = InSample;
+	bHasSample = true;
+	Sample.Broadcast(
+		this,
+		LatestSample.ShakeEvent.StrengthMetresPerSecondSquared,
+		LatestSample.ShakeEvent.DurationSeconds,
+		LatestSample.ShakeEvent.ImpulseCount,
+		MakeSampleInfo(LatestSample.Header)
+	);
+}
