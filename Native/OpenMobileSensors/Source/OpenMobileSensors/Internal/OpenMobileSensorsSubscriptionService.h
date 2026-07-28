@@ -19,6 +19,12 @@ public:
 	static void Start();
 	static void BeginShutdown();
 	static void HandleBackendGenerationChanged();
+	static bool PreviewOptions(
+		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorStreamOptions& Requested,
+		FOpenMobileSensorStreamOptions& OutApplied,
+		FOpenMobileSensorRateResolution& OutRateResolution
+	);
 
 	static FOpenMobileSensorSubscriptionResult StartSubscription(
 		const FGuid& OwnerIdentifier,

@@ -2284,6 +2284,21 @@ void FOpenMobileSensorsSubscriptionService::Start()
 	RegisterLifecycleDelegates();
 }
 
+bool FOpenMobileSensorsSubscriptionService::PreviewOptions(
+	const FOpenMobileSensorIdentifier& Sensor,
+	const FOpenMobileSensorStreamOptions& Requested,
+	FOpenMobileSensorStreamOptions& OutApplied,
+	FOpenMobileSensorRateResolution& OutRateResolution
+)
+{
+	return OpenMobileSensorsSubscriptionServicePrivate::ValidateAndResolveOptions(
+		Sensor,
+		Requested,
+		OutApplied,
+		OutRateResolution
+	);
+}
+
 void FOpenMobileSensorsSubscriptionService::BeginShutdown()
 {
 	check(IsInGameThread());
