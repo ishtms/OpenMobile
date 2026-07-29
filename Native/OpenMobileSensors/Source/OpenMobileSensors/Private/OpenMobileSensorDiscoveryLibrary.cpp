@@ -8,15 +8,24 @@
 
 namespace OpenMobileSensorDiscoveryPrivate
 {
-	const FOpenMobileSensorCapability* FindPreferredCapability(
+	const FOpenMobileSensorCapability* FindCapability(
 		const FOpenMobileSensorCapabilitySnapshot& Snapshot,
-		EOpenMobileSensorType Sensor)
+		EOpenMobileSensorType Sensor,
+		FName InstanceId = NAME_None)
 	{
 		const FOpenMobileSensorCapability* First = nullptr;
 		for (const FOpenMobileSensorCapability& Capability : Snapshot.Sensors)
 		{
 			if (Capability.Sensor.Type != Sensor)
 			{
+				continue;
+			}
+			if (!InstanceId.IsNone())
+			{
+				if (Capability.Sensor.InstanceId == InstanceId)
+				{
+					return &Capability;
+				}
 				continue;
 			}
 			if (!First)
@@ -29,6 +38,49 @@ namespace OpenMobileSensorDiscoveryPrivate
 			}
 		}
 		return First;
+	}
+
+	FText GetRequiredAction(const FOpenMobileSensorCapability& Capability)
+	{
+		switch (Capability.Availability.State)
+		{
+		case EOpenMobileCapabilityState::Available:
+			return FText::GetEmpty();
+		case EOpenMobileCapabilityState::PermissionRequired:
+			return FText::Format(
+				NSLOCTEXT("OpenMobileSensorDiscovery", "RequestPermission", "Request {0} from a user action, then retry."),
+				FText::FromString(Capability.RequiredPermission.ToString()));
+		case EOpenMobileCapabilityState::Denied:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "PermissionDenied", "Respect the decision or direct the user to system settings when appropriate.");
+		case EOpenMobileCapabilityState::Restricted:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "PermissionRestricted", "Use a feature path that does not require the restricted permission.");
+		case EOpenMobileCapabilityState::TemporarilyUnavailable:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "TemporarilyUnavailable", "Wait for lifecycle or backend recovery, then check availability again.");
+		case EOpenMobileCapabilityState::NotConfigured:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "NotConfigured", "Enable the required Sensors project setting and rebuild the application.");
+		case EOpenMobileCapabilityState::NotSupported:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "NotSupported", "Use another sensor reported as available on this device.");
+		case EOpenMobileCapabilityState::Unavailable:
+		default:
+			break;
+		}
+
+		switch (Capability.ActiveRestriction)
+		{
+		case EOpenMobileSensorRestriction::MissingInput:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "MissingInput", "Provide the required input or enable an available fallback.");
+		case EOpenMobileSensorRestriction::Background:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "BackgroundRestricted", "Resume in the foreground or choose a supported lifecycle policy.");
+		case EOpenMobileSensorRestriction::Calibration:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "CalibrationRequired", "Complete sensor calibration before retrying.");
+		case EOpenMobileSensorRestriction::RateLimited:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "RateLimited", "Request a lower rate or retry after the reported limit clears.");
+		case EOpenMobileSensorRestriction::Configuration:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "ConfigurationRestricted", "Update the Sensors project settings and rebuild the application.");
+		case EOpenMobileSensorRestriction::MissingHardware:
+		default:
+			return NSLOCTEXT("OpenMobileSensorDiscovery", "Unavailable", "Use another sensor reported as available on this device.");
+		}
 	}
 
 	FText Text(const TCHAR* Value)
@@ -80,7 +132,8 @@ bool UOpenMobileSensorDiscoveryLibrary::IsSensorAvailable(
 bool UOpenMobileSensorDiscoveryLibrary::GetSensorAvailability(
 	const UObject* WorldContextObject,
 	EOpenMobileSensorType Sensor,
-	FOpenMobileSensorCapability& OutCapability)
+	FOpenMobileSensorCapability& OutCapability,
+	FName InstanceId)
 {
 	OutCapability = {};
 	const UOpenMobileSensorsSubsystem* Subsystem =
@@ -90,15 +143,81 @@ bool UOpenMobileSensorDiscoveryLibrary::GetSensorAvailability(
 		return false;
 	}
 	const FOpenMobileSensorCapability* Capability =
-		OpenMobileSensorDiscoveryPrivate::FindPreferredCapability(
+		OpenMobileSensorDiscoveryPrivate::FindCapability(
 			Subsystem->GetCapabilitySnapshotNative(),
-			Sensor);
+			Sensor,
+			InstanceId);
 	if (!Capability)
 	{
 		return false;
 	}
 	OutCapability = *Capability;
 	return true;
+}
+
+bool UOpenMobileSensorDiscoveryLibrary::GetSensorAvailabilityInfo(
+	const UObject* WorldContextObject,
+	EOpenMobileSensorType Sensor,
+	FOpenMobileSensorAvailabilityInfo& OutAvailability,
+	FName InstanceId)
+{
+	OutAvailability = {};
+	OutAvailability.Sensor.Type = Sensor;
+	OutAvailability.Sensor.InstanceId = InstanceId;
+	FOpenMobileSensorCapability Capability;
+	if (!GetSensorAvailability(
+		WorldContextObject, Sensor, Capability, InstanceId))
+	{
+		OutAvailability.RequiredAction = NSLOCTEXT(
+			"OpenMobileSensorDiscovery",
+			"SensorNotDiscovered",
+			"Use another sensor reported as available on this device.");
+		return false;
+	}
+	OutAvailability.Sensor = Capability.Sensor;
+	OutAvailability.bAvailable = Capability.Availability.IsAvailable();
+	OutAvailability.State = Capability.Availability.State;
+	OutAvailability.Source = Capability.Source;
+	OutAvailability.Restriction = Capability.ActiveRestriction;
+	OutAvailability.RequiredPermission = Capability.RequiredPermission;
+	OutAvailability.MinimumFrequencyHz = Capability.MinimumFrequencyHz;
+	OutAvailability.MaximumFrequencyHz = Capability.MaximumFrequencyHz;
+	OutAvailability.Detail = FText::FromString(Capability.Availability.Detail);
+	OutAvailability.RequiredAction =
+		OpenMobileSensorDiscoveryPrivate::GetRequiredAction(Capability);
+	return true;
+}
+
+void UOpenMobileSensorDiscoveryLibrary::BranchSensorAvailability(
+	const UObject* WorldContextObject,
+	EOpenMobileSensorType Sensor,
+	FOpenMobileSensorAvailabilityInfo& OutAvailability,
+	EOpenMobileSensorAvailabilityBranch& Branch,
+	FName InstanceId)
+{
+	const bool bFound = GetSensorAvailabilityInfo(
+		WorldContextObject, Sensor, OutAvailability, InstanceId);
+	if (!bFound)
+	{
+		Branch = EOpenMobileSensorAvailabilityBranch::Unavailable;
+		return;
+	}
+	switch (OutAvailability.State)
+	{
+	case EOpenMobileCapabilityState::Available:
+		Branch = EOpenMobileSensorAvailabilityBranch::Available;
+		return;
+	case EOpenMobileCapabilityState::PermissionRequired:
+		Branch = EOpenMobileSensorAvailabilityBranch::PermissionRequired;
+		return;
+	case EOpenMobileCapabilityState::TemporarilyUnavailable:
+		Branch =
+			EOpenMobileSensorAvailabilityBranch::TemporarilyUnavailable;
+		return;
+	default:
+		Branch = EOpenMobileSensorAvailabilityBranch::Unavailable;
+		return;
+	}
 }
 
 TArray<FOpenMobileSensorIdentifier>

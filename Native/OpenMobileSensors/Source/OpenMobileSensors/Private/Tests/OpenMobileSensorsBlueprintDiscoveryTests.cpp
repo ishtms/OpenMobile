@@ -16,11 +16,12 @@ namespace OpenMobileSensorsBlueprintDiscoveryTestsPrivate
 	FOpenMobileSensorCapability MakeCapability(
 		EOpenMobileSensorType Type,
 		EOpenMobileCapabilityState State,
-		FName RequiredPermission = NAME_None)
+		FName RequiredPermission = NAME_None,
+		FName InstanceId = TEXT("Default"))
 	{
 		FOpenMobileSensorCapability Capability;
 		Capability.Sensor.Type = Type;
-		Capability.Sensor.InstanceId = TEXT("Default");
+		Capability.Sensor.InstanceId = InstanceId;
 		Capability.Availability.Name = FOpenMobileSensorTypes::GetStableName(Type);
 		Capability.Availability.State = State;
 		Capability.RequiredPermission = RequiredPermission;
@@ -54,9 +55,15 @@ bool FOpenMobileSensorsBlueprintDiscoveryTest::RunTest(
 	Backend.SetSensorCapabilities({
 		MakeCapability(EOpenMobileSensorType::Gyroscope,
 			EOpenMobileCapabilityState::Available),
+		MakeCapability(EOpenMobileSensorType::Gyroscope,
+			EOpenMobileCapabilityState::Available,
+			NAME_None,
+			TEXT("Secondary")),
 		MakeCapability(EOpenMobileSensorType::MotionActivity,
-			EOpenMobileCapabilityState::Restricted,
+			EOpenMobileCapabilityState::PermissionRequired,
 			TEXT("MotionActivity")),
+		MakeCapability(EOpenMobileSensorType::BarometricPressure,
+			EOpenMobileCapabilityState::TemporarilyUnavailable),
 		MakeCapability(EOpenMobileSensorType::AmbientLight,
 			EOpenMobileCapabilityState::Available)
 	});
@@ -79,10 +86,77 @@ bool FOpenMobileSensorsBlueprintDiscoveryTest::RunTest(
 	TestTrue(TEXT("The direct availability helper reports ready hardware"),
 		UOpenMobileSensorDiscoveryLibrary::IsSensorAvailable(
 			World, EOpenMobileSensorType::Gyroscope));
+	FOpenMobileSensorCapability SecondaryGyroscope;
+	TestTrue(TEXT("Blueprint can query a named sensor instance"),
+		UOpenMobileSensorDiscoveryLibrary::GetSensorAvailability(
+			World,
+			EOpenMobileSensorType::Gyroscope,
+			SecondaryGyroscope,
+			TEXT("Secondary")));
+	TestEqual(TEXT("Named lookup returns the requested instance"),
+		SecondaryGyroscope.Sensor.InstanceId,
+		FName(TEXT("Secondary")));
 	const TArray<FOpenMobileSensorIdentifier> Available =
 		UOpenMobileSensorDiscoveryLibrary::GetAvailableSensors(World);
 	TestTrue(TEXT("Available Sensors includes the gyroscope"),
 		Available.Contains(Gyroscope.Sensor));
+	FOpenMobileSensorAvailabilityInfo AvailabilityInfo;
+	EOpenMobileSensorAvailabilityBranch AvailabilityBranch =
+		EOpenMobileSensorAvailabilityBranch::Unavailable;
+	UOpenMobileSensorDiscoveryLibrary::BranchSensorAvailability(
+		World,
+		EOpenMobileSensorType::Gyroscope,
+		AvailabilityInfo,
+		AvailabilityBranch);
+	TestEqual(TEXT("Available sensors use the available branch"),
+		AvailabilityBranch,
+		EOpenMobileSensorAvailabilityBranch::Available);
+	TestTrue(TEXT("Compact availability reports ready state"),
+		AvailabilityInfo.bAvailable);
+	TestEqual(TEXT("Compact availability reports the minimum rate"),
+		AvailabilityInfo.MinimumFrequencyHz,
+		1.0);
+	UOpenMobileSensorDiscoveryLibrary::BranchSensorAvailability(
+		World,
+		EOpenMobileSensorType::MotionActivity,
+		AvailabilityInfo,
+		AvailabilityBranch);
+	TestEqual(TEXT("Permissions use the permission-required branch"),
+		AvailabilityBranch,
+		EOpenMobileSensorAvailabilityBranch::PermissionRequired);
+	TestFalse(TEXT("Permission-required availability includes an action"),
+		AvailabilityInfo.RequiredAction.IsEmpty());
+	UOpenMobileSensorDiscoveryLibrary::BranchSensorAvailability(
+		World,
+		EOpenMobileSensorType::BarometricPressure,
+		AvailabilityInfo,
+		AvailabilityBranch);
+	TestEqual(TEXT("Transient outages have their own branch"),
+		AvailabilityBranch,
+		EOpenMobileSensorAvailabilityBranch::TemporarilyUnavailable);
+	UOpenMobileSensorDiscoveryLibrary::BranchSensorAvailability(
+		World,
+		EOpenMobileSensorType::AbsoluteAltitude,
+		AvailabilityInfo,
+		AvailabilityBranch);
+	TestEqual(TEXT("Missing sensors use the unavailable branch"),
+		AvailabilityBranch,
+		EOpenMobileSensorAvailabilityBranch::Unavailable);
+#if WITH_METADATA
+	const UFunction* AvailabilityFunction =
+		UOpenMobileSensorDiscoveryLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorDiscoveryLibrary,
+				BranchSensorAvailability));
+	TestNotNull(TEXT("The availability branch is reflected"),
+		AvailabilityFunction);
+	if (AvailabilityFunction)
+	{
+		TestEqual(TEXT("Availability states expand into execution pins"),
+			AvailabilityFunction->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Branch")));
+	}
+#endif
 	FOpenMobileSensorIdentifier Preferred;
 	TestTrue(TEXT("Blueprint can select the preferred sensor instance"),
 		UOpenMobileSensorDiscoveryLibrary::GetPreferredSensor(

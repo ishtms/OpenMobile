@@ -1138,34 +1138,53 @@ namespace OpenMobileSensorsCapabilityServicePrivate
 		const bool bHasBackend = BaseBackendToken.Generation != 0;
 		for (EOpenMobileSensorType Type : FOpenMobileSensorTypes::GetAll())
 		{
-			const FOpenMobileSensorCapability* Reported =
-				BaseCapabilities.FindByPredicate(
-					[Type](const FOpenMobileSensorCapability& Candidate)
-					{
-						return Candidate.Sensor.Type == Type;
-					}
-				);
-			FOpenMobileSensorCapability Capability = Reported
-				? *Reported
-				: MakeMissingCapability(Type, bHasBackend);
-			Capability.Sensor.Type = Type;
-			if (Capability.Sensor.InstanceId.IsNone())
+			TArray<const FOpenMobileSensorCapability*> ReportedInstances;
+			for (const FOpenMobileSensorCapability& Candidate : BaseCapabilities)
 			{
-				Capability.Sensor.InstanceId = TEXT("Default");
+				if (Candidate.Sensor.Type == Type)
+				{
+					ReportedInstances.Add(&Candidate);
+				}
 			}
-			if (Capability.Availability.Name.IsNone())
+			ReportedInstances.StableSort(
+				[](const FOpenMobileSensorCapability& Left,
+					const FOpenMobileSensorCapability& Right)
+				{
+					const bool bLeftDefault = Left.Sensor.InstanceId.IsNone()
+						|| Left.Sensor.InstanceId == TEXT("Default");
+					const bool bRightDefault = Right.Sensor.InstanceId.IsNone()
+						|| Right.Sensor.InstanceId == TEXT("Default");
+					return bLeftDefault && !bRightDefault;
+				});
+			if (ReportedInstances.IsEmpty())
 			{
-				Capability.Availability.Name =
-					FOpenMobileSensorTypes::GetStableName(Type);
+				FOpenMobileSensorCapability Missing =
+					MakeMissingCapability(Type, bHasBackend);
+				Snapshot.Sensors.Add(MoveTemp(Missing));
+				continue;
 			}
-			if (Capability.RequiredPermission.IsNone())
+			for (const FOpenMobileSensorCapability* Reported : ReportedInstances)
 			{
-				Capability.RequiredPermission = GetDefaultPermission(Type);
+				FOpenMobileSensorCapability Capability = *Reported;
+				Capability.Sensor.Type = Type;
+				if (Capability.Sensor.InstanceId.IsNone())
+				{
+					Capability.Sensor.InstanceId = TEXT("Default");
+				}
+				if (Capability.Availability.Name.IsNone())
+				{
+					Capability.Availability.Name =
+						FOpenMobileSensorTypes::GetStableName(Type);
+				}
+				if (Capability.RequiredPermission.IsNone())
+				{
+					Capability.RequiredPermission = GetDefaultPermission(Type);
+				}
+				ApplyLocationState(Capability);
+				ApplyPermissionState(Capability);
+				ApplyLifecycleState(Capability);
+				Snapshot.Sensors.Add(MoveTemp(Capability));
 			}
-			ApplyLocationState(Capability);
-			ApplyPermissionState(Capability);
-			ApplyLifecycleState(Capability);
-			Snapshot.Sensors.Add(MoveTemp(Capability));
 		}
 		ApplyAccelerometerFallback(
 			Snapshot,
