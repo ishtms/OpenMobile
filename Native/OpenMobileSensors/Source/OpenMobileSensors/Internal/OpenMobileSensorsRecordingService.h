@@ -3,6 +3,13 @@
 #include "CoreMinimal.h"
 #include "OpenMobileSensorResults.h"
 
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnOpenMobileSensorRecordingTerminated,
+	const FGuid&,
+	const FOpenMobileSensorRecordingResult&,
+	EOpenMobileSensorRecordingLimitReason
+);
+
 class OPENMOBILESENSORS_API FOpenMobileSensorsRecordingService final
 {
 public:
@@ -22,6 +29,16 @@ public:
 		const FGuid& OwnerIdentifier,
 		const FGuid& RequestId
 	);
+	static bool GetRecordingSnapshot(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId,
+		FOpenMobileSensorRecordingSnapshot& OutSnapshot
+	);
+	static void ReleaseRecording(
+		const FGuid& OwnerIdentifier,
+		const FGuid& RequestId
+	);
+	static FOnOpenMobileSensorRecordingTerminated& OnRecordingTerminated();
 	static FGuid ReplayRecording(
 		const FGuid& OwnerIdentifier,
 		const FString& FilePath,

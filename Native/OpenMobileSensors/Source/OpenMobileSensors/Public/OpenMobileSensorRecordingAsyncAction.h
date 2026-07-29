@@ -25,22 +25,22 @@ class OPENMOBILESENSORS_API UOpenMobileSensorRecordingAsyncAction final
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once when the recording operation completes."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (DisplayName = "Recording Operation Completed", ToolTip = "For start, this means capture became active. For stop, this means the final file is ready. Prefer the typed Record Sensors session for lifecycle events."))
 	FOpenMobileSensorRecordingAsyncResult Completed;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the recording operation is cancelled."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the recording operation is cancelled."))
 	FOpenMobileSensorRecordingAsyncResult Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the recording operation fails."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the recording operation fails."))
 	FOpenMobileSensorRecordingAsyncResult Failed;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Sensor Recording", ToolTip = "Starts a bounded sensor recording and completes exactly once."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Sensor Recording (Advanced)", ToolTip = "Starts a raw recording request. Its completion means recording started, not that the file was finalized. Prefer Record Sensors for lifetime control."))
 	static UOpenMobileSensorRecordingAsyncAction* StartSensorRecording(
 		const UObject* WorldContextObject,
 		FOpenMobileSensorRecordingOptions Options
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Stop Sensor Recording", ToolTip = "Stops and finalizes one accepted sensor recording."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Stop Sensor Recording (Advanced)", ToolTip = "Stops and finalizes one raw recording request by GUID. Prefer Finalize Sensor Recording on a typed session."))
 	static UOpenMobileSensorRecordingAsyncAction* StopSensorRecording(
 		const UObject* WorldContextObject,
 		FGuid RecordingRequestId

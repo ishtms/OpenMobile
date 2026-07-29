@@ -16,6 +16,7 @@
 #include "OpenMobileSensorsSubsystem.generated.h"
 
 class UOpenMobileSensorAsyncActionBase;
+class UOpenMobileSensorRecordingSession;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOnOpenMobileSensorCapabilitiesChanged,
@@ -473,8 +474,13 @@ public:
 		FGuid RequestId,
 		FOnOpenMobileSensorRecordingComplete&& Completion
 	);
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancel Sensor Recording", ToolTip = "Cancels and discards one owned sensor recording."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (DisplayName = "Cancel Sensor Recording by GUID (Advanced)", ToolTip = "Cancels and discards one raw recording request. Prefer Discard Sensor Recording on a typed session."))
 	FOpenMobileSensorOperationResult CancelRecordingNative(FGuid RequestId);
+	void ReleaseRecordingSessionNative(FGuid RequestId);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Active Sensor Recordings", Keywords = "OpenMobile sensors recording session active list", ToolTip = "Returns owner-scoped typed recording sessions that are starting, recording, or finalizing."))
+	TArray<UOpenMobileSensorRecordingSession*>
+	GetActiveRecordingSessionsNative() const;
 	FGuid ReplayRecordingNative(
 		const FString& FilePath,
 		const FOpenMobileSensorReplayOptions& Options,

@@ -610,6 +610,19 @@ bool FOpenMobileSensorsAccelerometerRecordingSizeLimitTest::RunTest(
 	Sensor.InstanceId = TEXT("Default");
 	Options.MaximumDurationSeconds = 30.0;
 	Options.MaximumBytes = 1024ll * 1024;
+	FGuid TerminalRequestId;
+	EOpenMobileSensorRecordingLimitReason TerminalLimit =
+		EOpenMobileSensorRecordingLimitReason::None;
+	const FDelegateHandle TerminalHandle =
+		FOpenMobileSensorsRecordingService::OnRecordingTerminated().AddLambda(
+			[&](
+				const FGuid& InRequestId,
+				const FOpenMobileSensorRecordingResult&,
+				EOpenMobileSensorRecordingLimitReason InLimit)
+			{
+				TerminalRequestId = InRequestId;
+				TerminalLimit = InLimit;
+			});
 	bool bStarted = false;
 	const FGuid RequestId =
 		FOpenMobileSensorsRecordingService::StartRecording(
@@ -642,8 +655,13 @@ bool FOpenMobileSensorsAccelerometerRecordingSizeLimitTest::RunTest(
 		}
 		FOpenMobileSensorsSampleService::PublishVectorBatch(Batch);
 		FOpenMobileSensorsSampleService::DrainPendingEventsForTests(
-			FPlatformTime::Seconds());
+			FPlatformTime::Seconds() + BatchIndex);
 	}
+	TestTrue(TEXT("The byte limit finalizes without an explicit stop"),
+		WaitUntil([&]() { return TerminalRequestId == RequestId; }));
+	TestEqual(TEXT("The terminal event identifies the file-size limit"),
+		TerminalLimit,
+		EOpenMobileSensorRecordingLimitReason::FileSize);
 
 	bool bStopped = false;
 	FOpenMobileSensorRecordingResult StopResult;
@@ -677,6 +695,8 @@ bool FOpenMobileSensorsAccelerometerRecordingSizeLimitTest::RunTest(
 	TestEqual(TEXT("The footer retains recording drops"),
 		Decoded.Footer.DroppedSamples,
 		StopResult.Recording.DroppedSamples);
+	FOpenMobileSensorsRecordingService::OnRecordingTerminated().Remove(
+		TerminalHandle);
 	IFileManager::Get().Delete(*StopResult.Recording.FilePath);
 	FinishServices(Backend);
 	return true;

@@ -18,6 +18,14 @@ enum class EOpenMobileSensorRecordingState : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileSensorRecordingLimitReason : uint8
+{
+	None UMETA(DisplayName = "No Limit", ToolTip = "The recording ended explicitly or failed."),
+	Duration UMETA(DisplayName = "Duration Limit", ToolTip = "The configured maximum recording duration was reached."),
+	FileSize UMETA(DisplayName = "File Size Limit", ToolTip = "The configured maximum recording byte size was reached.")
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileSensorReplayClockMode : uint8
 {
 	RealTime,

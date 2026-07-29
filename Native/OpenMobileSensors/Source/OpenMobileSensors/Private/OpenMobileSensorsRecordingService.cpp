@@ -105,6 +105,9 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		bool bRecordingWasActive = false;
 		bool bStopRequested = false;
 		bool bAutoStopped = false;
+		bool bTerminalEventQueued = false;
+		EOpenMobileSensorRecordingLimitReason LimitReason =
+			EOpenMobileSensorRecordingLimitReason::None;
 	};
 
 	enum class EReplayLoadState : uint8
@@ -153,6 +156,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	TMap<FGuid, TSharedPtr<FReplayEntry, ESPMode::ThreadSafe>> Replays;
 	FDelegateHandle VectorBatchHandle;
 	FDelegateHandle SubscriptionStateHandle;
+	FOnOpenMobileSensorRecordingTerminated RecordingTerminatedEvent;
 	FTSTicker::FDelegateHandle TickHandle;
 	bool bShuttingDown = true;
 
@@ -710,14 +714,23 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				FScopeLock Lock(&Entry->Worker->Mutex);
 				if (Entry->Worker->bStopRequested.Load()
 					|| Entry->Worker->PendingBatchCount >=
-						Entry->Worker->MaximumBufferedBatches
-					|| Entry->Worker->BytesWritten
+						Entry->Worker->MaximumBufferedBatches)
+				{
+					Entry->Worker->DroppedSamples +=
+						RecordedBatch.Samples.Num();
+					return;
+				}
+				if (Entry->Worker->BytesWritten
 						+ Entry->Worker->QueuedEstimatedBytes
 						+ EstimatedBytes + FooterReserveBytes
 						> Entry->Worker->MaximumBytes)
 				{
 					Entry->Worker->DroppedSamples +=
 						RecordedBatch.Samples.Num();
+					Entry->bStopRequested = true;
+					Entry->bAutoStopped = true;
+					Entry->LimitReason =
+						EOpenMobileSensorRecordingLimitReason::FileSize;
 					return;
 				}
 				const int32 PendingIndex =
@@ -737,6 +750,26 @@ namespace OpenMobileSensorsRecordingServicePrivate
 	}
 
 	void RequestWorkerStop(FRecordingEntry& Entry, bool bDiscard);
+
+	void QueueRecordingTerminalEvent(
+		FRecordingEntry& Entry,
+		const FOpenMobileSensorRecordingResult& Result,
+		TArray<TFunction<void()>>& Callbacks)
+	{
+		if (Entry.bTerminalEventQueued)
+		{
+			return;
+		}
+		Entry.bTerminalEventQueued = true;
+		const FGuid RequestId = Entry.RequestId;
+		const EOpenMobileSensorRecordingLimitReason LimitReason =
+			Entry.LimitReason;
+		Callbacks.Add([RequestId, Result, LimitReason]()
+		{
+			RecordingTerminatedEvent.Broadcast(
+				RequestId, Result, LimitReason);
+		});
+	}
 
 	void HandleSubscriptionStateChanged(
 		const FGuid& OwnerIdentifier,
@@ -1497,6 +1530,8 @@ namespace OpenMobileSensorsRecordingServicePrivate
 						Completion(Result);
 					});
 				}
+				QueueRecordingTerminalEvent(
+					*Entry, Entry->FinalResult, Callbacks);
 				RemoveAfterTick.Add(Entry->RequestId);
 			}
 			if (Entry->State == EOpenMobileSensorRecordingState::Recording
@@ -1505,6 +1540,8 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				StopHiddenSubscriptions(*Entry);
 				Entry->State = EOpenMobileSensorRecordingState::Failed;
 				Entry->FinalResult = MakeWorkerFailure(*Entry);
+				QueueRecordingTerminalEvent(
+					*Entry, Entry->FinalResult, Callbacks);
 			}
 			if (Entry->State == EOpenMobileSensorRecordingState::Recording
 				&& Entry->bStopRequested)
@@ -1520,6 +1557,8 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				StopHiddenSubscriptions(*Entry);
 				Entry->State = EOpenMobileSensorRecordingState::Stopping;
 				Entry->bAutoStopped = true;
+				Entry->LimitReason =
+					EOpenMobileSensorRecordingLimitReason::Duration;
 				RequestWorkerStop(*Entry, false);
 			}
 			if (Entry->State == EOpenMobileSensorRecordingState::Stopping
@@ -1550,14 +1589,18 @@ namespace OpenMobileSensorsRecordingServicePrivate
 					{
 						Completion(Result);
 					});
-					RemoveAfterTick.Add(Entry->RequestId);
+					RemoveAfterTick.AddUnique(Entry->RequestId);
 				}
+				QueueRecordingTerminalEvent(
+					*Entry, Entry->FinalResult, Callbacks);
 			}
 			if ((Entry->State == EOpenMobileSensorRecordingState::Failed
 					&& !Entry->StopCompletion
 					&& !Entry->bRecordingWasActive)
 				&& Entry->WorkerFuture.IsReady())
 			{
+				QueueRecordingTerminalEvent(
+					*Entry, Entry->FinalResult, Callbacks);
 				RemoveAfterTick.AddUnique(Entry->RequestId);
 			}
 		}
@@ -1648,6 +1691,7 @@ namespace OpenMobileSensorsRecordingServicePrivate
 				Completion(Result);
 			});
 		}
+		QueueRecordingTerminalEvent(*Entry, Result, Callbacks);
 		Recordings.Remove(Entry->RequestId);
 	}
 
@@ -1774,6 +1818,7 @@ void FOpenMobileSensorsRecordingService::BeginShutdown()
 	using namespace OpenMobileSensorsRecordingServicePrivate;
 	if (bShuttingDown)
 	{
+		RecordingTerminatedEvent.Clear();
 		return;
 	}
 	bShuttingDown = true;
@@ -1792,6 +1837,7 @@ void FOpenMobileSensorsRecordingService::BeginShutdown()
 		SubscriptionStateHandle.Reset();
 	}
 	CancelEntries(nullptr);
+	RecordingTerminatedEvent.Clear();
 }
 
 FGuid FOpenMobileSensorsRecordingService::StartRecording(
@@ -1970,6 +2016,54 @@ FOpenMobileSensorsRecordingService::CancelRecording(
 	QueueRecordingCancellation(*Found, Callbacks);
 	RunCallbacks(Callbacks);
 	return MakeSuccess();
+}
+
+bool FOpenMobileSensorsRecordingService::GetRecordingSnapshot(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId,
+	FOpenMobileSensorRecordingSnapshot& OutSnapshot)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	OutSnapshot = {};
+	const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>* Found =
+		Recordings.Find(RequestId);
+	if (!OwnerIdentifier.IsValid()
+		|| !RequestId.IsValid()
+		|| !Found
+		|| (*Found)->OwnerIdentifier != OwnerIdentifier)
+	{
+		return false;
+	}
+	OutSnapshot = MakeSnapshot(**Found, (*Found)->State);
+	return true;
+}
+
+void FOpenMobileSensorsRecordingService::ReleaseRecording(
+	const FGuid& OwnerIdentifier,
+	const FGuid& RequestId)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsRecordingServicePrivate;
+	const TSharedPtr<FRecordingEntry, ESPMode::ThreadSafe>* Found =
+		Recordings.Find(RequestId);
+	if (!Found || (*Found)->OwnerIdentifier != OwnerIdentifier)
+	{
+		return;
+	}
+	const EOpenMobileSensorRecordingState State = (*Found)->State;
+	if (State == EOpenMobileSensorRecordingState::Completed
+		|| State == EOpenMobileSensorRecordingState::Failed
+		|| State == EOpenMobileSensorRecordingState::Cancelled)
+	{
+		Recordings.Remove(RequestId);
+	}
+}
+
+FOnOpenMobileSensorRecordingTerminated&
+FOpenMobileSensorsRecordingService::OnRecordingTerminated()
+{
+	return OpenMobileSensorsRecordingServicePrivate::RecordingTerminatedEvent;
 }
 
 FGuid FOpenMobileSensorsRecordingService::ReplayRecording(
