@@ -1,5 +1,6 @@
 #include "OpenMobileSensorPermissionAsyncAction.h"
 
+#include "OpenMobileSensorDiscoveryLibrary.h"
 #include "OpenMobileSensorsSubsystem.h"
 
 UOpenMobileSensorPermissionAsyncAction*
@@ -17,11 +18,50 @@ UOpenMobileSensorPermissionAsyncAction::RequestSensorPermission(
 	return Action;
 }
 
+UOpenMobileSensorPermissionAsyncAction*
+UOpenMobileSensorPermissionAsyncAction::RequestAccessNeededBySensor(
+	const UObject* WorldContextObject,
+	EOpenMobileSensorType Sensor)
+{
+	UOpenMobileSensorPermissionAsyncAction* Action =
+		NewObject<UOpenMobileSensorPermissionAsyncAction>();
+	Action->WorldContextObject = const_cast<UObject*>(WorldContextObject);
+	Action->Sensor = Sensor;
+	Action->bResolvePermissionFromSensor = true;
+	return Action;
+}
+
 void UOpenMobileSensorPermissionAsyncAction::Activate()
 {
 	if (!InitializeAction(WorldContextObject))
 	{
 		return;
+	}
+	if (bResolvePermissionFromSensor)
+	{
+		const FOpenMobileSensorAccessRequirement Access =
+			UOpenMobileSensorDiscoveryLibrary::GetRequiredAccessForSensor(
+				WorldContextObject,
+				Sensor);
+		Result.Permission = Access.AccessName;
+		if (Access.Requirement == EOpenMobileSensorAccessRequirement::None)
+		{
+			Result.Status = EOpenMobilePermissionStatus::Granted;
+			FinishSucceeded();
+			return;
+		}
+		if (Access.Requirement ==
+			EOpenMobileSensorAccessRequirement::ExternalPrerequisite)
+		{
+			Result.Error = FOpenMobileError::Make(
+				EOpenMobileErrorCode::NotSupported,
+				TEXT("This sensor requires an external prerequisite. Supply it through the owning provider before retrying."));
+			FinishFailed(Result.Error);
+			return;
+		}
+		Permission = Access.Permission;
+		Result.Permission =
+			FOpenMobileSensorPermissions::GetPermissionName(Permission);
 	}
 
 	TWeakObjectPtr<UOpenMobileSensorPermissionAsyncAction> WeakThis(this);

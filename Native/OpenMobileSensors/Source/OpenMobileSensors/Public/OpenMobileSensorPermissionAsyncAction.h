@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorPermissionAsyncAction.generated.h"
 
@@ -32,6 +33,12 @@ public:
 		EOpenMobileSensorPermission Permission
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Permissions", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Request Access Needed by Sensor", Keywords = "OpenMobile sensors permission access prompt activity heading", ToolTip = "Call from a user-initiated action. Requests the permission needed by this sensor, completes immediately when no permission is needed, and reports external prerequisites without opening a prompt."))
+	static UOpenMobileSensorPermissionAsyncAction* RequestAccessNeededBySensor(
+		const UObject* WorldContextObject,
+		EOpenMobileSensorType Sensor
+	);
+
 	virtual void Activate() override;
 
 protected:
@@ -43,6 +50,7 @@ protected:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FOpenMobileSensorsPermissionOwnerTeardownTest;
+	friend class FOpenMobileSensorsRequestAccessBySensorTest;
 #endif
 	void HandleComplete(const FOpenMobilePermissionResult& InResult);
 
@@ -51,6 +59,8 @@ private:
 
 	EOpenMobileSensorPermission Permission =
 		EOpenMobileSensorPermission::MotionActivity;
+	EOpenMobileSensorType Sensor = EOpenMobileSensorType::Accelerometer;
+	bool bResolvePermissionFromSensor = false;
 	FOpenMobilePermissionRequestHandle RequestHandle;
 	FOpenMobilePermissionResult Result;
 };

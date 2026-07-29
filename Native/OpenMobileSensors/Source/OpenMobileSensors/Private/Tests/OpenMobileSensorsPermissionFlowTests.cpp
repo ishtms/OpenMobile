@@ -1,6 +1,8 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "IOpenMobilePermissionProvider.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorPermissionAsyncAction.h"
@@ -134,6 +136,83 @@ namespace OpenMobileSensorsPermissionFlowTestsPrivate
 		FOpenMobileSensorsCapabilityService::ResetForTests();
 		FOpenMobileSensorsSubscriptionService::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRequestAccessBySensorTest,
+	"OpenMobile.Sensors.Permissions.RequestAccessBySensor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRequestAccessBySensorTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsPermissionFlowTestsPrivate;
+	ResetServices();
+	FMockPermissionProvider Provider;
+	FOpenMobilePermissionProviderRegistry::RegisterProvider(Provider);
+	FOpenMobileSensorsMockBackend Backend(TEXT("AccessBySensor"));
+	Backend.SetSensorCapabilities({
+		MakeCapability(EOpenMobileSensorType::Gyroscope),
+		MakeCapability(EOpenMobileSensorType::MotionActivity,
+			Provider.MotionPermission),
+		MakeCapability(EOpenMobileSensorType::TrueHeading)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->InitializeStandalone(TEXT("OpenMobileSensorsAccessTest"));
+	UWorld* World = GameInstance->GetWorld();
+
+	UOpenMobileSensorPermissionAsyncAction* NoPermission =
+		UOpenMobileSensorPermissionAsyncAction::RequestAccessNeededBySensor(
+			World, EOpenMobileSensorType::Gyroscope);
+	NoPermission->Activate();
+	TestTrue(TEXT("A sensor without permission completes immediately"),
+		NoPermission->IsFinished());
+	TestFalse(TEXT("A sensor without permission does not open a prompt"),
+		NoPermission->Result.Error.IsSet());
+	TestEqual(TEXT("No permission needed is reported as ready"),
+		NoPermission->Result.Status,
+		EOpenMobilePermissionStatus::Granted);
+	TestEqual(TEXT("No permission was requested"), Provider.RequestCount, 0);
+
+	UOpenMobileSensorPermissionAsyncAction* Motion =
+		UOpenMobileSensorPermissionAsyncAction::RequestAccessNeededBySensor(
+			World, EOpenMobileSensorType::MotionActivity);
+	Motion->Activate();
+	TestFalse(TEXT("A permission request remains active until completion"),
+		Motion->IsFinished());
+	TestEqual(TEXT("Motion activity opens one native prompt"),
+		Provider.RequestCount,
+		1);
+	Provider.CompleteTwice(EOpenMobilePermissionStatus::Granted);
+	TestTrue(TEXT("The sensor access action completes once permission returns"),
+		Motion->IsFinished());
+	TestEqual(TEXT("The permission result is normalized"),
+		Motion->Result.Status,
+		EOpenMobilePermissionStatus::Granted);
+
+	UOpenMobileSensorPermissionAsyncAction* External =
+		UOpenMobileSensorPermissionAsyncAction::RequestAccessNeededBySensor(
+			World, EOpenMobileSensorType::TrueHeading);
+	External->Activate();
+	TestTrue(TEXT("External prerequisites fail immediately"),
+		External->IsFinished());
+	TestEqual(TEXT("Location is not presented as a sensor permission"),
+		External->Result.Error.Code,
+		EOpenMobileErrorCode::NotSupported);
+	TestEqual(TEXT("External prerequisites never open a prompt"),
+		Provider.RequestCount,
+		1);
+
+	GameInstance->Shutdown();
+	World->DestroyWorld(true);
+	GEngine->DestroyWorldContext(World);
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	FOpenMobilePermissionProviderRegistry::UnregisterProvider(Provider);
+	ResetServices();
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
