@@ -236,6 +236,18 @@ bool FOpenMobileSensorsGyroscopeListenerReflectionTest::RunTest(
 			)
 		);
 	TestNotNull(TEXT("Listeners expose scoped sample loss"), DroppedEvent);
+	const FMulticastDelegateProperty* StartedEvent =
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileSensorListener::StaticClass(),
+			GET_MEMBER_NAME_CHECKED(UOpenMobileSensorListener, Started));
+	TestNotNull(TEXT("The listener started event is reflected"), StartedEvent);
+	if (StartedEvent)
+	{
+		TestNotNull(TEXT("Started exposes every resolved stream option"),
+			FindFProperty<FProperty>(
+				StartedEvent->SignatureFunction,
+				TEXT("AppliedOptions")));
+	}
 #endif
 	return true;
 }

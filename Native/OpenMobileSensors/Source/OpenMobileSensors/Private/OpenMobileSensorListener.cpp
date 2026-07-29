@@ -387,6 +387,7 @@ void UOpenMobileSensorListener::HandleStateChanged(
 			bStartedBroadcast = true;
 			Started.Broadcast(
 				this,
+				AppliedOptions,
 				RateResolution.AppliedNativeFrequencyHz,
 				ResolveSource(),
 				RateResolution.AdjustmentReason !=

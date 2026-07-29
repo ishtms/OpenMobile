@@ -34,10 +34,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleInfo
 
 class UOpenMobileSensorListener;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(
 	FOpenMobileSensorListenerStartedDynamic,
 	UOpenMobileSensorListener*,
 	Listener,
+	FOpenMobileSensorStreamOptions,
+	AppliedOptions,
 	UPARAM(DisplayName = "Applied Rate (Hz)") double,
 	AppliedRateHz,
 	EOpenMobileSensorAvailabilitySource,
@@ -76,7 +78,7 @@ class OPENMOBILESENSORS_API UOpenMobileSensorListener
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Started", ToolTip = "Broadcast once when the requested sensor listener becomes active."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Started", ToolTip = "Broadcast once when the requested sensor listener becomes active, including every resolved stream option and the final native rate."))
 	FOpenMobileSensorListenerStartedDynamic Started;
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Paused", ToolTip = "Broadcast when lifecycle policy pauses this listener."))
