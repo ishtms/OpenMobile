@@ -7,6 +7,7 @@
 #include "Misc/ScopeExit.h"
 #include "OpenMobileAsync.h"
 #include "OpenMobileSensorPermissions.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsCapabilityService.h"
 #include "OpenMobileSensorsErrorMapper.h"
@@ -2432,6 +2433,15 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	}
 	Result.AppliedOptions = AppliedOptions;
 	Result.RateResolution = RateResolution;
+	if (AppliedOptions.CoordinateSpace ==
+			EOpenMobileSensorCoordinateSpace::CurrentScreen
+		&& !FOpenMobileSensorsScreenRotationService::HasRotationSource(
+			OwnerIdentifier))
+	{
+		Result.Operation = FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::ConfigurationBlocked);
+		return Result;
+	}
 	ELifecycleAction InactiveLifecycleAction = ELifecycleAction::Continue;
 	if (!IsApplicationReadyForForegroundStreams())
 	{

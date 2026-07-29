@@ -2,6 +2,8 @@
 
 #include "OpenMobileSensorScreenRotationService.h"
 
+#include "GenericPlatform/GenericPlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeRWLock.h"
 #include "OpenMobileSensorCoordinates.h"
 
@@ -12,6 +14,7 @@ namespace OpenMobileSensorScreenRotationPrivate
 	TMap<FGuid, TArray<FOpenMobileSensorScreenRotationSnapshot>>
 		RotationHistories;
 	int64 NextRotationSequence = 1;
+	TOptional<bool> PlatformNaturalOrientationLandscape;
 
 	bool IsValidRotation(EOpenMobileSensorScreenRotation Rotation)
 	{
@@ -62,19 +65,143 @@ namespace OpenMobileSensorScreenRotationPrivate
 		return static_cast<double>(static_cast<uint8>(Rotation)) * 90.0;
 	}
 
-	void ResolveAndApply(
+	bool TryMapPlatformOrientation(
+		EDeviceScreenOrientation Orientation,
+		bool bNaturalOrientationLandscape,
+		EOpenMobileSensorScreenRotation& OutRotation)
+	{
+		if (bNaturalOrientationLandscape)
+		{
+			switch (Orientation)
+			{
+			case EDeviceScreenOrientation::LandscapeLeft:
+				OutRotation = EOpenMobileSensorScreenRotation::Rotation0;
+				return true;
+			case EDeviceScreenOrientation::PortraitUpsideDown:
+				OutRotation = EOpenMobileSensorScreenRotation::Rotation90;
+				return true;
+			case EDeviceScreenOrientation::LandscapeRight:
+				OutRotation = EOpenMobileSensorScreenRotation::Rotation180;
+				return true;
+			case EDeviceScreenOrientation::Portrait:
+				OutRotation = EOpenMobileSensorScreenRotation::Rotation270;
+				return true;
+			default:
+				return false;
+			}
+		}
+		switch (Orientation)
+		{
+		case EDeviceScreenOrientation::Portrait:
+			OutRotation = EOpenMobileSensorScreenRotation::Rotation0;
+			return true;
+		case EDeviceScreenOrientation::LandscapeLeft:
+			OutRotation = EOpenMobileSensorScreenRotation::Rotation90;
+			return true;
+		case EDeviceScreenOrientation::PortraitUpsideDown:
+			OutRotation = EOpenMobileSensorScreenRotation::Rotation180;
+			return true;
+		case EDeviceScreenOrientation::LandscapeRight:
+			OutRotation = EOpenMobileSensorScreenRotation::Rotation270;
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool ResolveAndApply(
 		const FGuid& OwnerIdentifier,
 		FOpenMobileSensorSampleHeader& Header,
 		FOpenMobileSensorScreenRotationSnapshot& OutSnapshot
 	)
 	{
-		FOpenMobileSensorsScreenRotationService::ResolveRotation(
+		if (!FOpenMobileSensorsScreenRotationService::ResolveRotation(
 			OwnerIdentifier,
 			Header.TimestampSeconds,
 			OutSnapshot
-		);
+		))
+		{
+			Header.bValid = false;
+			return false;
+		}
 		ApplySnapshot(Header, OutSnapshot);
+		return true;
 	}
+}
+
+bool FOpenMobileSensorsScreenRotationService::CapturePlatformScreenOrientation(
+	EDeviceScreenOrientation Orientation,
+	bool bNaturalOrientationLandscape,
+	double TimestampSeconds)
+{
+	EOpenMobileSensorScreenRotation Rotation;
+	if (!OpenMobileSensorScreenRotationPrivate::TryMapPlatformOrientation(
+		Orientation,
+		bNaturalOrientationLandscape,
+		Rotation))
+	{
+		return false;
+	}
+	return CapturePlatformScreenRotation(
+		Rotation,
+		bNaturalOrientationLandscape,
+		TimestampSeconds);
+}
+
+bool FOpenMobileSensorsScreenRotationService::CapturePlatformScreenRotation(
+	EOpenMobileSensorScreenRotation Rotation,
+	bool bNaturalOrientationLandscape,
+	double TimestampSeconds)
+{
+	if (!CaptureApplicationWindowRotation(
+		FGuid(), Rotation, TimestampSeconds, bNaturalOrientationLandscape))
+	{
+		return false;
+	}
+	FWriteScopeLock Lock(
+		OpenMobileSensorScreenRotationPrivate::RotationLock);
+	OpenMobileSensorScreenRotationPrivate::
+		PlatformNaturalOrientationLandscape = bNaturalOrientationLandscape;
+	return true;
+}
+
+bool FOpenMobileSensorsScreenRotationService::NotifyCurrentScreenRotation(
+	const FGuid& OwnerIdentifier,
+	EOpenMobileSensorScreenRotation Rotation)
+{
+	bool bNaturalOrientationLandscape = false;
+	{
+		FReadScopeLock Lock(
+			OpenMobileSensorScreenRotationPrivate::RotationLock);
+		if (!OpenMobileSensorScreenRotationPrivate::
+			PlatformNaturalOrientationLandscape.IsSet())
+		{
+			return false;
+		}
+		bNaturalOrientationLandscape = OpenMobileSensorScreenRotationPrivate::
+			PlatformNaturalOrientationLandscape.GetValue();
+	}
+	return CaptureApplicationWindowRotation(
+		OwnerIdentifier,
+		Rotation,
+		FPlatformTime::Seconds(),
+		bNaturalOrientationLandscape);
+}
+
+bool FOpenMobileSensorsScreenRotationService::HasRotationSource(
+	const FGuid& OwnerIdentifier)
+{
+	FReadScopeLock Lock(OpenMobileSensorScreenRotationPrivate::RotationLock);
+	if (const TArray<FOpenMobileSensorScreenRotationSnapshot>* OwnerHistory =
+		OpenMobileSensorScreenRotationPrivate::RotationHistories.Find(
+			OwnerIdentifier);
+		OwnerHistory && !OwnerHistory->IsEmpty())
+	{
+		return true;
+	}
+	const TArray<FOpenMobileSensorScreenRotationSnapshot>* GlobalHistory =
+		OpenMobileSensorScreenRotationPrivate::RotationHistories.Find(FGuid());
+	return GlobalHistory && !GlobalHistory->IsEmpty();
 }
 
 bool FOpenMobileSensorsScreenRotationService::
@@ -158,6 +285,10 @@ void FOpenMobileSensorsScreenRotationService::RemoveOwner(
 	using namespace OpenMobileSensorScreenRotationPrivate;
 	FWriteScopeLock Lock(RotationLock);
 	RotationHistories.Remove(OwnerIdentifier);
+	if (!OwnerIdentifier.IsValid())
+	{
+		PlatformNaturalOrientationLandscape.Reset();
+	}
 }
 
 void FOpenMobileSensorsScreenRotationService::Reset()
@@ -166,6 +297,7 @@ void FOpenMobileSensorsScreenRotationService::Reset()
 	FWriteScopeLock Lock(RotationLock);
 	RotationHistories.Reset();
 	NextRotationSequence = 1;
+	PlatformNaturalOrientationLandscape.Reset();
 }
 
 FVector FOpenMobileSensorsScreenRotationService::RotateVector(
@@ -199,7 +331,10 @@ void FOpenMobileSensorsScreenRotationService::ApplyToSample(
 		return;
 	}
 	FOpenMobileSensorScreenRotationSnapshot Snapshot;
-	ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot);
+	if (!ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot))
+	{
+		return;
+	}
 	Sample.Value = RotateVector(Sample.Value, Snapshot.Rotation);
 	if (Sample.bHasBias)
 	{
@@ -219,7 +354,10 @@ void FOpenMobileSensorsScreenRotationService::ApplyToSample(
 		return;
 	}
 	FOpenMobileSensorScreenRotationSnapshot Snapshot;
-	ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot);
+	if (!ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot))
+	{
+		return;
+	}
 	const FVector VectorPart = RotateVector(
 		FVector(Sample.Quaternion.X, Sample.Quaternion.Y, Sample.Quaternion.Z),
 		Snapshot.Rotation
@@ -259,7 +397,10 @@ void FOpenMobileSensorsScreenRotationService::ApplyToSample(
 		return;
 	}
 	FOpenMobileSensorScreenRotationSnapshot Snapshot;
-	ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot);
+	if (!ResolveAndApply(OwnerIdentifier, Sample.Header, Snapshot))
+	{
+		return;
+	}
 	Sample.HeadingDegrees = FMath::Fmod(
 		Sample.HeadingDegrees + RotationDegrees(Snapshot.Rotation),
 		360.0

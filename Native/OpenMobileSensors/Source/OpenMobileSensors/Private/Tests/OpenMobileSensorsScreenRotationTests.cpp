@@ -1,5 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "GenericPlatform/GenericPlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorScreenRotation.h"
 #include "OpenMobileSensorScreenRotationService.h"
@@ -7,6 +9,7 @@
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
+#include "OpenMobileSensorsSubsystem.h"
 
 namespace OpenMobileSensorsScreenRotationTestsPrivate
 {
@@ -75,6 +78,106 @@ namespace OpenMobileSensorsScreenRotationTestsPrivate
 		FOpenMobileSensorsScreenRotationService::ResetForTests();
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsScreenRotationSourceContractTest,
+	"OpenMobile.Sensors.ScreenRotation.SourceContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsScreenRotationSourceContractTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsScreenRotationTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("ScreenSourceContract"));
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	const FGuid Owner = FGuid::NewGuid();
+	const FOpenMobileSensorSubscriptionResult MissingSource = StartActive(
+		Owner,
+		MakeRequest(EOpenMobileSensorCoordinateSpace::CurrentScreen));
+	TestFalse(TEXT("Current-screen requests need a rotation source"),
+		MissingSource.Handle.IsValid());
+	TestEqual(TEXT("A missing source is a typed configuration failure"),
+		MissingSource.Operation.Failure.Reason,
+		EOpenMobileSensorFailureReason::ConfigurationBlocked);
+	FOpenMobileVectorSensorSample MissingRotationSample =
+		MakeVector(2.0, FVector::ForwardVector);
+	FOpenMobileSensorsScreenRotationService::ApplyToSample(
+		Owner,
+		EOpenMobileSensorCoordinateSpace::CurrentScreen,
+		MissingRotationSample);
+	TestFalse(TEXT("A sample without a matching rotation is invalid"),
+		MissingRotationSample.Header.bValid);
+	TestEqual(TEXT("A missing rotation is not mislabeled as current screen"),
+		MissingRotationSample.Header.CoordinateSpace,
+		EOpenMobileSensorCoordinateSpace::DeviceFixed);
+
+	TestTrue(TEXT("The platform source accepts portrait-natural rotation"),
+		FOpenMobileSensorsScreenRotationService::
+			CapturePlatformScreenOrientation(
+				EDeviceScreenOrientation::LandscapeLeft,
+				false,
+				1.0));
+	FOpenMobileSensorScreenRotationSnapshot PlatformSnapshot;
+	TestTrue(TEXT("Owners can use the automatic global rotation source"),
+		FOpenMobileSensorsScreenRotationService::ResolveRotation(
+			Owner, 2.0, PlatformSnapshot));
+	TestEqual(TEXT("Portrait-natural landscape left is ninety degrees"),
+		PlatformSnapshot.Rotation,
+		EOpenMobileSensorScreenRotation::Rotation90);
+	TestTrue(TEXT("The platform source accepts landscape-natural rotation"),
+		FOpenMobileSensorsScreenRotationService::
+			CapturePlatformScreenOrientation(
+				EDeviceScreenOrientation::LandscapeLeft,
+				true,
+				3.0));
+	TestTrue(TEXT("Landscape-natural rotation can be resolved"),
+		FOpenMobileSensorsScreenRotationService::ResolveRotation(
+			Owner, 4.0, PlatformSnapshot));
+	TestEqual(TEXT("Landscape-natural landscape left is zero degrees"),
+		PlatformSnapshot.Rotation,
+		EOpenMobileSensorScreenRotation::Rotation0);
+	TestTrue(TEXT("The platform source records natural orientation"),
+		PlatformSnapshot.bNaturalOrientationLandscape);
+
+	TestTrue(TEXT("The simple override timestamps itself"),
+		FOpenMobileSensorsScreenRotationService::NotifyCurrentScreenRotation(
+			Owner,
+			EOpenMobileSensorScreenRotation::Rotation270));
+	FOpenMobileSensorScreenRotationSnapshot OverrideSnapshot;
+	TestTrue(TEXT("The simple override can be resolved"),
+		FOpenMobileSensorsScreenRotationService::ResolveRotation(
+			Owner,
+			FPlatformTime::Seconds(),
+			OverrideSnapshot));
+	TestEqual(TEXT("The simple override keeps the selected rotation"),
+		OverrideSnapshot.Rotation,
+		EOpenMobileSensorScreenRotation::Rotation270);
+	TestTrue(TEXT("The simple override supplies a monotonic timestamp"),
+		OverrideSnapshot.TimestampSeconds > 0.0);
+	TestTrue(TEXT("The simple override reuses platform natural orientation"),
+		OverrideSnapshot.bNaturalOrientationLandscape);
+
+#if WITH_METADATA
+	const UFunction* NotifyFunction =
+		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("NotifyCurrentScreenRotationNative"));
+	TestNotNull(TEXT("The safe Blueprint rotation override is reflected"),
+		NotifyFunction);
+	if (NotifyFunction)
+	{
+		TestTrue(TEXT("The raw timestamped function is advanced"),
+			UOpenMobileSensorsSubsystem::StaticClass()
+				->FindFunctionByName(TEXT("UpdateApplicationWindowRotationNative"))
+				->GetMetaData(TEXT("Category"))
+				.Contains(TEXT("Advanced")));
+	}
+#endif
+	FinishBackend(Backend);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

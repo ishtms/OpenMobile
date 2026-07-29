@@ -4,6 +4,8 @@
 #include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorScreenRotation.h"
 
+enum class EDeviceScreenOrientation : uint8;
+
 class OPENMOBILESENSORS_API FOpenMobileSensorsScreenRotationService final
 {
 public:
@@ -13,6 +15,21 @@ public:
 		double TimestampSeconds,
 		bool bNaturalOrientationLandscape
 	);
+	static bool CapturePlatformScreenOrientation(
+		EDeviceScreenOrientation Orientation,
+		bool bNaturalOrientationLandscape,
+		double TimestampSeconds
+	);
+	static bool CapturePlatformScreenRotation(
+		EOpenMobileSensorScreenRotation Rotation,
+		bool bNaturalOrientationLandscape,
+		double TimestampSeconds
+	);
+	static bool NotifyCurrentScreenRotation(
+		const FGuid& OwnerIdentifier,
+		EOpenMobileSensorScreenRotation Rotation
+	);
+	static bool HasRotationSource(const FGuid& OwnerIdentifier);
 	static bool ResolveRotation(
 		const FGuid& OwnerIdentifier,
 		double SampleTimestampSeconds,

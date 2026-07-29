@@ -297,6 +297,19 @@ bool UOpenMobileSensorsSubsystem::UpdateApplicationWindowRotationNative(
 		);
 }
 
+bool UOpenMobileSensorsSubsystem::NotifyCurrentScreenRotationNative(
+	EOpenMobileSensorScreenRotation Rotation)
+{
+	if (bDeinitialized)
+	{
+		return false;
+	}
+	return FOpenMobileSensorsScreenRotationService::
+		NotifyCurrentScreenRotation(
+			GetOrCreateSubscriptionOwnerIdentifier(),
+			Rotation);
+}
+
 FOpenMobileSensorOperationResult
 UOpenMobileSensorsSubsystem::UpdateSubscriptionNative(
 	const FOpenMobileSensorSubscriptionHandle& Handle,

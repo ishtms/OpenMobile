@@ -2,8 +2,11 @@
 
 #include "Android/AndroidApplication.h"
 #include "Android/AndroidJNI.h"
+#include "HAL/PlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/ScopeLock.h"
 #include "OpenMobileAsync.h"
+#include "OpenMobileSensorScreenRotationService.h"
 #include "OpenMobileSensorsAndroidBackend.h"
 
 namespace OpenMobileSensorsAndroidBridgePrivate
@@ -421,6 +424,77 @@ FOpenMobileSensorsAndroidBridge::FOpenMobileSensorsAndroidBridge(
 FOpenMobileSensorsAndroidBridge::~FOpenMobileSensorsAndroidBridge()
 {
 	Shutdown();
+}
+
+bool FOpenMobileSensorsAndroidBridge::RefreshApplicationWindowRotation()
+{
+	JNIEnv* Env = FAndroidApplication::GetJavaEnv();
+	jobject Activity = FAndroidApplication::GetGameActivityThis();
+	if (!Env || !Activity)
+	{
+		return false;
+	}
+	jclass ActivityClass = Env->GetObjectClass(Activity);
+	if (!ActivityClass || Env->ExceptionCheck())
+	{
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+		}
+		if (ActivityClass)
+		{
+			Env->DeleteLocalRef(ActivityClass);
+		}
+		return false;
+	}
+	const jmethodID GetRotationMethod = Env->GetMethodID(
+		ActivityClass,
+		"AndroidThunkJava_GetDeviceRotation",
+		"()I");
+	if (!GetRotationMethod || Env->ExceptionCheck())
+	{
+		if (Env->ExceptionCheck())
+		{
+			Env->ExceptionClear();
+		}
+		Env->DeleteLocalRef(ActivityClass);
+		return false;
+	}
+	const int32 NativeRotation = static_cast<int32>(
+		Env->CallIntMethod(Activity, GetRotationMethod));
+	const bool bFailed = Env->ExceptionCheck();
+	if (bFailed)
+	{
+		Env->ExceptionClear();
+	}
+	Env->DeleteLocalRef(ActivityClass);
+	if (bFailed || NativeRotation < 0 || NativeRotation > 3)
+	{
+		return false;
+	}
+	const EDeviceScreenOrientation Orientation =
+		FPlatformMisc::GetDeviceOrientation();
+	if (Orientation != EDeviceScreenOrientation::Portrait
+		&& Orientation != EDeviceScreenOrientation::PortraitUpsideDown
+		&& Orientation != EDeviceScreenOrientation::LandscapeLeft
+		&& Orientation != EDeviceScreenOrientation::LandscapeRight)
+	{
+		return false;
+	}
+	const bool bCurrentOrientationPortrait =
+		Orientation == EDeviceScreenOrientation::Portrait
+		|| Orientation == EDeviceScreenOrientation::PortraitUpsideDown;
+	const bool bRotationKeepsNaturalAxes =
+		NativeRotation == 0 || NativeRotation == 2;
+	const bool bNaturalOrientationLandscape =
+		bCurrentOrientationPortrait != bRotationKeepsNaturalAxes;
+	const EOpenMobileSensorScreenRotation Rotation =
+		static_cast<EOpenMobileSensorScreenRotation>(NativeRotation);
+	return FOpenMobileSensorsScreenRotationService::
+		CapturePlatformScreenRotation(
+			Rotation,
+			bNaturalOrientationLandscape,
+			FPlatformTime::Seconds());
 }
 
 FOpenMobilePermissionResult FOpenMobileSensorsAndroidBridge::

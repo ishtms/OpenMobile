@@ -71,6 +71,7 @@ public:
 
 	static FOpenMobilePermissionResult
 	QueryActivityRecognitionPermissionStatus();
+	static bool RefreshApplicationWindowRotation();
 	bool RequestActivityRecognitionPermission(
 		const FGuid& RequestIdentifier,
 		FOpenMobileNativePermissionCompletion&& Completion,

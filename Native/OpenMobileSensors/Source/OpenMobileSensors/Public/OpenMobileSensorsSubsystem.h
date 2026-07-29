@@ -210,7 +210,12 @@ public:
 		const FOpenMobileSensorSubscriptionRequest& Request
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Update Application Window Rotation", ToolTip = "Supplies a timestamped application-window rotation for current-screen sensor subscriptions."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Coordinates", meta = (DisplayName = "Notify Current Screen Rotation", Keywords = "OpenMobile sensors screen window orientation rotation override", ToolTip = "Overrides the automatically tracked application-window rotation. The plugin supplies its monotonic timestamp and discovered natural orientation."))
+	bool NotifyCurrentScreenRotationNative(
+		EOpenMobileSensorScreenRotation Rotation
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Coordinates", meta = (DisplayName = "Update Application Window Rotation (Timestamped)", Keywords = "OpenMobile sensors screen window orientation rotation monotonic advanced", ToolTip = "Advanced override using FPlatformTime::Seconds monotonic time from this process and an explicitly known natural device orientation."))
 	bool UpdateApplicationWindowRotationNative(
 		EOpenMobileSensorScreenRotation Rotation,
 		double TimestampSeconds,
