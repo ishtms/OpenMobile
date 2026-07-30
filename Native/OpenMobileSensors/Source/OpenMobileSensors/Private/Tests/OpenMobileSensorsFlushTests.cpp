@@ -152,6 +152,10 @@ bool FOpenMobileSensorsFlushEmptyAndPopulatedTest::RunTest(
 		CompletionCount, 1);
 	TestEqual(TEXT("The completion preserves its request identifier"),
 		PopulatedResult.RequestId, PopulatedRequestId);
+	TestTrue(TEXT("The completion exposes a typed flush handle"),
+		PopulatedResult.Request.IsValid());
+	TestEqual(TEXT("The typed flush handle preserves its request"),
+		PopulatedResult.Request.GetIdentifier(), PopulatedRequestId);
 	TestEqual(TEXT("The flush reports queued plugin samples"),
 		PopulatedResult.FlushedSamples, 3);
 	FOpenMobileSensorBufferReadResult ReadResult;

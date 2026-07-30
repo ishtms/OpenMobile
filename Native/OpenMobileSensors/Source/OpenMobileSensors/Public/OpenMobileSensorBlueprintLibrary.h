@@ -60,6 +60,28 @@ public:
 		UPARAM(ref) FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Is Sensor Flush Handle Valid", Keywords = "OpenMobile sensors flush request handle valid", ToolTip = "Returns whether this typed handle identifies a sensor flush request."))
+	static bool IsSensorFlushHandleValid(
+		const FOpenMobileSensorFlushHandle& Handle
+	);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Are Sensor Flush Handles Equal", Keywords = "OpenMobile sensors flush request handle compare equal", ToolTip = "Returns whether two typed sensor flush handles identify the same request."))
+	static bool AreSensorFlushHandlesEqual(
+		const FOpenMobileSensorFlushHandle& A,
+		const FOpenMobileSensorFlushHandle& B
+	);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Is Historical Step Query Handle Valid", Keywords = "OpenMobile sensors native historical step query handle valid", ToolTip = "Returns whether this typed handle identifies a historical native step-count query."))
+	static bool IsNativeStepCountQueryHandleValid(
+		const FOpenMobileNativeStepCountQueryHandle& Handle
+	);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Are Historical Step Query Handles Equal", Keywords = "OpenMobile sensors native historical step query handle compare equal", ToolTip = "Returns whether two typed historical step-query handles identify the same request."))
+	static bool AreNativeStepCountQueryHandlesEqual(
+		const FOpenMobileNativeStepCountQueryHandle& A,
+		const FOpenMobileNativeStepCountQueryHandle& B
+	);
+
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Sensor Sample Family", Keywords = "OpenMobile sensors sample family vector attitude scalar heading steps activity orientation proximity", ToolTip = "Returns the generic sample family used by an advanced raw sensor stream."))
 	static EOpenMobileSensorSampleFamily GetSensorSampleFamily(
 		EOpenMobileSensorType Sensor

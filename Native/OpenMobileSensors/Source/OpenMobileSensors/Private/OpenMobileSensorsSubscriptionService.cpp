@@ -1161,6 +1161,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		}
 		FOpenMobileSensorFlushResult Result;
 		Result.RequestId = RequestId;
+		Result.Request = FOpenMobileSensorFlushHandle(RequestId);
 		Result.Handle = Pending.Handle;
 		Result.Operation = MoveTemp(Operation);
 		if (Result.Operation.IsSuccess()
@@ -3181,6 +3182,7 @@ void FOpenMobileSensorsSubscriptionService::FlushSubscription(
 	{
 		FOpenMobileSensorFlushResult Result;
 		Result.RequestId = RequestId;
+		Result.Request = FOpenMobileSensorFlushHandle(RequestId);
 		Result.Handle = Handle;
 		Result.Operation = Operation;
 		if (Completion)

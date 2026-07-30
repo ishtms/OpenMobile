@@ -21,8 +21,10 @@ struct OPENMOBILESENSORS_API FOpenMobileNativeStepCountQueryResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FGuid RequestId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Activity", meta = (ToolTip = "Typed identity for this historical step query. Different request-handle types cannot be connected in Blueprint."))
+	FOpenMobileNativeStepCountQueryHandle Request;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileNativeStepCountQuery Query;

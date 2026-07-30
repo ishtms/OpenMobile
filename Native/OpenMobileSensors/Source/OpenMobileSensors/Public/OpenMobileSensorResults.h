@@ -4,6 +4,7 @@
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorRecording.h"
+#include "OpenMobileSensorRequestHandles.h"
 #include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorSubscription.h"
@@ -148,8 +149,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFlushResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FGuid RequestId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identity for this flush request. Different request-handle types cannot be connected in Blueprint."))
+	FOpenMobileSensorFlushHandle Request;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FOpenMobileSensorSubscriptionHandle Handle;

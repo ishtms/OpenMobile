@@ -16,6 +16,7 @@
 #include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorRecordingAsyncAction.h"
 #include "OpenMobileSensorRecordingSession.h"
+#include "OpenMobileSensorRequestHandles.h"
 #include "OpenMobileSensorReplayAsyncAction.h"
 #include "OpenMobileSensorReplaySession.h"
 #include "OpenMobileSensorResults.h"

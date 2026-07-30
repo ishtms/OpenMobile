@@ -66,6 +66,33 @@ void UOpenMobileSensorBlueprintLibrary::InvalidateSensorSubscriptionHandle(
 	Handle.Reset();
 }
 
+bool UOpenMobileSensorBlueprintLibrary::IsSensorFlushHandleValid(
+	const FOpenMobileSensorFlushHandle& Handle)
+{
+	return Handle.IsValid();
+}
+
+bool UOpenMobileSensorBlueprintLibrary::AreSensorFlushHandlesEqual(
+	const FOpenMobileSensorFlushHandle& A,
+	const FOpenMobileSensorFlushHandle& B)
+{
+	return A == B;
+}
+
+bool UOpenMobileSensorBlueprintLibrary::IsNativeStepCountQueryHandleValid(
+	const FOpenMobileNativeStepCountQueryHandle& Handle)
+{
+	return Handle.IsValid();
+}
+
+bool UOpenMobileSensorBlueprintLibrary::
+AreNativeStepCountQueryHandlesEqual(
+	const FOpenMobileNativeStepCountQueryHandle& A,
+	const FOpenMobileNativeStepCountQueryHandle& B)
+{
+	return A == B;
+}
+
 EOpenMobileSensorSampleFamily
 UOpenMobileSensorBlueprintLibrary::GetSensorSampleFamily(
 	EOpenMobileSensorType Sensor

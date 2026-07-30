@@ -170,6 +170,10 @@ bool FOpenMobileSensorsNativeStepHistoricalQueryTest::RunTest(
 	TestEqual(TEXT("The query completes exactly once"), Completions, 1);
 	TestEqual(TEXT("The request id is preserved"),
 		Received.RequestId, RequestId);
+	TestTrue(TEXT("The result exposes a typed historical query handle"),
+		Received.Request.IsValid());
+	TestEqual(TEXT("The typed query handle preserves its request"),
+		Received.Request.GetIdentifier(), RequestId);
 	TestEqual(TEXT("A wide historical count is preserved"),
 		Received.Sample.Count, 5000000000LL);
 	TestEqual(TEXT("The query start is preserved"),

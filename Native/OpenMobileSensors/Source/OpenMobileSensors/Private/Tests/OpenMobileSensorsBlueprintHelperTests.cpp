@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "OpenMobileNativeStepCount.h"
 #include "OpenMobileSensorBlueprintLibrary.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsSettings.h"
@@ -65,6 +66,38 @@ bool FOpenMobileSensorsBlueprintOperationHelperTest::RunTest(
 		TEXT("Invalidating an invalid handle stays safe"),
 		Handle.IsValid()
 	);
+	const FOpenMobileSensorFlushHandle FlushHandle(FGuid::NewGuid());
+	TestTrue(TEXT("A typed flush handle reports validity"),
+		UOpenMobileSensorBlueprintLibrary::IsSensorFlushHandleValid(
+			FlushHandle));
+	TestTrue(TEXT("Typed flush handles compare within their own type"),
+		UOpenMobileSensorBlueprintLibrary::AreSensorFlushHandlesEqual(
+			FlushHandle, FlushHandle));
+	const FOpenMobileNativeStepCountQueryHandle QueryHandle(FGuid::NewGuid());
+	TestTrue(TEXT("A typed historical query handle reports validity"),
+		UOpenMobileSensorBlueprintLibrary::
+			IsNativeStepCountQueryHandleValid(QueryHandle));
+	TestTrue(TEXT("Typed historical query handles compare within their type"),
+		UOpenMobileSensorBlueprintLibrary::
+			AreNativeStepCountQueryHandlesEqual(QueryHandle, QueryHandle));
+	TestNull(TEXT("Raw flush GUIDs are not Blueprint properties"),
+		FindFProperty<FProperty>(
+			FOpenMobileSensorFlushResult::StaticStruct(),
+			TEXT("RequestId")));
+	TestNotNull(TEXT("The typed flush request is a Blueprint property"),
+		FindFProperty<FProperty>(
+			FOpenMobileSensorFlushResult::StaticStruct(),
+			GET_MEMBER_NAME_CHECKED(
+				FOpenMobileSensorFlushResult, Request)));
+	TestNull(TEXT("Raw historical-query GUIDs are not Blueprint properties"),
+		FindFProperty<FProperty>(
+			FOpenMobileNativeStepCountQueryResult::StaticStruct(),
+			TEXT("RequestId")));
+	TestNotNull(TEXT("The typed historical request is a Blueprint property"),
+		FindFProperty<FProperty>(
+			FOpenMobileNativeStepCountQueryResult::StaticStruct(),
+			GET_MEMBER_NAME_CHECKED(
+				FOpenMobileNativeStepCountQueryResult, Request)));
 	return true;
 }
 

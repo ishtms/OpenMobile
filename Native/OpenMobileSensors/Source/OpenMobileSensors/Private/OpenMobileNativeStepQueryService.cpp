@@ -135,6 +135,8 @@ namespace OpenMobileNativeStepQueryServicePrivate
 				}
 				FOpenMobileNativeStepCountQueryResult Result;
 				Result.RequestId = RequestId;
+				Result.Request =
+					FOpenMobileNativeStepCountQueryHandle(RequestId);
 				Result.Query = Entry->Query;
 				if (!FOpenMobileSensorsBackendRegistry::IsTokenCurrent(Token))
 				{
@@ -192,6 +194,8 @@ namespace OpenMobileNativeStepQueryServicePrivate
 		}
 		FOpenMobileNativeStepCountQueryResult Result;
 		Result.RequestId = Entry->RequestId;
+		Result.Request =
+			FOpenMobileNativeStepCountQueryHandle(Entry->RequestId);
 		Result.Query = Entry->Query;
 		Result.Operation = Failure(
 			EOpenMobileSensorFailureReason::Cancelled,
@@ -243,6 +247,8 @@ FGuid FOpenMobileNativeStepQueryService::Query(
 	{
 		FOpenMobileNativeStepCountQueryResult Result;
 		Result.RequestId = RequestId;
+		Result.Request =
+			FOpenMobileNativeStepCountQueryHandle(RequestId);
 		Result.Query = Query;
 		Result.Operation = MoveTemp(Operation);
 		Deliver(MoveTemp(Completion), MoveTemp(Result));
@@ -326,6 +332,8 @@ FGuid FOpenMobileNativeStepQueryService::Query(
 		{
 			FOpenMobileNativeStepCountQueryResult Result;
 			Result.RequestId = RequestId;
+			Result.Request =
+				FOpenMobileNativeStepCountQueryHandle(RequestId);
 			Result.Query = Query;
 			Result.Operation = StartResult;
 			Deliver(MoveTemp(FailedEntry->Completion), MoveTemp(Result));
