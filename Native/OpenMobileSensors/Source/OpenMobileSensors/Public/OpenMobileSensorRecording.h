@@ -66,10 +66,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingOptions
 	TArray<FOpenMobileSensorIdentifier> Sensors;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
-	double MaximumDurationSeconds = 300.0;
+	double MaximumDurationSeconds = 1.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
-	int64 MaximumBytes = 64ll * 1024 * 1024;
+	int64 MaximumBytes = 1024ll * 1024;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Includes caller-supplied location only when the separate development project opt-in is enabled. Always blocked in Shipping."))
 	bool bIncludeSensitiveLocationContext = false;

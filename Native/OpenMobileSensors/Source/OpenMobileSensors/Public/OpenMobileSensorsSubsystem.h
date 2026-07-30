@@ -478,6 +478,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (DisplayName = "Cancel Sensor Recording by GUID (Advanced)", ToolTip = "Cancels and discards one raw recording request. Prefer Discard Sensor Recording on a typed session."))
 	FOpenMobileSensorOperationResult CancelRecordingNative(FGuid RequestId);
 	void ReleaseRecordingSessionNative(FGuid RequestId);
+	TArray<FOpenMobileSensorIdentifier>
+	GetActiveSensorIdentifiersNative() const;
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Active Sensor Recordings", Keywords = "OpenMobile sensors recording session active list", ToolTip = "Returns owner-scoped typed recording sessions that are starting, recording, or finalizing."))
 	TArray<UOpenMobileSensorRecordingSession*>

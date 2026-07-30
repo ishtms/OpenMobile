@@ -180,9 +180,9 @@ bool UOpenMobileSensorsSettings::Validate(
 		OutErrors.Add(TEXT("MaximumRecordingDurationSeconds must be between 1 and 86400 seconds."));
 	}
 	if (MaximumRecordingBytes < 1024ll * 1024
-		|| MaximumRecordingBytes > 4ll * 1024 * 1024 * 1024)
+		|| MaximumRecordingBytes > 256ll * 1024 * 1024)
 	{
-		OutErrors.Add(TEXT("MaximumRecordingBytes must be between 1 MiB and 4 GiB."));
+		OutErrors.Add(TEXT("MaximumRecordingBytes must be between 1 MiB and 256 MiB."));
 	}
 	if (MaximumRecordingBufferedBatches < 1
 		|| MaximumRecordingBufferedBatches > 4096)

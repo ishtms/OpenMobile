@@ -57,6 +57,9 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 	static int32 StopAllSubscriptions(const FGuid& OwnerIdentifier);
+	static TArray<FOpenMobileSensorIdentifier> GetActiveSensors(
+		const FGuid& OwnerIdentifier
+	);
 	static bool GetSubscriptionState(
 		const FGuid& OwnerIdentifier,
 		const FOpenMobileSensorSubscriptionHandle& Handle,

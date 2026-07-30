@@ -224,6 +224,13 @@ bool FOpenMobileSensorsSettingsValidationTest::RunTest(
 		HasErrorContaining(Errors, TEXT("MaximumRecordingDurationSeconds")));
 	TestTrue(TEXT("Recording size failure is explicit"),
 		HasErrorContaining(Errors, TEXT("MaximumRecordingBytes")));
+	UOpenMobileSensorsSettings* OversizedRecording =
+		NewObject<UOpenMobileSensorsSettings>();
+	OversizedRecording->MaximumRecordingBytes = 512ll * 1024 * 1024;
+	TestFalse(TEXT("Recordings above the replay format limit are rejected"),
+		OversizedRecording->Validate(Errors, false));
+	TestTrue(TEXT("Oversized recording failure is explicit"),
+		HasErrorContaining(Errors, TEXT("MaximumRecordingBytes")));
 
 	UOpenMobileSensorsSettings* Orientation =
 		NewObject<UOpenMobileSensorsSettings>();

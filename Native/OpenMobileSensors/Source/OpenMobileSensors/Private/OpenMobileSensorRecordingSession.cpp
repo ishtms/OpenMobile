@@ -1,5 +1,7 @@
 #include "OpenMobileSensorRecordingSession.h"
 
+#include "OpenMobileSensorBlueprintLibrary.h"
+#include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsRecordingService.h"
 #include "OpenMobileSensorsSubsystem.h"
@@ -20,6 +22,54 @@ UOpenMobileSensorRecordingSession::RecordSensors(
 	return Session;
 }
 
+UOpenMobileSensorRecordingSession*
+UOpenMobileSensorRecordingSession::StartRecordingSensor(
+	const UObject* WorldContextObject,
+	EOpenMobileSensorType Sensor,
+	UObject* SessionOwner)
+{
+	FOpenMobileSensorRecordingOptions Options =
+		UOpenMobileSensorBlueprintLibrary::
+			GetDefaultSensorRecordingOptions();
+	FOpenMobileSensorIdentifier& Identifier =
+		Options.Sensors.AddDefaulted_GetRef();
+	Identifier.Type = Sensor;
+	return RecordSensors(WorldContextObject, MoveTemp(Options), SessionOwner);
+}
+
+UOpenMobileSensorRecordingSession*
+UOpenMobileSensorRecordingSession::StartRecordingListeners(
+	const UObject* WorldContextObject,
+	const TArray<UOpenMobileSensorListener*>& Listeners,
+	UObject* SessionOwner)
+{
+	FOpenMobileSensorRecordingOptions Options =
+		UOpenMobileSensorBlueprintLibrary::
+			GetDefaultSensorRecordingOptions();
+	for (const UOpenMobileSensorListener* Listener : Listeners)
+	{
+		if (Listener)
+		{
+			Options.Sensors.AddUnique(Listener->GetSensor());
+		}
+	}
+	return RecordSensors(WorldContextObject, MoveTemp(Options), SessionOwner);
+}
+
+UOpenMobileSensorRecordingSession*
+UOpenMobileSensorRecordingSession::StartRecordingActiveSensors(
+	const UObject* WorldContextObject,
+	UObject* SessionOwner)
+{
+	UOpenMobileSensorRecordingSession* Session = RecordSensors(
+		WorldContextObject,
+		UOpenMobileSensorBlueprintLibrary::
+			GetDefaultSensorRecordingOptions(),
+		SessionOwner);
+	Session->bRecordActiveSensors = true;
+	return Session;
+}
+
 void UOpenMobileSensorRecordingSession::Activate()
 {
 	if (!InitializeAction(ActivationWorldContext))
@@ -27,6 +77,11 @@ void UOpenMobileSensorRecordingSession::Activate()
 		return;
 	}
 	ActivationWorldContext = nullptr;
+	if (bRecordActiveSensors)
+	{
+		Options.Sensors =
+			GetSensorsSubsystem()->GetActiveSensorIdentifiersNative();
+	}
 	TerminatedHandle =
 		FOpenMobileSensorsRecordingService::OnRecordingTerminated().AddUObject(
 			this,
@@ -119,6 +174,12 @@ UOpenMobileSensorRecordingSession::GetLimitReason() const
 	return LimitReason;
 }
 
+FOpenMobileSensorRecordingOptions
+UOpenMobileSensorRecordingSession::GetAppliedRecordingOptions() const
+{
+	return Options;
+}
+
 bool UOpenMobileSensorRecordingSession::IsActive() const
 {
 	return !IsFinished()
@@ -143,7 +204,7 @@ void UOpenMobileSensorRecordingSession::CancelNativeOperation()
 void UOpenMobileSensorRecordingSession::OnActionSucceeded()
 {
 	Unbind();
-	Finalized.Broadcast(this, Result.Recording);
+	Finalized.Broadcast(this, Result.Recording, Options);
 }
 
 void UOpenMobileSensorRecordingSession::OnActionFailed(
@@ -174,7 +235,7 @@ void UOpenMobileSensorRecordingSession::OnActionCancelled(
 	static_cast<void>(Error);
 	Unbind();
 	Result.Recording.State = EOpenMobileSensorRecordingState::Cancelled;
-	Cancelled.Broadcast(this, Result.Recording);
+	Cancelled.Broadcast(this, Result.Recording, Options);
 }
 
 void UOpenMobileSensorRecordingSession::HandleStart(
@@ -191,7 +252,7 @@ void UOpenMobileSensorRecordingSession::HandleStart(
 		FinishFromResult(Result);
 		return;
 	}
-	RecordingStarted.Broadcast(this, Result.Recording);
+	RecordingStarted.Broadcast(this, Result.Recording, Options);
 }
 
 void UOpenMobileSensorRecordingSession::HandleFinalize(

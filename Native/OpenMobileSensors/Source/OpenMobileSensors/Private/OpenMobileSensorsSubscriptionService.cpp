@@ -3059,6 +3059,50 @@ int32 FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
 	return Removed;
 }
 
+TArray<FOpenMobileSensorIdentifier>
+FOpenMobileSensorsSubscriptionService::GetActiveSensors(
+	const FGuid& OwnerIdentifier)
+{
+	check(IsInGameThread());
+	using namespace OpenMobileSensorsSubscriptionServicePrivate;
+	TArray<FOpenMobileSensorIdentifier> Sensors;
+	if (!OwnerIdentifier.IsValid())
+	{
+		return Sensors;
+	}
+	for (const TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
+	{
+		const FSubscriptionEntry& Entry = Pair.Value;
+		if (Entry.OwnerIdentifier != OwnerIdentifier)
+		{
+			continue;
+		}
+		switch (Entry.State)
+		{
+		case EOpenMobileSensorSubscriptionState::Accepted:
+		case EOpenMobileSensorSubscriptionState::Starting:
+		case EOpenMobileSensorSubscriptionState::Active:
+		case EOpenMobileSensorSubscriptionState::Paused:
+			Sensors.AddUnique(Entry.Request.Sensor);
+			break;
+		default:
+			break;
+		}
+	}
+	Sensors.Sort(
+		[](const FOpenMobileSensorIdentifier& A,
+			const FOpenMobileSensorIdentifier& B)
+		{
+			if (A.Type != B.Type)
+			{
+				return static_cast<uint8>(A.Type)
+					< static_cast<uint8>(B.Type);
+			}
+			return A.InstanceId.LexicalLess(B.InstanceId);
+		});
+	return Sensors;
+}
+
 bool FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
 	const FGuid& OwnerIdentifier,
 	const FOpenMobileSensorSubscriptionHandle& Handle,

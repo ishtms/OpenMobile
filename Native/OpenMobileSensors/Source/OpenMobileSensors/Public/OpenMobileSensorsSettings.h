@@ -118,7 +118,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1.0", ClampMax = "86400.0", Units = "s", DisplayName = "Maximum Recording Duration"))
 	double MaximumRecordingDurationSeconds = 300.0;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1048576", ClampMax = "4294967296", Units = "B", DisplayName = "Maximum Recording Size"))
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1048576", ClampMax = "268435456", Units = "B", DisplayName = "Maximum Recording Size", ToolTip = "Maximum complete recording size. The current recording and replay format supports files up to 256 MiB."))
 	int64 MaximumRecordingBytes = 64ll * 1024 * 1024;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Recording", meta = (ClampMin = "1", ClampMax = "4096", DisplayName = "Maximum Buffered Recording Batches"))

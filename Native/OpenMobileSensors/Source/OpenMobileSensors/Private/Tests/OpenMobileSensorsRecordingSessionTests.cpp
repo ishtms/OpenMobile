@@ -7,13 +7,17 @@
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileSensorBlueprintLibrary.h"
+#include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorRecordingSession.h"
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsRecordingService.h"
 #include "OpenMobileSensorsSampleService.h"
+#include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 #include "OpenMobileSensorsSubsystem.h"
+#include "UObject/Package.h"
 
 namespace OpenMobileSensorsRecordingSessionTestsPrivate
 {
@@ -76,6 +80,29 @@ bool FOpenMobileSensorsRecordingSessionReflectionTest::RunTest(
 			Factory->GetMetaData(TEXT("ToolTip")).Contains(
 				TEXT("Recording Started")));
 	}
+	for (const FName FunctionName : {
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorRecordingSession,
+			StartRecordingSensor),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorRecordingSession,
+			StartRecordingListeners),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorRecordingSession,
+			StartRecordingActiveSensors),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorRecordingSession,
+			GetAppliedRecordingOptions)})
+	{
+		TestNotNull(TEXT("The preferred recording helper is reflected"),
+			UOpenMobileSensorRecordingSession::StaticClass()->
+				FindFunctionByName(FunctionName));
+	}
+	TestNotNull(TEXT("The project recording defaults are reflected"),
+		UOpenMobileSensorBlueprintLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorBlueprintLibrary,
+				GetDefaultSensorRecordingOptions)));
 	for (const FName EventName : {
 		GET_MEMBER_NAME_CHECKED(UOpenMobileSensorRecordingSession,
 			RecordingStarted),
@@ -92,6 +119,86 @@ bool FOpenMobileSensorsRecordingSessionReflectionTest::RunTest(
 				EventName));
 	}
 #endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRecordingSessionDefaultsTest,
+	"OpenMobile.Sensors.Blueprint.RecordingSession.Defaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRecordingSessionDefaultsTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	UOpenMobileSensorsSettings* Settings =
+		GetMutableDefault<UOpenMobileSensorsSettings>();
+	const double PreviousDuration =
+		Settings->MaximumRecordingDurationSeconds;
+	const int64 PreviousBytes = Settings->MaximumRecordingBytes;
+	Settings->MaximumRecordingDurationSeconds = 42.0;
+	Settings->MaximumRecordingBytes = 8ll * 1024 * 1024;
+
+	const FOpenMobileSensorRecordingOptions Defaults =
+		UOpenMobileSensorBlueprintLibrary::
+			GetDefaultSensorRecordingOptions();
+	TestEqual(TEXT("Recording defaults use the project duration policy"),
+		Defaults.MaximumDurationSeconds, 42.0);
+	TestEqual(TEXT("Recording defaults use the project size policy"),
+		Defaults.MaximumBytes, 8ll * 1024 * 1024);
+
+	UOpenMobileSensorRecordingSession* Session =
+		UOpenMobileSensorRecordingSession::StartRecordingSensor(
+			GetTransientPackage(),
+			EOpenMobileSensorType::Accelerometer,
+			nullptr);
+	const FOpenMobileSensorRecordingOptions Applied =
+		Session->GetAppliedRecordingOptions();
+	TestEqual(TEXT("The preferred factory selects one sensor"),
+		Applied.Sensors.Num(), 1);
+	if (Applied.Sensors.Num() == 1)
+	{
+		TestEqual(TEXT("The preferred factory keeps the sensor type"),
+			Applied.Sensors[0].Type,
+			EOpenMobileSensorType::Accelerometer);
+	}
+	TestEqual(TEXT("The session reports its applied duration policy"),
+		Applied.MaximumDurationSeconds, 42.0);
+	TestEqual(TEXT("The session reports its applied size policy"),
+		Applied.MaximumBytes, 8ll * 1024 * 1024);
+	FOpenMobileSensorStreamOptions ListenerOptions;
+	UOpenMobileAccelerometerListener* Listener =
+		UOpenMobileAccelerometerListener::ListenForAccelerometer(
+			GetTransientPackage(),
+			ListenerOptions,
+			EOpenMobileSensorRatePreset::UI,
+			EOpenMobileSensorCoordinateSpace::DeviceFixed,
+			false,
+			nullptr);
+	UOpenMobileSensorRecordingSession* ListenerSession =
+		UOpenMobileSensorRecordingSession::StartRecordingListeners(
+			GetTransientPackage(),
+			{Listener},
+			nullptr);
+	const FOpenMobileSensorRecordingOptions ListenerApplied =
+		ListenerSession->GetAppliedRecordingOptions();
+	TestEqual(TEXT("The listener factory selects one distinct sensor"),
+		ListenerApplied.Sensors.Num(), 1);
+	if (ListenerApplied.Sensors.Num() == 1)
+	{
+		TestEqual(TEXT("The listener factory uses its listener sensor"),
+			ListenerApplied.Sensors[0].Type,
+			EOpenMobileSensorType::Accelerometer);
+	}
+	const FOpenMobileSensorRecordingOptions SafeRawDefaults;
+	TestEqual(TEXT("Raw recording options fit every valid duration policy"),
+		SafeRawDefaults.MaximumDurationSeconds, 1.0);
+	TestEqual(TEXT("Raw recording options fit every valid size policy"),
+		SafeRawDefaults.MaximumBytes, 1024ll * 1024);
+
+	Settings->MaximumRecordingDurationSeconds = PreviousDuration;
+	Settings->MaximumRecordingBytes = PreviousBytes;
 	return true;
 }
 
@@ -114,13 +221,20 @@ bool FOpenMobileSensorsRecordingSessionLifecycleTest::RunTest(
 	UWorld* World = GameInstance->GetWorld();
 	UOpenMobileSensorsSubsystem* Subsystem =
 		GameInstance->GetSubsystem<UOpenMobileSensorsSubsystem>();
+	FOpenMobileSensorSubscriptionRequest ActiveRequest;
+	ActiveRequest.Sensor.Type = EOpenMobileSensorType::Accelerometer;
+	const FOpenMobileSensorSubscriptionResult ActiveSubscription =
+		Subsystem->StartSubscriptionNative(ActiveRequest);
+	TestTrue(TEXT("The active-sensor fixture is accepted"),
+		ActiveSubscription.Operation.IsSuccess());
 
 	UOpenMobileSensorRecordingSession* Session =
-		UOpenMobileSensorRecordingSession::RecordSensors(
+		UOpenMobileSensorRecordingSession::StartRecordingActiveSensors(
 			World,
-			MakeOptions(30.0),
 			World);
 	Session->Activate();
+	TestEqual(TEXT("The active-sensor factory selects the running sensor"),
+		Session->GetAppliedRecordingOptions().Sensors.Num(), 1);
 	TestTrue(TEXT("The typed recording session reaches Recording"),
 		WaitUntil([&]()
 		{
@@ -182,6 +296,9 @@ bool FOpenMobileSensorsRecordingSessionLifecycleTest::RunTest(
 		EOpenMobileSensorRecordingState::Cancelled);
 	TestFalse(TEXT("Discard does not leave a replayable file"),
 		IFileManager::Get().FileExists(*DiscardedPath));
+	TestTrue(TEXT("The active-sensor fixture stops cleanly"),
+		Subsystem->StopSubscriptionNative(
+			ActiveSubscription.Handle).IsSuccess());
 
 	GameInstance->Shutdown();
 	World->DestroyWorld(true);

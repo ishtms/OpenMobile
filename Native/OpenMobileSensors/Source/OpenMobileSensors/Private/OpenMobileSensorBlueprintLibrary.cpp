@@ -91,3 +91,19 @@ UOpenMobileSensorBlueprintLibrary::GetDefaultSensorStreamOptions()
 {
 	return GetDefault<UOpenMobileSensorsSettings>()->DefaultStreamOptions;
 }
+
+FOpenMobileSensorRecordingOptions
+UOpenMobileSensorBlueprintLibrary::GetDefaultSensorRecordingOptions()
+{
+	FOpenMobileSensorRecordingOptions Options;
+	const UOpenMobileSensorsSettings* Settings =
+		GetDefault<UOpenMobileSensorsSettings>();
+	Options.MaximumDurationSeconds =
+		Settings->MaximumRecordingDurationSeconds;
+	Options.MaximumBytes = FMath::Min(
+		Settings->MaximumRecordingBytes,
+		256ll * 1024 * 1024);
+	Options.LifecyclePolicy =
+		Settings->DefaultStreamOptions.LifecyclePolicy;
+	return Options;
+}

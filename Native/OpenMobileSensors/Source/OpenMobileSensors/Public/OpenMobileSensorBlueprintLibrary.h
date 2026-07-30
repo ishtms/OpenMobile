@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "OpenMobileSensorIdentifiers.h"
+#include "OpenMobileSensorRecording.h"
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorBlueprintLibrary.generated.h"
@@ -72,4 +73,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Default Sensor Stream Options", Keywords = "OpenMobile sensors default recommended stream options project settings", ToolTip = "Returns the stream defaults configured in Project Settings under OpenMobile Sensors."))
 	static FOpenMobileSensorStreamOptions GetDefaultSensorStreamOptions();
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Default Recording Options", Keywords = "OpenMobile sensors recording defaults project settings policy limits", ToolTip = "Returns the recording duration, file-size, and lifecycle policy configured in Project Settings. Add sensors directly or use a preferred Start Recording node."))
+	static FOpenMobileSensorRecordingOptions
+	GetDefaultSensorRecordingOptions();
 };

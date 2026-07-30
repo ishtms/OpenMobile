@@ -966,6 +966,13 @@ void UOpenMobileSensorsSubsystem::ReleaseRecordingSessionNative(
 		RequestId);
 }
 
+TArray<FOpenMobileSensorIdentifier>
+UOpenMobileSensorsSubsystem::GetActiveSensorIdentifiersNative() const
+{
+	return FOpenMobileSensorsSubscriptionService::GetActiveSensors(
+		SubscriptionOwnerIdentifier);
+}
+
 TArray<UOpenMobileSensorRecordingSession*>
 UOpenMobileSensorsSubsystem::GetActiveRecordingSessionsNative() const
 {

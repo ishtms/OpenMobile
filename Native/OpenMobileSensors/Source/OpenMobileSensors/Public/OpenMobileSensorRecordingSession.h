@@ -8,13 +8,16 @@
 #include "OpenMobileSensorRecordingSession.generated.h"
 
 class UOpenMobileSensorRecordingSession;
+class UOpenMobileSensorListener;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
 	FOpenMobileSensorRecordingSessionStateDynamic,
 	UOpenMobileSensorRecordingSession*,
 	Session,
 	FOpenMobileSensorRecordingSnapshot,
-	Recording
+	Recording,
+	FOpenMobileSensorRecordingOptions,
+	AppliedOptions
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
 	FOpenMobileSensorRecordingSessionLimitDynamic,
@@ -59,10 +62,30 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once after the recording is discarded. A partial or committed recording file is removed."))
 	FOpenMobileSensorRecordingSessionStateDynamic Cancelled;
 
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Record Sensors", Keywords = "OpenMobile sensors record session capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Creates an owner-scoped recording session. Recording Started means capture is active; Finalized means the complete file is ready."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Record Sensors with Options (Advanced)", Keywords = "OpenMobile sensors record session capture file raw options", AdvancedDisplay = "SessionOwner", ToolTip = "Advanced options-based recording path. The sensor list must not be empty and every limit must satisfy Project Settings policy. Recording Started means capture is active, while Finalized means the complete file is ready."))
 	static UOpenMobileSensorRecordingSession* RecordSensors(
 		const UObject* WorldContextObject,
 		FOpenMobileSensorRecordingOptions Options,
+		UObject* SessionOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Sensor", Keywords = "OpenMobile sensors record one capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for the preferred instance of one sensor using Project Settings limits."))
+	static UOpenMobileSensorRecordingSession* StartRecordingSensor(
+		const UObject* WorldContextObject,
+		EOpenMobileSensorType Sensor,
+		UObject* SessionOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Listeners", Keywords = "OpenMobile sensors record listeners selected capture file", AutoCreateRefTerm = "Listeners", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for the distinct sensors selected by typed listeners, using Project Settings limits."))
+	static UOpenMobileSensorRecordingSession* StartRecordingListeners(
+		const UObject* WorldContextObject,
+		const TArray<UOpenMobileSensorListener*>& Listeners,
+		UObject* SessionOwner = nullptr
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Active Sensors", Keywords = "OpenMobile sensors record active listeners streams capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for every distinct sensor currently starting, active, or paused in this Game Instance, using Project Settings limits."))
+	static UOpenMobileSensorRecordingSession* StartRecordingActiveSensors(
+		const UObject* WorldContextObject,
 		UObject* SessionOwner = nullptr
 	);
 
@@ -80,6 +103,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Recording Limit Reason", ToolTip = "Returns the duration or file-size limit that ended this session, or No Limit."))
 	EOpenMobileSensorRecordingLimitReason GetLimitReason() const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Applied Recording Options", ToolTip = "Returns the distinct recorded sensors and the Project Settings limits applied to this session."))
+	FOpenMobileSensorRecordingOptions GetAppliedRecordingOptions() const;
 
 	virtual bool IsActive() const override;
 	virtual void Activate() override;
@@ -114,4 +140,5 @@ private:
 	FDelegateHandle TerminatedHandle;
 	FTSTicker::FDelegateHandle OwnerTickerHandle;
 	bool bFinalizeRequested = false;
+	bool bRecordActiveSensors = false;
 };
