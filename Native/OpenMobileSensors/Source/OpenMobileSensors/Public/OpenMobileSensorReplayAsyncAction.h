@@ -18,23 +18,23 @@ class OPENMOBILESENSORS_API UOpenMobileSensorReplayAsyncAction final
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once when replay reaches its terminal result."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Completed", ToolTip = "Broadcast once when the raw replay request reaches its terminal result."))
 	FOpenMobileSensorReplayAsyncResult Completed;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when sensor replay is cancelled."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when sensor replay is cancelled."))
 	FOpenMobileSensorReplayAsyncResult Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when sensor replay cannot start or continue."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when sensor replay cannot start or continue."))
 	FOpenMobileSensorReplayAsyncResult Failed;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Replay Sensor Recording", ToolTip = "Replays a sensor recording through the common processing path."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Replay Sensor Recording by GUID (Advanced)", ToolTip = "Starts a raw GUID-controlled replay. Prefer Replay Sensor File for typed state and controls."))
 	static UOpenMobileSensorReplayAsyncAction* ReplaySensorRecording(
 		const UObject* WorldContextObject,
 		FString FilePath,
 		FOpenMobileSensorReplayOptions Options
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Replay Request ID", ToolTip = "Returns the request ID used by replay control functions after this action activates."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Get Sensor Replay Request ID (Advanced)", ToolTip = "Returns the raw request GUID used by advanced subsystem replay controls after this action activates."))
 	FGuid GetReplayRequestId() const
 	{
 		return RequestId;

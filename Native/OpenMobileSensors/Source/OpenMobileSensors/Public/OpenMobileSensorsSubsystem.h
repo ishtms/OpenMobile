@@ -17,6 +17,7 @@
 
 class UOpenMobileSensorAsyncActionBase;
 class UOpenMobileSensorRecordingSession;
+class UOpenMobileSensorReplaySession;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOnOpenMobileSensorCapabilitiesChanged,
@@ -486,40 +487,44 @@ public:
 		const FOpenMobileSensorReplayOptions& Options,
 		FOnOpenMobileSensorReplayComplete&& Completion
 	);
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancel Sensor Replay", ToolTip = "Cancels one owned sensor replay and completes it exactly once."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Cancel Sensor Replay by GUID (Advanced)", ToolTip = "Cancels one raw replay request. Prefer Stop Sensor Replay on a typed session."))
 	FOpenMobileSensorOperationResult CancelReplayNative(FGuid RequestId);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Pause Sensor Replay", ToolTip = "Pauses one owned replay without losing its playback position."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Replay", meta = (DisplayName = "Get Active Sensor Replays", Keywords = "OpenMobile sensors replay session active list", ToolTip = "Returns owner-scoped typed replay sessions that are loading, playing, or paused."))
+	TArray<UOpenMobileSensorReplaySession*>
+	GetActiveReplaySessionsNative() const;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Pause Sensor Replay by GUID (Advanced)", ToolTip = "Pauses one raw replay request without losing its playback position."))
 	FOpenMobileSensorOperationResult PauseReplayNative(FGuid RequestId);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Resume Sensor Replay", ToolTip = "Resumes one paused owned replay."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Resume Sensor Replay by GUID (Advanced)", ToolTip = "Resumes one paused raw replay request."))
 	FOpenMobileSensorOperationResult ResumeReplayNative(FGuid RequestId);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Seek Sensor Replay", ToolTip = "Moves one owned replay to a validated recording-relative time."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Seek Sensor Replay by GUID (Advanced)", ToolTip = "Moves one raw replay request to a validated recording-relative time in seconds."))
 	FOpenMobileSensorOperationResult SeekReplayNative(
 		FGuid RequestId,
 		double PlaybackTimeSeconds
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Set Sensor Replay Speed", ToolTip = "Changes replay speed while preserving the current playback position."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Set Sensor Replay Speed by GUID (Advanced)", ToolTip = "Changes raw replay speed while preserving the current playback position."))
 	FOpenMobileSensorOperationResult SetReplaySpeedNative(
 		FGuid RequestId,
 		double PlaybackSpeed
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Set Sensor Replay Looping", ToolTip = "Enables or disables looping for one owned replay."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Set Sensor Replay Looping by GUID (Advanced)", ToolTip = "Enables or disables looping for one raw replay request."))
 	FOpenMobileSensorOperationResult SetReplayLoopingNative(
 		FGuid RequestId,
 		bool bLoop
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Advance Manual Sensor Replay", ToolTip = "Advances a manual-clock replay by a finite nonnegative duration."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Advance Manual Sensor Replay by GUID (Advanced)", ToolTip = "Advances a raw manual-clock replay by a finite nonnegative duration in seconds."))
 	FOpenMobileSensorOperationResult AdvanceReplayNative(
 		FGuid RequestId,
 		double DeltaSeconds
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Replay State", ToolTip = "Returns one owned replay state without advancing it."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Get Sensor Replay State by GUID (Advanced)", ToolTip = "Returns one raw replay request state without advancing it."))
 	bool GetReplayStateNative(
 		FGuid RequestId,
 		FOpenMobileSensorReplaySnapshot& OutSnapshot

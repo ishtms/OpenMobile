@@ -5,6 +5,7 @@
 #include "OpenMobileNativeStepQueryService.h"
 #include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorRecordingSession.h"
+#include "OpenMobileSensorReplaySession.h"
 #include "OpenMobileSensorScreenRotationService.h"
 #include "HAL/PlatformTime.h"
 #include "OpenMobileSensorsCapabilityService.h"
@@ -1007,6 +1008,23 @@ UOpenMobileSensorsSubsystem::CancelReplayNative(FGuid RequestId)
 		SubscriptionOwnerIdentifier,
 		RequestId
 	);
+}
+
+TArray<UOpenMobileSensorReplaySession*>
+UOpenMobileSensorsSubsystem::GetActiveReplaySessionsNative() const
+{
+	TArray<UOpenMobileSensorReplaySession*> Sessions;
+	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& WeakAction
+		: AsyncActions)
+	{
+		UOpenMobileSensorReplaySession* Session =
+			Cast<UOpenMobileSensorReplaySession>(WeakAction.Get());
+		if (Session && Session->IsActive())
+		{
+			Sessions.Add(Session);
+		}
+	}
+	return Sessions;
 }
 
 FOpenMobileSensorOperationResult

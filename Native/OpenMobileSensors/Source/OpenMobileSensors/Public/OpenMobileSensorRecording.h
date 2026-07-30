@@ -38,7 +38,10 @@ enum class EOpenMobileSensorReplayState : uint8
 	Invalid,
 	Loading,
 	Playing,
-	Paused
+	Paused,
+	Completed,
+	Failed,
+	Cancelled
 };
 
 UENUM(BlueprintType)
