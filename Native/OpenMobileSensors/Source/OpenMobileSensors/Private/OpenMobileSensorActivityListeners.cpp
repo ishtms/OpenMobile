@@ -154,6 +154,18 @@ bool UOpenMobileMotionActivityListener::GetLatestActivity(
 	return true;
 }
 
+FOpenMobileSensorOperationResult
+UOpenMobileMotionActivityListener::SetActivityThresholds(
+	EOpenMobileActivityConfidence MinimumConfidence,
+	double MinimumStableDurationSeconds)
+{
+	FOpenMobileSensorStreamOptions Options = GetAppliedOptions();
+	Options.MinimumActivityConfidence = MinimumConfidence;
+	Options.MinimumActivityStableDurationSeconds =
+		MinimumStableDurationSeconds;
+	return UpdateListenerOptions(Options);
+}
+
 void UOpenMobileMotionActivityListener::HandleActivitySample(
 	const FOpenMobileActivitySensorSample& InSample)
 {
@@ -198,6 +210,18 @@ bool UOpenMobileActivityTransitionListener::GetLatestTransition(
 	OutConfidence = LatestSample.Confidence;
 	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
 	return true;
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileActivityTransitionListener::SetActivityThresholds(
+	EOpenMobileActivityConfidence MinimumConfidence,
+	double MinimumStableDurationSeconds)
+{
+	FOpenMobileSensorStreamOptions Options = GetAppliedOptions();
+	Options.MinimumActivityConfidence = MinimumConfidence;
+	Options.MinimumActivityStableDurationSeconds =
+		MinimumStableDurationSeconds;
+	return UpdateListenerOptions(Options);
 }
 
 void UOpenMobileActivityTransitionListener::HandleActivitySample(

@@ -152,6 +152,12 @@ public:
 		EOpenMobileActivityConfidence& OutConfidence,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Activity", meta = (DisplayName = "Set Motion Activity Thresholds", ToolTip = "Updates only the minimum activity confidence and stable duration for this listener."))
+	FOpenMobileSensorOperationResult SetActivityThresholds(
+		EOpenMobileActivityConfidence MinimumConfidence,
+		double MinimumStableDurationSeconds
+	);
+
 protected:
 	virtual void HandleActivitySample(const FOpenMobileActivitySensorSample& InSample) override;
 
@@ -193,6 +199,12 @@ public:
 		EOpenMobileActivityTransition& OutTransition,
 		EOpenMobileActivityConfidence& OutConfidence,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Activity", meta = (DisplayName = "Set Activity Transition Thresholds", ToolTip = "Updates only the minimum activity confidence and stable duration for this listener."))
+	FOpenMobileSensorOperationResult SetActivityThresholds(
+		EOpenMobileActivityConfidence MinimumConfidence,
+		double MinimumStableDurationSeconds
+	);
 
 protected:
 	virtual void HandleActivitySample(const FOpenMobileActivitySensorSample& InSample) override;

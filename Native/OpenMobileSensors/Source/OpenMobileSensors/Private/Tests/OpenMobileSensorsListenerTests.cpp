@@ -114,6 +114,25 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 		Listener->GetAppliedOptions().Filters.LowPassTimeConstantSeconds,
 		0.25
 	);
+	TestTrue(TEXT("A focused rate update succeeds"),
+		Listener->SetSensorRatePreset(
+			EOpenMobileSensorRatePreset::UI, 15.0).IsSuccess());
+	TestEqual(TEXT("The focused rate update changes only the preset"),
+		Listener->GetAppliedOptions().RatePreset,
+		EOpenMobileSensorRatePreset::UI);
+	TestTrue(TEXT("A focused rate update preserves filters"),
+		Listener->GetAppliedOptions().Filters.bEnableLowPass);
+	FOpenMobileSensorFilterOptions UpdatedFilters =
+		Listener->GetAppliedOptions().Filters;
+	UpdatedFilters.LowPassTimeConstantSeconds = 0.5;
+	TestTrue(TEXT("A focused filter update succeeds"),
+		Listener->SetSensorFilterOptions(UpdatedFilters).IsSuccess());
+	TestEqual(TEXT("The focused filter update preserves the rate preset"),
+		Listener->GetAppliedOptions().RatePreset,
+		EOpenMobileSensorRatePreset::UI);
+	TestEqual(TEXT("The focused filter update changes its constant"),
+		Listener->GetAppliedOptions().Filters.LowPassTimeConstantSeconds,
+		0.5);
 
 	FOpenMobileVectorSensorSample Sample;
 	Sample.Header.Sensor = MakeGyroscopeCapability().Sensor;
@@ -344,6 +363,25 @@ bool FOpenMobileSensorsMotionListenerReflectionTest::RunTest(
 			}
 		}
 	}
+	for (const FName FunctionName : {
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorListener, SetSensorRatePreset),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorListener, SetSensorCoordinateSpace),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorListener, SetSensorLifecyclePolicy),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorListener, SetSensorFilterOptions)})
+	{
+		TestNotNull(TEXT("The focused listener update is reflected"),
+			UOpenMobileSensorListener::StaticClass()->FindFunctionByName(
+				FunctionName));
+	}
+	TestNotNull(TEXT("Magnetometer calibration stays on its listener"),
+		UOpenMobileMagnetometerListener::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileMagnetometerListener,
+				RequestMagnetometerCalibration)));
 #endif
 	return true;
 }
@@ -457,6 +495,27 @@ bool FOpenMobileSensorsPoseEnvironmentListenerReflectionTest::RunTest(
 			}
 		}
 	}
+	for (const FName FunctionName : {
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileAttitudeListener, SetAttitudeReferenceFrame),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileAttitudeListener, RecenterAttitude),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileAttitudeListener, ClearAttitudeRecenter),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileAttitudeListener, RequestAttitudeCalibration),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileMagneticHeadingListener,
+			RequestHeadingCalibration)})
+	{
+		TestNotNull(TEXT("The typed pose control is reflected"),
+			UOpenMobileAttitudeListener::StaticClass()->FindFunctionByName(
+				FunctionName)
+				? UOpenMobileAttitudeListener::StaticClass()->
+					FindFunctionByName(FunctionName)
+				: UOpenMobileMagneticHeadingListener::StaticClass()->
+					FindFunctionByName(FunctionName));
+	}
 #endif
 	return true;
 }
@@ -533,6 +592,40 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 		TestTrue(TEXT("Each sample-family listener becomes active"),
 			Listener->IsActive());
 	}
+	TestTrue(TEXT("Attitude reference updates stay on the typed listener"),
+		Attitude->SetAttitudeReferenceFrame(
+			EOpenMobileAttitudeReferenceFrame::ArbitraryVertical).IsSuccess());
+	TestEqual(TEXT("The attitude listener reports its applied reference"),
+		Attitude->GetAppliedOptions().AttitudeReferenceFrame,
+		EOpenMobileAttitudeReferenceFrame::ArbitraryVertical);
+	TestTrue(TEXT("Activity thresholds update without replacing options"),
+		MotionActivity->SetActivityThresholds(
+			EOpenMobileActivityConfidence::High, 0.0).IsSuccess());
+	TestEqual(TEXT("The activity listener reports applied confidence"),
+		MotionActivity->GetAppliedOptions().MinimumActivityConfidence,
+		EOpenMobileActivityConfidence::High);
+	EOpenMobileSensorControlOutcome RecenterOutcome =
+		EOpenMobileSensorControlOutcome::Failed;
+	FText ControlMessage;
+	FText ControlCorrection;
+	FOpenMobileSensorOperationResult ControlDetails;
+	Attitude->RecenterAttitude(
+		EOpenMobileSensorRecenterMode::YawOnly,
+		RecenterOutcome,
+		ControlMessage,
+		ControlCorrection,
+		ControlDetails);
+	TestEqual(TEXT("Recentering before the first pose fails explicitly"),
+		RecenterOutcome,
+		EOpenMobileSensorControlOutcome::Failed);
+	Attitude->RequestAttitudeCalibration(
+		RecenterOutcome,
+		ControlMessage,
+		ControlCorrection,
+		ControlDetails);
+	TestEqual(TEXT("Unsupported calibration has its own execution outcome"),
+		RecenterOutcome,
+		EOpenMobileSensorControlOutcome::NotSupported);
 
 	FOpenMobileAttitudeSensorSample AttitudeSample;
 	AttitudeSample.Header.Sensor =
@@ -540,6 +633,8 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	AttitudeSample.Header.TimestampSeconds = 1.0;
 	AttitudeSample.Header.bValid = true;
 	AttitudeSample.Quaternion = FQuat(FVector::UpVector, 0.5);
+	AttitudeSample.ReferenceFrame =
+		EOpenMobileAttitudeReferenceFrame::ArbitraryVertical;
 	FOpenMobileSensorsSampleService::PublishAttitude(AttitudeSample);
 	FOpenMobileScalarSensorSample PressureSample;
 	PressureSample.Header.Sensor =
@@ -586,6 +681,15 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	ActivitySample.Confidence = EOpenMobileActivityConfidence::High;
 	FOpenMobileSensorsSampleService::PublishActivity(ActivitySample);
 	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.0);
+	Attitude->RecenterAttitude(
+		EOpenMobileSensorRecenterMode::YawOnly,
+		RecenterOutcome,
+		ControlMessage,
+		ControlCorrection,
+		ControlDetails);
+	TestEqual(TEXT("Attitude recentering succeeds after a pose sample"),
+		RecenterOutcome,
+		EOpenMobileSensorControlOutcome::Succeeded);
 
 	FOpenMobileSensorSampleInfo SampleInfo;
 	FQuat Rotation;

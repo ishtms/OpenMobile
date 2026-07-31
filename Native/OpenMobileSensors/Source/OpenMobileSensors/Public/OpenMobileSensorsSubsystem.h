@@ -224,7 +224,7 @@ public:
 		bool bNaturalOrientationLandscape
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Update Sensor Subscription", ToolTip = "Updates an active subscription without replacing its handle when supported."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Replace Sensor Subscription Options (Advanced)", ToolTip = "Advanced raw-handle path that replaces the complete options struct. Prefer focused setters on a typed sensor listener."))
 	FOpenMobileSensorOperationResult UpdateSubscriptionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		const FOpenMobileSensorStreamOptions& Options
@@ -383,7 +383,7 @@ public:
 		FOnOpenMobileSensorRecenterComplete&& Completion
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Recenter Sensor Attitude", ToolTip = "Applies full-attitude, yaw-only, or clear recentering to one attitude subscription without restarting its physical stream."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Recenter Sensor Attitude by Handle (Advanced)", ToolTip = "Advanced raw-handle path. Prefer Recenter Attitude or Clear Attitude Recenter on a typed attitude listener."))
 	FOpenMobileSensorRecenterResult RecenterSubscription(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		EOpenMobileSensorRecenterMode Mode
@@ -443,7 +443,7 @@ public:
 	);
 	bool CancelNativeStepCountQueryNative(const FGuid& RequestId);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Request Native Sensor Calibration Prompt", ToolTip = "Explicitly asks the active backend to show a native calibration prompt when supported."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Request Calibration by Handle (Advanced)", ToolTip = "Advanced raw-handle path. Prefer the calibration node exposed by a typed attitude, magnetometer, or heading listener."))
 	FOpenMobileSensorOperationResult RequestNativeCalibrationPrompt(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);

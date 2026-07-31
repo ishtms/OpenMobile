@@ -8,6 +8,14 @@
 #include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorListener.generated.h"
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorControlOutcome : uint8
+{
+	Succeeded UMETA(DisplayName = "Succeeded", ToolTip = "The listener control was applied."),
+	NotSupported UMETA(DisplayName = "Not Supported", ToolTip = "The active sensor backend does not support this control."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The listener control failed for another reason.")
+};
+
 USTRUCT(BlueprintType, meta = (DisplayName = "Sensor Sample Info"))
 struct OPENMOBILESENSORS_API FOpenMobileSensorSampleInfo
 {
@@ -116,6 +124,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Applied Sensor Listener Options", ToolTip = "Returns the resolved stream options used by this listener."))
 	FOpenMobileSensorStreamOptions GetAppliedOptions() const;
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Rate Preset", Keywords = "OpenMobile sensors listener update frequency hertz", AdvancedDisplay = "CustomFrequencyHz", ToolTip = "Updates only this listener's rate preset. Custom Frequency is used only for the Custom preset."))
+	FOpenMobileSensorOperationResult SetSensorRatePreset(
+		EOpenMobileSensorRatePreset RatePreset,
+		double CustomFrequencyHz = 15.0
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Coordinate Space", Keywords = "OpenMobile sensors listener update device screen coordinates", ToolTip = "Updates only this listener's coordinate space without resetting its other options."))
+	FOpenMobileSensorOperationResult SetSensorCoordinateSpace(
+		EOpenMobileSensorCoordinateSpace CoordinateSpace
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Lifecycle Policy", Keywords = "OpenMobile sensors listener update background suspend stop", ToolTip = "Updates only this listener's foreground and background lifecycle policy."))
+	FOpenMobileSensorOperationResult SetSensorLifecyclePolicy(
+		EOpenMobileSensorLifecyclePolicy LifecyclePolicy
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Filter Options", Keywords = "OpenMobile sensors listener update low pass high pass smoothing dead zone", ToolTip = "Updates only this listener's filter settings without resetting its rate, coordinates, or lifecycle policy."))
+	FOpenMobileSensorOperationResult SetSensorFilterOptions(
+		const FOpenMobileSensorFilterOptions& Filters
+	);
+
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Sample Drop", ToolTip = "Returns the most recent sample-loss report cached by this listener."))
 	bool GetLastSampleDrop(FOpenMobileSensorDropInfo& OutDropInfo) const;
 
@@ -148,6 +177,20 @@ protected:
 	virtual void HandleActivitySample(const FOpenMobileActivitySensorSample& Sample);
 	virtual void HandleOrientationSample(const FOpenMobileOrientationSensorSample& Sample);
 	virtual void HandleProximitySample(const FOpenMobileProximitySensorSample& Sample);
+	FOpenMobileSensorOperationResult UpdateListenerOptions(
+		const FOpenMobileSensorStreamOptions& Options
+	);
+	FOpenMobileSensorOperationResult RecenterListenerAttitude(
+		EOpenMobileSensorRecenterMode Mode
+	);
+	FOpenMobileSensorOperationResult RequestListenerCalibration();
+	static void ResolveControlOutcome(
+		const FOpenMobileSensorOperationResult& Operation,
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
 	virtual void CancelNativeOperation() override;
 	virtual void OnActionSucceeded() override;
 	virtual void OnActionFailed(const FOpenMobileError& Error) override;
@@ -337,6 +380,14 @@ public:
 		UPARAM(DisplayName = "Magnetic Field (uT)") FVector& OutMagneticFieldMicroteslas,
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Request Magnetometer Calibration", ExpandEnumAsExecs = "Outcome", ToolTip = "Explicitly requests native calibration UI for this magnetometer listener when supported."))
+	void RequestMagnetometerCalibration(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
 
 protected:
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;

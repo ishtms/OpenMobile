@@ -37,6 +37,47 @@ bool UOpenMobileAttitudeListener::GetLatestAttitude(
 	return true;
 }
 
+FOpenMobileSensorOperationResult
+UOpenMobileAttitudeListener::SetAttitudeReferenceFrame(
+	EOpenMobileAttitudeReferenceFrame ReferenceFrame)
+{
+	FOpenMobileSensorStreamOptions Options = GetAppliedOptions();
+	Options.AttitudeReferenceFrame = ReferenceFrame;
+	return UpdateListenerOptions(Options);
+}
+
+void UOpenMobileAttitudeListener::RecenterAttitude(
+	EOpenMobileSensorRecenterMode Mode,
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(RecenterListenerAttitude(Mode),
+		Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileAttitudeListener::ClearAttitudeRecenter(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(
+		RecenterListenerAttitude(EOpenMobileSensorRecenterMode::Clear),
+		Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileAttitudeListener::RequestAttitudeCalibration(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(RequestListenerCalibration(),
+		Outcome, Message, Correction, Details);
+}
+
 void UOpenMobileAttitudeListener::HandleAttitudeSample(
 	const FOpenMobileAttitudeSensorSample& InSample)
 {
@@ -97,6 +138,16 @@ OPENMOBILE_IMPLEMENT_HEADING_LISTENER(
 )
 
 #undef OPENMOBILE_IMPLEMENT_HEADING_LISTENER
+
+void UOpenMobileMagneticHeadingListener::RequestHeadingCalibration(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(RequestListenerCalibration(),
+		Outcome, Message, Correction, Details);
+}
 
 #define OPENMOBILE_IMPLEMENT_SCALAR_LISTENER(ListenerClass, FactoryName, GetterName, SensorType) \
 	ListenerClass* ListenerClass::FactoryName( \

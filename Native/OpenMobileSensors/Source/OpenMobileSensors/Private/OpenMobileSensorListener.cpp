@@ -112,6 +112,44 @@ UOpenMobileSensorListener::GetAppliedOptions() const
 	return AppliedOptions;
 }
 
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::SetSensorRatePreset(
+	EOpenMobileSensorRatePreset RatePreset,
+	double CustomFrequencyHz)
+{
+	FOpenMobileSensorStreamOptions Options = AppliedOptions;
+	Options.RatePreset = RatePreset;
+	Options.CustomFrequencyHz = CustomFrequencyHz;
+	return UpdateListenerOptions(Options);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::SetSensorCoordinateSpace(
+	EOpenMobileSensorCoordinateSpace CoordinateSpace)
+{
+	FOpenMobileSensorStreamOptions Options = AppliedOptions;
+	Options.CoordinateSpace = CoordinateSpace;
+	return UpdateListenerOptions(Options);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::SetSensorLifecyclePolicy(
+	EOpenMobileSensorLifecyclePolicy LifecyclePolicy)
+{
+	FOpenMobileSensorStreamOptions Options = AppliedOptions;
+	Options.LifecyclePolicy = LifecyclePolicy;
+	return UpdateListenerOptions(Options);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::SetSensorFilterOptions(
+	const FOpenMobileSensorFilterOptions& Filters)
+{
+	FOpenMobileSensorStreamOptions Options = AppliedOptions;
+	Options.Filters = Filters;
+	return UpdateListenerOptions(Options);
+}
+
 bool UOpenMobileSensorListener::GetLastSampleDrop(
 	FOpenMobileSensorDropInfo& OutDropInfo
 ) const
@@ -187,6 +225,93 @@ void UOpenMobileSensorListener::HandleProximitySample(
 	const FOpenMobileProximitySensorSample& Sample)
 {
 	static_cast<void>(Sample);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::UpdateListenerOptions(
+	const FOpenMobileSensorStreamOptions& Options)
+{
+	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle);
+	}
+	const FOpenMobileSensorOperationResult Operation =
+		Subsystem->UpdateSubscriptionNative(Handle, Options);
+	if (!Operation.IsSuccess())
+	{
+		return Operation;
+	}
+	RequestedOptions = Options;
+	FOpenMobileSensorSubscriptionStateSnapshot Snapshot;
+	if (Subsystem->GetSubscriptionStateNative(Handle, Snapshot))
+	{
+		AppliedOptions = Snapshot.AppliedOptions;
+		RateResolution = Snapshot.RateResolution;
+		CachedState = Snapshot.State;
+	}
+	return Operation;
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::RecenterListenerAttitude(
+	EOpenMobileSensorRecenterMode Mode)
+{
+	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle);
+	}
+	return Subsystem->RecenterSubscription(Handle, Mode).Operation;
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::RequestListenerCalibration()
+{
+	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle);
+	}
+	return Subsystem->RequestNativeCalibrationPrompt(Handle);
+}
+
+void UOpenMobileSensorListener::ResolveControlOutcome(
+	const FOpenMobileSensorOperationResult& Operation,
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	Details = Operation;
+	Outcome = Operation.IsSuccess()
+		? EOpenMobileSensorControlOutcome::Succeeded
+		: Operation.Code == EOpenMobileSensorResultCode::NotSupported
+			|| Operation.Failure.Reason ==
+				EOpenMobileSensorFailureReason::UnsupportedOperation
+			|| Operation.Failure.Reason ==
+				EOpenMobileSensorFailureReason::UnsupportedPlatform
+			? EOpenMobileSensorControlOutcome::NotSupported
+			: EOpenMobileSensorControlOutcome::Failed;
+	FOpenMobileSensorOperationResult Display = Operation;
+	if (!Display.Error.IsSet() || !Display.Failure.IsSet())
+	{
+		const FOpenMobileSensorOperationResult Mapped =
+			FOpenMobileSensorsErrorMapper::Map(Display.Failure.Reason);
+		if (!Display.Error.IsSet())
+		{
+			Display.Error = Mapped.Error;
+		}
+		if (!Display.Failure.IsSet())
+		{
+			Display.Failure = Mapped.Failure;
+		}
+	}
+	Message = FText::FromString(Display.Error.Message);
+	Correction = FText::FromString(Display.Failure.Correction);
 }
 
 void UOpenMobileSensorListener::CancelNativeOperation()
@@ -727,6 +852,16 @@ bool UOpenMobileMagnetometerListener::GetLatestMagneticField(
 	OutMagneticFieldMicroteslas = LatestSample.Value;
 	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
 	return true;
+}
+
+void UOpenMobileMagnetometerListener::RequestMagnetometerCalibration(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(RequestListenerCalibration(),
+		Outcome, Message, Correction, Details);
 }
 
 void UOpenMobileMagnetometerListener::HandleVectorSample(

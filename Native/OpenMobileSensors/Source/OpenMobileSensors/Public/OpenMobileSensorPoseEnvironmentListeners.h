@@ -38,6 +38,36 @@ public:
 		FRotator& OutEulerRotationDegrees,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Set Attitude Reference Frame", ToolTip = "Updates only this attitude listener's reference frame without replacing its other stream options."))
+	FOpenMobileSensorOperationResult SetAttitudeReferenceFrame(
+		EOpenMobileAttitudeReferenceFrame ReferenceFrame
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Recenter Attitude", ExpandEnumAsExecs = "Outcome", ToolTip = "Recenters this typed attitude listener and branches explicitly when the active backend does not support the operation."))
+	void RecenterAttitude(
+		EOpenMobileSensorRecenterMode Mode,
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Clear Attitude Recenter", ExpandEnumAsExecs = "Outcome", ToolTip = "Clears recentering on this typed attitude listener and reports whether the backend supports it."))
+	void ClearAttitudeRecenter(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Request Attitude Calibration", ExpandEnumAsExecs = "Outcome", ToolTip = "Explicitly requests native calibration UI for this attitude listener when supported."))
+	void RequestAttitudeCalibration(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
 protected:
 	virtual void HandleAttitudeSample(const FOpenMobileAttitudeSensorSample& InSample) override;
 
@@ -76,6 +106,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Get Latest Magnetic Heading", ToolTip = "Copies one coherent snapshot of the last magnetic-heading sample."))
 	bool GetLatestHeading(double& OutHeadingDegrees,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Request Heading Calibration", ExpandEnumAsExecs = "Outcome", ToolTip = "Explicitly requests native calibration UI for this magnetic-heading listener when supported."))
+	void RequestHeadingCalibration(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
 
 protected:
 	virtual void HandleHeadingSample(const FOpenMobileHeadingSensorSample& InSample) override;
