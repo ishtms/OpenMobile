@@ -1506,6 +1506,7 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			return;
 		}
 		constexpr double RateToleranceHz = 1.e-9;
+		TArray<FGuid> ChangedActiveSubscriptions;
 		for (TPair<FGuid, FSubscriptionEntry>& Pair : Subscriptions)
 		{
 			FSubscriptionEntry& Entry = Pair.Value;
@@ -1513,6 +1514,10 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			{
 				continue;
 			}
+			const double PreviousAppliedFrequencyHz =
+				Entry.RateResolution.AppliedNativeFrequencyHz;
+			const bool bWasSharedPhysicalStreamRateRaised =
+				Entry.RateResolution.bSharedPhysicalStreamRateRaised;
 			Entry.RateResolution.AppliedNativeFrequencyHz =
 				AppliedNativeFrequencyHz;
 			Entry.RateResolution.AdjustmentReason =
@@ -1529,6 +1534,50 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
 				Entry.RateResolution
 			);
+			Entry.RateResolution.bSharedPhysicalStreamRateRaised =
+				AppliedNativeFrequencyHz >
+					Entry.RateResolution.ClampedFrequencyHz +
+					RateToleranceHz;
+			if (Entry.RateResolution.bSharedPhysicalStreamRateRaised)
+			{
+				Entry.RateResolution.SharedPhysicalStreamWarning = NSLOCTEXT(
+					"OpenMobileSensorsRates",
+					"SharedPhysicalStreamRateRaised",
+					"A faster listener raised the shared physical sensor stream rate and may increase power use."
+				);
+				Entry.RateResolution.SharedPhysicalStreamCorrection = NSLOCTEXT(
+					"OpenMobileSensorsRates",
+					"SharedPhysicalStreamRateCorrection",
+					"Stop the faster listener or lower its rate preset to reduce the shared sensor rate."
+				);
+			}
+			else
+			{
+				Entry.RateResolution.SharedPhysicalStreamWarning =
+					FText::GetEmpty();
+				Entry.RateResolution.SharedPhysicalStreamCorrection =
+					FText::GetEmpty();
+			}
+			if (Entry.State == EOpenMobileSensorSubscriptionState::Active
+				&& (!FMath::IsNearlyEqual(
+						PreviousAppliedFrequencyHz,
+						AppliedNativeFrequencyHz,
+						RateToleranceHz
+					)
+					|| bWasSharedPhysicalStreamRateRaised !=
+						Entry.RateResolution.
+							bSharedPhysicalStreamRateRaised))
+			{
+				ChangedActiveSubscriptions.Add(Pair.Key);
+			}
+		}
+		for (const FGuid& Identifier : ChangedActiveSubscriptions)
+		{
+			if (const FSubscriptionEntry* Entry =
+				Subscriptions.Find(Identifier))
+			{
+				BroadcastState(*Entry);
+			}
 		}
 	}
 

@@ -320,7 +320,15 @@ bool FOpenMobileSensorsGyroscopeListenerReflectionTest::RunTest(
 			FindFProperty<FProperty>(
 				StartedEvent->SignatureFunction,
 				TEXT("AppliedOptions")));
+		TestNotNull(TEXT("Started exposes applied background behavior"),
+			FindFProperty<FProperty>(
+				StartedEvent->SignatureFunction,
+				TEXT("BackgroundBehavior")));
 	}
+	TestNotNull(TEXT("Listeners expose shared-rate power warnings"),
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileSensorListener::StaticClass(),
+			TEXT("SharedStreamRateRaised")));
 #endif
 	return true;
 }

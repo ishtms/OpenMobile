@@ -508,9 +508,16 @@ void UOpenMobileSensorListener::HandleStateChanged(
 		return;
 	}
 	const EOpenMobileSensorSubscriptionState PreviousState = CachedState;
+	const FOpenMobileSensorRateResolution PreviousRateResolution =
+		RateResolution;
 	CachedState = Snapshot.State;
 	AppliedOptions = Snapshot.AppliedOptions;
 	RateResolution = Snapshot.RateResolution;
+	const bool bSharedRateWarningChanged =
+		RateResolution.bSharedPhysicalStreamRateRaised
+		&& (!PreviousRateResolution.bSharedPhysicalStreamRateRaised
+			|| RateResolution.AppliedNativeFrequencyHz >
+				PreviousRateResolution.AppliedNativeFrequencyHz + 1.e-9);
 	if (Snapshot.State != EOpenMobileSensorSubscriptionState::Failed
 		&& (Snapshot.Error.IsSet() || Snapshot.Failure.IsSet()))
 	{
@@ -532,12 +539,22 @@ void UOpenMobileSensorListener::HandleStateChanged(
 				RateResolution.AppliedNativeFrequencyHz,
 				ResolveSource(),
 				RateResolution.AdjustmentReason !=
-					EOpenMobileSensorRateAdjustmentReason::None
+						EOpenMobileSensorRateAdjustmentReason::None
+					|| RateResolution.bSharedPhysicalStreamRateRaised,
+				AppliedOptions.LifecyclePolicy
 			);
+			if (RateResolution.bSharedPhysicalStreamRateRaised)
+			{
+				BroadcastSharedStreamRateWarning();
+			}
 		}
 		else if (PreviousState == EOpenMobileSensorSubscriptionState::Paused)
 		{
 			Resumed.Broadcast(this);
+		}
+		else if (bSharedRateWarningChanged)
+		{
+			BroadcastSharedStreamRateWarning();
 		}
 		break;
 	case EOpenMobileSensorSubscriptionState::Paused:
@@ -556,6 +573,17 @@ void UOpenMobileSensorListener::HandleStateChanged(
 	default:
 		break;
 	}
+}
+
+void UOpenMobileSensorListener::BroadcastSharedStreamRateWarning()
+{
+	SharedStreamRateRaised.Broadcast(
+		this,
+		RateResolution.ClampedFrequencyHz,
+		RateResolution.AppliedNativeFrequencyHz,
+		RateResolution.SharedPhysicalStreamWarning,
+		RateResolution.SharedPhysicalStreamCorrection
+	);
 }
 
 void UOpenMobileSensorListener::HandleVectorBatch(

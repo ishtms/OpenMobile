@@ -9,10 +9,10 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorRatePreset : uint8
 {
-	UI,
-	Game,
-	Fast,
-	Custom
+	UI UMETA(DisplayName = "UI, Low Power", ToolTip = "Uses the configurable UI preset for low-power interface motion. Read its current rate from OpenMobile Sensors Project Settings."),
+	Game UMETA(DisplayName = "Game, Balanced", ToolTip = "Uses the configurable Game preset for balanced gameplay responsiveness and power use. Read its current rate from OpenMobile Sensors Project Settings."),
+	Fast UMETA(DisplayName = "Fast, Performance", ToolTip = "Uses the configurable Fast preset for performance-sensitive motion. Read its current rate from OpenMobile Sensors Project Settings."),
+	Custom UMETA(DisplayName = "Custom Rate", ToolTip = "Uses the request's explicit custom frequency, latency, and callback limits.")
 };
 
 UENUM(BlueprintType)
@@ -49,6 +49,15 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRateResolution
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	FText AdjustmentCorrection;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Whether another compatible listener raised the shared physical stream above this listener's resolved rate."))
+	bool bSharedPhysicalStreamRateRaised = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Power warning produced when a faster compatible listener raises the shared physical stream rate."))
+	FText SharedPhysicalStreamWarning;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Suggested action for reducing a shared physical stream rate."))
+	FText SharedPhysicalStreamCorrection;
 };
 
 UENUM(BlueprintType)
@@ -76,9 +85,9 @@ enum class EOpenMobileSensorOverflowPolicy : uint8
 UENUM(BlueprintType)
 enum class EOpenMobileSensorLifecyclePolicy : uint8
 {
-	SuspendInBackground,
-	StopInBackground,
-	ContinueWhenSupported
+	SuspendInBackground UMETA(DisplayName = "Suspend in Background", ToolTip = "Pauses listener delivery while the application is inactive and resumes it on return."),
+	StopInBackground UMETA(DisplayName = "Stop in Background", ToolTip = "Stops the listener when the application becomes inactive."),
+	ContinueWhenSupported UMETA(DisplayName = "Continue When Supported", ToolTip = "Continues only when both project policy and the active platform sensor support background delivery.")
 };
 
 UENUM(BlueprintType)

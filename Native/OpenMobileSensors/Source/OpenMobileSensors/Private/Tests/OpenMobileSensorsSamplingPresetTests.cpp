@@ -87,6 +87,43 @@ bool FOpenMobileSensorsPresetMappingTest::RunTest(const FString& Parameters)
 	static_cast<void>(Parameters);
 	using namespace OpenMobileSensorsSamplingPresetTestsPrivate;
 	ResetServices();
+#if WITH_METADATA
+	const UEnum* RatePresetEnum = StaticEnum<EOpenMobileSensorRatePreset>();
+	TestNotNull(TEXT("Rate presets are reflected"), RatePresetEnum);
+	if (RatePresetEnum)
+	{
+		TestEqual(
+			TEXT("UI shows its low-power intent"),
+			RatePresetEnum->GetDisplayNameTextByValue(
+				static_cast<int64>(EOpenMobileSensorRatePreset::UI)
+			).ToString(),
+			FString(TEXT("UI, Low Power"))
+		);
+		TestEqual(
+			TEXT("Game shows its balanced intent"),
+			RatePresetEnum->GetDisplayNameTextByValue(
+				static_cast<int64>(EOpenMobileSensorRatePreset::Game)
+			).ToString(),
+			FString(TEXT("Game, Balanced"))
+		);
+		TestEqual(
+			TEXT("Fast shows its performance intent"),
+			RatePresetEnum->GetDisplayNameTextByValue(
+				static_cast<int64>(EOpenMobileSensorRatePreset::Fast)
+			).ToString(),
+			FString(TEXT("Fast, Performance"))
+		);
+		const int32 FastIndex = RatePresetEnum->GetIndexByValue(
+			static_cast<int64>(EOpenMobileSensorRatePreset::Fast)
+		);
+		TestTrue(
+			TEXT("Fast explains that its configured rate can change"),
+			RatePresetEnum->GetToolTipTextByIndex(FastIndex).ToString().Contains(
+				TEXT("Project Settings")
+			)
+		);
+	}
+#endif
 	FOpenMobileSensorsMockBackend Backend(TEXT("PresetMapping"));
 	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
 	const FGuid Owner = FGuid::NewGuid();

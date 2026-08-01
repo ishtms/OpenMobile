@@ -291,6 +291,24 @@ bool FOpenMobileSensorsSubscriptionRateNegotiationTest::RunTest(
 			SlowOwner,
 			MakeRequest(15.0, 15.0)
 		);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	int32 SlowRateWarningCount = 0;
+	const FDelegateHandle RateWarningHandle =
+		FOpenMobileSensorsSubscriptionService::OnStateChanged().AddLambda(
+			[&SlowRateWarningCount, SlowOwner](
+				const FGuid& ChangedOwner,
+				const FOpenMobileSensorSubscriptionStateSnapshot& Snapshot
+			)
+			{
+				if (ChangedOwner == SlowOwner
+					&& Snapshot.RateResolution.
+						bSharedPhysicalStreamRateRaised)
+				{
+					++SlowRateWarningCount;
+				}
+			}
+		);
 	const FOpenMobileSensorSubscriptionResult Fast =
 		FOpenMobileSensorsSubscriptionService::StartSubscription(
 			FastOwner,
@@ -305,17 +323,42 @@ bool FOpenMobileSensorsSubscriptionRateNegotiationTest::RunTest(
 			GetPhysicalStreamCountForTests(),
 		1);
 	TestEqual(TEXT("The shared stream uses the fastest requested rate"),
-		Backend.GetLastStartedPhysicalRequest().RequestedFrequencyHz,
+		Backend.GetLastReconfiguredPhysicalRequest().RequestedFrequencyHz,
 		120.0);
+	FOpenMobileSensorSubscriptionStateSnapshot SlowSnapshot;
+	TestTrue(TEXT("The slower subscription remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SlowOwner, Slow.Handle, SlowSnapshot));
+	TestTrue(TEXT("The slower listener gets a shared-rate warning"),
+		SlowSnapshot.RateResolution.bSharedPhysicalStreamRateRaised);
+	TestEqual(TEXT("The slower listener sees the physical rate"),
+		SlowSnapshot.RateResolution.AppliedNativeFrequencyHz, 120.0);
+	TestFalse(TEXT("The shared-rate warning explains the power effect"),
+		SlowSnapshot.RateResolution.SharedPhysicalStreamWarning.IsEmpty());
+	TestEqual(TEXT("The rate increase emits one warning state update"),
+		SlowRateWarningCount, 1);
+	FOpenMobileSensorSubscriptionStateSnapshot FastSnapshot;
+	TestTrue(TEXT("The faster subscription remains queryable"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			FastOwner, Fast.Handle, FastSnapshot));
+	TestFalse(TEXT("The fastest listener is not warned about itself"),
+		FastSnapshot.RateResolution.bSharedPhysicalStreamRateRaised);
 	FOpenMobileSensorsSubscriptionService::StopSubscription(
 		FastOwner,
 		Fast.Handle
 	);
-	TestEqual(TEXT("Removing the fastest subscriber renegotiates once"),
-		Backend.GetReconfigureSensorStreamCount(), 1);
+	TestEqual(TEXT("Removing the fastest subscriber renegotiates again"),
+		Backend.GetReconfigureSensorStreamCount(), 2);
 	TestEqual(TEXT("The remaining rate becomes the physical rate"),
 		Backend.GetLastReconfiguredPhysicalRequest().RequestedFrequencyHz,
 		15.0);
+	TestTrue(TEXT("The slower subscription remains after renegotiation"),
+		FOpenMobileSensorsSubscriptionService::GetSubscriptionState(
+			SlowOwner, Slow.Handle, SlowSnapshot));
+	TestFalse(TEXT("The shared-rate warning clears with the fast listener"),
+		SlowSnapshot.RateResolution.bSharedPhysicalStreamRateRaised);
+	FOpenMobileSensorsSubscriptionService::OnStateChanged().Remove(
+		RateWarningHandle);
 	FOpenMobileSensorsSubscriptionService::StopSubscription(
 		SlowOwner,
 		Slow.Handle

@@ -43,7 +43,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleInfo
 
 class UOpenMobileSensorListener;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_SixParams(
 	FOpenMobileSensorListenerStartedDynamic,
 	UOpenMobileSensorListener*,
 	Listener,
@@ -54,7 +54,22 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(
 	EOpenMobileSensorAvailabilitySource,
 	Source,
 	bool,
-	bRateAdjusted
+	bRateAdjusted,
+	EOpenMobileSensorLifecyclePolicy,
+	BackgroundBehavior
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(
+	FOpenMobileSensorListenerSharedRateWarningDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	UPARAM(DisplayName = "Listener Rate (Hz)") double,
+	ListenerRateHz,
+	UPARAM(DisplayName = "Shared Physical Rate (Hz)") double,
+	SharedPhysicalRateHz,
+	FText,
+	Message,
+	FText,
+	Correction
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileSensorListenerStateDynamic,
@@ -120,6 +135,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Error", ToolTip = "Broadcast a compact listener-scoped runtime error with a direct correction and retryability."))
 	FOpenMobileSensorListenerErrorDynamic SensorError;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Shared Stream Rate Raised", ToolTip = "Broadcast when another compatible listener raises the shared physical sensor rate above this listener's resolved rate, which can increase power use."))
+	FOpenMobileSensorListenerSharedRateWarningDynamic SharedStreamRateRaised;
 
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stop Sensor Listener", Keywords = "OpenMobile sensors cancel cleanup", ToolTip = "Stops this listener. Calling Stop more than once is safe."))
 	void Stop();
@@ -246,6 +264,7 @@ private:
 	void PublishRuntimeError(
 		const FOpenMobileSensorOperationResult& Operation
 	);
+	void BroadcastSharedStreamRateWarning();
 	EOpenMobileSensorAvailabilitySource ResolveSource() const;
 
 	UPROPERTY(Transient)
