@@ -12,6 +12,16 @@ enum class EOpenMobileSensorPermission : uint8
 	TrueHeadingLocation UMETA(Hidden)
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileTrueHeadingLocationOutcome : uint8
+{
+	LocationAccepted UMETA(DisplayName = "Location Accepted", ToolTip = "The fresh authorized location fix was accepted for true-heading calculations."),
+	PermissionMissing UMETA(DisplayName = "Permission Missing", ToolTip = "The external location provider has not granted usable location permission."),
+	LocationStale UMETA(DisplayName = "Location Stale", ToolTip = "The location fix is older than the accepted true-heading freshness limit."),
+	AccuracyTooLow UMETA(DisplayName = "Accuracy Too Low", ToolTip = "The location fix has a horizontal accuracy radius above the accepted limit."),
+	InvalidInput UMETA(DisplayName = "Invalid Input", ToolTip = "One or more location fields are invalid for true-heading calculations.")
+};
+
 USTRUCT(BlueprintType)
 struct OPENMOBILESENSORS_API FOpenMobileSensorPermissionDescriptor
 {
@@ -32,7 +42,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorPermissionDescriptor
 		EOpenMobilePermissionStatus::NotDetermined;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT(BlueprintType, meta = (DisplayName = "True Heading Location Input (Advanced)"))
 struct OPENMOBILESENSORS_API FOpenMobileSensorLocationInput
 {
 	GENERATED_BODY()

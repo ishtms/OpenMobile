@@ -233,6 +233,158 @@ bool FOpenMobileSensorsTrueHeadingLocationRetentionTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsTrueHeadingBlueprintLocationInputTest,
+	"OpenMobile.Sensors.Heading.True.BlueprintLocationInput",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsTrueHeadingBlueprintLocationInputTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsTrueHeadingDependencyTestsPrivate;
+	ResetServices();
+	FLocationPermissionProvider PermissionProvider;
+	TestTrue(
+		TEXT("The location permission provider registers"),
+		FOpenMobilePermissionProviderRegistry::RegisterProvider(
+			PermissionProvider
+		)
+	);
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileSensorsSubsystem* Subsystem =
+		NewObject<UOpenMobileSensorsSubsystem>(GameInstance);
+	EOpenMobileTrueHeadingLocationOutcome Outcome =
+		EOpenMobileTrueHeadingLocationOutcome::InvalidInput;
+	FString Message;
+	FString Correction;
+	FOpenMobileSensorOperationResult Details;
+	const FDateTime CapturedAtUtc = FDateTime::UtcNow();
+
+	Subsystem->SetTrueHeadingLocation(
+		51.5,
+		-0.1,
+		10.0,
+		CapturedAtUtc,
+		20.0,
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+	TestEqual(
+		TEXT("Missing external authorization has a dedicated branch"),
+		Outcome,
+		EOpenMobileTrueHeadingLocationOutcome::PermissionMissing
+	);
+	TestFalse(TEXT("The permission correction is actionable"), Correction.IsEmpty());
+
+	PermissionProvider.Status = EOpenMobilePermissionStatus::Granted;
+	Subsystem->SetTrueHeadingLocation(
+		51.5,
+		-0.1,
+		10.0,
+		CapturedAtUtc - FTimespan::FromMinutes(2.0),
+		20.0,
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+	TestEqual(
+		TEXT("Old fixes have a dedicated stale branch"),
+		Outcome,
+		EOpenMobileTrueHeadingLocationOutcome::LocationStale
+	);
+
+	Subsystem->SetTrueHeadingLocation(
+		51.5,
+		-0.1,
+		101.0,
+		CapturedAtUtc,
+		20.0,
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+	TestEqual(
+		TEXT("Imprecise fixes have a dedicated accuracy branch"),
+		Outcome,
+		EOpenMobileTrueHeadingLocationOutcome::AccuracyTooLow
+	);
+
+	Subsystem->SetTrueHeadingLocation(
+		91.0,
+		-0.1,
+		10.0,
+		CapturedAtUtc,
+		20.0,
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+	TestEqual(
+		TEXT("Invalid coordinates have a dedicated input branch"),
+		Outcome,
+		EOpenMobileTrueHeadingLocationOutcome::InvalidInput
+	);
+
+	Subsystem->SetTrueHeadingLocation(
+		51.5,
+		-0.1,
+		10.0,
+		FDateTime::UtcNow(),
+		20.0,
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+	TestEqual(
+		TEXT("Fresh accurate fixes are accepted"),
+		Outcome,
+		EOpenMobileTrueHeadingLocationOutcome::LocationAccepted
+	);
+	TestTrue(TEXT("Accepted fixes return success details"), Details.IsSuccess());
+
+#if WITH_METADATA
+	const UFunction* SetLocationFunction =
+		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorsSubsystem,
+				SetTrueHeadingLocation
+			)
+		);
+	TestNotNull(TEXT("The safe location node is reflected"), SetLocationFunction);
+	if (SetLocationFunction)
+	{
+		TestEqual(
+			TEXT("Location outcomes expand into execution pins"),
+			SetLocationFunction->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome"))
+		);
+		TestNotNull(
+			TEXT("The safe location node accepts a UTC date-time"),
+			FindFProperty<FStructProperty>(
+				SetLocationFunction,
+				TEXT("CapturedAtUtc")
+			)
+		);
+	}
+#endif
+
+	Subsystem->Deinitialize();
+	FOpenMobilePermissionProviderRegistry::UnregisterProvider(
+		PermissionProvider
+	);
+	ResetServices();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsTrueHeadingPrerequisiteCapabilityTest,
 	"OpenMobile.Sensors.Heading.True.PrerequisiteTransitions",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

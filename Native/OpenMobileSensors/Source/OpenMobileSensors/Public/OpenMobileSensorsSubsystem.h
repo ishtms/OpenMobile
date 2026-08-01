@@ -473,12 +473,25 @@ public:
 		const FOpenMobilePermissionRequestHandle& Handle
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Set True Heading Location Input", ToolTip = "Supplies narrow caller-owned location input without starting location services."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Set True Heading Location", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors true north location GPS authorization", AdvancedDisplay = "AltitudeMeters,Details", ToolTip = "Supplies a fresh authorized fix from an external location provider. This plugin does not start location services or request location permission."))
+	void SetTrueHeadingLocation(
+		double LatitudeDegrees,
+		double LongitudeDegrees,
+		double HorizontalAccuracyMeters,
+		FDateTime CapturedAtUtc,
+		double AltitudeMeters,
+		EOpenMobileTrueHeadingLocationOutcome& Outcome,
+		FString& Message,
+		FString& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Pose and Heading", meta = (DisplayName = "Set True Heading Location Input (Advanced)", ToolTip = "Advanced raw-struct path using a Unix timestamp. Prefer Set True Heading Location with a UTC date-time."))
 	FOpenMobileSensorOperationResult SetTrueHeadingLocationInputNative(
 		const FOpenMobileSensorLocationInput& LocationInput
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Clear True Heading Location Input", ToolTip = "Immediately removes caller-owned location retained for true heading."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Pose and Heading", meta = (DisplayName = "Clear True Heading Location", ToolTip = "Immediately removes caller-owned location retained for true heading."))
 	FOpenMobileSensorOperationResult ClearTrueHeadingLocationInputNative();
 	FGuid StartRecordingNative(
 		const FOpenMobileSensorRecordingOptions& Options,

@@ -834,6 +834,56 @@ bool UOpenMobileSensorsSubsystem::CancelPermissionRequestNative(
 	return FOpenMobilePermissions::CancelRequest(Handle);
 }
 
+void UOpenMobileSensorsSubsystem::SetTrueHeadingLocation(
+	double LatitudeDegrees,
+	double LongitudeDegrees,
+	double HorizontalAccuracyMeters,
+	FDateTime CapturedAtUtc,
+	double AltitudeMeters,
+	EOpenMobileTrueHeadingLocationOutcome& Outcome,
+	FString& Message,
+	FString& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	FOpenMobileSensorLocationInput LocationInput;
+	LocationInput.LatitudeDegrees = LatitudeDegrees;
+	LocationInput.LongitudeDegrees = LongitudeDegrees;
+	LocationInput.AltitudeMeters = AltitudeMeters;
+	LocationInput.HorizontalAccuracyMeters = HorizontalAccuracyMeters;
+	LocationInput.TimestampSeconds = static_cast<double>(
+		CapturedAtUtc.ToUnixTimestamp()
+	);
+	Details = SetTrueHeadingLocationInputNative(LocationInput);
+	Message = Details.Error.Message;
+	Correction = Details.Failure.Correction;
+	if (Details.IsSuccess())
+	{
+		Outcome = EOpenMobileTrueHeadingLocationOutcome::LocationAccepted;
+		Message = TEXT("The location fix was accepted for true heading.");
+		Correction.Reset();
+		return;
+	}
+	switch (Details.Failure.Reason)
+	{
+	case EOpenMobileSensorFailureReason::PermissionRequired:
+	case EOpenMobileSensorFailureReason::PermissionDenied:
+	case EOpenMobileSensorFailureReason::PermissionRestricted:
+		Outcome = EOpenMobileTrueHeadingLocationOutcome::PermissionMissing;
+		Correction = TEXT("Use your location provider to request location permission, then pass a fresh authorized fix to this node.");
+		break;
+	case EOpenMobileSensorFailureReason::StaleLocationInput:
+		Outcome = EOpenMobileTrueHeadingLocationOutcome::LocationStale;
+		break;
+	case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
+		Outcome = EOpenMobileTrueHeadingLocationOutcome::AccuracyTooLow;
+		break;
+	default:
+		Outcome = EOpenMobileTrueHeadingLocationOutcome::InvalidInput;
+		break;
+	}
+}
+
 FOpenMobileSensorOperationResult
 UOpenMobileSensorsSubsystem::SetTrueHeadingLocationInputNative(
 	const FOpenMobileSensorLocationInput& LocationInput
