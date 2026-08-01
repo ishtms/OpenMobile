@@ -7,6 +7,23 @@
 namespace OpenMobileSensorsDevelopmentInputPrivate
 {
 	IOpenMobileSensorsDevelopmentInputProvider* Provider = nullptr;
+	constexpr const TCHAR* DevelopmentInputDomain =
+		TEXT("OpenMobileSensors.DevelopmentInput");
+
+	FOpenMobileSensorOperationResult MakeMocksInactiveResult(
+		const TCHAR* NativeCode
+	)
+	{
+		FOpenMobileSensorOperationResult Result =
+			FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::ConfigurationBlocked,
+				DevelopmentInputDomain,
+				NativeCode
+			);
+		Result.Error.Message = TEXT("Mocks are inactive.");
+		Result.Failure.Correction = TEXT("Set Development Input Mode to Mock in Project Settings > OpenMobile > OpenMobile Sensors, then run a non-Shipping build.");
+		return Result;
+	}
 
 	FOpenMobileSensorOperationResult GetProviderResult(
 		IOpenMobileSensorsDevelopmentInputProvider*& OutProvider
@@ -14,9 +31,7 @@ namespace OpenMobileSensorsDevelopmentInputPrivate
 	{
 		OutProvider = nullptr;
 #if UE_BUILD_SHIPPING
-		return FOpenMobileSensorsErrorMapper::Map(
-			EOpenMobileSensorFailureReason::ConfigurationBlocked,
-			TEXT("OpenMobileSensors.DevelopmentInput"),
+		return MakeMocksInactiveResult(
 			TEXT("DevelopmentInputDisabledInShipping")
 		);
 #else
@@ -34,18 +49,14 @@ namespace OpenMobileSensorsDevelopmentInputPrivate
 			|| Settings->DevelopmentInputMode !=
 				EOpenMobileSensorsDevelopmentInputMode::Mock)
 		{
-			return FOpenMobileSensorsErrorMapper::Map(
-				EOpenMobileSensorFailureReason::ConfigurationBlocked,
-				TEXT("OpenMobileSensors.DevelopmentInput"),
+			return MakeMocksInactiveResult(
 				TEXT("MockInputNotSelected")
 			);
 		}
 		OutProvider = FOpenMobileSensorsDevelopmentInputService::GetProvider();
 		if (!OutProvider || !OutProvider->IsActive())
 		{
-			return FOpenMobileSensorsErrorMapper::Map(
-				EOpenMobileSensorFailureReason::TemporarilyUnavailable,
-				TEXT("OpenMobileSensors.DevelopmentInput"),
+			return MakeMocksInactiveResult(
 				TEXT("MockInputProviderUnavailable")
 			);
 		}
@@ -53,6 +64,37 @@ namespace OpenMobileSensorsDevelopmentInputPrivate
 		Result.Code = EOpenMobileSensorResultCode::Success;
 		return Result;
 #endif
+	}
+
+	void ResolveOutcome(
+		const FOpenMobileSensorOperationResult& Result,
+		EOpenMobileSensorMockActionOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	)
+	{
+		Details = Result;
+		Message = FText::FromString(Result.Error.Message);
+		Correction = FText::FromString(Result.Failure.Correction);
+		if (Result.IsSuccess())
+		{
+			Outcome = EOpenMobileSensorMockActionOutcome::Applied;
+			Message = NSLOCTEXT(
+				"OpenMobileSensorsDevelopment",
+				"MockActionApplied",
+				"The sensor mock action was applied."
+			);
+			Correction = FText::GetEmpty();
+		}
+		else if (Result.Failure.NativeDomain == DevelopmentInputDomain)
+		{
+			Outcome = EOpenMobileSensorMockActionOutcome::MocksInactive;
+		}
+		else
+		{
+			Outcome = EOpenMobileSensorMockActionOutcome::Failed;
+		}
 	}
 }
 
@@ -100,6 +142,89 @@ FOpenMobileSensorsDevelopmentInputService::GetProvider()
 #else
 	return OpenMobileSensorsDevelopmentInputPrivate::Provider;
 #endif
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::ApplyMockInputWithOutcome(
+	const FOpenMobileSensorsMockInput& Input,
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		ApplyMockInput(Input), Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::ApplyMockPresetWithOutcome(
+	EOpenMobileSensorsMockPreset Preset,
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		ApplyMockPreset(Preset), Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::PlayMockTimelineWithOutcome(
+	const FOpenMobileSensorsMockTimeline& Timeline,
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		PlayMockTimeline(Timeline), Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::StopMockTimelineWithOutcome(
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		StopMockTimeline(), Outcome, Message, Correction, Details);
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::AdvanceMockTimelineWithOutcome(
+	double DeltaSeconds,
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		AdvanceMockTimeline(DeltaSeconds),
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
+}
+
+void UOpenMobileSensorsDevelopmentLibrary::InjectMockErrorWithOutcome(
+	EOpenMobileSensorType Sensor,
+	EOpenMobileSensorFailureReason FailureReason,
+	FString NativeCode,
+	EOpenMobileSensorMockActionOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details
+)
+{
+	OpenMobileSensorsDevelopmentInputPrivate::ResolveOutcome(
+		InjectMockError(Sensor, FailureReason, MoveTemp(NativeCode)),
+		Outcome,
+		Message,
+		Correction,
+		Details
+	);
 }
 
 FOpenMobileSensorOperationResult
