@@ -6,6 +6,7 @@
 #include "OpenMobileSensorCapabilities.h"
 #include "OpenMobileSensorCalibration.h"
 #include "OpenMobileSensorDiagnostics.h"
+#include "OpenMobileSensorErrorReport.h"
 #include "OpenMobileSensorMetadata.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorRecording.h"
@@ -41,6 +42,11 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileSensorSamplesDropped,
 	FOpenMobileSensorSubscriptionHandle,
 	const FOpenMobileSensorDropInfo&
+);
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOnOpenMobileSensorError,
+	const FOpenMobileSensorSubscriptionHandle&,
+	const FOpenMobileSensorRuntimeError&
 );
 DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnOpenMobileVectorSensorBatch,
@@ -133,6 +139,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	Handle,
 	FOpenMobileSensorDropInfo,
 	DropInfo
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileSensorErrorDynamic,
+	FOpenMobileSensorSubscriptionHandle,
+	Handle,
+	FOpenMobileSensorRuntimeError,
+	Error
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOpenMobileVectorSensorBatchDynamic,
@@ -550,6 +563,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "On Sensor Samples Dropped", ToolTip = "Broadcast one coalesced loss report per game-thread dispatch cycle for an affected subscription."))
 	FOpenMobileSensorSamplesDroppedDynamic OnSamplesDropped;
 
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Error", ToolTip = "Broadcast a compact runtime error for an owned sensor stream without requiring diagnostics polling."))
+	FOpenMobileSensorErrorDynamic OnSensorError;
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Vector Sensor Samples", ToolTip = "Broadcast a rate-capped batch of vector samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileVectorSensorBatchDynamic OnVectorSamples;
 
@@ -579,6 +595,7 @@ public:
 	FOnOpenMobileSensorAccuracyChanged& OnAccuracyChangedNative();
 	FOnOpenMobileSensorCalibrationChanged& OnCalibrationChangedNative();
 	FOnOpenMobileSensorSamplesDropped& OnSamplesDroppedNative();
+	FOnOpenMobileSensorError& OnSensorErrorNative();
 	FOnOpenMobileVectorSensorBatch& OnVectorSamplesNative();
 	FOnOpenMobileAttitudeSensorBatch& OnAttitudeSamplesNative();
 	FOnOpenMobileScalarSensorBatch& OnScalarSamplesNative();
@@ -668,6 +685,7 @@ private:
 	FOnOpenMobileSensorAccuracyChanged AccuracyChangedEvent;
 	FOnOpenMobileSensorCalibrationChanged CalibrationChangedEvent;
 	FOnOpenMobileSensorSamplesDropped SamplesDroppedEvent;
+	FOnOpenMobileSensorError SensorErrorEvent;
 	FOnOpenMobileVectorSensorBatch VectorSamplesEvent;
 	FOnOpenMobileAttitudeSensorBatch AttitudeSamplesEvent;
 	FOnOpenMobileScalarSensorBatch ScalarSamplesEvent;

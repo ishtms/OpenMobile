@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "OpenMobileSensorAsyncActionBase.h"
 #include "OpenMobileSensorCapabilities.h"
+#include "OpenMobileSensorErrorReport.h"
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorSamples.h"
 #include "OpenMobileSensorListener.generated.h"
@@ -78,6 +79,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOpenMobileSensorDropInfo,
 	DropInfo
 );
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileSensorListenerErrorDynamic,
+	UOpenMobileSensorListener*,
+	Listener,
+	FOpenMobileSensorRuntimeError,
+	Error
+);
 
 UCLASS(Abstract, BlueprintType, Transient, meta = (ExposedAsyncProxy = "Listener"))
 class OPENMOBILESENSORS_API UOpenMobileSensorListener
@@ -109,6 +117,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Samples Dropped", ToolTip = "Broadcast one coalesced loss report per game-thread dispatch cycle when this listener's bounded sample queue overflows."))
 	FOpenMobileSensorListenerSamplesDroppedDynamic SamplesDropped;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Error", ToolTip = "Broadcast a compact listener-scoped runtime error with a direct correction and retryability."))
+	FOpenMobileSensorListenerErrorDynamic SensorError;
 
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stop Sensor Listener", Keywords = "OpenMobile sensors cancel cleanup", ToolTip = "Stops this listener. Calling Stop more than once is safe."))
 	void Stop();
@@ -147,6 +158,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Sample Drop", ToolTip = "Returns the most recent sample-loss report cached by this listener."))
 	bool GetLastSampleDrop(FOpenMobileSensorDropInfo& OutDropInfo) const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Error", ToolTip = "Returns the most recent compact runtime error cached by this listener."))
+	bool GetLastSensorError(FOpenMobileSensorRuntimeError& OutError) const;
 
 	virtual void Activate() override;
 
@@ -229,6 +243,9 @@ private:
 		const FOpenMobileSensorOperationResult& Operation
 	);
 	void BroadcastFailure();
+	void PublishRuntimeError(
+		const FOpenMobileSensorOperationResult& Operation
+	);
 	EOpenMobileSensorAvailabilitySource ResolveSource() const;
 
 	UPROPERTY(Transient)
@@ -251,6 +268,8 @@ private:
 	bool bStartedBroadcast = false;
 	FOpenMobileSensorDropInfo LastDropInfo;
 	bool bHasDropInfo = false;
+	FOpenMobileSensorRuntimeError LastRuntimeError;
+	bool bHasRuntimeError = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(

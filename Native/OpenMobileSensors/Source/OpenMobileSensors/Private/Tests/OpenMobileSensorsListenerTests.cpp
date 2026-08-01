@@ -11,11 +11,15 @@
 #include "OpenMobileSensorsBackendRegistry.h"
 #include "OpenMobileSensorsBackendTypes.h"
 #include "OpenMobileSensorsCapabilityService.h"
+#include "OpenMobileSensorsErrorMapper.h"
 #include "OpenMobileSensorsMockBackend.h"
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsSubscriptionService.h"
+#include "OpenMobileSensorsSubsystem.h"
 #include "UObject/UnrealType.h"
+
+#include <limits>
 
 namespace OpenMobileSensorsListenerTestsPrivate
 {
@@ -69,6 +73,19 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 	GameInstance->InitializeStandalone(TEXT("OpenMobileSensorsListenerTest"));
 	UWorld* World = GameInstance->GetWorld();
 	USceneComponent* Owner = NewObject<USceneComponent>(World);
+	UOpenMobileSensorsSubsystem* Subsystem =
+		GameInstance->GetSubsystem<UOpenMobileSensorsSubsystem>();
+	int32 SensorErrorCount = 0;
+	FOpenMobileSensorRuntimeError SubsystemError;
+	const FDelegateHandle SensorErrorHandle =
+		Subsystem->OnSensorErrorNative().AddLambda(
+			[&](const FOpenMobileSensorSubscriptionHandle& InHandle,
+				const FOpenMobileSensorRuntimeError& Error)
+			{
+				static_cast<void>(InHandle);
+				++SensorErrorCount;
+				SubsystemError = Error;
+			});
 
 	UOpenMobileSensorsSettings* Settings =
 		GetMutableDefault<UOpenMobileSensorsSettings>();
@@ -169,6 +186,31 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 	TestEqual(TEXT("The listener reports dropped samples"),
 		DropInfo.DroppedSamples,
 		2ll);
+	TestTrue(TEXT("The active listener accepts a transient backend failure"),
+		FOpenMobileSensorsSubscriptionService::FailPhysicalStreamFromBackend(
+			FOpenMobileSensorsBackendRegistry::CaptureToken(),
+			Backend.GetLastStartedPhysicalHandle(),
+			FOpenMobileSensorsErrorMapper::Map(
+				EOpenMobileSensorFailureReason::TemporarilyUnavailable,
+				TEXT("Test"),
+				TEXT("SensorDisconnected"))));
+	FOpenMobileSensorRuntimeError ListenerError;
+	TestTrue(TEXT("The listener caches its scoped runtime error"),
+		Listener->GetLastSensorError(ListenerError));
+	TestEqual(TEXT("The listener error preserves its portable reason"),
+		ListenerError.Reason,
+		EOpenMobileSensorFailureReason::TemporarilyUnavailable);
+	TestTrue(TEXT("A temporary listener failure is retryable"),
+		ListenerError.bRetryable);
+	TestEqual(TEXT("The subsystem broadcasts one compact sensor error"),
+		SensorErrorCount, 1);
+	TestEqual(TEXT("The subsystem error matches the listener error"),
+		SubsystemError.Reason, ListenerError.Reason);
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests(
+			std::numeric_limits<double>::max());
+	TestTrue(TEXT("The listener recovers without diagnostics polling"),
+		Listener->IsActive());
 
 	Owner->MarkAsGarbage();
 	TestFalse(
@@ -177,12 +219,13 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 	);
 	TestFalse(TEXT("Owner destruction deactivates the listener"), Listener->IsActive());
 	TestEqual(
-		TEXT("Owner destruction stops the physical stream"),
+		TEXT("Failure recovery and owner destruction stop both streams"),
 		Backend.GetStopSensorStreamCount(),
-		1
+		2
 	);
 
 	Settings->DefaultStreamOptions = SavedDefaults;
+	Subsystem->OnSensorErrorNative().Remove(SensorErrorHandle);
 	GameInstance->Shutdown();
 	World->DestroyWorld(true);
 	GEngine->DestroyWorldContext(World);
@@ -255,6 +298,17 @@ bool FOpenMobileSensorsGyroscopeListenerReflectionTest::RunTest(
 			)
 		);
 	TestNotNull(TEXT("Listeners expose scoped sample loss"), DroppedEvent);
+	const FMulticastDelegateProperty* ErrorEvent =
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileSensorListener::StaticClass(),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileSensorListener, SensorError));
+	TestNotNull(TEXT("Listeners expose scoped runtime errors"), ErrorEvent);
+	TestNotNull(TEXT("The subsystem exposes one compact sensor error event"),
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileSensorsSubsystem::StaticClass(),
+			GET_MEMBER_NAME_CHECKED(
+				UOpenMobileSensorsSubsystem, OnSensorError)));
 	const FMulticastDelegateProperty* StartedEvent =
 		FindFProperty<FMulticastDelegateProperty>(
 			UOpenMobileSensorListener::StaticClass(),

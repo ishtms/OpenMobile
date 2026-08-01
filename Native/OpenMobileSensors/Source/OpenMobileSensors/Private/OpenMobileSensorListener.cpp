@@ -158,6 +158,13 @@ bool UOpenMobileSensorListener::GetLastSampleDrop(
 	return bHasDropInfo;
 }
 
+bool UOpenMobileSensorListener::GetLastSensorError(
+	FOpenMobileSensorRuntimeError& OutError) const
+{
+	OutError = LastRuntimeError;
+	return bHasRuntimeError;
+}
+
 FOpenMobileSensorSampleInfo UOpenMobileSensorListener::MakeSampleInfo(
 	const FOpenMobileSensorSampleHeader& Header
 )
@@ -504,6 +511,15 @@ void UOpenMobileSensorListener::HandleStateChanged(
 	CachedState = Snapshot.State;
 	AppliedOptions = Snapshot.AppliedOptions;
 	RateResolution = Snapshot.RateResolution;
+	if (Snapshot.State != EOpenMobileSensorSubscriptionState::Failed
+		&& (Snapshot.Error.IsSet() || Snapshot.Failure.IsSet()))
+	{
+		FOpenMobileSensorOperationResult Operation;
+		Operation.Code = EOpenMobileSensorResultCode::Failed;
+		Operation.Error = Snapshot.Error;
+		Operation.Failure = Snapshot.Failure;
+		PublishRuntimeError(Operation);
+	}
 	switch (Snapshot.State)
 	{
 	case EOpenMobileSensorSubscriptionState::Active:
@@ -652,6 +668,7 @@ void UOpenMobileSensorListener::FinishFromOperation(
 
 void UOpenMobileSensorListener::BroadcastFailure()
 {
+	PublishRuntimeError(LastOperation);
 	const FText Message = FText::FromString(LastOperation.Error.Message);
 	const FText Correction =
 		FText::FromString(LastOperation.Failure.Correction);
@@ -682,6 +699,15 @@ void UOpenMobileSensorListener::BroadcastFailure()
 		Failed.Broadcast(this, Message, Correction, LastOperation);
 		break;
 	}
+}
+
+void UOpenMobileSensorListener::PublishRuntimeError(
+	const FOpenMobileSensorOperationResult& Operation)
+{
+	LastRuntimeError =
+		FOpenMobileSensorsErrorMapper::MakeRuntimeError(Operation);
+	bHasRuntimeError = true;
+	SensorError.Broadcast(this, LastRuntimeError);
 }
 
 EOpenMobileSensorAvailabilitySource

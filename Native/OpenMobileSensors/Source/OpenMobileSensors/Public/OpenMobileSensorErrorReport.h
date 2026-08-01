@@ -4,6 +4,25 @@
 #include "OpenMobileSensorResults.h"
 #include "OpenMobileSensorErrorReport.generated.h"
 
+USTRUCT(BlueprintType, meta = (DisplayName = "Sensor Error"))
+struct OPENMOBILESENSORS_API FOpenMobileSensorRuntimeError
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Portable reason suitable for Blueprint control flow."))
+	EOpenMobileSensorFailureReason Reason =
+		EOpenMobileSensorFailureReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Short user-facing explanation of what failed."))
+	FText Message;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Short corrective action suitable for UI or recovery logic."))
+	FText Correction;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Whether retrying after the stated correction or a temporary state change can succeed."))
+	bool bRetryable = false;
+};
+
 UENUM(BlueprintType)
 enum class EOpenMobileSensorOperation : uint8
 {

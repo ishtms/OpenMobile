@@ -20,6 +20,9 @@ public:
 		const FOpenMobileSensorErrorContext& Context,
 		double TimestampSeconds = -1.0
 	);
+	static FOpenMobileSensorRuntimeError MakeRuntimeError(
+		const FOpenMobileSensorOperationResult& Result
+	);
 	static void ApplyRateAdjustmentText(
 		FOpenMobileSensorRateResolution& Resolution
 	);

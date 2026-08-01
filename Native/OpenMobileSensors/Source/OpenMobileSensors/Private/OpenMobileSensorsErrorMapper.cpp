@@ -371,6 +371,45 @@ FOpenMobileSensorErrorReport FOpenMobileSensorsErrorMapper::Describe(
 	return Report;
 }
 
+FOpenMobileSensorRuntimeError FOpenMobileSensorsErrorMapper::MakeRuntimeError(
+	const FOpenMobileSensorOperationResult& Result)
+{
+	EOpenMobileSensorFailureReason Reason = Result.Failure.Reason;
+	if (Reason == EOpenMobileSensorFailureReason::None
+		&& Result.Error.IsSet())
+	{
+		Reason = FromCommon(Result.Error).Failure.Reason;
+	}
+	const FOpenMobileSensorOperationResult Mapped = Map(Reason);
+	FOpenMobileSensorRuntimeError Error;
+	Error.Reason = Reason;
+	Error.Message = FText::FromString(Result.Error.Message.IsEmpty()
+		? Mapped.Error.Message
+		: Result.Error.Message);
+	Error.Correction = FText::FromString(
+		Result.Failure.Correction.IsEmpty()
+			? Mapped.Failure.Correction
+			: Result.Failure.Correction);
+	switch (Reason)
+	{
+	case EOpenMobileSensorFailureReason::PermissionRequired:
+	case EOpenMobileSensorFailureReason::RateLimited:
+	case EOpenMobileSensorFailureReason::PoorCalibration:
+	case EOpenMobileSensorFailureReason::BackgroundRestricted:
+	case EOpenMobileSensorFailureReason::BufferOverflow:
+	case EOpenMobileSensorFailureReason::MissingLocationInput:
+	case EOpenMobileSensorFailureReason::StaleLocationInput:
+	case EOpenMobileSensorFailureReason::PoorLocationAccuracy:
+	case EOpenMobileSensorFailureReason::TemporarilyUnavailable:
+	case EOpenMobileSensorFailureReason::OperationalFailure:
+		Error.bRetryable = true;
+		break;
+	default:
+		break;
+	}
+	return Error;
+}
+
 void FOpenMobileSensorsErrorMapper::ApplyRateAdjustmentText(
 	FOpenMobileSensorRateResolution& Resolution
 )

@@ -194,6 +194,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	OnAccuracyChanged.Clear();
 	OnCalibrationChanged.Clear();
 	OnSamplesDropped.Clear();
+	OnSensorError.Clear();
 	OnVectorSamples.Clear();
 	OnAttitudeSamples.Clear();
 	OnScalarSamples.Clear();
@@ -207,6 +208,7 @@ void UOpenMobileSensorsSubsystem::Deinitialize()
 	AccuracyChangedEvent.Clear();
 	CalibrationChangedEvent.Clear();
 	SamplesDroppedEvent.Clear();
+	SensorErrorEvent.Clear();
 	VectorSamplesEvent.Clear();
 	AttitudeSamplesEvent.Clear();
 	ScalarSamplesEvent.Clear();
@@ -1157,6 +1159,13 @@ UOpenMobileSensorsSubsystem::OnSamplesDroppedNative()
 	return SamplesDroppedEvent;
 }
 
+FOnOpenMobileSensorError&
+UOpenMobileSensorsSubsystem::OnSensorErrorNative()
+{
+	EnsureSubscriptionListener();
+	return SensorErrorEvent;
+}
+
 FOnOpenMobileVectorSensorBatch&
 UOpenMobileSensorsSubsystem::OnVectorSamplesNative()
 {
@@ -1372,6 +1381,17 @@ void UOpenMobileSensorsSubsystem::HandleSubscriptionStateChanged(
 	if (bDeinitialized || OwnerIdentifier != SubscriptionOwnerIdentifier)
 	{
 		return;
+	}
+	if (Snapshot.Error.IsSet() || Snapshot.Failure.IsSet())
+	{
+		FOpenMobileSensorOperationResult Operation;
+		Operation.Code = EOpenMobileSensorResultCode::Failed;
+		Operation.Error = Snapshot.Error;
+		Operation.Failure = Snapshot.Failure;
+		const FOpenMobileSensorRuntimeError RuntimeError =
+			FOpenMobileSensorsErrorMapper::MakeRuntimeError(Operation);
+		OnSensorError.Broadcast(Snapshot.Handle, RuntimeError);
+		SensorErrorEvent.Broadcast(Snapshot.Handle, RuntimeError);
 	}
 	OnSubscriptionStateChanged.Broadcast(Snapshot);
 	SubscriptionStateChangedEvent.Broadcast(Snapshot);
