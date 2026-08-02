@@ -300,6 +300,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
 	FOpenMobileSensorSampleInfo,
 	SampleInfo
 );
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileGyroscopeListenerSampleNative,
+	const FVector&
+);
 
 UCLASS(meta = (ExposedAsyncProxy = "Listener"))
 class OPENMOBILESENSORS_API UOpenMobileGyroscopeListener final
@@ -329,12 +333,18 @@ public:
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
 
+	FOnOpenMobileGyroscopeListenerSampleNative& OnSampleNative()
+	{
+		return SampleNative;
+	}
+
 protected:
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& InSample
 	) override;
 
 private:
+	FOnOpenMobileGyroscopeListenerSampleNative SampleNative;
 	FOpenMobileVectorSensorSample LatestSample;
 	bool bHasSample = false;
 };
@@ -444,6 +454,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
 	FOpenMobileSensorSampleInfo,
 	SampleInfo
 );
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileGravityListenerSampleNative,
+	const FVector&
+);
 
 UCLASS(meta = (ExposedAsyncProxy = "Listener"))
 class OPENMOBILESENSORS_API UOpenMobileGravityListener final
@@ -471,10 +485,16 @@ public:
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
 
+	FOnOpenMobileGravityListenerSampleNative& OnSampleNative()
+	{
+		return SampleNative;
+	}
+
 protected:
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
+	FOnOpenMobileGravityListenerSampleNative SampleNative;
 	FOpenMobileVectorSensorSample LatestSample;
 	bool bHasSample = false;
 };

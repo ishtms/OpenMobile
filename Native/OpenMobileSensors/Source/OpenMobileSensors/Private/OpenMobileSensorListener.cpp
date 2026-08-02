@@ -816,6 +816,7 @@ void UOpenMobileGyroscopeListener::HandleVectorSample(
 {
 	LatestSample = InSample;
 	bHasSample = true;
+	SampleNative.Broadcast(LatestSample.Value);
 	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
 }
 
@@ -972,6 +973,7 @@ void UOpenMobileGravityListener::HandleVectorSample(
 {
 	LatestSample = InSample;
 	bHasSample = true;
+	SampleNative.Broadcast(LatestSample.Value);
 	Sample.Broadcast(this, LatestSample.Value, MakeSampleInfo(LatestSample.Header));
 }
 
