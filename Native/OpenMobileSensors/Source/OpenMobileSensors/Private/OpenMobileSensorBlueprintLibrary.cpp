@@ -1,6 +1,63 @@
 #include "OpenMobileSensorBlueprintLibrary.h"
 
+#include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorsSettings.h"
+
+void UOpenMobileSensorBlueprintLibrary::StopSensorListeners(
+	const TArray<UOpenMobileSensorListener*>& Listeners,
+	EOpenMobileSensorListenerCleanupOutcome& Outcome,
+	TArray<UOpenMobileSensorListener*>& StoppedListeners,
+	TArray<FOpenMobileSensorListenerCleanupFailure>& Failures
+)
+{
+	StoppedListeners.Reset();
+	Failures.Reset();
+	TSet<UOpenMobileSensorListener*> SeenListeners;
+	for (UOpenMobileSensorListener* Listener : Listeners)
+	{
+		if (!IsValid(Listener))
+		{
+			FOpenMobileSensorListenerCleanupFailure Failure;
+			Failure.Message = NSLOCTEXT(
+				"OpenMobileSensorsListeners",
+				"InvalidCleanupListener",
+				"The listener collection contains an invalid entry."
+			);
+			Failures.Add(MoveTemp(Failure));
+			continue;
+		}
+		if (SeenListeners.Contains(Listener))
+		{
+			continue;
+		}
+		SeenListeners.Add(Listener);
+		if (Listener->IsFinished())
+		{
+			continue;
+		}
+		Listener->Stop();
+		if (Listener->IsFinished())
+		{
+			StoppedListeners.Add(Listener);
+		}
+		else
+		{
+			FOpenMobileSensorListenerCleanupFailure Failure;
+			Failure.Listener = Listener;
+			Failure.Message = NSLOCTEXT(
+				"OpenMobileSensorsListeners",
+				"ListenerCleanupFailed",
+				"The listener did not stop. Inspect its Error event before retrying."
+			);
+			Failures.Add(MoveTemp(Failure));
+		}
+	}
+	Outcome = !Failures.IsEmpty()
+		? EOpenMobileSensorListenerCleanupOutcome::SomeFailed
+		: !StoppedListeners.IsEmpty()
+			? EOpenMobileSensorListenerCleanupOutcome::Stopped
+			: EOpenMobileSensorListenerCleanupOutcome::NothingToStop;
+}
 
 bool UOpenMobileSensorBlueprintLibrary::WasSensorOperationSuccessful(
 	const FOpenMobileSensorOperationResult& Result

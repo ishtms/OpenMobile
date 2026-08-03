@@ -5,6 +5,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
+#include "OpenMobileSensorBlueprintLibrary.h"
 #include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorPoseEnvironmentListeners.h"
 #include "OpenMobileSensorActivityListeners.h"
@@ -226,6 +227,118 @@ bool FOpenMobileSensorsGyroscopeListenerTest::RunTest(
 
 	Settings->DefaultStreamOptions = SavedDefaults;
 	Subsystem->OnSensorErrorNative().Remove(SensorErrorHandle);
+	GameInstance->Shutdown();
+	World->DestroyWorld(true);
+	GEngine->DestroyWorldContext(World);
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	ResetServices();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsListenerCollectionCleanupTest,
+	"OpenMobile.Sensors.Blueprint.Listener.CollectionCleanup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsListenerCollectionCleanupTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsListenerTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("ListenerCollectionCleanup"));
+	Backend.SetSensorCapabilities({MakeGyroscopeCapability()});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->InitializeStandalone(
+		TEXT("OpenMobileSensorsListenerCollectionCleanup"));
+	UWorld* World = GameInstance->GetWorld();
+	USceneComponent* Owner = NewObject<USceneComponent>(World);
+	UOpenMobileGyroscopeListener* Listener =
+		UOpenMobileGyroscopeListener::ListenForGyroscope(
+			World,
+			FOpenMobileSensorStreamOptions{},
+			EOpenMobileSensorRatePreset::Game,
+			EOpenMobileSensorCoordinateSpace::DeviceFixed,
+			false,
+			Owner
+		);
+	Listener->Activate();
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	UOpenMobileSensorsSubsystem* Subsystem =
+		GameInstance->GetSubsystem<UOpenMobileSensorsSubsystem>();
+	const TArray<UOpenMobileSensorListener*> ManagedListeners =
+		Subsystem->GetManagedSensorListenersNative();
+	TestEqual(TEXT("The Game Instance exposes one managed listener"),
+		ManagedListeners.Num(), 1);
+	TestEqual(TEXT("The managed listener keeps its typed object"),
+		ManagedListeners[0],
+		static_cast<UOpenMobileSensorListener*>(Listener));
+
+	EOpenMobileSensorListenerCleanupOutcome Outcome =
+		EOpenMobileSensorListenerCleanupOutcome::NothingToStop;
+	TArray<UOpenMobileSensorListener*> StoppedListeners;
+	TArray<FOpenMobileSensorListenerCleanupFailure> Failures;
+	UOpenMobileSensorBlueprintLibrary::StopSensorListeners(
+		{Listener, nullptr},
+		Outcome,
+		StoppedListeners,
+		Failures
+	);
+	TestEqual(TEXT("Mixed cleanup reports partial failure"), Outcome,
+		EOpenMobileSensorListenerCleanupOutcome::SomeFailed);
+	TestEqual(TEXT("Cleanup returns the stopped typed listener"),
+		StoppedListeners.Num(), 1);
+	TestEqual(TEXT("Cleanup reports the invalid collection entry"),
+		Failures.Num(), 1);
+	TestFalse(TEXT("The stopped listener is no longer active"),
+		Listener->IsActive());
+	TestEqual(TEXT("Finished listeners leave the managed collection"),
+		Subsystem->GetManagedSensorListenersNative().Num(), 0);
+	UOpenMobileSensorBlueprintLibrary::StopSensorListeners(
+		{Listener},
+		Outcome,
+		StoppedListeners,
+		Failures
+	);
+	TestEqual(TEXT("Repeated typed cleanup is idempotent"), Outcome,
+		EOpenMobileSensorListenerCleanupOutcome::NothingToStop);
+	TestTrue(TEXT("Repeated cleanup has no false failures"),
+		Failures.IsEmpty());
+
+#if WITH_METADATA
+	const UFunction* RawStopAll =
+		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorsSubsystem,
+				StopAllSubscriptionsNative));
+	TestNotNull(TEXT("The raw stop-all node is reflected"), RawStopAll);
+	if (RawStopAll)
+	{
+		TestTrue(TEXT("Raw stop-all is in the Advanced palette"),
+			RawStopAll->GetMetaData(TEXT("Category")).Contains(
+				TEXT("Advanced")));
+		TestTrue(TEXT("Raw stop-all names the Game Instance boundary"),
+			RawStopAll->GetMetaData(TEXT("DisplayName")).Contains(
+				TEXT("Game Instance")));
+	}
+	const UFunction* TypedCleanup =
+		UOpenMobileSensorBlueprintLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorBlueprintLibrary,
+				StopSensorListeners));
+	TestNotNull(TEXT("Typed listener cleanup is reflected"), TypedCleanup);
+	if (TypedCleanup)
+	{
+		TestEqual(TEXT("Cleanup outcomes become execution pins"),
+			TypedCleanup->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome")));
+	}
+#endif
+
 	GameInstance->Shutdown();
 	World->DestroyWorld(true);
 	GEngine->DestroyWorldContext(World);

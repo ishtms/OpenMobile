@@ -8,6 +8,8 @@
 #include "OpenMobileSensorStreamOptions.h"
 #include "OpenMobileSensorBlueprintLibrary.generated.h"
 
+class UOpenMobileSensorListener;
+
 UENUM(BlueprintType)
 enum class EOpenMobileSensorReadOutcome : uint8
 {
@@ -17,6 +19,26 @@ enum class EOpenMobileSensorReadOutcome : uint8
 	InvalidListener UMETA(DisplayName = "Invalid Listener", ToolTip = "The raw subscription handle is invalid or no longer owned by this Game Instance.")
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorListenerCleanupOutcome : uint8
+{
+	Stopped UMETA(DisplayName = "Stopped", ToolTip = "Every unfinished listener in the collection reached a terminal state."),
+	NothingToStop UMETA(DisplayName = "Nothing to Stop", ToolTip = "The collection contained no unfinished listeners."),
+	SomeFailed UMETA(DisplayName = "Some Failed", ToolTip = "One or more collection entries were invalid or did not stop.")
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILESENSORS_API FOpenMobileSensorListenerCleanupFailure
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Listener that failed cleanup, or None for an invalid collection entry."))
+	TObjectPtr<UOpenMobileSensorListener> Listener;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Short reason this collection entry could not be stopped."))
+	FText Message;
+};
+
 UCLASS()
 class OPENMOBILESENSORS_API UOpenMobileSensorBlueprintLibrary final
 	: public UBlueprintFunctionLibrary
@@ -24,6 +46,14 @@ class OPENMOBILESENSORS_API UOpenMobileSensorBlueprintLibrary final
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Listeners", meta = (DisplayName = "Stop Sensor Listeners", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors listeners collection scoped cleanup stop", AutoCreateRefTerm = "Listeners", AdvancedDisplay = "Failures", ToolTip = "Stops the distinct unfinished typed listeners in this collection. Recording and replay sessions remain controlled by their own typed session objects."))
+	static void StopSensorListeners(
+		const TArray<UOpenMobileSensorListener*>& Listeners,
+		EOpenMobileSensorListenerCleanupOutcome& Outcome,
+		TArray<UOpenMobileSensorListener*>& StoppedListeners,
+		TArray<FOpenMobileSensorListenerCleanupFailure>& Failures
+	);
+
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Was Sensor Operation Successful", Keywords = "OpenMobile sensors result success accepted", ToolTip = "Returns true for both completed success and accepted asynchronous work."))
 	static bool WasSensorOperationSuccessful(
 		const FOpenMobileSensorOperationResult& Result

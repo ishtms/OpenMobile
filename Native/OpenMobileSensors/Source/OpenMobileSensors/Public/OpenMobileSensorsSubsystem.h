@@ -17,6 +17,7 @@
 #include "OpenMobileSensorsSubsystem.generated.h"
 
 class UOpenMobileSensorAsyncActionBase;
+class UOpenMobileSensorListener;
 class UOpenMobileSensorRecordingSession;
 class UOpenMobileSensorReplaySession;
 
@@ -248,8 +249,11 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop All Sensor Subscriptions", ToolTip = "Stops every subscription owned by this Game Instance and returns the number stopped."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Stop All Game Instance Sensor Subscriptions (Advanced)", Keywords = "OpenMobile sensors raw handles Game Instance stop all", ToolTip = "Advanced raw-handle cleanup. Stops every sensor subscription owned by this Game Instance, but does not stop typed recording or replay sessions. Prefer Stop Sensor Listeners for scoped typed cleanup."))
 	int32 StopAllSubscriptionsNative();
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Listeners", meta = (DisplayName = "Get Managed Sensor Listeners", Keywords = "OpenMobile sensors listeners active paused starting Game Instance collection", ToolTip = "Returns unfinished typed listeners owned by this Game Instance, including starting, active, and paused listeners."))
+	TArray<UOpenMobileSensorListener*> GetManagedSensorListenersNative() const;
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Subscription State", ToolTip = "Returns the current state, including attitude reference and recenter state, for an owned subscription handle."))
 	bool GetSubscriptionStateNative(

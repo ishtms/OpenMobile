@@ -4,6 +4,7 @@
 #include "OpenMobilePermissions.h"
 #include "OpenMobileNativeStepQueryService.h"
 #include "OpenMobileSensorAsyncActionBase.h"
+#include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorRecordingSession.h"
 #include "OpenMobileSensorReplaySession.h"
 #include "OpenMobileSensorScreenRotationService.h"
@@ -343,6 +344,24 @@ int32 UOpenMobileSensorsSubsystem::StopAllSubscriptionsNative()
 	return FOpenMobileSensorsSubscriptionService::StopAllSubscriptions(
 		SubscriptionOwnerIdentifier
 	);
+}
+
+TArray<UOpenMobileSensorListener*>
+UOpenMobileSensorsSubsystem::GetManagedSensorListenersNative() const
+{
+	TArray<UOpenMobileSensorListener*> Listeners;
+	for (const TWeakObjectPtr<UOpenMobileSensorAsyncActionBase>& Action
+		: AsyncActions)
+	{
+		UOpenMobileSensorListener* Listener = Cast<UOpenMobileSensorListener>(
+			Action.Get()
+		);
+		if (Listener && !Listener->IsFinished())
+		{
+			Listeners.Add(Listener);
+		}
+	}
+	return Listeners;
 }
 
 bool UOpenMobileSensorsSubsystem::GetSubscriptionStateNative(
