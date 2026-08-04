@@ -27,6 +27,14 @@ enum class EOpenMobileSensorAvailabilityBranch : uint8
 	Unavailable UMETA(DisplayName = "Unavailable", ToolTip = "The selected sensor cannot start in its current configuration.")
 };
 
+UENUM(BlueprintType)
+enum class EOpenMobileSensorUseCase : uint8
+{
+	Interface UMETA(DisplayName = "Interface, Low Power", ToolTip = "Uses the configurable UI preset for menus, indicators, and low-power visual motion."),
+	Gameplay UMETA(DisplayName = "Gameplay, Balanced", ToolTip = "Uses the configurable Game preset for normal gameplay input and motion."),
+	HighResponsiveness UMETA(DisplayName = "High Responsiveness", ToolTip = "Uses the configurable Fast preset for latency-sensitive motion when power cost is acceptable.")
+};
+
 USTRUCT(BlueprintType, meta = (DisplayName = "Sensor Availability Info"))
 struct OPENMOBILESENSORS_API FOpenMobileSensorAvailabilityInfo
 {
@@ -192,9 +200,15 @@ public:
 		EOpenMobileSensorRatePreset Preset
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Recommended Sensor Options", Keywords = "OpenMobile sensors recommended options defaults event", ToolTip = "Returns Project Settings defaults resolved for an event-driven preferred listener."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Recommended Sensor Options (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Make Recommended Sensor Options and choose an explicit use case.", Keywords = "OpenMobile sensors recommended options defaults event", ToolTip = "Compatibility helper that returns the low-power Interface recommendation."))
 	static FOpenMobileSensorStreamOptions GetRecommendedSensorOptions(
 		EOpenMobileSensorType Sensor
+	);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Make Recommended Sensor Options", Keywords = "OpenMobile sensors recommended use case rate preset options defaults event", ToolTip = "Builds event-driven options from Project Settings for one sensor and use case."))
+	static FOpenMobileSensorStreamOptions MakeRecommendedSensorOptions(
+		EOpenMobileSensorType Sensor,
+		EOpenMobileSensorUseCase UseCase = EOpenMobileSensorUseCase::Gameplay
 	);
 
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Preview Sensor Stream Options", Keywords = "OpenMobile sensors preview resolve rate clamp options", ToolTip = "Resolves presets, sensor limits, and project policy without starting hardware."))
@@ -203,5 +217,15 @@ public:
 		const FOpenMobileSensorStreamOptions& RequestedOptions,
 		FOpenMobileSensorStreamOptions& OutAppliedOptions,
 		FOpenMobileSensorRateResolution& OutRateResolution
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Validate Sensor Options", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors options validate ignored warning correction", ToolTip = "Validates only fields used by this sensor and delivery mode. Ignored invalid fields are reported and replaced with safe values."))
+	static void ValidateSensorOptions(
+		EOpenMobileSensorType Sensor,
+		const FOpenMobileSensorStreamOptions& RequestedOptions,
+		EOpenMobileSensorOptionsValidationOutcome& Outcome,
+		FOpenMobileSensorStreamOptions& OutAppliedOptions,
+		FOpenMobileSensorRateResolution& OutRateResolution,
+		TArray<FOpenMobileSensorOptionIssue>& OutIssues
 	);
 };

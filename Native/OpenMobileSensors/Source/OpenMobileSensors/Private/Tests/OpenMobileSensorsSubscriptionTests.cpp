@@ -88,6 +88,7 @@ bool FOpenMobileSensorsSubscriptionRequestValidationTest::RunTest(
 		).Operation.Code,
 		EOpenMobileSensorResultCode::InvalidArgument);
 	Request = MakeRequest();
+	Request.Options.DeliveryMode = EOpenMobileSensorDeliveryMode::Buffered;
 	Request.Options.BufferCapacitySamples = 0;
 	TestEqual(TEXT("Unbounded buffer policies are rejected"),
 		FOpenMobileSensorsSubscriptionService::StartSubscription(
@@ -128,6 +129,58 @@ bool FOpenMobileSensorsSubscriptionRequestValidationTest::RunTest(
 		Accepted.Handle
 	);
 	FinishBackend(Backend);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsSubscriptionOptionApplicabilityTest,
+	"OpenMobile.Sensors.Subscriptions.OptionApplicability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsSubscriptionOptionApplicabilityTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsSubscriptionTestsPrivate;
+	FOpenMobileSensorSubscriptionRequest Request = MakeRequest();
+	Request.Options.DeliveryMode = EOpenMobileSensorDeliveryMode::LatestValue;
+	Request.Options.MaximumCallbackFrequencyHz = 0.0;
+	Request.Options.BufferCapacitySamples = 0;
+	Request.Options.MinimumActivityStableDurationSeconds =
+		std::numeric_limits<double>::quiet_NaN();
+	Request.Options.ShakeDetection.MinimumImpulses = 0;
+	Request.Options.AttitudeRepresentations = 0;
+	FOpenMobileSensorStreamOptions Applied;
+	FOpenMobileSensorRateResolution Resolution;
+	TestTrue(TEXT("Unused options do not invalidate accelerometer polling"),
+		FOpenMobileSensorsSubscriptionService::PreviewOptions(
+			Request.Sensor, Request.Options, Applied, Resolution));
+
+	Request.Options.DeliveryMode = EOpenMobileSensorDeliveryMode::EventBatches;
+	TestFalse(TEXT("Event delivery validates callback frequency"),
+		FOpenMobileSensorsSubscriptionService::PreviewOptions(
+			Request.Sensor, Request.Options, Applied, Resolution));
+
+	Request = MakeRequest(60.0, 30.0, EOpenMobileSensorType::Attitude);
+	Request.Options.AttitudeRepresentations = 0;
+	TestFalse(TEXT("Attitude validates representation selection"),
+		FOpenMobileSensorsSubscriptionService::PreviewOptions(
+			Request.Sensor, Request.Options, Applied, Resolution));
+
+	Request = MakeRequest(60.0, 30.0, EOpenMobileSensorType::Shake);
+	Request.Options.ShakeDetection.MinimumImpulses = 0;
+	TestFalse(TEXT("Shake validates detection settings"),
+		FOpenMobileSensorsSubscriptionService::PreviewOptions(
+			Request.Sensor, Request.Options, Applied, Resolution));
+
+	Request = MakeRequest(60.0, 30.0, EOpenMobileSensorType::MotionActivity);
+	Request.Options.MinimumActivityStableDurationSeconds =
+		std::numeric_limits<double>::quiet_NaN();
+	TestFalse(TEXT("Activity validates stability settings"),
+		FOpenMobileSensorsSubscriptionService::PreviewOptions(
+			Request.Sensor, Request.Options, Applied, Resolution));
 	return true;
 }
 

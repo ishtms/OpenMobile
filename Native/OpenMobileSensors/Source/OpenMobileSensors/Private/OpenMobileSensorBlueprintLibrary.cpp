@@ -170,6 +170,15 @@ UOpenMobileSensorBlueprintLibrary::MakeSensorIdentifier(
 	return Identifier;
 }
 
+void UOpenMobileSensorBlueprintLibrary::BreakSensorIdentifier(
+	const FOpenMobileSensorIdentifier& Identifier,
+	EOpenMobileSensorType& OutSensor,
+	FName& OutInstanceId)
+{
+	OutSensor = Identifier.Type;
+	OutInstanceId = Identifier.InstanceId;
+}
+
 FOpenMobileSensorStreamOptions
 UOpenMobileSensorBlueprintLibrary::GetDefaultSensorStreamOptions()
 {

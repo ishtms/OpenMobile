@@ -13,6 +13,18 @@
 
 namespace OpenMobileSensorsBlueprintDiscoveryTestsPrivate
 {
+	bool HasOptionIssue(
+		const TArray<FOpenMobileSensorOptionIssue>& Issues,
+		FName Field,
+		EOpenMobileSensorOptionIssueSeverity Severity)
+	{
+		return Issues.ContainsByPredicate(
+			[Field, Severity](const FOpenMobileSensorOptionIssue& Issue)
+			{
+				return Issue.Field == Field && Issue.Severity == Severity;
+			});
+	}
+
 	FOpenMobileSensorCapability MakeCapability(
 		EOpenMobileSensorType Type,
 		EOpenMobileCapabilityState State,
@@ -37,6 +49,69 @@ namespace OpenMobileSensorsBlueprintDiscoveryTestsPrivate
 		FOpenMobileSensorsCapabilityService::ResetForTests();
 		FOpenMobileSensorsSubscriptionService::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintOptionsValidationTest,
+	"OpenMobile.Sensors.Blueprint.Options.Validation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintOptionsValidationTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsBlueprintDiscoveryTestsPrivate;
+	FOpenMobileSensorStreamOptions Requested;
+	Requested.RatePreset = EOpenMobileSensorRatePreset::Custom;
+	Requested.DeliveryMode = EOpenMobileSensorDeliveryMode::LatestValue;
+	Requested.MaximumCallbackFrequencyHz = 0.0;
+	Requested.BufferCapacitySamples = 0;
+	Requested.ShakeDetection.MinimumImpulses = 0;
+	Requested.AttitudeRepresentations = 0;
+	FOpenMobileSensorStreamOptions Applied;
+	FOpenMobileSensorRateResolution Resolution;
+	TArray<FOpenMobileSensorOptionIssue> Issues;
+	EOpenMobileSensorOptionsValidationOutcome Outcome =
+		EOpenMobileSensorOptionsValidationOutcome::Invalid;
+	UOpenMobileSensorDiscoveryLibrary::ValidateSensorOptions(
+		EOpenMobileSensorType::Accelerometer,
+		Requested,
+		Outcome,
+		Applied,
+		Resolution,
+		Issues);
+	TestEqual(TEXT("Ignored invalid fields are corrected"),
+		Outcome,
+		EOpenMobileSensorOptionsValidationOutcome::Adjusted);
+	TestTrue(TEXT("Callback correction names its field"),
+		HasOptionIssue(Issues, TEXT("MaximumCallbackFrequencyHz"),
+			EOpenMobileSensorOptionIssueSeverity::Warning));
+	TestTrue(TEXT("Buffer correction names its field"),
+		HasOptionIssue(Issues, TEXT("BufferCapacitySamples"),
+			EOpenMobileSensorOptionIssueSeverity::Warning));
+	TestEqual(TEXT("Corrected callback frequency is safe"),
+		Applied.MaximumCallbackFrequencyHz,
+		15.0);
+	TestEqual(TEXT("Corrected buffer capacity is bounded"),
+		Applied.BufferCapacitySamples,
+		128);
+
+	Requested.DeliveryMode = EOpenMobileSensorDeliveryMode::EventBatches;
+	UOpenMobileSensorDiscoveryLibrary::ValidateSensorOptions(
+		EOpenMobileSensorType::Accelerometer,
+		Requested,
+		Outcome,
+		Applied,
+		Resolution,
+		Issues);
+	TestEqual(TEXT("Invalid active event fields fail validation"),
+		Outcome,
+		EOpenMobileSensorOptionsValidationOutcome::Invalid);
+	TestTrue(TEXT("Active callback failure names its field"),
+		HasOptionIssue(Issues, TEXT("MaximumCallbackFrequencyHz"),
+			EOpenMobileSensorOptionIssueSeverity::Error));
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -238,6 +313,16 @@ bool FOpenMobileSensorsBlueprintDiscoveryTest::RunTest(
 	TestEqual(TEXT("Ambient-light UI preview applies the low-power rate"),
 		Applied.CustomFrequencyHz,
 		1.0);
+	const FOpenMobileSensorStreamOptions GameplayOptions =
+		UOpenMobileSensorDiscoveryLibrary::MakeRecommendedSensorOptions(
+			EOpenMobileSensorType::Gyroscope,
+			EOpenMobileSensorUseCase::Gameplay);
+	TestEqual(TEXT("Gameplay recommendations select the Game preset"),
+		GameplayOptions.RatePreset,
+		EOpenMobileSensorRatePreset::Game);
+	TestEqual(TEXT("Recommended options feed sample events"),
+		GameplayOptions.DeliveryMode,
+		EOpenMobileSensorDeliveryMode::EventBatches);
 	Settings->UIPreset = SavedUI;
 
 	GameInstance->Shutdown();

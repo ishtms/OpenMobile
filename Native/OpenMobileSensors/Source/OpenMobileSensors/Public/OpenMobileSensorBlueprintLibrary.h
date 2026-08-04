@@ -123,6 +123,13 @@ public:
 		FName InstanceId = NAME_None
 	);
 
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Break Sensor Identifier", NativeBreakFunc, Keywords = "OpenMobile sensors identifier type instance preferred", AdvancedDisplay = "OutInstanceId", ToolTip = "Returns the sensor type and optional raw instance name. An empty instance means the preferred matching sensor."))
+	static void BreakSensorIdentifier(
+		const FOpenMobileSensorIdentifier& Identifier,
+		EOpenMobileSensorType& OutSensor,
+		FName& OutInstanceId
+	);
+
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Default Sensor Stream Options", Keywords = "OpenMobile sensors default recommended stream options project settings", ToolTip = "Returns the stream defaults configured in Project Settings under OpenMobile Sensors."))
 	static FOpenMobileSensorStreamOptions GetDefaultSensorStreamOptions();
 

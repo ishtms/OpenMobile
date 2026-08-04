@@ -252,6 +252,31 @@ bool FOpenMobileSensorsBlueprintDiscoveryHelperTest::RunTest(
 		TEXT("An empty instance selects the preferred sensor"),
 		Identifier.InstanceId.IsNone()
 	);
+	EOpenMobileSensorType BrokenType = EOpenMobileSensorType::Unknown;
+	FName BrokenInstance;
+	UOpenMobileSensorBlueprintLibrary::BreakSensorIdentifier(
+		Identifier, BrokenType, BrokenInstance);
+	TestEqual(TEXT("The intentional break returns the sensor type"),
+		BrokenType, EOpenMobileSensorType::Gyroscope);
+	TestTrue(TEXT("The intentional break preserves an empty instance"),
+		BrokenInstance.IsNone());
+#if WITH_METADATA
+	const UFunction* BreakFunction =
+		UOpenMobileSensorBlueprintLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorBlueprintLibrary,
+				BreakSensorIdentifier));
+	TestNotNull(TEXT("The identifier break helper is reflected"),
+		BreakFunction);
+	if (BreakFunction)
+	{
+		TestTrue(TEXT("The identifier helper replaces automatic struct breaks"),
+			BreakFunction->HasMetaData(TEXT("NativeBreakFunc")));
+		TestEqual(TEXT("The raw instance remains advanced"),
+			BreakFunction->GetMetaData(TEXT("AdvancedDisplay")),
+			FString(TEXT("OutInstanceId")));
+	}
+#endif
 	return true;
 }
 

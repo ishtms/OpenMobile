@@ -91,6 +91,40 @@ enum class EOpenMobileSensorLifecyclePolicy : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileSensorOptionIssueSeverity : uint8
+{
+	Warning UMETA(DisplayName = "Corrected Warning", ToolTip = "The field does not apply to this request and a safe value will be used."),
+	Error UMETA(DisplayName = "Blocking Error", ToolTip = "The field applies to this request and must be corrected before the sensor can start.")
+};
+
+UENUM(BlueprintType)
+enum class EOpenMobileSensorOptionsValidationOutcome : uint8
+{
+	Valid UMETA(DisplayName = "Valid", ToolTip = "The options can be used without correction."),
+	Adjusted UMETA(DisplayName = "Valid with Corrections", ToolTip = "The options can be used after ignored invalid fields are replaced with safe values."),
+	Invalid UMETA(DisplayName = "Invalid", ToolTip = "At least one active option must be corrected before the sensor can start.")
+};
+
+USTRUCT(BlueprintType, meta = (DisplayName = "Sensor Option Issue"))
+struct OPENMOBILESENSORS_API FOpenMobileSensorOptionIssue
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Exact stream-options field that needs attention."))
+	FName Field;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Whether the field was corrected or blocks the request."))
+	EOpenMobileSensorOptionIssueSeverity Severity =
+		EOpenMobileSensorOptionIssueSeverity::Warning;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "User-facing explanation of the option problem."))
+	FText Message;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Specific change that resolves the option problem."))
+	FText Correction;
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileActivityConfidence : uint8
 {
 	Unknown,
@@ -174,13 +208,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
 	EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::UI;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "1.0", ClampMax = "1000.0", Units = "Hz"))
 	double CustomFrequencyHz = 15.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "10.0", Units = "s"))
 	double MaximumDeliveryLatencySeconds = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "1.0", ClampMax = "120.0", Units = "Hz"))
 	double MaximumCallbackFrequencyHz = 15.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
@@ -191,7 +225,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 	EOpenMobileActivityConfidence MinimumActivityConfidence =
 		EOpenMobileActivityConfidence::Unknown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "3600.0", Units = "s"))
 	double MinimumActivityStableDurationSeconds = 0.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
@@ -202,7 +236,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 	EOpenMobileSensorCoordinateSpace CoordinateSpace =
 		EOpenMobileSensorCoordinateSpace::DeviceFixed;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "1", ClampMax = "4096"))
 	int32 BufferCapacitySamples = 128;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")

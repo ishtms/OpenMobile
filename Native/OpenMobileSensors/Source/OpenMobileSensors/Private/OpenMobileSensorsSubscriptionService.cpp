@@ -265,6 +265,105 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			);
 	}
 
+	FOpenMobileSensorStreamOptions KeepApplicableOptions(
+		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorStreamOptions& Requested
+	)
+	{
+		FOpenMobileSensorStreamOptions Result = Requested;
+		const FOpenMobileSensorStreamOptions Defaults;
+		if (Requested.RatePreset != EOpenMobileSensorRatePreset::Custom)
+		{
+			Result.CustomFrequencyHz = Defaults.CustomFrequencyHz;
+			Result.MaximumDeliveryLatencySeconds =
+				Defaults.MaximumDeliveryLatencySeconds;
+			Result.MaximumCallbackFrequencyHz =
+				Defaults.MaximumCallbackFrequencyHz;
+		}
+		if (Requested.DeliveryMode == EOpenMobileSensorDeliveryMode::LatestValue)
+		{
+			if (!IsFiniteInRange(
+				Requested.MaximumCallbackFrequencyHz, 1.0, 120.0))
+			{
+				Result.MaximumCallbackFrequencyHz =
+					Defaults.MaximumCallbackFrequencyHz;
+			}
+			if (Requested.BufferCapacitySamples < 1
+				|| Requested.BufferCapacitySamples > 4096)
+			{
+				Result.BufferCapacitySamples = Defaults.BufferCapacitySamples;
+			}
+			if (!IsValidEnum(Requested.OverflowPolicy))
+			{
+				Result.OverflowPolicy = Defaults.OverflowPolicy;
+			}
+		}
+		const EOpenMobileSensorSampleFamily Family =
+			FOpenMobileSensorTypes::GetSampleFamily(Sensor.Type);
+		if (Family != EOpenMobileSensorSampleFamily::Vector
+			&& Family != EOpenMobileSensorSampleFamily::Heading)
+		{
+			if (!ValidateFilterOptions(Requested.Filters))
+			{
+				Result.Filters = Defaults.Filters;
+			}
+		}
+		if (Sensor.Type != EOpenMobileSensorType::Shake)
+		{
+			if (!ValidateShakeDetectionOptions(Requested.ShakeDetection))
+			{
+				Result.ShakeDetection = Defaults.ShakeDetection;
+			}
+		}
+		if (Sensor.Type != EOpenMobileSensorType::Attitude)
+		{
+			const int32 AllowedRepresentations =
+				static_cast<int32>(EOpenMobileAttitudeRepresentation::Quaternion)
+				| static_cast<int32>(
+					EOpenMobileAttitudeRepresentation::EulerAngles)
+				| static_cast<int32>(
+					EOpenMobileAttitudeRepresentation::RotationMatrix);
+			if (!IsValidEnum(Requested.AttitudeReferenceFrame))
+			{
+				Result.AttitudeReferenceFrame = Defaults.AttitudeReferenceFrame;
+			}
+			if (Requested.AttitudeRepresentations == 0
+				|| (Requested.AttitudeRepresentations
+					& ~AllowedRepresentations) != 0)
+			{
+				Result.AttitudeRepresentations =
+					Defaults.AttitudeRepresentations;
+			}
+		}
+		if (Sensor.Type != EOpenMobileSensorType::MotionActivity
+			&& Sensor.Type != EOpenMobileSensorType::ActivityTransition)
+		{
+			if (!IsValidEnum(Requested.MinimumActivityConfidence))
+			{
+				Result.MinimumActivityConfidence =
+					Defaults.MinimumActivityConfidence;
+			}
+			if (!IsFiniteInRange(
+				Requested.MinimumActivityStableDurationSeconds,
+				0.0, 3600.0))
+			{
+				Result.MinimumActivityStableDurationSeconds =
+					Defaults.MinimumActivityStableDurationSeconds;
+			}
+		}
+		if (Requested.DeliveryMode != EOpenMobileSensorDeliveryMode::EventBatches
+			|| Family != EOpenMobileSensorSampleFamily::Scalar)
+		{
+			if (!FMath::IsFinite(Requested.MinimumScalarEventChange)
+				|| Requested.MinimumScalarEventChange < 0.0)
+			{
+				Result.MinimumScalarEventChange =
+					Defaults.MinimumScalarEventChange;
+			}
+		}
+		return Result;
+	}
+
 	bool ResolvePreset(
 		const FOpenMobileSensorStreamOptions& Requested,
 		const UOpenMobileSensorsSettings& Settings,
@@ -472,6 +571,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		FOpenMobileSensorRateResolution& OutRateResolution
 	)
 	{
+		const FOpenMobileSensorStreamOptions Applicable =
+			KeepApplicableOptions(Sensor, Requested);
 		const int32 AllowedAttitudeRepresentations =
 			static_cast<int32>(
 				EOpenMobileAttitudeRepresentation::Quaternion
@@ -483,38 +584,38 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 				EOpenMobileAttitudeRepresentation::RotationMatrix
 			);
 		if (!Sensor.IsValid()
-			|| !IsValidEnum(Requested.RatePreset)
-			|| !IsValidEnum(Requested.DeliveryMode)
-			|| !IsValidEnum(Requested.CoordinateSpace)
-			|| !IsValidEnum(Requested.OverflowPolicy)
-			|| !IsValidEnum(Requested.LifecyclePolicy)
-			|| !IsValidEnum(Requested.AttitudeReferenceFrame)
-			|| !IsValidEnum(Requested.MinimumCallbackAccuracy)
-			|| !IsValidEnum(Requested.MinimumActivityConfidence)
-			|| !IsFiniteInRange(Requested.CustomFrequencyHz, 1.0, 1000.0)
+			|| !IsValidEnum(Applicable.RatePreset)
+			|| !IsValidEnum(Applicable.DeliveryMode)
+			|| !IsValidEnum(Applicable.CoordinateSpace)
+			|| !IsValidEnum(Applicable.OverflowPolicy)
+			|| !IsValidEnum(Applicable.LifecyclePolicy)
+			|| !IsValidEnum(Applicable.AttitudeReferenceFrame)
+			|| !IsValidEnum(Applicable.MinimumCallbackAccuracy)
+			|| !IsValidEnum(Applicable.MinimumActivityConfidence)
+			|| !IsFiniteInRange(Applicable.CustomFrequencyHz, 1.0, 1000.0)
 			|| !IsFiniteInRange(
-				Requested.MaximumDeliveryLatencySeconds,
+				Applicable.MaximumDeliveryLatencySeconds,
 				0.0,
 				10.0
 			)
 			|| !IsFiniteInRange(
-				Requested.MaximumCallbackFrequencyHz,
+				Applicable.MaximumCallbackFrequencyHz,
 				1.0,
 				120.0
 			)
-			|| Requested.BufferCapacitySamples < 1
-			|| Requested.BufferCapacitySamples > 4096
-			|| !FMath::IsFinite(Requested.MinimumScalarEventChange)
-			|| Requested.MinimumScalarEventChange < 0.0
+			|| Applicable.BufferCapacitySamples < 1
+			|| Applicable.BufferCapacitySamples > 4096
+			|| !FMath::IsFinite(Applicable.MinimumScalarEventChange)
+			|| Applicable.MinimumScalarEventChange < 0.0
 			|| !IsFiniteInRange(
-				Requested.MinimumActivityStableDurationSeconds,
+				Applicable.MinimumActivityStableDurationSeconds,
 				0.0,
 				3600.0
 			)
-			|| !ValidateFilterOptions(Requested.Filters)
-			|| !ValidateShakeDetectionOptions(Requested.ShakeDetection)
-			|| Requested.AttitudeRepresentations == 0
-			|| (Requested.AttitudeRepresentations
+			|| !ValidateFilterOptions(Applicable.Filters)
+			|| !ValidateShakeDetectionOptions(Applicable.ShakeDetection)
+			|| Applicable.AttitudeRepresentations == 0
+			|| (Applicable.AttitudeRepresentations
 				& ~AllowedAttitudeRepresentations) != 0)
 		{
 			return false;
@@ -522,11 +623,11 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 
 		const UOpenMobileSensorsSettings* Settings =
 			GetDefault<UOpenMobileSensorsSettings>();
-		if (!ResolvePreset(Requested, *Settings, OutApplied))
+		if (!ResolvePreset(Applicable, *Settings, OutApplied))
 		{
 			return false;
 		}
-		ApplyLowPowerDefaults(Sensor, Requested, OutApplied);
+		ApplyLowPowerDefaults(Sensor, Applicable, OutApplied);
 		if (!IsPressureRateSupported(
 			Sensor,
 			OutApplied.CustomFrequencyHz

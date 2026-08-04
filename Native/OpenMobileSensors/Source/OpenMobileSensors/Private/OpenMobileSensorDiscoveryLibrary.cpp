@@ -8,6 +8,214 @@
 
 namespace OpenMobileSensorDiscoveryPrivate
 {
+	template <typename EnumType>
+	bool IsValidOptionEnum(EnumType Value)
+	{
+		return StaticEnum<EnumType>()->IsValidEnumValue(
+			static_cast<int64>(Value));
+	}
+
+	bool IsFiniteInRange(double Value, double Minimum, double Maximum)
+	{
+		return FMath::IsFinite(Value)
+			&& Value >= Minimum
+			&& Value <= Maximum;
+	}
+
+	bool AreFilterOptionsValid(
+		const FOpenMobileSensorFilterOptions& Options)
+	{
+		return (!Options.bEnableLowPass
+				|| IsFiniteInRange(
+					Options.LowPassTimeConstantSeconds, 0.0001, 60.0))
+			&& (!Options.bEnableHighPass
+				|| IsFiniteInRange(
+					Options.HighPassTimeConstantSeconds, 0.0001, 60.0))
+			&& (!Options.bEnableExponentialSmoothing
+				|| IsFiniteInRange(
+					Options.SmoothingTimeConstantSeconds, 0.0001, 60.0))
+			&& FMath::IsFinite(Options.DeadZone)
+			&& Options.DeadZone >= 0.0;
+	}
+
+	bool AreShakeOptionsValid(
+		const FOpenMobileShakeDetectionOptions& Options)
+	{
+		return IsFiniteInRange(
+				Options.StrengthThresholdMetresPerSecondSquared,
+				0.1, 1000.0)
+			&& Options.MinimumImpulses >= 1
+			&& Options.MinimumImpulses <= 32
+			&& IsFiniteInRange(Options.DurationWindowSeconds, 0.01, 10.0)
+			&& IsFiniteInRange(Options.QuietResetSeconds, 0.0, 5.0)
+			&& IsFiniteInRange(Options.CooldownSeconds, 0.0, 60.0);
+	}
+
+	void AddOptionIssue(
+		TArray<FOpenMobileSensorOptionIssue>& Issues,
+		FName Field,
+		EOpenMobileSensorOptionIssueSeverity Severity,
+		const TCHAR* Message,
+		const TCHAR* Correction)
+	{
+		FOpenMobileSensorOptionIssue& Issue = Issues.AddDefaulted_GetRef();
+		Issue.Field = Field;
+		Issue.Severity = Severity;
+		Issue.Message = FText::FromString(Message);
+		Issue.Correction = FText::FromString(Correction);
+	}
+
+	void AddApplicabilityIssues(
+		EOpenMobileSensorType Sensor,
+		const FOpenMobileSensorStreamOptions& Options,
+		TArray<FOpenMobileSensorOptionIssue>& Issues)
+	{
+		const bool bCustomRate =
+			Options.RatePreset == EOpenMobileSensorRatePreset::Custom;
+		const bool bEventDelivery =
+			Options.DeliveryMode == EOpenMobileSensorDeliveryMode::EventBatches;
+		const bool bBufferedDelivery =
+			Options.DeliveryMode == EOpenMobileSensorDeliveryMode::Buffered;
+		const EOpenMobileSensorSampleFamily Family =
+			FOpenMobileSensorTypes::GetSampleFamily(Sensor);
+		const auto WarningOrError = [](bool bApplies)
+		{
+			return bApplies
+				? EOpenMobileSensorOptionIssueSeverity::Error
+				: EOpenMobileSensorOptionIssueSeverity::Warning;
+		};
+		if (!IsFiniteInRange(Options.CustomFrequencyHz, 1.0, 1000.0))
+		{
+			AddOptionIssue(Issues, TEXT("CustomFrequencyHz"),
+				WarningOrError(bCustomRate),
+				TEXT("Custom Frequency must be between 1 and 1000 Hz."),
+				bCustomRate
+					? TEXT("Choose a frequency from 1 to 1000 Hz.")
+					: TEXT("This field is ignored by the selected preset and will use a safe value."));
+		}
+		if (!IsFiniteInRange(
+			Options.MaximumDeliveryLatencySeconds, 0.0, 10.0))
+		{
+			AddOptionIssue(Issues, TEXT("MaximumDeliveryLatencySeconds"),
+				WarningOrError(bCustomRate),
+				TEXT("Maximum Delivery Latency must be between 0 and 10 seconds."),
+				bCustomRate
+					? TEXT("Choose a latency from 0 to 10 seconds.")
+					: TEXT("This field is ignored by the selected preset and will use a safe value."));
+		}
+		if (!IsFiniteInRange(
+			Options.MaximumCallbackFrequencyHz, 1.0, 120.0))
+		{
+			const bool bApplies = bCustomRate && bEventDelivery;
+			AddOptionIssue(Issues, TEXT("MaximumCallbackFrequencyHz"),
+				WarningOrError(bApplies),
+				TEXT("Maximum Callback Frequency must be between 1 and 120 Hz."),
+				bApplies
+					? TEXT("Choose an event callback frequency from 1 to 120 Hz.")
+					: TEXT("This field is ignored by the selected rate or delivery mode and will use a safe value."));
+		}
+		if (Options.BufferCapacitySamples < 1
+			|| Options.BufferCapacitySamples > 4096)
+		{
+			const bool bApplies = bEventDelivery || bBufferedDelivery;
+			AddOptionIssue(Issues, TEXT("BufferCapacitySamples"),
+				WarningOrError(bApplies),
+				TEXT("Buffer Capacity must be between 1 and 4096 samples."),
+				bApplies
+					? TEXT("Choose a capacity from 1 to 4096 samples.")
+					: TEXT("Polling does not use this field, so a safe capacity will be used."));
+		}
+		if (!IsValidOptionEnum(Options.OverflowPolicy))
+		{
+			const bool bApplies = bEventDelivery || bBufferedDelivery;
+			AddOptionIssue(Issues, TEXT("OverflowPolicy"),
+				WarningOrError(bApplies),
+				TEXT("Overflow Policy is not a recognized value."),
+				bApplies
+					? TEXT("Choose Drop Oldest or Reject Newest.")
+					: TEXT("Polling does not use this field, so Drop Oldest will be used."));
+		}
+		const bool bActivity = Sensor == EOpenMobileSensorType::MotionActivity
+			|| Sensor == EOpenMobileSensorType::ActivityTransition;
+		if (!IsValidOptionEnum(Options.MinimumActivityConfidence))
+		{
+			AddOptionIssue(Issues, TEXT("MinimumActivityConfidence"),
+				WarningOrError(bActivity),
+				TEXT("Minimum Activity Confidence is not a recognized value."),
+				bActivity
+					? TEXT("Choose Unknown, Low, Medium, or High.")
+					: TEXT("This sensor ignores activity confidence and will use Unknown."));
+		}
+		if (!IsFiniteInRange(
+			Options.MinimumActivityStableDurationSeconds, 0.0, 3600.0))
+		{
+			AddOptionIssue(Issues,
+				TEXT("MinimumActivityStableDurationSeconds"),
+				WarningOrError(bActivity),
+				TEXT("Activity Stable Duration must be between 0 and 3600 seconds."),
+				bActivity
+					? TEXT("Choose a duration from 0 to 3600 seconds.")
+					: TEXT("This sensor ignores activity stability and will use zero."));
+		}
+		const bool bFilterable = Family == EOpenMobileSensorSampleFamily::Vector
+			|| Family == EOpenMobileSensorSampleFamily::Heading;
+		if (!AreFilterOptionsValid(Options.Filters))
+		{
+			AddOptionIssue(Issues, TEXT("Filters"),
+				WarningOrError(bFilterable),
+				TEXT("One or more enabled filter values are outside their valid range."),
+				bFilterable
+					? TEXT("Use positive time constants up to 60 seconds and a nonnegative dead zone.")
+					: TEXT("This sensor ignores vector filters and will use safe defaults."));
+		}
+		if (!AreShakeOptionsValid(Options.ShakeDetection))
+		{
+			const bool bShake = Sensor == EOpenMobileSensorType::Shake;
+			AddOptionIssue(Issues, TEXT("ShakeDetection"),
+				WarningOrError(bShake),
+				TEXT("One or more shake-detection values are outside their valid range."),
+				bShake
+					? TEXT("Use the documented threshold, impulse, duration, reset, and cooldown ranges.")
+					: TEXT("This sensor ignores shake detection and will use safe defaults."));
+		}
+		const int32 AllowedRepresentations =
+			static_cast<int32>(EOpenMobileAttitudeRepresentation::Quaternion)
+			| static_cast<int32>(EOpenMobileAttitudeRepresentation::EulerAngles)
+			| static_cast<int32>(EOpenMobileAttitudeRepresentation::RotationMatrix);
+		const bool bAttitude = Sensor == EOpenMobileSensorType::Attitude;
+		if (!IsValidOptionEnum(Options.AttitudeReferenceFrame))
+		{
+			AddOptionIssue(Issues, TEXT("AttitudeReferenceFrame"),
+				WarningOrError(bAttitude),
+				TEXT("Attitude Reference Frame is not a recognized value."),
+				bAttitude
+					? TEXT("Choose a supported attitude reference frame.")
+					: TEXT("This sensor ignores attitude reference and will use Game Relative."));
+		}
+		if (Options.AttitudeRepresentations == 0
+			|| (Options.AttitudeRepresentations & ~AllowedRepresentations) != 0)
+		{
+			AddOptionIssue(Issues, TEXT("AttitudeRepresentations"),
+				WarningOrError(bAttitude),
+				TEXT("Attitude Representations must contain at least one recognized output."),
+				bAttitude
+					? TEXT("Select Quaternion, Euler Angles, or Rotation Matrix.")
+					: TEXT("This sensor ignores attitude output selection and will use Quaternion."));
+		}
+		const bool bScalarEvent = bEventDelivery
+			&& Family == EOpenMobileSensorSampleFamily::Scalar;
+		if (!FMath::IsFinite(Options.MinimumScalarEventChange)
+			|| Options.MinimumScalarEventChange < 0.0)
+		{
+			AddOptionIssue(Issues, TEXT("MinimumScalarEventChange"),
+				WarningOrError(bScalarEvent),
+				TEXT("Minimum Scalar Event Change must be finite and nonnegative."),
+				bScalarEvent
+					? TEXT("Choose zero or a positive change threshold.")
+					: TEXT("This request ignores the scalar event threshold and will use zero."));
+		}
+	}
+
 	const FOpenMobileSensorCapability* FindCapability(
 		const FOpenMobileSensorCapabilitySnapshot& Snapshot,
 		EOpenMobileSensorType Sensor,
@@ -453,8 +661,30 @@ FOpenMobileSensorStreamOptions
 UOpenMobileSensorDiscoveryLibrary::GetRecommendedSensorOptions(
 	EOpenMobileSensorType Sensor)
 {
+	return MakeRecommendedSensorOptions(
+		Sensor, EOpenMobileSensorUseCase::Interface);
+}
+
+FOpenMobileSensorStreamOptions
+UOpenMobileSensorDiscoveryLibrary::MakeRecommendedSensorOptions(
+	EOpenMobileSensorType Sensor,
+	EOpenMobileSensorUseCase UseCase)
+{
 	FOpenMobileSensorStreamOptions Requested =
 		GetDefault<UOpenMobileSensorsSettings>()->DefaultStreamOptions;
+	switch (UseCase)
+	{
+	case EOpenMobileSensorUseCase::Interface:
+		Requested.RatePreset = EOpenMobileSensorRatePreset::UI;
+		break;
+	case EOpenMobileSensorUseCase::HighResponsiveness:
+		Requested.RatePreset = EOpenMobileSensorRatePreset::Fast;
+		break;
+	case EOpenMobileSensorUseCase::Gameplay:
+	default:
+		Requested.RatePreset = EOpenMobileSensorRatePreset::Game;
+		break;
+	}
 	Requested.DeliveryMode = EOpenMobileSensorDeliveryMode::EventBatches;
 	FOpenMobileSensorStreamOptions Applied;
 	FOpenMobileSensorRateResolution Resolution;
@@ -478,4 +708,47 @@ bool UOpenMobileSensorDiscoveryLibrary::PreviewSensorStreamOptions(
 		RequestedOptions,
 		OutAppliedOptions,
 		OutRateResolution);
+}
+
+void UOpenMobileSensorDiscoveryLibrary::ValidateSensorOptions(
+	EOpenMobileSensorType Sensor,
+	const FOpenMobileSensorStreamOptions& RequestedOptions,
+	EOpenMobileSensorOptionsValidationOutcome& Outcome,
+	FOpenMobileSensorStreamOptions& OutAppliedOptions,
+	FOpenMobileSensorRateResolution& OutRateResolution,
+	TArray<FOpenMobileSensorOptionIssue>& OutIssues)
+{
+	OutAppliedOptions = RequestedOptions;
+	OutRateResolution = {};
+	OutIssues.Reset();
+	OpenMobileSensorDiscoveryPrivate::AddApplicabilityIssues(
+		Sensor, RequestedOptions, OutIssues);
+	const bool bValid = PreviewSensorStreamOptions(
+		Sensor,
+		RequestedOptions,
+		OutAppliedOptions,
+		OutRateResolution);
+	if (!bValid)
+	{
+		Outcome = EOpenMobileSensorOptionsValidationOutcome::Invalid;
+		const bool bHasError = OutIssues.ContainsByPredicate(
+			[](const FOpenMobileSensorOptionIssue& Issue)
+			{
+				return Issue.Severity ==
+					EOpenMobileSensorOptionIssueSeverity::Error;
+			});
+		if (!bHasError)
+		{
+			OpenMobileSensorDiscoveryPrivate::AddOptionIssue(
+				OutIssues,
+				TEXT("Options"),
+				EOpenMobileSensorOptionIssueSeverity::Error,
+				TEXT("One or more active sensor options are invalid."),
+				TEXT("Check the sensor, enum selections, rate, latency, and enabled feature values."));
+		}
+		return;
+	}
+	Outcome = OutIssues.IsEmpty()
+		? EOpenMobileSensorOptionsValidationOutcome::Valid
+		: EOpenMobileSensorOptionsValidationOutcome::Adjusted;
 }
