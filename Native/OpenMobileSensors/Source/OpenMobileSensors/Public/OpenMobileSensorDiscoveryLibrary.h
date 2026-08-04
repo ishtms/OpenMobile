@@ -114,7 +114,7 @@ class OPENMOBILESENSORS_API UOpenMobileSensorDiscoveryLibrary final
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get OpenMobile Sensors", Keywords = "OpenMobile sensors subsystem service", ToolTip = "Returns the OpenMobile Sensors Game Instance subsystem for this world."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get OpenMobile Sensors", Keywords = "OpenMobile mobile sensors subsystem service accelerometer gyroscope gyro motion activity compass heading pressure barometer steps", ToolTip = "Returns the OpenMobile Sensors Game Instance subsystem for this world."))
 	static UOpenMobileSensorsSubsystem* GetOpenMobileSensorsSubsystem(
 		const UObject* WorldContextObject
 	);

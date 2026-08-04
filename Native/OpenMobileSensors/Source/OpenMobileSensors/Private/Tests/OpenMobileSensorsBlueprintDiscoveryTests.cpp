@@ -143,6 +143,27 @@ bool FOpenMobileSensorsBlueprintDiscoveryTest::RunTest(
 		AvailabilityBranch,
 		EOpenMobileSensorAvailabilityBranch::Unavailable);
 #if WITH_METADATA
+	const UFunction* SubsystemGetter =
+		UOpenMobileSensorDiscoveryLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorDiscoveryLibrary,
+				GetOpenMobileSensorsSubsystem));
+	TestNotNull(TEXT("The branded subsystem getter is reflected"),
+		SubsystemGetter);
+	if (SubsystemGetter)
+	{
+		TestEqual(TEXT("The getter hides its world context"),
+			SubsystemGetter->GetMetaData(TEXT("WorldContext")),
+			FString(TEXT("WorldContextObject")));
+		const FString Keywords =
+			SubsystemGetter->GetMetaData(TEXT("Keywords"));
+		TestTrue(TEXT("The getter is searchable as mobile sensors"),
+			Keywords.Contains(TEXT("mobile sensors")));
+		TestTrue(TEXT("The getter is searchable by accelerometer"),
+			Keywords.Contains(TEXT("accelerometer")));
+		TestTrue(TEXT("The getter is searchable by gyroscope"),
+			Keywords.Contains(TEXT("gyroscope")));
+	}
 	const UFunction* AvailabilityFunction =
 		UOpenMobileSensorDiscoveryLibrary::StaticClass()->FindFunctionByName(
 			GET_FUNCTION_NAME_CHECKED(
