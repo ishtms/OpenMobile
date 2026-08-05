@@ -8,6 +8,7 @@
 #include "IOpenMobileHapticsBackend.h"
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticPlayback.h"
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBackendRegistry.h"
@@ -1273,6 +1274,20 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 		if (Action.IsValid())
 		{
 			Action->HandleGameInstanceTeardown();
+		}
+	}
+	TArray<TObjectPtr<UOpenMobileHapticPlayback>> Playbacks;
+	Playbacks.Reserve(ActivePlaybackObjects.Num());
+	for (UOpenMobileHapticPlayback* Playback : ActivePlaybackObjects)
+	{
+		Playbacks.Add(Playback);
+	}
+	ActivePlaybackObjects.Reset();
+	for (UOpenMobileHapticPlayback* Playback : Playbacks)
+	{
+		if (IsValid(Playback))
+		{
+			Playback->HandleGameInstanceTeardown();
 		}
 	}
 	if (State)
@@ -5591,6 +5606,23 @@ void UOpenMobileHapticsSubsystem::UnregisterAsyncAction(
 )
 {
 	ActiveAsyncActions.Remove(Action);
+}
+
+void UOpenMobileHapticsSubsystem::RegisterPlaybackObject(
+	UOpenMobileHapticPlayback* Playback
+)
+{
+	if (!bDeinitialized && IsValid(Playback))
+	{
+		ActivePlaybackObjects.Add(Playback);
+	}
+}
+
+void UOpenMobileHapticsSubsystem::UnregisterPlaybackObject(
+	UOpenMobileHapticPlayback* Playback
+)
+{
+	ActivePlaybackObjects.Remove(Playback);
 }
 
 void UOpenMobileHapticsSubsystem::BindRecoveryEvents()

@@ -19,6 +19,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 
 class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPatternAsset;
+class UOpenMobileHapticPlayback;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsBackendRequestToken;
@@ -38,7 +39,7 @@ struct FOpenMobileHapticsSubsystemStateDeleter
  * Submission and control calls run on the game thread. Accepted controllable
  * work receives a stable handle, and all public events return on the game thread.
  */
-UCLASS()
+UCLASS(meta = (DisplayName = "Open Mobile Haptics"))
 class OPENMOBILEHAPTICS_API UOpenMobileHapticsSubsystem final :
 	public UGameInstanceSubsystem,
 	public IOpenMobileHaptics
@@ -294,6 +295,7 @@ public:
 	virtual FOpenMobileHapticNativePlaybackEvent& OnPlaybackEventNative() override;
 
 private:
+	friend class UOpenMobileHapticPlayback;
 	friend class UOpenMobileHapticPlaybackAsyncAction;
 	friend class FOpenMobileHapticsAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
@@ -314,6 +316,8 @@ private:
 
 	void RegisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
+	void RegisterPlaybackObject(UOpenMobileHapticPlayback* Playback);
+	void UnregisterPlaybackObject(UOpenMobileHapticPlayback* Playback);
 	FOpenMobileHapticsSubsystemState& GetOrCreateState() const;
 	FOpenMobileHapticControlResult ApplyUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy,
@@ -466,6 +470,10 @@ private:
 	TAtomic<bool> bUserPolicyEnabled = true;
 	FOpenMobileHapticNativePlaybackEvent NativePlaybackEvent;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> ActiveAsyncActions;
+
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<UOpenMobileHapticPlayback>> ActivePlaybackObjects;
+
 	mutable TUniquePtr<
 		FOpenMobileHapticsSubsystemState,
 		FOpenMobileHapticsSubsystemStateDeleter

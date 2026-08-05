@@ -6313,8 +6313,13 @@ bool FOpenMobileHapticsAsyncContractTest::RunTest(const FString& Parameters)
 	const UClass* ActionClass =
 		UOpenMobileHapticPlaybackAsyncAction::StaticClass();
 	for (const FName BranchName : {
+		FName(TEXT("Accepted")),
+		FName(TEXT("Started")),
 		FName(TEXT("Completed")),
+		FName(TEXT("Stopped")),
 		FName(TEXT("Cancelled")),
+		FName(TEXT("Suppressed")),
+		FName(TEXT("Interrupted")),
 		FName(TEXT("Failed"))
 	})
 	{
@@ -6365,6 +6370,52 @@ bool FOpenMobileHapticsAsyncContractTest::RunTest(const FString& Parameters)
 		TEXT("First terminal state wins"),
 		LastState,
 		EOpenMobileHapticAsyncTerminalState::Completed
+	);
+
+	int32 SuppressedTerminalCount = 0;
+	EOpenMobileHapticAsyncTerminalState SuppressedTerminalState =
+		EOpenMobileHapticAsyncTerminalState::Pending;
+	FOpenMobileHapticPlaybackResult SuppressedTerminalResult;
+	UOpenMobileHapticPlaybackAsyncAction* SuppressedAction =
+		NewObject<UOpenMobileHapticPlaybackAsyncAction>();
+	SuppressedAction->OnNativeTerminal().AddLambda(
+		[&SuppressedTerminalCount,
+		 &SuppressedTerminalState,
+		 &SuppressedTerminalResult](
+			EOpenMobileHapticAsyncTerminalState State,
+			const FOpenMobileHapticPlaybackResult& Result
+		)
+		{
+			++SuppressedTerminalCount;
+			SuppressedTerminalState = State;
+			SuppressedTerminalResult = Result;
+		}
+	);
+	FOpenMobileHapticPlaybackResult SuppressedResult;
+	SuppressedResult.Outcome = EOpenMobileHapticPlaybackOutcome::Suppressed;
+	SuppressedResult.SuppressionReason =
+		EOpenMobileHapticSuppressionReason::PlayerPolicy;
+	SuppressedAction->FinishSuppressed(SuppressedResult);
+	SuppressedAction->FinishCompleted(CompletedResult);
+	TestEqual(
+		TEXT("Suppression broadcasts exactly once"),
+		SuppressedTerminalCount,
+		1
+	);
+	TestEqual(
+		TEXT("Suppression keeps its honest terminal state"),
+		SuppressedTerminalState,
+		EOpenMobileHapticAsyncTerminalState::Suppressed
+	);
+	TestEqual(
+		TEXT("Suppression retains its immediate outcome"),
+		SuppressedTerminalResult.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Suppressed
+	);
+	TestTrue(
+		TEXT("Suppression never reports completed playback"),
+		SuppressedTerminalResult.State
+			!= EOpenMobileHapticPlaybackState::Completed
 	);
 
 	int32 TeardownCancellationCount = 0;

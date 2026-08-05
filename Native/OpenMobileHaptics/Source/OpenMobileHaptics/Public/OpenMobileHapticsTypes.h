@@ -185,6 +185,49 @@ enum class EOpenMobileHapticPlaybackOutcome : uint8
 	Fallback
 };
 
+UENUM(BlueprintType, meta = (ToolTip = "Immediate outcome for a Blueprint-first Haptics request. Fallback is reported as accepted with a separate flag."))
+enum class EOpenMobileHapticRequestOutcome : uint8
+{
+	Accepted UMETA(
+		DisplayName = "Accepted",
+		ToolTip = "The request was accepted for playback. This does not prove that a person felt the actuator output."
+	),
+	Suppressed UMETA(
+		DisplayName = "Suppressed",
+		ToolTip = "The request was intentionally silent because of policy, lifecycle, rate limiting, overlap, or zero output."
+	),
+	Rejected UMETA(
+		DisplayName = "Rejected",
+		ToolTip = "The request was invalid, unavailable, unsupported, or could not be submitted."
+	)
+};
+
+UENUM(BlueprintType, meta = (ToolTip = "Why one accepted Haptics playback reached its terminal state."))
+enum class EOpenMobileHapticTerminalReason : uint8
+{
+	None UMETA(Hidden),
+	Completed UMETA(
+		DisplayName = "Completed",
+		ToolTip = "Playback reached its natural end."
+	),
+	Stopped UMETA(
+		DisplayName = "Stopped",
+		ToolTip = "Playback ended because an owner requested a graceful stop."
+	),
+	Cancelled UMETA(
+		DisplayName = "Cancelled",
+		ToolTip = "Pending or active playback was cancelled."
+	),
+	Interrupted UMETA(
+		DisplayName = "Interrupted",
+		ToolTip = "The operating system or native Haptics engine interrupted playback."
+	),
+	Failed UMETA(
+		DisplayName = "Failed",
+		ToolTip = "Playback failed after the request had been accepted."
+	)
+};
+
 UENUM(BlueprintType)
 enum class EOpenMobileHapticSuppressionReason : uint8
 {
@@ -245,6 +288,61 @@ enum class EOpenMobileHapticControlOutcome : uint8
 	Accepted,
 	Unsupported,
 	StaleHandle
+};
+
+UENUM(BlueprintType, meta = (ToolTip = "Compact Blueprint outcome for a Haptics playback control request."))
+enum class EOpenMobileHapticControlBranch : uint8
+{
+	Succeeded UMETA(
+		DisplayName = "Succeeded",
+		ToolTip = "The control request was accepted."
+	),
+	Unsupported UMETA(
+		DisplayName = "Unsupported",
+		ToolTip = "The resolved playback path cannot perform this control operation."
+	),
+	Stale UMETA(
+		DisplayName = "Stale",
+		ToolTip = "The playback object no longer owns an active handle."
+	),
+	Failed UMETA(
+		DisplayName = "Failed",
+		ToolTip = "The control request was rejected for another reason."
+	)
+};
+
+UENUM(BlueprintType, meta = (ToolTip = "Ordered portable capability tier. Use this instead of comparing availability enum ordinals."))
+enum class EOpenMobileHapticCapabilityTier : uint8
+{
+	None UMETA(
+		DisplayName = "None",
+		ToolTip = "No Haptics output can currently be produced."
+	),
+	Basic UMETA(
+		DisplayName = "Basic Vibration",
+		ToolTip = "Short basic phone vibration is available."
+	),
+	Semantic UMETA(
+		DisplayName = "Semantic Haptics",
+		ToolTip = "Portable semantic selection, impact, and notification feedback is available."
+	),
+	Rich UMETA(
+		DisplayName = "Rich Haptics",
+		ToolTip = "Prepared custom pattern playback is available."
+	)
+};
+
+UENUM(BlueprintType, meta = (ToolTip = "Recommended next step for a stable Haptics error."))
+enum class EOpenMobileHapticRecoveryAction : uint8
+{
+	None UMETA(DisplayName = "No Action"),
+	CheckConfiguration UMETA(DisplayName = "Check Project Configuration"),
+	PrepareContent UMETA(DisplayName = "Prepare Haptic Content"),
+	RetryWhenAvailable UMETA(DisplayName = "Retry When Available"),
+	WaitForForeground UMETA(DisplayName = "Wait For Foreground"),
+	UseFallback UMETA(DisplayName = "Allow A Fallback"),
+	FixInput UMETA(DisplayName = "Fix The Request"),
+	ReportNativeFailure UMETA(DisplayName = "Report Native Failure")
 };
 
 UENUM(BlueprintType)

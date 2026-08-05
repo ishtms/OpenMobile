@@ -107,8 +107,7 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 	PlaybackHandle = ImmediateResult.Handle;
 	if (ImmediateResult.Outcome == EOpenMobileHapticPlaybackOutcome::Suppressed)
 	{
-		ImmediateResult.State = EOpenMobileHapticPlaybackState::Completed;
-		FinishCompleted(ImmediateResult);
+		FinishSuppressed(ImmediateResult);
 		return;
 	}
 	if (!ImmediateResult.IsAccepted())
@@ -134,6 +133,7 @@ void UOpenMobileHapticPlaybackAsyncAction::Activate()
 		this,
 		&UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent
 	);
+	Accepted.Broadcast(ImmediateResult);
 }
 
 void UOpenMobileHapticPlaybackAsyncAction::Cancel()
@@ -191,6 +191,21 @@ void UOpenMobileHapticPlaybackAsyncAction::FinishCompleted(
 	SetReadyToDestroy();
 }
 
+void UOpenMobileHapticPlaybackAsyncAction::FinishStopped(
+	FOpenMobileHapticPlaybackResult Result
+)
+{
+	check(IsInGameThread());
+	if (!TrySetTerminalState(EOpenMobileHapticAsyncTerminalState::Stopped))
+	{
+		return;
+	}
+	Cleanup();
+	Stopped.Broadcast(Result);
+	NativeTerminal.Broadcast(EOpenMobileHapticAsyncTerminalState::Stopped, Result);
+	SetReadyToDestroy();
+}
+
 void UOpenMobileHapticPlaybackAsyncAction::FinishCancelled(
 	FOpenMobileHapticPlaybackResult Result
 )
@@ -204,6 +219,42 @@ void UOpenMobileHapticPlaybackAsyncAction::FinishCancelled(
 	Cancelled.Broadcast(Result);
 	NativeTerminal.Broadcast(
 		EOpenMobileHapticAsyncTerminalState::Cancelled,
+		Result
+	);
+	SetReadyToDestroy();
+}
+
+void UOpenMobileHapticPlaybackAsyncAction::FinishSuppressed(
+	FOpenMobileHapticPlaybackResult Result
+)
+{
+	check(IsInGameThread());
+	if (!TrySetTerminalState(EOpenMobileHapticAsyncTerminalState::Suppressed))
+	{
+		return;
+	}
+	Cleanup();
+	Suppressed.Broadcast(Result);
+	NativeTerminal.Broadcast(
+		EOpenMobileHapticAsyncTerminalState::Suppressed,
+		Result
+	);
+	SetReadyToDestroy();
+}
+
+void UOpenMobileHapticPlaybackAsyncAction::FinishInterrupted(
+	FOpenMobileHapticPlaybackResult Result
+)
+{
+	check(IsInGameThread());
+	if (!TrySetTerminalState(EOpenMobileHapticAsyncTerminalState::Interrupted))
+	{
+		return;
+	}
+	Cleanup();
+	Interrupted.Broadcast(Result);
+	NativeTerminal.Broadcast(
+		EOpenMobileHapticAsyncTerminalState::Interrupted,
 		Result
 	);
 	SetReadyToDestroy();
@@ -242,6 +293,9 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 	Result.Error = Event.Error;
 	switch (Event.State)
 	{
+	case EOpenMobileHapticPlaybackState::Started:
+		Started.Broadcast(Result);
+		break;
 	case EOpenMobileHapticPlaybackState::Completed:
 		FinishCompleted(MoveTemp(Result));
 		break;
@@ -259,19 +313,27 @@ void UOpenMobileHapticPlaybackAsyncAction::HandlePlaybackEvent(
 		FinishCancelled(MoveTemp(Result));
 		break;
 	case EOpenMobileHapticPlaybackState::Stopped:
-		FinishCompleted(MoveTemp(Result));
+		FinishStopped(MoveTemp(Result));
 		break;
 	case EOpenMobileHapticPlaybackState::Interrupted:
+		if (!Result.Error.IsSet())
+		{
+			Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
+				EOpenMobileHapticsFailureReason::Interrupted,
+				EOpenMobileHapticFailureStage::Interruption,
+				RequestedPatternName,
+				PlaybackHandle,
+				true
+			);
+		}
+		FinishInterrupted(MoveTemp(Result));
+		break;
 	case EOpenMobileHapticPlaybackState::Failed:
 		if (!Result.Error.IsSet())
 		{
 			Result.Error = OpenMobileHapticsAsyncActionPrivate::MakeError(
-				Event.State == EOpenMobileHapticPlaybackState::Interrupted
-					? EOpenMobileHapticsFailureReason::Interrupted
-					: EOpenMobileHapticsFailureReason::NativeEngineFailure,
-				Event.State == EOpenMobileHapticPlaybackState::Interrupted
-					? EOpenMobileHapticFailureStage::Interruption
-					: EOpenMobileHapticFailureStage::Playback,
+				EOpenMobileHapticsFailureReason::NativeEngineFailure,
+				EOpenMobileHapticFailureStage::Playback,
 				RequestedPatternName,
 				PlaybackHandle,
 				true

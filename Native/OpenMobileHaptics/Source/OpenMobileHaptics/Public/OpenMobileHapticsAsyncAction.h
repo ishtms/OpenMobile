@@ -13,7 +13,10 @@ enum class EOpenMobileHapticAsyncTerminalState : uint8
 {
 	Pending,
 	Completed,
+	Stopped,
 	Cancelled,
+	Suppressed,
+	Interrupted,
 	Failed
 };
 
@@ -24,12 +27,37 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 );
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticAsyncAccepted,
+	const FOpenMobileHapticPlaybackResult&,
+	Result
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticAsyncStarted,
+	const FOpenMobileHapticPlaybackResult&,
+	Result
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileHapticAsyncCompleted,
 	const FOpenMobileHapticPlaybackResult&,
 	Result
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticAsyncStopped,
+	const FOpenMobileHapticPlaybackResult&,
+	Result
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileHapticAsyncCancelled,
+	const FOpenMobileHapticPlaybackResult&,
+	Result
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticAsyncSuppressed,
+	const FOpenMobileHapticPlaybackResult&,
+	Result
+);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOpenMobileHapticAsyncInterrupted,
 	const FOpenMobileHapticPlaybackResult&,
 	Result
 );
@@ -51,13 +79,28 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticPlaybackAsyncAction final :
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Accepted", ToolTip = "Broadcasts once when the named-pattern request is accepted and its playback handle is ready."))
+	FOpenMobileHapticAsyncAccepted Accepted;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Started", ToolTip = "Broadcasts when accepted playback starts. Inspect synchronization diagnostics when exact timing matters."))
+	FOpenMobileHapticAsyncStarted Started;
+
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Completed", ToolTip = "Broadcasts once when the accepted Haptics playback completes."))
 	FOpenMobileHapticAsyncCompleted Completed;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Stopped", ToolTip = "Broadcasts once when an owner stops accepted playback before its natural end."))
+	FOpenMobileHapticAsyncStopped Stopped;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Cancelled", ToolTip = "Broadcasts once when pending or active Haptics playback is cancelled."))
 	FOpenMobileHapticAsyncCancelled Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Failed", ToolTip = "Broadcasts once when Haptics playback is rejected, interrupted, or fails."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Suppressed", ToolTip = "Broadcasts once when the request is intentionally silent. Suppression never reaches Completed."))
+	FOpenMobileHapticAsyncSuppressed Suppressed;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Interrupted", ToolTip = "Broadcasts once when the operating system or native Haptics engine interrupts accepted playback."))
+	FOpenMobileHapticAsyncInterrupted Interrupted;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Failed", ToolTip = "Broadcasts once when the request is rejected or playback fails. Interruption and suppression use their own branches."))
 	FOpenMobileHapticAsyncFailed Failed;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
@@ -93,7 +136,10 @@ private:
 
 	bool TrySetTerminalState(EOpenMobileHapticAsyncTerminalState State);
 	void FinishCompleted(FOpenMobileHapticPlaybackResult Result);
+	void FinishStopped(FOpenMobileHapticPlaybackResult Result);
 	void FinishCancelled(FOpenMobileHapticPlaybackResult Result);
+	void FinishSuppressed(FOpenMobileHapticPlaybackResult Result);
+	void FinishInterrupted(FOpenMobileHapticPlaybackResult Result);
 	void FinishFailed(FOpenMobileHapticPlaybackResult Result);
 	void HandlePlaybackEvent(const FOpenMobileHapticPlaybackEvent& Event);
 	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);

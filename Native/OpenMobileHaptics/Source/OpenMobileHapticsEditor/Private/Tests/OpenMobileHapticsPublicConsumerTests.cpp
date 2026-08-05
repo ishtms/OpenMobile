@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 #include "OpenMobileHaptics.h"
+#include "OpenMobileHapticsAsyncAction.h"
 #include "UObject/UnrealType.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -147,6 +148,192 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 			Function->GetMetaData(TEXT("ToolTip")).IsEmpty()
 		);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBlueprintFirstSurfaceTest,
+	"OpenMobile.Haptics.API.BlueprintFirstSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBlueprintFirstSurfaceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	const UClass* BlueprintLibraryClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticsBlueprintLibrary")
+	);
+	TestNotNull(
+		TEXT("The Blueprint-first Haptics library is reflected"),
+		BlueprintLibraryClass
+	);
+	if (!BlueprintLibraryClass)
+	{
+		return false;
+	}
+
+	const TArray<FName> CommonPlayFunctions = {
+		TEXT("PlaySelectionHaptic"),
+		TEXT("PlayImpactHaptic"),
+		TEXT("PlayNotificationHaptic"),
+		TEXT("PlayGameHaptic"),
+		TEXT("VibratePhone")
+	};
+	for (const FName FunctionName : CommonPlayFunctions)
+	{
+		const UFunction* Function =
+			BlueprintLibraryClass->FindFunctionByName(FunctionName);
+		TestNotNull(
+			*FString::Printf(
+				TEXT("%s is available without a subsystem target"),
+				*FunctionName.ToString()
+			),
+			Function
+		);
+		if (!Function)
+		{
+			continue;
+		}
+		TestEqual(
+			*FString::Printf(
+				TEXT("%s uses the common play category"),
+				*FunctionName.ToString()
+			),
+			Function->GetMetaData(TEXT("Category")),
+			FString(TEXT("OpenMobile|Haptics|Play"))
+		);
+		TestEqual(
+			*FString::Printf(
+				TEXT("%s resolves its Game Instance from context"),
+				*FunctionName.ToString()
+			),
+			Function->GetMetaData(TEXT("WorldContext")),
+			FString(TEXT("WorldContextObject"))
+		);
+		TestEqual(
+			*FString::Printf(
+				TEXT("%s exposes honest request branches"),
+				*FunctionName.ToString()
+			),
+			Function->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome"))
+		);
+		TestFalse(
+			*FString::Printf(
+				TEXT("%s has search keywords"),
+				*FunctionName.ToString()
+			),
+			Function->GetMetaData(TEXT("Keywords")).IsEmpty()
+		);
+		const FFloatProperty* IntensityProperty =
+			FindFProperty<FFloatProperty>(Function, TEXT("Intensity"));
+		TestTrue(
+			*FString::Printf(
+				TEXT("%s constrains normalized intensity"),
+				*FunctionName.ToString()
+			),
+			IntensityProperty
+				&& IntensityProperty->GetMetaData(TEXT("ClampMin"))
+					== TEXT("0.0")
+				&& IntensityProperty->GetMetaData(TEXT("ClampMax"))
+					== TEXT("1.0")
+		);
+	}
+
+	for (const FName FunctionName : {
+		FName(TEXT("IsHapticPlaybackHandleValid")),
+		FName(TEXT("EqualHapticPlaybackHandles")),
+		FName(TEXT("IsHapticPreloadHandleValid")),
+		FName(TEXT("EqualHapticPreloadHandles")),
+		FName(TEXT("IsHapticRequestAccepted")),
+		FName(TEXT("DidHapticRequestProduceOutput")),
+		FName(TEXT("HasHapticError")),
+		FName(TEXT("GetHapticResultSummary")),
+		FName(TEXT("FormatHapticError"))
+	})
+	{
+		TestNotNull(
+			*FString::Printf(
+				TEXT("%s is available to Blueprint"),
+				*FunctionName.ToString()
+			),
+			BlueprintLibraryClass->FindFunctionByName(FunctionName)
+		);
+	}
+
+	const UClass* PlaybackClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticPlayback")
+	);
+	TestNotNull(
+		TEXT("Accepted common requests expose a playback object"),
+		PlaybackClass
+	);
+	if (PlaybackClass)
+	{
+		for (const FName FunctionName : {
+			FName(TEXT("IsValid")),
+			FName(TEXT("IsActive")),
+			FName(TEXT("IsPaused")),
+			FName(TEXT("Stop")),
+			FName(TEXT("Cancel")),
+			FName(TEXT("Pause")),
+			FName(TEXT("Resume")),
+			FName(TEXT("Seek")),
+			FName(TEXT("SetIntensity")),
+			FName(TEXT("SetSharpness")),
+			FName(TEXT("SetIntensityAndSharpness"))
+		})
+		{
+			TestNotNull(
+				*FString::Printf(
+					TEXT("Playback exposes %s"),
+					*FunctionName.ToString()
+				),
+				PlaybackClass->FindFunctionByName(FunctionName)
+			);
+		}
+		for (const FName EventName : {
+			FName(TEXT("OnAccepted")),
+			FName(TEXT("OnStarted")),
+			FName(TEXT("OnFinished"))
+		})
+		{
+			const FMulticastDelegateProperty* Event =
+				FindFProperty<FMulticastDelegateProperty>(
+					PlaybackClass,
+					EventName
+				);
+			TestTrue(
+				*FString::Printf(
+					TEXT("Playback %s is Blueprint assignable"),
+					*EventName.ToString()
+				),
+				Event && Event->HasAnyPropertyFlags(
+					CPF_BlueprintAssignable
+				)
+			);
+		}
+	}
+
+	TestNotNull(
+		TEXT("Suppressed async playback has its own terminal branch"),
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileHapticPlaybackAsyncAction::StaticClass(),
+			TEXT("Suppressed")
+		)
+	);
+	TestEqual(
+		TEXT("The subsystem has a friendly Blueprint display name"),
+		UOpenMobileHapticsSubsystem::StaticClass()->GetMetaData(
+			TEXT("DisplayName")
+		),
+		FString(TEXT("Open Mobile Haptics"))
+	);
 	return true;
 }
 
