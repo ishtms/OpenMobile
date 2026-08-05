@@ -196,6 +196,7 @@ protected:
 		EOpenMobileSensorCoordinateSpace CoordinateSpace,
 		bool bUseAdvancedOptions
 	);
+	void ConfigureResettableStepCountSession();
 	static FOpenMobileSensorSampleInfo MakeSampleInfo(
 		const FOpenMobileSensorSampleHeader& Header
 	);
@@ -215,6 +216,8 @@ protected:
 	FOpenMobileSensorOperationResult RecenterListenerAttitude(
 		EOpenMobileSensorRecenterMode Mode
 	);
+	FOpenMobileSensorOperationResult ResetListenerStepCount();
+	FOpenMobileSensorOperationResult RecenterListenerRelativeAltitude();
 	FOpenMobileSensorOperationResult RequestListenerCalibration();
 	static void ResolveControlOutcome(
 		const FOpenMobileSensorOperationResult& Operation,
@@ -285,6 +288,7 @@ private:
 	EOpenMobileSensorSubscriptionState CachedState =
 		EOpenMobileSensorSubscriptionState::Invalid;
 	bool bStartedBroadcast = false;
+	bool bResettableStepCountSession = false;
 	FOpenMobileSensorDropInfo LastDropInfo;
 	bool bHasDropInfo = false;
 	FOpenMobileSensorRuntimeError LastRuntimeError;

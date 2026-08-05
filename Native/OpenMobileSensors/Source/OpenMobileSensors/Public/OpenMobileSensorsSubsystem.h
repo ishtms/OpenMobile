@@ -406,17 +406,17 @@ public:
 		EOpenMobileSensorRecenterMode Mode
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Begin Relative Altitude Session", ToolTip = "Begins an owner-scoped relative-altitude session with an independent zero baseline."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Begin Relative Altitude Session by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Listen for Relative Altitude and keep the typed listener object.", ToolTip = "Legacy raw-handle session. Prefer the typed relative-altitude listener."))
 	FOpenMobileSensorSubscriptionResult BeginRelativeAltitudeSessionNative(
 		const FOpenMobileSensorStreamOptions& Options
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Recenter Relative Altitude Baseline", ToolTip = "Clears one session baseline so its next accepted sample becomes zero metres."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Recenter Relative Altitude by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Recenter Relative Altitude on a typed relative-altitude listener.", ToolTip = "Legacy raw-handle recenter. Prefer the typed listener control."))
 	FOpenMobileSensorOperationResult RecenterRelativeAltitudeBaselineNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Relative Altitude Session", ToolTip = "Reads the latest relative-altitude sample for one owned session."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Read Relative Altitude by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Get Latest Relative Altitude on a typed relative-altitude listener.", ToolTip = "Legacy raw-handle read. Prefer the typed listener snapshot."))
 	bool ReadRelativeAltitudeSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -424,22 +424,22 @@ public:
 		FOpenMobileScalarSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop Relative Altitude Session", ToolTip = "Stops one owned relative-altitude session without affecting another session sharing its pressure stream."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Stop Relative Altitude by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Stop Sensor Listener on the typed relative-altitude listener.", ToolTip = "Legacy raw-handle stop. Prefer stopping the typed listener."))
 	FOpenMobileSensorOperationResult StopRelativeAltitudeSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Begin Step Count Session", ToolTip = "Begins an owner-scoped step session whose first accepted native total becomes its baseline."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Begin Step Count Session by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Listen for Step Count and keep the typed listener object.", ToolTip = "Legacy raw-handle session. Prefer the typed step-count listener."))
 	FOpenMobileSensorSubscriptionResult BeginStepCountSessionNative(
 		const FOpenMobileSensorStreamOptions& Options
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Reset Step Count Session", ToolTip = "Clears one session so its next accepted native total becomes a new zero baseline."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Reset Step Count by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Reset Step Count on a typed step-count listener.", ToolTip = "Legacy raw-handle reset. Prefer the typed listener control."))
 	FOpenMobileSensorOperationResult ResetStepCountSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Step Count Session", ToolTip = "Reads the latest nonnegative count for one owned resettable step session."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Read Step Count by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Get Latest Step Count on a typed step-count listener.", ToolTip = "Legacy raw-handle read. Prefer the typed listener snapshot."))
 	bool ReadStepCountSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		int64 LastSeenSequence,
@@ -447,7 +447,7 @@ public:
 		FOpenMobileStepsSensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop Step Count Session", ToolTip = "Stops one owned session without resetting other sessions or the platform native total."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Sessions", meta = (DisplayName = "Stop Step Count by Handle (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Stop Sensor Listener on the typed step-count listener.", ToolTip = "Legacy raw-handle stop. Prefer stopping the typed listener."))
 	FOpenMobileSensorOperationResult StopStepCountSessionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);

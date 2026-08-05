@@ -34,6 +34,14 @@ public:
 	bool GetLatestSteps(int64& OutSteps,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Activity", meta = (DisplayName = "Reset Step Count", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors steps session reset zero baseline", ToolTip = "Resets only this typed step-count listener. The next accepted native total becomes zero."))
+	void ResetStepCount(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
 protected:
 	virtual void HandleStepsSample(const FOpenMobileStepsSensorSample& InSample) override;
 

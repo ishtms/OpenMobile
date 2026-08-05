@@ -31,6 +31,11 @@ void UOpenMobileSensorListener::ConfigureListener(
 		EOpenMobileSensorDeliveryMode::EventBatches;
 }
 
+void UOpenMobileSensorListener::ConfigureResettableStepCountSession()
+{
+	bResettableStepCountSession = true;
+}
+
 void UOpenMobileSensorListener::Activate()
 {
 	UWorld* World = GEngine && ActivationWorldContext
@@ -56,6 +61,7 @@ void UOpenMobileSensorListener::Activate()
 	FOpenMobileSensorSubscriptionRequest Request;
 	Request.Sensor = RequestedSensor;
 	Request.Options = RequestedOptions;
+	Request.bResettableStepCountSession = bResettableStepCountSession;
 	const FOpenMobileSensorSubscriptionResult Result =
 		GetSensorsSubsystem()->StartSubscriptionNative(Request);
 	LastOperation = Result.Operation;
@@ -272,6 +278,30 @@ UOpenMobileSensorListener::RecenterListenerAttitude(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
 	return Subsystem->RecenterSubscription(Handle, Mode).Operation;
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::ResetListenerStepCount()
+{
+	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle);
+	}
+	return Subsystem->ResetStepCountSessionNative(Handle);
+}
+
+FOpenMobileSensorOperationResult
+UOpenMobileSensorListener::RecenterListenerRelativeAltitude()
+{
+	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	{
+		return FOpenMobileSensorsErrorMapper::Map(
+			EOpenMobileSensorFailureReason::InvalidHandle);
+	}
+	return Subsystem->RecenterRelativeAltitudeBaselineNative(Handle);
 }
 
 FOpenMobileSensorOperationResult

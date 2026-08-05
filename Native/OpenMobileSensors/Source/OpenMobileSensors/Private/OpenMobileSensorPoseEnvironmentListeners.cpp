@@ -196,6 +196,16 @@ OPENMOBILE_IMPLEMENT_SCALAR_LISTENER(
 	GetLatestAltitude,
 	EOpenMobileSensorType::RelativeAltitude
 )
+
+void UOpenMobileRelativeAltitudeListener::RecenterAltitudeBaseline(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(RecenterListenerRelativeAltitude(),
+		Outcome, Message, Correction, Details);
+}
 OPENMOBILE_IMPLEMENT_SCALAR_LISTENER(
 	UOpenMobileAbsoluteAltitudeListener,
 	ListenForAbsoluteAltitude,

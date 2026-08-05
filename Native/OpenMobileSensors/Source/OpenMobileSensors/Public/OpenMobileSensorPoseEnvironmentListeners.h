@@ -230,6 +230,14 @@ public:
 	bool GetLatestAltitude(double& OutAltitudeMetres,
 		FOpenMobileSensorSampleInfo& OutSampleInfo) const;
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Environment", meta = (DisplayName = "Recenter Relative Altitude", ExpandEnumAsExecs = "Outcome", Keywords = "OpenMobile sensors altitude session recenter zero baseline", ToolTip = "Recenters only this typed relative-altitude listener. The next accepted altitude becomes zero metres."))
+	void RecenterAltitudeBaseline(
+		EOpenMobileSensorControlOutcome& Outcome,
+		FText& Message,
+		FText& Correction,
+		FOpenMobileSensorOperationResult& Details
+	);
+
 protected:
 	virtual void HandleScalarSample(const FOpenMobileScalarSensorSample& InSample) override;
 

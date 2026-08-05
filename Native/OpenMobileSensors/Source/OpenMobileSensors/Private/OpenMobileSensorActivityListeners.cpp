@@ -12,6 +12,7 @@ UOpenMobileStepCountListener* UOpenMobileStepCountListener::ListenForStepCount(
 	Listener->ConfigureListener(WorldContextObject, ListenerOwner,
 		EOpenMobileSensorType::StepCounter, AdvancedOptions, RatePreset,
 		EOpenMobileSensorCoordinateSpace::DeviceFixed, bUseAdvancedOptions);
+	Listener->ConfigureResettableStepCountSession();
 	return Listener;
 }
 
@@ -28,6 +29,16 @@ bool UOpenMobileStepCountListener::GetLatestSteps(
 	OutSteps = LatestSample.Count;
 	OutSampleInfo = MakeSampleInfo(LatestSample.Header);
 	return true;
+}
+
+void UOpenMobileStepCountListener::ResetStepCount(
+	EOpenMobileSensorControlOutcome& Outcome,
+	FText& Message,
+	FText& Correction,
+	FOpenMobileSensorOperationResult& Details)
+{
+	ResolveControlOutcome(
+		ResetListenerStepCount(), Outcome, Message, Correction, Details);
 }
 
 void UOpenMobileStepCountListener::HandleStepsSample(

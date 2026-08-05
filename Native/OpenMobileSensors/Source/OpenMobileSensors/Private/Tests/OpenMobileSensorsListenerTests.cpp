@@ -928,6 +928,159 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsTypedSessionControlsTest,
+	"OpenMobile.Sensors.Blueprint.Listener.TypedSessionControls",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsTypedSessionControlsTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsListenerTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("TypedSessionControls"));
+	Backend.SetSensorCapabilities({
+		MakeCapability(EOpenMobileSensorType::StepCounter),
+		MakeCapability(EOpenMobileSensorType::RelativeAltitude)
+	});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->InitializeStandalone(TEXT("OpenMobileSensorsSessionListenerTest"));
+	UWorld* World = GameInstance->GetWorld();
+	USceneComponent* Owner = NewObject<USceneComponent>(World);
+	const FOpenMobileSensorStreamOptions AdvancedOptions;
+	UOpenMobileStepCountListener* Steps =
+		UOpenMobileStepCountListener::ListenForStepCount(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	UOpenMobileRelativeAltitudeListener* Altitude =
+		UOpenMobileRelativeAltitudeListener::ListenForRelativeAltitude(
+			World, AdvancedOptions, EOpenMobileSensorRatePreset::UI,
+			false, Owner);
+	Steps->Activate();
+	Altitude->Activate();
+	FOpenMobileSensorsSubscriptionService::
+		ProcessPendingBackendOperationsForTests();
+	TestTrue(TEXT("Typed step session becomes active"), Steps->IsActive());
+	TestTrue(TEXT("Typed altitude session becomes active"), Altitude->IsActive());
+
+	FOpenMobileStepsSensorSample StepSample;
+	StepSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::StepCounter).Sensor;
+	StepSample.Header.TimestampSeconds = 1.0;
+	StepSample.Header.bValid = true;
+	StepSample.Count = 100;
+	StepSample.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	StepSample.OriginIdentifier = FGuid::NewGuid();
+	FOpenMobileSensorsSampleService::PublishSteps(StepSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.0);
+	int64 StepCount = -1;
+	FOpenMobileSensorSampleInfo SampleInfo;
+	TestTrue(TEXT("Typed step session receives its baseline"),
+		Steps->GetLatestSteps(StepCount, SampleInfo));
+	TestEqual(TEXT("Typed step session starts from zero"), StepCount, 0LL);
+	EOpenMobileSensorControlOutcome Outcome =
+		EOpenMobileSensorControlOutcome::Failed;
+	FText Message;
+	FText Correction;
+	FOpenMobileSensorOperationResult Details;
+	Steps->ResetStepCount(Outcome, Message, Correction, Details);
+	TestEqual(TEXT("Typed step reset succeeds"),
+		Outcome, EOpenMobileSensorControlOutcome::Succeeded);
+	StepSample.Header.TimestampSeconds = 2.0;
+	StepSample.Count = 110;
+	FOpenMobileSensorsSampleService::PublishSteps(StepSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(2.0);
+	Steps->GetLatestSteps(StepCount, SampleInfo);
+	TestEqual(TEXT("Typed step reset establishes a new zero"), StepCount, 0LL);
+	StepSample.Header.TimestampSeconds = 3.0;
+	StepSample.Count = 115;
+	FOpenMobileSensorsSampleService::PublishSteps(StepSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(3.0);
+	Steps->GetLatestSteps(StepCount, SampleInfo);
+	TestEqual(TEXT("Typed step session continues from its reset"),
+		StepCount, 5LL);
+
+	FOpenMobileScalarSensorSample AltitudeSample;
+	AltitudeSample.Header.Sensor =
+		MakeCapability(EOpenMobileSensorType::RelativeAltitude).Sensor;
+	AltitudeSample.Header.TimestampSeconds = 1.0;
+	AltitudeSample.Header.bValid = true;
+	AltitudeSample.Value = 50.0;
+	FOpenMobileSensorsSampleService::PublishScalar(AltitudeSample);
+	AltitudeSample.Header.TimestampSeconds = 2.0;
+	AltitudeSample.Value = 52.0;
+	FOpenMobileSensorsSampleService::PublishScalar(AltitudeSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(3.0);
+	double RelativeAltitude = 0.0;
+	TestTrue(TEXT("Typed altitude session receives samples"),
+		Altitude->GetLatestAltitude(RelativeAltitude, SampleInfo));
+	TestEqual(TEXT("Typed altitude is relative to its first sample"),
+		RelativeAltitude, 2.0);
+	Altitude->RecenterAltitudeBaseline(
+		Outcome, Message, Correction, Details);
+	TestEqual(TEXT("Typed altitude recenter succeeds"),
+		Outcome, EOpenMobileSensorControlOutcome::Succeeded);
+	AltitudeSample.Header.TimestampSeconds = 4.0;
+	AltitudeSample.Value = 54.0;
+	FOpenMobileSensorsSampleService::PublishScalar(AltitudeSample);
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(4.0);
+	Altitude->GetLatestAltitude(RelativeAltitude, SampleInfo);
+	TestEqual(TEXT("Typed altitude recenter establishes a new zero"),
+		RelativeAltitude, 0.0);
+#if WITH_METADATA
+	const UFunction* ResetFunction =
+		UOpenMobileStepCountListener::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileStepCountListener, ResetStepCount));
+	const UFunction* RecenterFunction =
+		UOpenMobileRelativeAltitudeListener::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileRelativeAltitudeListener,
+				RecenterAltitudeBaseline));
+	TestNotNull(TEXT("Typed step reset is reflected"), ResetFunction);
+	TestNotNull(TEXT("Typed altitude recenter is reflected"), RecenterFunction);
+	if (ResetFunction)
+	{
+		TestEqual(TEXT("Step reset exposes explicit outcomes"),
+			ResetFunction->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome")));
+	}
+	if (RecenterFunction)
+	{
+		TestEqual(TEXT("Altitude recenter exposes explicit outcomes"),
+			RecenterFunction->GetMetaData(TEXT("ExpandEnumAsExecs")),
+			FString(TEXT("Outcome")));
+	}
+	const UFunction* LegacyStepSession =
+		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorsSubsystem,
+				BeginStepCountSessionNative));
+	TestNotNull(TEXT("The legacy step-session function remains reflected"),
+		LegacyStepSession);
+	if (LegacyStepSession)
+	{
+		TestTrue(TEXT("The legacy step-session function is advanced"),
+			LegacyStepSession->GetMetaData(TEXT("Category"))
+				.StartsWith(TEXT("OpenMobile|Sensors|Advanced")));
+		TestTrue(TEXT("The legacy step-session function directs migration"),
+			LegacyStepSession->HasMetaData(TEXT("DeprecatedFunction")));
+	}
+#endif
+
+	Steps->Stop();
+	Altitude->Stop();
+	GameInstance->Shutdown();
+	World->DestroyWorld(true);
+	GEngine->DestroyWorldContext(World);
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	ResetServices();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsActivityListenerReflectionTest,
 	"OpenMobile.Sensors.Blueprint.Listener.ActivityReflection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
