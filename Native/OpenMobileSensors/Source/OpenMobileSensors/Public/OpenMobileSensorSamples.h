@@ -261,7 +261,7 @@ struct OPENMOBILESENSORS_API FOpenMobileAbsoluteAltitudeMetadata
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasVerticalAccuracy = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw vertical-accuracy backing value in metres. Read only when Has Vertical Accuracy is true."))
 	double VerticalAccuracyMeters = 0.0;
 };
 
@@ -336,7 +336,7 @@ struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasAccuracyDegrees = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw heading-accuracy backing value in degrees. Read only when Has Accuracy Degrees is true."))
 	double AccuracyDegrees = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
@@ -392,19 +392,19 @@ struct OPENMOBILESENSORS_API FOpenMobilePedometerMetrics
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasDistanceMeters = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw distance backing value in metres. Read only when Has Distance Meters is true."))
 	double DistanceMeters = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasFloorsAscended = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw ascending-floor count. Read only when Has Floors Ascended is true."))
 	int64 FloorsAscended = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasFloorsDescended = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw descending-floor count. Read only when Has Floors Descended is true."))
 	int64 FloorsDescended = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
@@ -573,13 +573,13 @@ struct OPENMOBILESENSORS_API FOpenMobileProximitySensorSample
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasDistanceMeters = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw proximity-distance backing value in metres. Read only when Has Distance Meters is true."))
 	double DistanceMeters = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasMaximumRangeMeters = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Raw proximity-range backing value in metres. Read only when Has Maximum Range Meters is true."))
 	double MaximumRangeMeters = 0.0;
 };
 

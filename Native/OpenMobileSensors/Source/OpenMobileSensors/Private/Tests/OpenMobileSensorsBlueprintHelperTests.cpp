@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileNativeStepCount.h"
 #include "OpenMobileSensorBlueprintLibrary.h"
+#include "OpenMobileSensorOptionalValueLibrary.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsSettings.h"
 #include "OpenMobileSensorsSubsystem.h"
@@ -275,6 +276,116 @@ bool FOpenMobileSensorsBlueprintDiscoveryHelperTest::RunTest(
 		TestEqual(TEXT("The raw instance remains advanced"),
 			BreakFunction->GetMetaData(TEXT("AdvancedDisplay")),
 			FString(TEXT("OutInstanceId")));
+	}
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintOptionalAndTimeHelpersTest,
+	"OpenMobile.Sensors.Blueprint.Helpers.OptionalValuesAndDates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintOptionalAndTimeHelpersTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileSensorOptionalNumber Number;
+	TestEqual(TEXT("Unavailable numbers return the requested default"),
+		UOpenMobileSensorOptionalValueLibrary::GetOptionalNumberOrDefault(
+			Number, 42.0),
+		42.0);
+	double NumberValue = -1.0;
+	TestFalse(TEXT("Unavailable numbers take the missing branch"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetOptionalNumber(
+			Number, NumberValue));
+	TestEqual(TEXT("Missing optional outputs are initialized safely"),
+		NumberValue, 0.0);
+	Number.bAvailable = true;
+	Number.Value = 12.5;
+	TestTrue(TEXT("Available numbers take the present branch"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetOptionalNumber(
+			Number, NumberValue));
+	TestEqual(TEXT("Available numbers return their value"),
+		NumberValue, 12.5);
+
+	FOpenMobilePedometerMetrics Metrics;
+	double DistanceMetres = -1.0;
+	TestFalse(TEXT("Missing pedometer distance branches explicitly"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetPedometerDistance(
+			Metrics, DistanceMetres));
+	Metrics.bHasDistanceMeters = true;
+	Metrics.DistanceMeters = 123.0;
+	TestTrue(TEXT("Present pedometer distance branches explicitly"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetPedometerDistance(
+			Metrics, DistanceMetres));
+	TestEqual(TEXT("Pedometer distance uses metres"),
+		DistanceMetres, 123.0);
+	FOpenMobileHeadingSensorSample Heading;
+	double AccuracyDegrees = -1.0;
+	TestFalse(TEXT("Missing heading accuracy branches explicitly"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetHeadingAccuracy(
+			Heading, AccuracyDegrees));
+	Heading.bHasAccuracyDegrees = true;
+	Heading.AccuracyDegrees = 5.0;
+	TestTrue(TEXT("Present heading accuracy branches explicitly"),
+		UOpenMobileSensorOptionalValueLibrary::TryGetHeadingAccuracy(
+			Heading, AccuracyDegrees));
+	TestEqual(TEXT("Heading accuracy uses degrees"),
+		AccuracyDegrees, 5.0);
+
+	const FDateTime Start(2025, 1, 2, 3, 4, 5);
+	const FDateTime End(2025, 1, 2, 4, 4, 5);
+	FOpenMobileNativeStepCountQuery Query;
+	TestTrue(TEXT("Date ranges make a native step query"),
+		UOpenMobileNativeStepCountLibrary::MakeNativeStepQueryBetweenDates(
+			Start, End, Query));
+	TestEqual(TEXT("Date query start converts to Unix seconds"),
+		Query.StartUnixTimeSeconds,
+		static_cast<double>(Start.ToUnixTimestamp()));
+	TestEqual(TEXT("Date query end converts to Unix seconds"),
+		Query.EndUnixTimeSeconds,
+		static_cast<double>(End.ToUnixTimestamp()));
+	TestFalse(TEXT("Reversed date ranges are rejected"),
+		UOpenMobileNativeStepCountLibrary::MakeNativeStepQueryBetweenDates(
+			End, Start, Query));
+	TestTrue(TEXT("Recent durations make a native step query"),
+		UOpenMobileNativeStepCountLibrary::MakeNativeStepQueryForLastDuration(
+			FTimespan::FromMinutes(10.0), Query));
+	TestTrue(TEXT("Recent duration keeps its requested length"),
+		FMath::IsNearlyEqual(
+			Query.EndUnixTimeSeconds - Query.StartUnixTimeSeconds,
+			600.0, 0.001));
+	TestFalse(TEXT("Nonpositive durations are rejected"),
+		UOpenMobileNativeStepCountLibrary::MakeNativeStepQueryForLastDuration(
+			FTimespan::Zero(), Query));
+#if WITH_METADATA
+	const UFunction* RecentFunction =
+		UOpenMobileNativeStepCountLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileNativeStepCountLibrary,
+				MakeNativeStepQueryForLastDuration));
+	TestNotNull(TEXT("The recent-query helper is reflected"), RecentFunction);
+	if (RecentFunction)
+	{
+		TestFalse(TEXT("The current-time helper is not Blueprint pure"),
+			RecentFunction->HasAnyFunctionFlags(FUNC_BlueprintPure));
+		TestEqual(TEXT("The recent-query helper branches on validity"),
+			RecentFunction->GetMetaData(TEXT("ExpandBoolAsExecs")),
+			FString(TEXT("ReturnValue")));
+	}
+	const FProperty* OptionalNumberValue = FindFProperty<FProperty>(
+		FOpenMobileSensorOptionalNumber::StaticStruct(),
+		GET_MEMBER_NAME_CHECKED(FOpenMobileSensorOptionalNumber, Value));
+	TestNotNull(TEXT("The optional number backing value is reflected"),
+		OptionalNumberValue);
+	if (OptionalNumberValue)
+	{
+		TestTrue(TEXT("Optional backing values stay out of normal breaks"),
+			OptionalNumberValue->HasMetaData(TEXT("AdvancedDisplay")));
+		TestFalse(TEXT("Optional backing values explain availability"),
+			OptionalNumberValue->GetToolTipText().IsEmpty());
 	}
 #endif
 	return true;

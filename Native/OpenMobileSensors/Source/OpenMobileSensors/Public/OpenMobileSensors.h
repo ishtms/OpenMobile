@@ -10,6 +10,7 @@
 #include "OpenMobileSensorFlushAsyncAction.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorMetadata.h"
+#include "OpenMobileSensorOptionalValueLibrary.h"
 #include "OpenMobileSensorPermissionAsyncAction.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorQuality.h"
