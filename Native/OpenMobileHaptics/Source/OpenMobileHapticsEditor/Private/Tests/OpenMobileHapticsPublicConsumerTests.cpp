@@ -468,4 +468,238 @@ bool FOpenMobileHapticsBlueprintAuthoredContentSurfaceTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBlueprintPreviewAndAuthoringSurfaceTest,
+	"OpenMobile.Haptics.API.BlueprintPreviewAndAuthoringSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBlueprintPreviewAndAuthoringSurfaceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	const UScriptStruct* WaveformStep = FindObject<UScriptStruct>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticAndroidWaveformStep")
+	);
+	TestNotNull(TEXT("Android waveforms expose one row type"), WaveformStep);
+
+	const UClass* AndroidAssetClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticAndroidPatternAsset")
+	);
+	TestNotNull(TEXT("Android pattern assets are reflected"), AndroidAssetClass);
+	if (AndroidAssetClass)
+	{
+		TestFalse(
+			TEXT("Platform authoring assets stay out of Blueprint type search"),
+			AndroidAssetClass->HasMetaData(TEXT("BlueprintType"))
+		);
+		for (const TPair<FName, FString>& ConditionalField : {
+			TPair<FName, FString>(
+				TEXT("Primitives"),
+				TEXT("Primitives")
+			),
+			TPair<FName, FString>(
+				TEXT("EnvelopePoints"),
+				TEXT("Envelope")
+			)
+		})
+		{
+			const FProperty* Property = FindFProperty<FProperty>(
+				AndroidAssetClass,
+				ConditionalField.Key
+			);
+			TestTrue(
+				*FString::Printf(
+					TEXT("%s is conditional and hidden when irrelevant"),
+					*ConditionalField.Key.ToString()
+				),
+				Property
+					&& Property->GetMetaData(TEXT("EditCondition")).Contains(
+						ConditionalField.Value
+					)
+					&& Property->HasMetaData(TEXT("EditConditionHides"))
+			);
+		}
+		const FProperty* WaveformSteps = FindFProperty<FProperty>(
+			AndroidAssetClass,
+			TEXT("WaveformSteps")
+		);
+		TestTrue(
+			TEXT("Waveform rows are visible only for the waveform format"),
+			WaveformSteps
+				&& WaveformSteps->GetMetaData(TEXT("EditCondition")).Contains(
+					TEXT("Waveform")
+				)
+				&& WaveformSteps->HasMetaData(TEXT("EditConditionHides"))
+		);
+		for (const FName LegacyName : {
+			FName(TEXT("WaveformTimingsMilliseconds")),
+			FName(TEXT("WaveformAmplitudes"))
+		})
+		{
+			const FProperty* LegacyProperty = FindFProperty<FProperty>(
+				AndroidAssetClass,
+				LegacyName
+			);
+			TestTrue(
+				*FString::Printf(
+					TEXT("%s remains serialized only for migration"),
+					*LegacyName.ToString()
+				),
+				LegacyProperty
+					&& LegacyProperty->HasMetaData(TEXT("DeprecatedProperty"))
+					&& !LegacyProperty->HasAnyPropertyFlags(
+						CPF_Edit | CPF_BlueprintVisible
+					)
+			);
+		}
+		TestNotNull(
+			TEXT("The resolved Android API requirement is visible"),
+			FindFProperty<FIntProperty>(
+				AndroidAssetClass,
+				TEXT("ResolvedMinimumAndroidAPI")
+			)
+		);
+	}
+	const UClass* IOSAssetClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticIOSPatternAsset")
+	);
+	TestTrue(
+		TEXT("Imported iOS audio bytes stay out of Blueprint"),
+		IOSAssetClass
+			&& !IOSAssetClass->HasMetaData(TEXT("BlueprintType"))
+	);
+
+	const UClass* ReceiverClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHapticsPreview.OpenMobileHapticsPreviewReceiverSubsystem")
+	);
+	TestNotNull(TEXT("Development receiver is reflected"), ReceiverClass);
+	if (ReceiverClass)
+	{
+		for (const FName FunctionName : {
+			FName(TEXT("EnableHapticPreviewReceiver")),
+			FName(TEXT("ApproveHapticPreviewPairing")),
+			FName(TEXT("RejectHapticPreviewPairing"))
+		})
+		{
+			const UFunction* Function = ReceiverClass->FindFunctionByName(
+				FunctionName
+			);
+			TestNotNull(
+				*FString::Printf(
+					TEXT("%s exposes a typed Development action"),
+					*FunctionName.ToString()
+				),
+				Function
+			);
+			if (Function)
+			{
+				TestEqual(
+					TEXT("Preview actions use compact outcome branches"),
+					Function->GetMetaData(TEXT("ExpandEnumAsExecs")),
+					FString(TEXT("Outcome"))
+				);
+				TestEqual(
+					TEXT("Preview actions share one Blueprint category"),
+					Function->GetMetaData(TEXT("Category")),
+					FString(TEXT("OpenMobile|Haptics|Preview"))
+				);
+				TestTrue(
+					TEXT("Preview actions identify Development-only use"),
+					Function->GetMetaData(TEXT("DisplayName")).Contains(
+						TEXT("Development Only")
+					)
+				);
+				TestNotNull(
+					TEXT("Preview action exposes an error output"),
+					FindFProperty<FStrProperty>(Function, TEXT("Error"))
+				);
+				if (FunctionName == TEXT("EnableHapticPreviewReceiver"))
+				{
+					TestEqual(
+						TEXT("Preview receiver has its documented default port"),
+						Function->GetMetaData(TEXT("CPP_Default_Port")),
+						FString(TEXT("41798"))
+					);
+				}
+				else
+				{
+					const FStructProperty* PairingRequest =
+						FindFProperty<FStructProperty>(
+							Function,
+							TEXT("PairingRequest")
+						);
+					TestTrue(
+						TEXT("Pairing actions accept the typed request"),
+						PairingRequest
+							&& PairingRequest->Struct->GetName()
+								== TEXT("OpenMobileHapticsPreviewPairingRequest")
+					);
+				}
+			}
+		}
+		for (const FName LegacyName : {
+			FName(TEXT("EnableReceiver")),
+			FName(TEXT("ApprovePairing")),
+			FName(TEXT("RejectPairing"))
+		})
+		{
+			const UFunction* LegacyFunction =
+				ReceiverClass->FindFunctionByName(LegacyName);
+			TestTrue(
+				*FString::Printf(
+					TEXT("%s has Blueprint migration guidance"),
+					*LegacyName.ToString()
+				),
+				LegacyFunction
+					&& LegacyFunction->HasMetaData(
+						TEXT("DeprecatedFunction")
+					)
+					&& !LegacyFunction->GetMetaData(
+						TEXT("DeprecationMessage")
+					).IsEmpty()
+			);
+		}
+		const FMulticastDelegateProperty* ReceiverChanged =
+			FindFProperty<FMulticastDelegateProperty>(
+				ReceiverClass,
+				TEXT("OnReceiverChanged")
+			);
+		TestTrue(
+			TEXT("Receiver changes include status and pairing payloads"),
+			ReceiverChanged
+				&& ReceiverChanged->SignatureFunction
+				&& ReceiverChanged->SignatureFunction->NumParms == 2
+		);
+	}
+
+	const UClass* TesterClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHapticsPreview.OpenMobileHapticsCapabilityTesterLibrary")
+	);
+	TestNotNull(TEXT("Development capability tester is reflected"), TesterClass);
+	if (TesterClass)
+	{
+		const UFunction* SnapshotFunction = TesterClass->FindFunctionByName(
+			TEXT("CreateHapticCapabilitySnapshot")
+		);
+		TestTrue(
+			TEXT("Capability snapshot uses a typed outcome branch"),
+			SnapshotFunction
+				&& SnapshotFunction->GetMetaData(TEXT("ExpandEnumAsExecs"))
+					== TEXT("Outcome")
+				&& SnapshotFunction->GetMetaData(TEXT("DisplayName")).Contains(
+					TEXT("Development Only")
+				)
+		);
+	}
+	return true;
+}
+
 #endif

@@ -1823,10 +1823,36 @@ bool FOpenMobileHapticPlatformOverrideAssetTest::RunTest(
 		NewObject<UOpenMobileHapticAndroidPatternAsset>();
 	InvalidWaveform->Format =
 		EOpenMobileHapticAndroidPatternFormat::Waveform;
-	InvalidWaveform->WaveformTimingsMilliseconds = {0, 20};
-	InvalidWaveform->WaveformAmplitudes = {255};
-	TestFalse(TEXT("Mismatched Android waveform arrays are invalid"),
+	InvalidWaveform->WaveformSteps = {{-1, 255}, {20, 300}};
+	TestFalse(TEXT("Invalid Android waveform rows are rejected"),
 		InvalidWaveform->Validate(Errors));
+
+	UOpenMobileHapticAndroidPatternAsset* LegacyWaveform =
+		NewObject<UOpenMobileHapticAndroidPatternAsset>();
+	LegacyWaveform->Format =
+		EOpenMobileHapticAndroidPatternFormat::Waveform;
+	LegacyWaveform->WaveformTimingsMilliseconds = {0, 20};
+	LegacyWaveform->WaveformAmplitudes = {0, 255};
+	LegacyWaveform->PostLoad();
+	TestEqual(
+		TEXT("Legacy waveform arrays migrate into paired rows"),
+		LegacyWaveform->WaveformSteps.Num(),
+		2
+	);
+	TestEqual(
+		TEXT("Migrated waveform duration is preserved"),
+		LegacyWaveform->WaveformSteps[1].DurationMilliseconds,
+		20
+	);
+	TestEqual(
+		TEXT("Migrated waveform amplitude is preserved"),
+		LegacyWaveform->WaveformSteps[1].Amplitude,
+		255
+	);
+	TestTrue(
+		TEXT("Migrated waveform validates without legacy arrays"),
+		LegacyWaveform->Validate(Errors)
+	);
 
 	UOpenMobileHapticIOSPatternAsset* IOS =
 		NewObject<UOpenMobileHapticIOSPatternAsset>();
@@ -2521,8 +2547,12 @@ bool FOpenMobileHapticsAndroidWaveformPolicyTest::RunTest(
 	UOpenMobileHapticAndroidPatternAsset* Asset =
 		NewObject<UOpenMobileHapticAndroidPatternAsset>();
 	Asset->Format = EOpenMobileHapticAndroidPatternFormat::Waveform;
-	Asset->WaveformTimingsMilliseconds = {0, 10, 20, 30};
-	Asset->WaveformAmplitudes = {0, 255, 128, 64};
+	Asset->WaveformSteps = {
+		{0, 0},
+		{10, 255},
+		{20, 128},
+		{30, 64}
+	};
 	Asset->WaveformRepeatIndex = 1;
 	FOpenMobileHapticCapabilities Capabilities;
 	Capabilities.WaveformTiming = EOpenMobileHapticSupportState::Supported;

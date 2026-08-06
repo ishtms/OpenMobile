@@ -175,6 +175,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::Deinitialize()
 #if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
 	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.RemoveAll(this);
 	DisableReceiver();
+	OnReceiverChanged.Clear();
 	OnStatusChanged.Clear();
 	State.Reset();
 #endif
@@ -190,6 +191,96 @@ bool UOpenMobileHapticsPreviewReceiverSubsystem::ShouldCreateSubsystem(
 #else
 	static_cast<void>(Outer);
 	return false;
+#endif
+}
+
+void UOpenMobileHapticsPreviewReceiverSubsystem::
+EnableHapticPreviewReceiver(
+	int32 Port,
+	FString ReceiverLabel,
+	EOpenMobileHapticsPreviewActionOutcome& Outcome,
+	FString& Error
+)
+{
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Unavailable;
+	Error = TEXT("Haptic preview is available only in Development builds.");
+#if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
+	if (EnableReceiver(Port, MoveTemp(ReceiverLabel)))
+	{
+		Outcome = EOpenMobileHapticsPreviewActionOutcome::Succeeded;
+		Error.Reset();
+		return;
+	}
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Rejected;
+	Error = GetReceiverStatus().LastError;
+	if (Error.IsEmpty())
+	{
+		Error = TEXT("Haptic preview receiver could not be enabled.");
+	}
+#else
+	static_cast<void>(Port);
+	static_cast<void>(ReceiverLabel);
+#endif
+}
+
+void UOpenMobileHapticsPreviewReceiverSubsystem::
+DisableHapticPreviewReceiver(
+	EOpenMobileHapticsPreviewActionOutcome& Outcome,
+	FString& Error
+)
+{
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Unavailable;
+	Error = TEXT("Haptic preview is available only in Development builds.");
+#if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
+	DisableReceiver();
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Succeeded;
+	Error.Reset();
+#endif
+}
+
+void UOpenMobileHapticsPreviewReceiverSubsystem::
+ApproveHapticPreviewPairing(
+	FOpenMobileHapticsPreviewPairingRequest PairingRequest,
+	EOpenMobileHapticsPreviewActionOutcome& Outcome,
+	FString& Error
+)
+{
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Unavailable;
+	Error = TEXT("Haptic preview is available only in Development builds.");
+#if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
+	if (PairingRequest.bValid && ApprovePairing(PairingRequest.RequestId))
+	{
+		Outcome = EOpenMobileHapticsPreviewActionOutcome::Succeeded;
+		Error.Reset();
+		return;
+	}
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Rejected;
+	Error = TEXT("The pairing request is invalid, expired, or no longer pending.");
+#else
+	static_cast<void>(PairingRequest);
+#endif
+}
+
+void UOpenMobileHapticsPreviewReceiverSubsystem::
+RejectHapticPreviewPairing(
+	FOpenMobileHapticsPreviewPairingRequest PairingRequest,
+	EOpenMobileHapticsPreviewActionOutcome& Outcome,
+	FString& Error
+)
+{
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Unavailable;
+	Error = TEXT("Haptic preview is available only in Development builds.");
+#if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
+	if (PairingRequest.bValid && RejectPairing(PairingRequest.RequestId))
+	{
+		Outcome = EOpenMobileHapticsPreviewActionOutcome::Succeeded;
+		Error.Reset();
+		return;
+	}
+	Outcome = EOpenMobileHapticsPreviewActionOutcome::Rejected;
+	Error = TEXT("The pairing request is invalid or no longer pending.");
+#else
+	static_cast<void>(PairingRequest);
 #endif
 }
 
@@ -214,7 +305,7 @@ bool UOpenMobileHapticsPreviewReceiverSubsystem::EnableReceiver(
 	if (Port < 1024 || Port > MAX_uint16 || ReceiverLabel.IsEmpty())
 	{
 		State->LastError = TEXT("Receiver port or label is invalid.");
-		OnStatusChanged.Broadcast();
+		BroadcastReceiverChanged();
 		return false;
 	}
 	State->Socket = FUdpSocketBuilder(TEXT("OpenMobileHapticsPreviewReceiver"))
@@ -229,13 +320,13 @@ bool UOpenMobileHapticsPreviewReceiverSubsystem::EnableReceiver(
 	if (!State->Socket)
 	{
 		State->LastError = TEXT("Preview receiver could not bind its UDP port.");
-		OnStatusChanged.Broadcast();
+		BroadcastReceiverChanged();
 		return false;
 	}
 	State->Port = Port;
 	State->ReceiverLabel = MoveTemp(ReceiverLabel);
 	State->LastError.Reset();
-	OnStatusChanged.Broadcast();
+	BroadcastReceiverChanged();
 	return true;
 #else
 	static_cast<void>(Port);
@@ -276,7 +367,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::DisableReceiver()
 	State->SessionPolicy.Reset();
 	State->PairedEditorLabel.Reset();
 	State->PreviewQueue.Reset();
-	OnStatusChanged.Broadcast();
+	BroadcastReceiverChanged();
 #endif
 }
 
@@ -347,7 +438,7 @@ bool UOpenMobileHapticsPreviewReceiverSubsystem::ApprovePairing(
 	);
 	State->PendingPairing = {};
 	State->LastError.Reset();
-	OnStatusChanged.Broadcast();
+	BroadcastReceiverChanged();
 	return true;
 #else
 	static_cast<void>(RequestId);
@@ -374,7 +465,7 @@ bool UOpenMobileHapticsPreviewReceiverSubsystem::RejectPairing(
 	);
 	State->SessionPolicy.RejectPairing(RequestId);
 	State->PendingPairing = {};
-	OnStatusChanged.Broadcast();
+	BroadcastReceiverChanged();
 	return true;
 #else
 	static_cast<void>(RequestId);
@@ -406,7 +497,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::Tick(float DeltaTime)
 			State->PendingPairing.RequestId
 		);
 		State->PendingPairing = {};
-		OnStatusChanged.Broadcast();
+		BroadcastReceiverChanged();
 	}
 	if (State->SessionPolicy.IsSessionExpired(Now))
 	{
@@ -423,7 +514,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::Tick(float DeltaTime)
 		State->PairedEditorLabel.Reset();
 		State->PreviewQueue.Reset();
 		State->LastError = TEXT("Preview session expired.");
-		OnStatusChanged.Broadcast();
+		BroadcastReceiverChanged();
 	}
 
 	for (int32 DatagramIndex = 0;
@@ -556,7 +647,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::Tick(float DeltaTime)
 				State->PendingEndpoint = Endpoint;
 				State->PendingExpirationSeconds = Now
 					+ FOpenMobileHapticsPreviewProtocol::PairingLifetimeSeconds;
-				OnStatusChanged.Broadcast();
+				BroadcastReceiverChanged();
 			}
 			FOpenMobileHapticsPreviewMessage Pending;
 			Pending.Type = EOpenMobileHapticsPreviewMessageType::PairPending;
@@ -610,7 +701,7 @@ void UOpenMobileHapticsPreviewReceiverSubsystem::Tick(float DeltaTime)
 			State->SessionPolicy.Disconnect();
 			State->PairedEditorLabel.Reset();
 			State->PreviewQueue.Reset();
-			OnStatusChanged.Broadcast();
+			BroadcastReceiverChanged();
 			continue;
 		}
 		if (Message.Type != EOpenMobileHapticsPreviewMessageType::Preview)
@@ -794,6 +885,15 @@ UWorld* UOpenMobileHapticsPreviewReceiverSubsystem::GetTickableGameObjectWorld()
 	const
 {
 	return GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+}
+
+void UOpenMobileHapticsPreviewReceiverSubsystem::BroadcastReceiverChanged()
+{
+	OnReceiverChanged.Broadcast(
+		GetReceiverStatus(),
+		GetPendingPairingRequest()
+	);
+	OnStatusChanged.Broadcast();
 }
 
 void UOpenMobileHapticsPreviewReceiverSubsystem::HandleApplicationBackground()

@@ -13,6 +13,7 @@
 #if WITH_EDITOR
 #include "Interfaces/ITargetPlatform.h"
 #include "Misc/DataValidation.h"
+#include "UObject/UnrealType.h"
 #endif
 
 namespace OpenMobileHapticPlatformAssetsPrivate
@@ -134,6 +135,55 @@ EDataValidationResult UOpenMobileHapticPlatformPatternAsset::IsDataValid(
 }
 #endif
 
+void UOpenMobileHapticAndroidPatternAsset::PostInitProperties()
+{
+	Super::PostInitProperties();
+	RefreshResolvedMinimumAndroidAPI();
+}
+
+void UOpenMobileHapticAndroidPatternAsset::PostLoad()
+{
+	Super::PostLoad();
+	MigrateLegacyWaveform();
+	RefreshResolvedMinimumAndroidAPI();
+}
+
+#if WITH_EDITOR
+void UOpenMobileHapticAndroidPatternAsset::PostEditChangeProperty(
+	FPropertyChangedEvent& PropertyChangedEvent
+)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	RefreshResolvedMinimumAndroidAPI();
+}
+#endif
+
+void UOpenMobileHapticAndroidPatternAsset::MigrateLegacyWaveform()
+{
+	if (!WaveformSteps.IsEmpty()
+		|| WaveformTimingsMilliseconds.IsEmpty()
+		|| WaveformTimingsMilliseconds.Num() != WaveformAmplitudes.Num())
+	{
+		return;
+	}
+	WaveformSteps.Reserve(WaveformTimingsMilliseconds.Num());
+	for (int32 Index = 0; Index < WaveformTimingsMilliseconds.Num(); ++Index)
+	{
+		WaveformSteps.Emplace(
+			WaveformTimingsMilliseconds[Index],
+			WaveformAmplitudes[Index]
+		);
+	}
+	WaveformTimingsMilliseconds.Reset();
+	WaveformAmplitudes.Reset();
+}
+
+void UOpenMobileHapticAndroidPatternAsset::
+RefreshResolvedMinimumAndroidAPI()
+{
+	ResolvedMinimumAndroidAPI = GetMinimumOSVersion();
+}
+
 int32 UOpenMobileHapticAndroidPatternAsset::GetMinimumOSVersion() const
 {
 	int32 FormatMinimum = 26;
@@ -182,7 +232,7 @@ bool UOpenMobileHapticAndroidPatternAsset::Supports(
 		return Capabilities.WaveformTiming
 				== EOpenMobileHapticSupportState::Supported
 			&& (!Capabilities.MaximumEventCount.bKnown
-				|| WaveformTimingsMilliseconds.Num()
+				|| WaveformSteps.Num()
 					<= Capabilities.MaximumEventCount.Value);
 	case EOpenMobileHapticAndroidPatternFormat::BasicEnvelope:
 	case EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope:
@@ -249,41 +299,46 @@ bool UOpenMobileHapticAndroidPatternAsset::Validate(
 	}
 	else if (Format == EOpenMobileHapticAndroidPatternFormat::Waveform)
 	{
-		if (WaveformTimingsMilliseconds.IsEmpty()
-			|| WaveformTimingsMilliseconds.Num() != WaveformAmplitudes.Num())
+		if (!WaveformTimingsMilliseconds.IsEmpty()
+			|| !WaveformAmplitudes.IsEmpty())
 		{
 			Errors.Add(TEXT(
-				"Waveform timings and amplitudes must have the same nonzero count."
+				"Legacy waveform arrays could not be migrated. Reopen and resave the asset after matching their counts."
 			));
 		}
-		for (int32 Index = 0; Index < WaveformTimingsMilliseconds.Num(); ++Index)
+		if (WaveformSteps.IsEmpty())
 		{
-			if (WaveformTimingsMilliseconds[Index] < 0)
+			Errors.Add(TEXT("WaveformSteps must contain at least one row."));
+		}
+		for (int32 Index = 0; Index < WaveformSteps.Num(); ++Index)
+		{
+			const FOpenMobileHapticAndroidWaveformStep& Step =
+				WaveformSteps[Index];
+			if (Step.DurationMilliseconds < 0)
 			{
 				Errors.Add(FString::Printf(
-					TEXT("Waveform timing %d cannot be negative."),
+					TEXT("Waveform step %d duration cannot be negative."),
+					Index
+				));
+			}
+			if (Step.Amplitude < 0 || Step.Amplitude > 255)
+			{
+				Errors.Add(FString::Printf(
+					TEXT("Waveform step %d amplitude must be from 0 through 255."),
 					Index
 				));
 			}
 		}
-		if (!WaveformTimingsMilliseconds.ContainsByPredicate(
-			[](int32 Timing) { return Timing > 0; }))
-		{
-			Errors.Add(TEXT("Waveform must contain a positive timing."));
-		}
-		for (int32 Index = 0; Index < WaveformAmplitudes.Num(); ++Index)
-		{
-			if (WaveformAmplitudes[Index] < 0
-				|| WaveformAmplitudes[Index] > 255)
+		if (!WaveformSteps.ContainsByPredicate(
+			[](const FOpenMobileHapticAndroidWaveformStep& Step)
 			{
-				Errors.Add(FString::Printf(
-					TEXT("Waveform amplitude %d must be from 0 through 255."),
-					Index
-				));
-			}
+				return Step.DurationMilliseconds > 0;
+			}))
+		{
+			Errors.Add(TEXT("Waveform must contain a positive duration."));
 		}
 		if (WaveformRepeatIndex < -1
-			|| WaveformRepeatIndex >= WaveformTimingsMilliseconds.Num())
+			|| WaveformRepeatIndex >= WaveformSteps.Num())
 		{
 			Errors.Add(TEXT("WaveformRepeatIndex is outside the waveform."));
 		}

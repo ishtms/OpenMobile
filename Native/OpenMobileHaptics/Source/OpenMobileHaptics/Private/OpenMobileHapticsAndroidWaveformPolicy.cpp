@@ -136,7 +136,7 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
 		return Unavailable(FallbackPolicy, TEXT("WaveformSupport"));
 	}
 
-	const int32 Count = Asset.WaveformTimingsMilliseconds.Num();
+	const int32 Count = Asset.WaveformSteps.Num();
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	if (Count
@@ -153,13 +153,15 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
 	}
 
 	int64 TotalDurationMilliseconds = 0;
-	for (const int32 Timing : Asset.WaveformTimingsMilliseconds)
+	for (const FOpenMobileHapticAndroidWaveformStep& Step
+		: Asset.WaveformSteps)
 	{
-		if (TotalDurationMilliseconds > MAX_int64 - Timing)
+		if (TotalDurationMilliseconds
+			> MAX_int64 - Step.DurationMilliseconds)
 		{
 			return Rejected(TEXT("DurationOverflow"));
 		}
-		TotalDurationMilliseconds += Timing;
+		TotalDurationMilliseconds += Step.DurationMilliseconds;
 	}
 	const int64 MaximumDurationMilliseconds = static_cast<int64>(
 		FMath::RoundToDouble(
@@ -181,11 +183,13 @@ FOpenMobileHapticsAndroidWaveformPolicy::ResolveOverride(
 		== EOpenMobileHapticSupportState::Supported;
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
+		const FOpenMobileHapticAndroidWaveformStep& Step =
+			Asset.WaveformSteps[Index];
 		Resolution.TimingsMilliseconds.Add(
-			Asset.WaveformTimingsMilliseconds[Index]
+			Step.DurationMilliseconds
 		);
 		const int32 Amplitude = ScaleNormalizedAmplitude(
-			static_cast<float>(Asset.WaveformAmplitudes[Index]) / 255.0f,
+			static_cast<float>(Step.Amplitude) / 255.0f,
 			RequestIntensity,
 			bHasAmplitudeControl
 		);

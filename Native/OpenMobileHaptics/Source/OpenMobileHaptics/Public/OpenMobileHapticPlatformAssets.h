@@ -7,24 +7,24 @@
 
 class UAssetImportData;
 
-UENUM(BlueprintType)
+UENUM()
 enum class EOpenMobileHapticOverridePlatform : uint8
 {
-	None,
-	Android,
-	IOS
+	None UMETA(DisplayName = "No Override"),
+	Android UMETA(DisplayName = "Android"),
+	IOS UMETA(DisplayName = "iOS")
 };
 
-UENUM(BlueprintType)
+UENUM()
 enum class EOpenMobileHapticAndroidPatternFormat : uint8
 {
-	Primitives,
-	Waveform,
-	BasicEnvelope,
-	WaveformEnvelope
+	Primitives UMETA(DisplayName = "Primitive Composition"),
+	Waveform UMETA(DisplayName = "Waveform Steps"),
+	BasicEnvelope UMETA(DisplayName = "Basic Envelope"),
+	WaveformEnvelope UMETA(DisplayName = "Waveform Envelope")
 };
 
-UENUM(BlueprintType)
+UENUM()
 enum class EOpenMobileHapticAndroidPrimitive : uint8
 {
 	Tick,
@@ -37,7 +37,7 @@ enum class EOpenMobileHapticAndroidPrimitive : uint8
 	QuickFall
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidPrimitiveStep
 {
 	GENERATED_BODY()
@@ -54,48 +54,86 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidPrimitiveStep
 	{
 	}
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(EditAnywhere, Category = "Android")
 	EOpenMobileHapticAndroidPrimitive Primitive =
 		EOpenMobileHapticAndroidPrimitive::Click;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Scale = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0", Units = "ms"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0", Units = "ms"))
 	int32 DelayMilliseconds = 0;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidWaveformStep
+{
+	GENERATED_BODY()
+
+	FOpenMobileHapticAndroidWaveformStep() = default;
+	FOpenMobileHapticAndroidWaveformStep(
+		int32 InDurationMilliseconds,
+		int32 InAmplitude
+	)
+		: DurationMilliseconds(InDurationMilliseconds)
+		, Amplitude(InAmplitude)
+	{
+	}
+
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android",
+		meta = (
+			ClampMin = "0",
+			Units = "ms",
+			ToolTip = "How long this waveform step lasts. At least one step must have a positive duration."
+		)
+	)
+	int32 DurationMilliseconds = 0;
+
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android",
+		meta = (
+			ClampMin = "0",
+			ClampMax = "255",
+			ToolTip = "Vibration amplitude from 0 for silence through 255 for maximum output."
+		)
+	)
+	int32 Amplitude = 255;
+};
+
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidEnvelopePoint
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", Units = "s"))
 	float TimeSeconds = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Amplitude = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", Units = "Hz"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", Units = "Hz"))
 	float FrequencyHz = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Sharpness = 0.5f;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticIOSAudioResource
 {
 	GENERATED_BODY()
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
 	FString RelativePath;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "iOS")
 	TArray<uint8> Data;
 };
 
-UCLASS(Abstract, BlueprintType)
+UCLASS(Abstract)
 class OPENMOBILEHAPTICS_API UOpenMobileHapticPlatformPatternAsset
 	: public UPrimaryDataAsset
 {
@@ -136,33 +174,111 @@ public:
 #endif
 };
 
-UCLASS(BlueprintType)
+UCLASS()
 class OPENMOBILEHAPTICS_API UOpenMobileHapticAndroidPatternAsset final
 	: public UOpenMobileHapticPlatformPatternAsset
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "26"))
+	virtual void PostInitProperties() override;
+	virtual void PostLoad() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(
+		FPropertyChangedEvent& PropertyChangedEvent
+	) override;
+#endif
+
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android",
+		meta = (
+			ClampMin = "26",
+			ToolTip = "Optional project floor for this pattern. The selected format can require a newer Android API."
+		)
+	)
 	int32 MinimumAndroidAPI = 26;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(
+		VisibleAnywhere,
+		Transient,
+		Category = "Android",
+		meta = (
+			DisplayName = "Resolved Minimum Android API",
+			ToolTip = "The effective Android API required by the selected format and project floor."
+		)
+	)
+	int32 ResolvedMinimumAndroidAPI = 26;
+
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android",
+		meta = (ToolTip = "Selects the Android-native representation authored by this asset.")
+	)
 	EOpenMobileHapticAndroidPatternFormat Format =
 		EOpenMobileHapticAndroidPatternFormat::Primitives;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android|Primitives",
+		meta = (
+			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Primitives",
+			EditConditionHides,
+			ToolTip = "Primitive composition steps. Android API 30 or newer is required."
+		)
+	)
 	TArray<FOpenMobileHapticAndroidPrimitiveStep> Primitives;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android|Waveform",
+		meta = (
+			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Waveform",
+			EditConditionHides,
+			TitleProperty = "DurationMilliseconds",
+			ToolTip = "Ordered waveform rows. Each row keeps its duration and amplitude together."
+		)
+	)
+	TArray<FOpenMobileHapticAndroidWaveformStep> WaveformSteps;
+
+	UPROPERTY(
+		meta = (
+			DeprecatedProperty,
+			DeprecationMessage = "Waveform timings are migrated into WaveformSteps."
+		)
+	)
 	TArray<int32> WaveformTimingsMilliseconds;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(
+		meta = (
+			DeprecatedProperty,
+			DeprecationMessage = "Waveform amplitudes are migrated into WaveformSteps."
+		)
+	)
 	TArray<int32> WaveformAmplitudes;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android", meta = (ClampMin = "-1"))
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android|Waveform",
+		meta = (
+			ClampMin = "-1",
+			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Waveform",
+			EditConditionHides,
+			ToolTip = "Waveform row to repeat from, or -1 to play once."
+		)
+	)
 	int32 WaveformRepeatIndex = -1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Android")
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Android|Envelope",
+		meta = (
+			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::BasicEnvelope || Format == EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope",
+			EditConditionHides,
+			ToolTip = "Envelope control points. Android API 36 or newer is required."
+		)
+	)
 	TArray<FOpenMobileHapticAndroidEnvelopePoint> EnvelopePoints;
 
 	virtual EOpenMobileHapticOverridePlatform GetOverridePlatform() const override
@@ -175,9 +291,13 @@ public:
 		int32 OSVersion
 	) const override;
 	virtual bool Validate(TArray<FString>& Errors) const override;
+
+private:
+	void MigrateLegacyWaveform();
+	void RefreshResolvedMinimumAndroidAPI();
 };
 
-UCLASS(BlueprintType)
+UCLASS()
 class OPENMOBILEHAPTICS_API UOpenMobileHapticIOSPatternAsset final
 	: public UOpenMobileHapticPlatformPatternAsset
 {
@@ -186,7 +306,7 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticIOSPatternAsset final
 public:
 	virtual void PostInitProperties() override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "iOS", meta = (ClampMin = "13"))
+	UPROPERTY(EditAnywhere, Category = "iOS", meta = (ClampMin = "13"))
 	int32 MinimumIOSMajorVersion = 13;
 
 	bool SetAHAPSource(const FString& Source, TArray<FString>& Errors);

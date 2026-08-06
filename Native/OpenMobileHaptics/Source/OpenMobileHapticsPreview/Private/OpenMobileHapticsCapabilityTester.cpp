@@ -526,3 +526,29 @@ CreateSanitizedCapabilitySnapshot(
 	return false;
 #endif
 }
+
+void UOpenMobileHapticsCapabilityTesterLibrary::
+CreateHapticCapabilitySnapshot(
+	const UObject* WorldContextObject,
+	EOpenMobileHapticsCapabilitySnapshotOutcome& Outcome,
+	FOpenMobileHapticsCapabilityTesterSnapshot& OutSnapshot,
+	FString& OutJson,
+	FString& OutError
+)
+{
+	if (CreateSanitizedCapabilitySnapshot(
+		WorldContextObject,
+		OutSnapshot,
+		OutJson,
+		OutError
+	))
+	{
+		Outcome = EOpenMobileHapticsCapabilitySnapshotOutcome::Succeeded;
+		return;
+	}
+#if OPENMOBILE_HAPTICS_PREVIEW_ENABLED
+	Outcome = EOpenMobileHapticsCapabilitySnapshotOutcome::Failed;
+#else
+	Outcome = EOpenMobileHapticsCapabilitySnapshotOutcome::Unavailable;
+#endif
+}

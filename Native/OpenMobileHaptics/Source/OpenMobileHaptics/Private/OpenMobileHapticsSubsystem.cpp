@@ -206,9 +206,10 @@ namespace OpenMobileHapticsSubsystemPrivate
 				return false;
 			}
 			int64 DurationMilliseconds = 0;
-			for (const int32 Timing : Android->WaveformTimingsMilliseconds)
+			for (const FOpenMobileHapticAndroidWaveformStep& Step
+				: Android->WaveformSteps)
 			{
-				DurationMilliseconds += Timing;
+				DurationMilliseconds += Step.DurationMilliseconds;
 			}
 			return DurationMilliseconds <= 500;
 		}

@@ -169,10 +169,10 @@ public:
 	TArray<FOpenMobileHapticPatternMarker> Markers;
 #endif
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
+	UPROPERTY(EditAnywhere, Category = "Platform Overrides")
 	TSoftObjectPtr<UOpenMobileHapticAndroidPatternAsset> AndroidOverride;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Platform Overrides")
+	UPROPERTY(EditAnywhere, Category = "Platform Overrides")
 	TSoftObjectPtr<UOpenMobileHapticIOSPatternAsset> IOSOverride;
 
 	FSoftObjectPath GetOverrideForPlatform(
