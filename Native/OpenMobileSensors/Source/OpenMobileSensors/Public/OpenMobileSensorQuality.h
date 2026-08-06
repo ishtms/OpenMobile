@@ -50,16 +50,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFusionContext
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	double EstimatedLagSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw expected-input bit mask. Prefer Get Expected Fusion Inputs or Break Sensor Fusion Context."))
 	int64 ExpectedInputMask = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw contributing-input bit mask. Prefer Get Contributing Fusion Inputs or Break Sensor Fusion Context."))
 	int64 ContributingInputMask = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw missing-input bit mask. Prefer Get Missing Fusion Inputs or Break Sensor Fusion Context."))
 	int64 MissingInputMask = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw degraded-input bit mask. Prefer Get Degraded Fusion Inputs or Break Sensor Fusion Context."))
 	int64 DegradedInputMask = 0;
 };
 
@@ -70,6 +70,19 @@ class OPENMOBILESENSORS_API UOpenMobileSensorQualityLibrary final
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Values", meta = (DisplayName = "Break Sensor Fusion Context", NativeBreakFunc, Keywords = "OpenMobile sensors fusion quality expected contributing missing degraded typed inputs", AdvancedDisplay = "bOutHasNativeQuality,OutNativeQuality,bOutHasEstimatedLag,OutEstimatedLagSeconds", ToolTip = "Breaks fusion quality into typed sensor arrays. Raw masks stay on the advanced struct path."))
+	static void BreakSensorFusionContext(
+		const FOpenMobileSensorFusionContext& Context,
+		EOpenMobileSensorFusionQuality& OutQuality,
+		bool& bOutHasNativeQuality,
+		EOpenMobileSensorFusionQuality& OutNativeQuality,
+		bool& bOutHasEstimatedLag,
+		double& OutEstimatedLagSeconds,
+		TArray<EOpenMobileSensorType>& OutExpectedInputs,
+		TArray<EOpenMobileSensorType>& OutContributingInputs,
+		TArray<EOpenMobileSensorType>& OutMissingInputs,
+		TArray<EOpenMobileSensorType>& OutDegradedInputs);
+
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Make Sensor Input Mask", ToolTip = "Returns the fixed fusion-input bit for one sensor type."))
 	static int64 MakeInputMask(EOpenMobileSensorType Sensor);
 

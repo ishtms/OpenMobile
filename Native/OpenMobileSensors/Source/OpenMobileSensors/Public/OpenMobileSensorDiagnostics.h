@@ -104,7 +104,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamDiagnostics
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
 	bool bHasSample = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags", ToolTip = "Semantic source flags for the latest sample. Use Has Sensor Source for normal branching."))
 	int32 SourceFlags = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

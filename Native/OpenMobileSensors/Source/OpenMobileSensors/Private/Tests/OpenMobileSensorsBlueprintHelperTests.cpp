@@ -3,6 +3,9 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileNativeStepCount.h"
 #include "OpenMobileSensorBlueprintLibrary.h"
+#include "OpenMobileSensorFlagLibrary.h"
+#include "OpenMobileSensorDiagnostics.h"
+#include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorOptionalValueLibrary.h"
 #include "OpenMobileSensorPermissions.h"
 #include "OpenMobileSensorsSettings.h"
@@ -386,6 +389,119 @@ bool FOpenMobileSensorsBlueprintOptionalAndTimeHelpersTest::RunTest(
 			OptionalNumberValue->HasMetaData(TEXT("AdvancedDisplay")));
 		TestFalse(TEXT("Optional backing values explain availability"),
 			OptionalNumberValue->GetToolTipText().IsEmpty());
+	}
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintFlagsAndPurityTest,
+	"OpenMobile.Sensors.Blueprint.Helpers.FlagsAndPurity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintFlagsAndPurityTest::RunTest(
+	const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	const int32 Sources =
+		static_cast<int32>(EOpenMobileSensorSourceFlags::Raw)
+		| static_cast<int32>(EOpenMobileSensorSourceFlags::Replay);
+	TestTrue(TEXT("Source helper finds a present flag"),
+		UOpenMobileSensorFlagLibrary::HasSensorSource(
+			Sources, EOpenMobileSensorSourceFlags::Replay));
+	TestFalse(TEXT("Source helper rejects a missing flag"),
+		UOpenMobileSensorFlagLibrary::HasSensorSource(
+			Sources, EOpenMobileSensorSourceFlags::Mock));
+	const int32 TimestampIssues =
+		static_cast<int32>(EOpenMobileSensorTimestampIssue::Backward);
+	TestTrue(TEXT("Timestamp helper finds a present issue"),
+		UOpenMobileSensorFlagLibrary::HasTimestampIssue(
+			TimestampIssues, EOpenMobileSensorTimestampIssue::Backward));
+	TestTrue(TEXT("Attitude helper recognizes selected output"),
+		UOpenMobileSensorFlagLibrary::HasAttitudeRepresentation(
+			static_cast<int32>(
+				EOpenMobileAttitudeRepresentation::Quaternion),
+			EOpenMobileAttitudeRepresentation::Quaternion));
+	TestTrue(TEXT("Altitude helper recognizes a limitation"),
+		UOpenMobileSensorFlagLibrary::HasAltitudeLimitation(
+			static_cast<int32>(
+				EOpenMobileRelativeAltitudeQualityLimitation::WeatherSensitive),
+			EOpenMobileRelativeAltitudeQualityLimitation::WeatherSensitive));
+	TestTrue(TEXT("Fallback helper recognizes an unsupported condition"),
+		UOpenMobileSensorFlagLibrary::HasUnsupportedFallbackCondition(
+			static_cast<int32>(
+				EOpenMobileSensorFallbackUnsupportedCondition::MissingInput),
+			EOpenMobileSensorFallbackUnsupportedCondition::MissingInput));
+#if WITH_METADATA
+	const FProperty* DiagnosticSources = FindFProperty<FProperty>(
+		FOpenMobileSensorStreamDiagnostics::StaticStruct(),
+		GET_MEMBER_NAME_CHECKED(
+			FOpenMobileSensorStreamDiagnostics, SourceFlags));
+	TestNotNull(TEXT("Diagnostic source flags are reflected"),
+		DiagnosticSources);
+	if (DiagnosticSources)
+	{
+		TestEqual(TEXT("Diagnostic source flags name their bitmask enum"),
+			DiagnosticSources->GetMetaData(TEXT("BitmaskEnum")),
+			FString(TEXT("/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags")));
+	}
+	const FProperty* FusionMask = FindFProperty<FProperty>(
+		FOpenMobileSensorFusionContext::StaticStruct(),
+		GET_MEMBER_NAME_CHECKED(
+			FOpenMobileSensorFusionContext, ExpectedInputMask));
+	TestNotNull(TEXT("The raw fusion mask is reflected"), FusionMask);
+	if (FusionMask)
+	{
+		TestTrue(TEXT("Raw fusion masks are advanced"),
+			FusionMask->HasMetaData(TEXT("AdvancedDisplay")));
+	}
+	const UFunction* FusionBreak =
+		UOpenMobileSensorQualityLibrary::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorQualityLibrary,
+				BreakSensorFusionContext));
+	TestNotNull(TEXT("The intentional fusion break is reflected"),
+		FusionBreak);
+	if (FusionBreak)
+	{
+		TestTrue(TEXT("The intentional fusion break replaces raw masks"),
+			FusionBreak->HasMetaData(TEXT("NativeBreakFunc")));
+	}
+	const FName LiveSubsystemFunctions[] = {
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorsSubsystem, GetCapabilitySnapshotNative),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorsSubsystem, GetSubscriptionStateNative),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorsSubsystem, GetDiagnosticsSnapshotNative),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorsSubsystem, GetActiveRecordingSessionsNative),
+		GET_FUNCTION_NAME_CHECKED(
+			UOpenMobileSensorsSubsystem, GetActiveReplaySessionsNative)
+	};
+	for (FName FunctionName : LiveSubsystemFunctions)
+	{
+		const UFunction* Function =
+			UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+				FunctionName);
+		TestNotNull(TEXT("The live subsystem query is reflected"), Function);
+		if (Function)
+		{
+			TestFalse(TEXT("Live subsystem queries are not Blueprint pure"),
+				Function->HasAnyFunctionFlags(FUNC_BlueprintPure));
+		}
+	}
+	const UFunction* CachedListenerState =
+		UOpenMobileSensorListener::StaticClass()->FindFunctionByName(
+			GET_FUNCTION_NAME_CHECKED(
+				UOpenMobileSensorListener, GetListenerState));
+	TestNotNull(TEXT("The cached listener query is reflected"),
+		CachedListenerState);
+	if (CachedListenerState)
+	{
+		TestTrue(TEXT("Cached listener state remains Blueprint pure"),
+			CachedListenerState->HasAnyFunctionFlags(FUNC_BlueprintPure));
 	}
 #endif
 	return true;

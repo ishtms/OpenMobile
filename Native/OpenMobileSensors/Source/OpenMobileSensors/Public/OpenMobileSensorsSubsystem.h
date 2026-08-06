@@ -215,10 +215,10 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Capabilities", ToolTip = "Returns a side-effect-free snapshot of sensor availability and restrictions."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Sensor Capabilities", ToolTip = "Copies one coherent live snapshot of sensor availability and restrictions."))
 	FOpenMobileSensorCapabilitySnapshot GetCapabilitySnapshotNative() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Metadata", ToolTip = "Returns cached portable metadata for discovered sensors without starting hardware."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Sensor Metadata", ToolTip = "Copies the current cached portable metadata for discovered sensors."))
 	TArray<FOpenMobileSensorMetadata> GetMetadataNative() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Start Sensor Subscription", ToolTip = "Accepts a sensor stream request and returns a typed handle or failure."))
@@ -252,10 +252,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Stop All Game Instance Sensor Subscriptions (Advanced)", Keywords = "OpenMobile sensors raw handles Game Instance stop all", ToolTip = "Advanced raw-handle cleanup. Stops every sensor subscription owned by this Game Instance, but does not stop typed recording or replay sessions. Prefer Stop Sensor Listeners for scoped typed cleanup."))
 	int32 StopAllSubscriptionsNative();
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Listeners", meta = (DisplayName = "Get Managed Sensor Listeners", Keywords = "OpenMobile sensors listeners active paused starting Game Instance collection", ToolTip = "Returns unfinished typed listeners owned by this Game Instance, including starting, active, and paused listeners."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Listeners", meta = (DisplayName = "Get Managed Sensor Listeners", Keywords = "OpenMobile sensors listeners active paused starting Game Instance collection", ToolTip = "Copies the current unfinished typed listeners owned by this Game Instance, including starting, active, and paused listeners."))
 	TArray<UOpenMobileSensorListener*> GetManagedSensorListenersNative() const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Subscription State", ToolTip = "Returns the current state, including attitude reference and recenter state, for an owned subscription handle."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Sensor Subscription State", ToolTip = "Copies one coherent current state snapshot for an owned raw subscription handle."))
 	bool GetSubscriptionStateNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		FOpenMobileSensorSubscriptionStateSnapshot& OutState
@@ -465,7 +465,7 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Permission Status", ToolTip = "Returns normalized permission state without displaying a system prompt."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Permissions", meta = (DisplayName = "Get Sensor Permission Status", ToolTip = "Copies the current normalized permission state without displaying a system prompt."))
 	FOpenMobilePermissionResult GetPermissionStatusNative(
 		EOpenMobileSensorPermission Permission
 	) const;
@@ -511,7 +511,7 @@ public:
 	TArray<FOpenMobileSensorIdentifier>
 	GetActiveSensorIdentifiersNative() const;
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Active Sensor Recordings", Keywords = "OpenMobile sensors recording session active list", ToolTip = "Returns owner-scoped typed recording sessions that are starting, recording, or finalizing."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Active Sensor Recordings", Keywords = "OpenMobile sensors recording session active list", ToolTip = "Copies the current owner-scoped typed recording sessions that are starting, recording, or finalizing."))
 	TArray<UOpenMobileSensorRecordingSession*>
 	GetActiveRecordingSessionsNative() const;
 	FGuid ReplayRecordingNative(
@@ -522,7 +522,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Cancel Sensor Replay by GUID (Advanced)", ToolTip = "Cancels one raw replay request. Prefer Stop Sensor Replay on a typed session."))
 	FOpenMobileSensorOperationResult CancelReplayNative(FGuid RequestId);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Replay", meta = (DisplayName = "Get Active Sensor Replays", Keywords = "OpenMobile sensors replay session active list", ToolTip = "Returns owner-scoped typed replay sessions that are loading, playing, or paused."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Replay", meta = (DisplayName = "Get Active Sensor Replays", Keywords = "OpenMobile sensors replay session active list", ToolTip = "Copies the current owner-scoped typed replay sessions that are loading, playing, or paused."))
 	TArray<UOpenMobileSensorReplaySession*>
 	GetActiveReplaySessionsNative() const;
 
@@ -556,13 +556,13 @@ public:
 		double DeltaSeconds
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Get Sensor Replay State by GUID (Advanced)", ToolTip = "Returns one raw replay request state without advancing it."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (DisplayName = "Get Sensor Replay State by GUID (Advanced)", ToolTip = "Copies one coherent current raw replay state without advancing it."))
 	bool GetReplayStateNative(
 		FGuid RequestId,
 		FOpenMobileSensorReplaySnapshot& OutSnapshot
 	) const;
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Sensor Diagnostics", ToolTip = "Returns a read-only diagnostics snapshot without changing sensor state."))
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced|Diagnostics", meta = (DisplayName = "Get Sensor Diagnostics", ToolTip = "Copies one coherent current diagnostics snapshot without changing sensor state."))
 	FOpenMobileSensorDiagnosticsSnapshot GetDiagnosticsSnapshotNative() const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Capabilities Changed", ToolTip = "Broadcast when a material sensor capability field changes."))

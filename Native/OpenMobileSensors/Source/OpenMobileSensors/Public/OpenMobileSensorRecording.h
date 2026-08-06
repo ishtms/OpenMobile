@@ -106,7 +106,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReplaySnapshot
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (AdvancedDisplay, ToolTip = "Raw replay request GUID retained for compatibility. Prefer the typed replay session object."))
 	FGuid RequestId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
@@ -134,7 +134,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingSnapshot
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (AdvancedDisplay, ToolTip = "Raw recording request GUID retained for compatibility. Prefer the typed recording session object."))
 	FGuid RequestId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")

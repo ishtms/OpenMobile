@@ -19,6 +19,31 @@ namespace OpenMobileSensorQualityPrivate
 	}
 }
 
+void UOpenMobileSensorQualityLibrary::BreakSensorFusionContext(
+	const FOpenMobileSensorFusionContext& Context,
+	EOpenMobileSensorFusionQuality& OutQuality,
+	bool& bOutHasNativeQuality,
+	EOpenMobileSensorFusionQuality& OutNativeQuality,
+	bool& bOutHasEstimatedLag,
+	double& OutEstimatedLagSeconds,
+	TArray<EOpenMobileSensorType>& OutExpectedInputs,
+	TArray<EOpenMobileSensorType>& OutContributingInputs,
+	TArray<EOpenMobileSensorType>& OutMissingInputs,
+	TArray<EOpenMobileSensorType>& OutDegradedInputs)
+{
+	OutQuality = Context.Quality;
+	bOutHasNativeQuality = Context.bHasNativeQualityReport;
+	OutNativeQuality = Context.NativeQuality;
+	bOutHasEstimatedLag = Context.bHasEstimatedLag;
+	OutEstimatedLagSeconds = Context.bHasEstimatedLag
+		? Context.EstimatedLagSeconds
+		: 0.0;
+	OutExpectedInputs = GetExpectedInputs(Context);
+	OutContributingInputs = GetContributingInputs(Context);
+	OutMissingInputs = GetMissingInputs(Context);
+	OutDegradedInputs = GetDegradedInputs(Context);
+}
+
 int64 UOpenMobileSensorQualityLibrary::MakeInputMask(
 	EOpenMobileSensorType Sensor
 )

@@ -8,6 +8,7 @@
 #include "OpenMobileSensorDiagnostics.h"
 #include "OpenMobileSensorErrors.h"
 #include "OpenMobileSensorFlushAsyncAction.h"
+#include "OpenMobileSensorFlagLibrary.h"
 #include "OpenMobileSensorIdentifiers.h"
 #include "OpenMobileSensorMetadata.h"
 #include "OpenMobileSensorOptionalValueLibrary.h"

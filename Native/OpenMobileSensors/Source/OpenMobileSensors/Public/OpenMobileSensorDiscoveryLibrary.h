@@ -127,13 +127,13 @@ public:
 		const UObject* WorldContextObject
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Is Sensor Available", Keywords = "OpenMobile sensors available supported ready hardware", ToolTip = "Returns whether the preferred instance of this sensor is currently available."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Is Sensor Available", Keywords = "OpenMobile sensors available supported ready hardware", ToolTip = "Checks the current availability of the preferred sensor instance."))
 	static bool IsSensorAvailable(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Availability", Keywords = "OpenMobile sensors capability restriction correction", ToolTip = "Returns the preferred capability for one sensor without an array search."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Availability", Keywords = "OpenMobile sensors capability restriction correction", ToolTip = "Copies the current preferred capability for one sensor without an array search."))
 	static bool GetSensorAvailability(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor,
@@ -141,7 +141,7 @@ public:
 		FName InstanceId = NAME_None
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Availability Info", Keywords = "OpenMobile sensors compact capability restriction correction action rate", AdvancedDisplay = "InstanceId", ToolTip = "Returns compact availability and correction data for the preferred or named sensor instance."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Availability Info", Keywords = "OpenMobile sensors compact capability restriction correction action rate", AdvancedDisplay = "InstanceId", ToolTip = "Copies compact current availability and correction data for the preferred or named sensor instance."))
 	static bool GetSensorAvailabilityInfo(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor,
@@ -158,19 +158,19 @@ public:
 		FName InstanceId = NAME_None
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Available Sensors", Keywords = "OpenMobile sensors list enumerate available", ToolTip = "Returns every currently available sensor instance."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Available Sensors", Keywords = "OpenMobile sensors list enumerate available", ToolTip = "Copies every currently available sensor instance."))
 	static TArray<FOpenMobileSensorIdentifier> GetAvailableSensors(
 		const UObject* WorldContextObject
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Preferred Sensor", Keywords = "OpenMobile sensors preferred default instance", ToolTip = "Returns the preferred discovered instance for a sensor type."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Preferred Sensor", Keywords = "OpenMobile sensors preferred default instance", ToolTip = "Copies the current preferred discovered instance for a sensor type."))
 	static bool GetPreferredSensor(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor,
 		FOpenMobileSensorIdentifier& OutSensor
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Metadata", Keywords = "OpenMobile sensors metadata vendor range resolution power", ToolTip = "Returns metadata for the preferred sensor instance without an array search."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Sensor Metadata", Keywords = "OpenMobile sensors metadata vendor range resolution power", ToolTip = "Copies current metadata for the preferred sensor instance without an array search."))
 	static bool GetSensorMetadata(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor,
@@ -182,7 +182,7 @@ public:
 		EOpenMobileSensorType Sensor
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Permissions", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Required Access for Sensor", Keywords = "OpenMobile sensors permission prerequisite access location", ToolTip = "Returns a typed permission or external prerequisite for the preferred sensor instance."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Permissions", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Required Access for Sensor", Keywords = "OpenMobile sensors permission prerequisite access location", ToolTip = "Copies the current typed permission or external prerequisite for the preferred sensor instance."))
 	static FOpenMobileSensorAccessRequirement GetRequiredAccessForSensor(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorType Sensor
@@ -200,18 +200,18 @@ public:
 		EOpenMobileSensorRatePreset Preset
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Recommended Sensor Options (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Make Recommended Sensor Options and choose an explicit use case.", Keywords = "OpenMobile sensors recommended options defaults event", ToolTip = "Compatibility helper that returns the low-power Interface recommendation."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Recommended Sensor Options (Legacy)", DeprecatedFunction, DeprecationMessage = "Use Make Recommended Sensor Options and choose an explicit use case.", Keywords = "OpenMobile sensors recommended options defaults event", ToolTip = "Compatibility helper that copies the current low-power Interface recommendation."))
 	static FOpenMobileSensorStreamOptions GetRecommendedSensorOptions(
 		EOpenMobileSensorType Sensor
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Make Recommended Sensor Options", Keywords = "OpenMobile sensors recommended use case rate preset options defaults event", ToolTip = "Builds event-driven options from Project Settings for one sensor and use case."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Make Recommended Sensor Options", Keywords = "OpenMobile sensors recommended use case rate preset options defaults event", ToolTip = "Builds event-driven options from current Project Settings and sensor limits for one use case."))
 	static FOpenMobileSensorStreamOptions MakeRecommendedSensorOptions(
 		EOpenMobileSensorType Sensor,
 		EOpenMobileSensorUseCase UseCase = EOpenMobileSensorUseCase::Gameplay
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Preview Sensor Stream Options", Keywords = "OpenMobile sensors preview resolve rate clamp options", ToolTip = "Resolves presets, sensor limits, and project policy without starting hardware."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Preview Sensor Stream Options", Keywords = "OpenMobile sensors preview resolve rate clamp options", ToolTip = "Copies one coherent resolution using current presets, sensor limits, and project policy without starting hardware."))
 	static bool PreviewSensorStreamOptions(
 		EOpenMobileSensorType Sensor,
 		const FOpenMobileSensorStreamOptions& RequestedOptions,

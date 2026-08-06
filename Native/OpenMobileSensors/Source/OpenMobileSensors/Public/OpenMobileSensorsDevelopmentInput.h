@@ -216,6 +216,6 @@ public:
 		FString NativeCode
 	);
 
-	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Is Sensor Mock Input Active", DevelopmentOnly, Keywords = "OpenMobile sensors development mock enabled status", ToolTip = "Returns whether the non-Shipping mock provider is active. Always returns false in Shipping builds. Configure Project Settings > OpenMobile > OpenMobile Sensors."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Is Sensor Mock Input Active", DevelopmentOnly, Keywords = "OpenMobile sensors development mock enabled status", ToolTip = "Checks whether the non-Shipping mock provider is currently active. Always returns false in Shipping builds. Configure Project Settings > OpenMobile > OpenMobile Sensors."))
 	static bool IsMockInputActive();
 };
