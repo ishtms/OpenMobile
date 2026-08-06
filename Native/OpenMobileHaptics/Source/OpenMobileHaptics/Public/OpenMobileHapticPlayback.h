@@ -139,6 +139,7 @@ public:
 
 private:
 	friend class UOpenMobileHapticsBlueprintLibrary;
+	friend class UOpenMobileHapticPatternPlaybackAsyncAction;
 	friend class UOpenMobileHapticsSubsystem;
 
 	void InitializePlayback(

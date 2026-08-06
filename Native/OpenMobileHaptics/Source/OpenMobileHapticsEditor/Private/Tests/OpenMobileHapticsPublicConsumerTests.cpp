@@ -337,4 +337,135 @@ bool FOpenMobileHapticsBlueprintFirstSurfaceTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBlueprintAuthoredContentSurfaceTest,
+	"OpenMobile.Haptics.API.BlueprintAuthoredContentSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBlueprintAuthoredContentSurfaceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	const UClass* PreparationActionClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticPreparationAsyncAction")
+	);
+	TestNotNull(
+		TEXT("Owned preparation has a Blueprint async action"),
+		PreparationActionClass
+	);
+	if (PreparationActionClass)
+	{
+		TestNotNull(
+			TEXT("Preparation exposes its async factory"),
+			PreparationActionClass->FindFunctionByName(TEXT("PrepareHapticsAsync"))
+		);
+		for (const FName BranchName : {
+			FName(TEXT("Ready")),
+			FName(TEXT("Cancelled")),
+			FName(TEXT("Failed"))
+		})
+		{
+			const FMulticastDelegateProperty* Branch =
+				FindFProperty<FMulticastDelegateProperty>(
+					PreparationActionClass,
+					BranchName
+				);
+			TestTrue(
+				*FString::Printf(
+					TEXT("Preparation %s is Blueprint assignable"),
+					*BranchName.ToString()
+				),
+				Branch && Branch->HasAnyPropertyFlags(
+					CPF_BlueprintAssignable
+				)
+			);
+		}
+	}
+
+	const UClass* LeaseClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticPreparationLease")
+	);
+	TestNotNull(TEXT("Preparation returns an owned lease"), LeaseClass);
+	if (LeaseClass)
+	{
+		TestNotNull(
+			TEXT("A preparation lease can release only its own claim"),
+			LeaseClass->FindFunctionByName(TEXT("Release"))
+		);
+	}
+
+	const UClass* PatternActionClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticPatternPlaybackAsyncAction")
+	);
+	TestNotNull(
+		TEXT("Pattern assets have a Blueprint playback task"),
+		PatternActionClass
+	);
+	if (PatternActionClass)
+	{
+		TestNotNull(
+			TEXT("Pattern asset playback exposes its async factory"),
+			PatternActionClass->FindFunctionByName(
+				TEXT("PlayHapticPatternAsset")
+			)
+		);
+		for (const FName BranchName : {
+			FName(TEXT("WaitingForPreparation")),
+			FName(TEXT("Accepted")),
+			FName(TEXT("Suppressed")),
+			FName(TEXT("Rejected"))
+		})
+		{
+			TestNotNull(
+				*FString::Printf(
+					TEXT("Pattern playback exposes %s"),
+					*BranchName.ToString()
+				),
+				FindFProperty<FMulticastDelegateProperty>(
+					PatternActionClass,
+					BranchName
+				)
+			);
+		}
+	}
+
+	const UClass* BlueprintLibraryClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticsBlueprintLibrary")
+	);
+	TestNotNull(TEXT("Blueprint Haptics library remains available"), BlueprintLibraryClass);
+	if (BlueprintLibraryClass)
+	{
+		for (const FName FunctionName : {
+			FName(TEXT("GetConfiguredHapticPatternNames")),
+			FName(TEXT("GetPreparedHapticPatternNames")),
+			FName(TEXT("IsHapticPatternReady"))
+		})
+		{
+			TestNotNull(
+				*FString::Printf(
+					TEXT("%s supports authored-content discovery"),
+					*FunctionName.ToString()
+				),
+				BlueprintLibraryClass->FindFunctionByName(FunctionName)
+			);
+		}
+	}
+
+	TestNotNull(
+		TEXT("Preparation state changes can be observed without polling"),
+		FindFProperty<FMulticastDelegateProperty>(
+			UOpenMobileHapticsSubsystem::StaticClass(),
+			TEXT("OnPreparationStateChanged")
+		)
+	);
+	return true;
+}
+
 #endif

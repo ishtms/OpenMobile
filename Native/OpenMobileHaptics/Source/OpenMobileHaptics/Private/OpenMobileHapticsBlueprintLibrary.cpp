@@ -3,6 +3,7 @@
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPlayback.h"
 #include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
@@ -481,6 +482,74 @@ bool UOpenMobileHapticsBlueprintLibrary::IsHapticFeatureKnown(
 )
 {
 	return Support != EOpenMobileHapticSupportState::Unknown;
+}
+
+TArray<FName>
+UOpenMobileHapticsBlueprintLibrary::GetConfiguredHapticPatternNames()
+{
+	TArray<FName> PatternNames;
+	const UOpenMobileHapticsSettings* Settings =
+		GetDefault<UOpenMobileHapticsSettings>();
+	for (const FOpenMobileHapticNamedLibrarySettings& ConfiguredLibrary :
+		Settings->NamedLibraries)
+	{
+		UOpenMobileHapticLibrary* Library = Cast<UOpenMobileHapticLibrary>(
+			ConfiguredLibrary.Asset.ResolveObject()
+		);
+		if (!Library && !ConfiguredLibrary.Asset.IsNull())
+		{
+			Library = Cast<UOpenMobileHapticLibrary>(
+				ConfiguredLibrary.Asset.TryLoad()
+			);
+		}
+		if (!Library)
+		{
+			continue;
+		}
+		for (const FOpenMobileHapticLibraryEntry& Entry : Library->Patterns)
+		{
+			if (!Entry.Name.IsNone())
+			{
+				PatternNames.AddUnique(Entry.Name);
+			}
+		}
+	}
+	PatternNames.Sort(FNameLexicalLess());
+	return PatternNames;
+}
+
+TArray<FName>
+UOpenMobileHapticsBlueprintLibrary::GetPreparedHapticPatternNames(
+	const UObject* WorldContextObject
+)
+{
+	TArray<FName> PatternNames;
+	FOpenMobileHapticError Error;
+	const UOpenMobileHapticsSubsystem* Subsystem =
+		OpenMobileHapticsBlueprintLibraryPrivate::ResolveSubsystem(
+			WorldContextObject,
+			Error
+		);
+	if (Subsystem)
+	{
+		Subsystem->GetPreparedPatternNames(PatternNames);
+	}
+	return PatternNames;
+}
+
+bool UOpenMobileHapticsBlueprintLibrary::IsHapticPatternReady(
+	const UObject* WorldContextObject,
+	FName PatternName
+)
+{
+	FOpenMobileHapticError Error;
+	const UOpenMobileHapticsSubsystem* Subsystem =
+		OpenMobileHapticsBlueprintLibraryPrivate::ResolveSubsystem(
+			WorldContextObject,
+			Error
+		);
+	return Subsystem && Subsystem->GetNamedPatternStatus(PatternName)
+		== EOpenMobileHapticNamedPatternStatus::Loaded;
 }
 
 FOpenMobileHapticPlaybackOptions

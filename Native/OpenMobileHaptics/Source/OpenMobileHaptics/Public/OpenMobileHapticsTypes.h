@@ -4,6 +4,8 @@
 #include "OpenMobileCoreTypes.h"
 #include "OpenMobileHapticsTypes.generated.h"
 
+class UOpenMobileHapticPreparationLease;
+
 UENUM(BlueprintType)
 enum class EOpenMobileHapticAvailability : uint8
 {
@@ -1084,6 +1086,45 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
 	TArray<FString> Errors;
+};
+
+UENUM(BlueprintType, meta = (ToolTip = "Terminal outcome for an owned Haptics preparation task."))
+enum class EOpenMobileHapticPreparationOutcome : uint8
+{
+	Ready UMETA(
+		DisplayName = "Ready",
+		ToolTip = "Configured Haptics content and native resources are prepared."
+	),
+	Cancelled UMETA(
+		DisplayName = "Cancelled",
+		ToolTip = "This caller stopped waiting. Other preparation owners remain valid."
+	),
+	Failed UMETA(
+		DisplayName = "Failed",
+		ToolTip = "Preparation could not start or did not complete."
+	)
+};
+
+USTRUCT(BlueprintType)
+struct OPENMOBILEHAPTICS_API FOpenMobileHapticPreparationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Prepare", meta = (ToolTip = "Terminal preparation outcome."))
+	EOpenMobileHapticPreparationOutcome Outcome =
+		EOpenMobileHapticPreparationOutcome::Failed;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Prepare", meta = (ToolTip = "Owned preparation claim returned only for Ready. Store it for as long as this feature needs prepared content."))
+	TObjectPtr<UOpenMobileHapticPreparationLease> Lease = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Prepare", meta = (ToolTip = "Number of configured named patterns that are ready."))
+	int32 PreparedPatternCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Prepare", meta = (ToolTip = "Primary typed failure. None for successful preparation."))
+	FOpenMobileHapticError Error;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Prepare", meta = (ToolTip = "Typed per-item failures when more than one configured resource failed."))
+	TArray<FOpenMobileHapticError> ItemErrors;
 };
 
 USTRUCT(BlueprintType)

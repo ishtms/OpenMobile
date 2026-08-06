@@ -153,6 +153,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Capabilities", meta = (DisplayName = "Is Haptic Feature Known", Keywords = "haptic capability unknown", ToolTip = "Returns false only when support has not been determined."))
 	static bool IsHapticFeatureKnown(EOpenMobileHapticSupportState Support);
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Get Configured Haptic Pattern Names", Keywords = "haptic library names discover debug", ReturnDisplayName = "Pattern Names", ToolTip = "Returns sorted pattern aliases from configured libraries for development tools and dynamic browsers. This explicit tooling query may load library metadata; do not call it on a latency-sensitive gameplay path."))
+	static TArray<FName> GetConfiguredHapticPatternNames();
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Get Prepared Haptic Pattern Names", Keywords = "haptic library ready loaded names debug", ReturnDisplayName = "Pattern Names", ToolTip = "Returns sorted configured pattern aliases currently prepared in this Game Instance without loading assets.", WorldContext = "WorldContextObject"))
+	static TArray<FName> GetPreparedHapticPatternNames(
+		const UObject* WorldContextObject
+	);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Is Haptic Pattern Ready", Keywords = "haptic named prepared loaded", ToolTip = "Returns true when a configured pattern alias is prepared in this Game Instance. Prefer pattern assets in ordinary gameplay graphs.", WorldContext = "WorldContextObject"))
+	static bool IsHapticPatternReady(
+		const UObject* WorldContextObject,
+		FName PatternName
+	);
+
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Options", meta = (DisplayName = "Make UI Haptic Options", Keywords = "haptic recommended channel selection", ReturnDisplayName = "Options", ToolTip = "Creates immediate UI options using the recommended UI channel and category."))
 	static FOpenMobileHapticPlaybackOptions MakeUIHapticOptions();
 

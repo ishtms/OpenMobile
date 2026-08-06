@@ -17,9 +17,24 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	Result
 );
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
+	FOpenMobileHapticPreparationStateChangedDynamic,
+	EOpenMobileHapticPreparationState,
+	PreviousState,
+	EOpenMobileHapticPreparationState,
+	NewState,
+	const FString&,
+	Reason,
+	bool,
+	bPreparedAssetsRemainLoaded
+);
+
 class UOpenMobileHapticLibrary;
 class UOpenMobileHapticPatternAsset;
+class UOpenMobileHapticPreparationAsyncAction;
+class UOpenMobileHapticPreparationLease;
 class UOpenMobileHapticPlayback;
+class UOpenMobileHapticPatternPlaybackAsyncAction;
 class UOpenMobileHapticPlaybackAsyncAction;
 struct FOpenMobileHapticsBackendCallback;
 struct FOpenMobileHapticsBackendRequestToken;
@@ -130,6 +145,12 @@ public:
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
 
+	FOpenMobileHapticPlaybackResult SubmitPatternAsset(
+		UOpenMobileHapticPatternAsset* PatternAsset,
+		float Intensity,
+		const FOpenMobileHapticPlaybackOptions& Options
+	);
+
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Calibrate Haptic Timing Clock", ToolTip = "Captures a game or audio clock sample against platform monotonic time for absolute Haptics scheduling."))
 	FOpenMobileHapticTimingCalibrationResult CalibrateTimingClock(
 		EOpenMobileHapticTimingClock Clock,
@@ -155,6 +176,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Open Mobile|Haptics", meta = (DisplayName = "Get Haptic Preparation State", ToolTip = "Reports aggregate named-asset and native prewarm readiness."))
 	EOpenMobileHapticPreparationState GetPreparationState() const;
+
+	void GetPreparedPatternNames(TArray<FName>& OutPatternNames) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Stop Haptic Playback", ToolTip = "Stops plugin-owned work for one playback handle."))
 	FOpenMobileHapticControlResult StopPlayback(
@@ -242,6 +265,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "On Named Haptic Libraries Prepared", ToolTip = "Broadcasts the terminal result of an explicit named-library preload."))
 	FOpenMobileHapticLibraryPreloadEventDynamic OnNamedLibrariesPrepared;
 
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "On Haptic Preparation State Changed", ToolTip = "Reports preparation transitions with a reason and whether already loaded pattern assets remain available."))
+	FOpenMobileHapticPreparationStateChangedDynamic OnPreparationStateChanged;
+
 	virtual FOpenMobileHapticCapabilities GetCapabilitiesNative() const override;
 	virtual FOpenMobileHapticPlaybackResult SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request
@@ -295,9 +321,12 @@ public:
 	virtual FOpenMobileHapticNativePlaybackEvent& OnPlaybackEventNative() override;
 
 private:
+	friend class UOpenMobileHapticPreparationAsyncAction;
+	friend class UOpenMobileHapticPreparationLease;
 	friend class UOpenMobileHapticPlayback;
 	friend class UOpenMobileHapticPlaybackAsyncAction;
 	friend class FOpenMobileHapticsAsyncContractTest;
+	friend class FOpenMobileHapticsPreparationAsyncContractTest;
 	friend class FOpenMobileHapticNamedLibrarySubsystemTest;
 	friend class FOpenMobileHapticsDynamicParameterSubsystemTest;
 	friend class FOpenMobileHapticsMasterIntensityTest;
@@ -318,6 +347,23 @@ private:
 	void UnregisterAsyncAction(UOpenMobileHapticPlaybackAsyncAction* Action);
 	void RegisterPlaybackObject(UOpenMobileHapticPlayback* Playback);
 	void UnregisterPlaybackObject(UOpenMobileHapticPlayback* Playback);
+	FOpenMobileHapticLibraryPreloadHandle PreloadNamedLibrariesInternal(
+		bool bAddLegacyClaim
+	);
+	UOpenMobileHapticPreparationLease* AcquirePreparationLease();
+	void ReleasePreparationLease(UOpenMobileHapticPreparationLease* Lease);
+	void RegisterPreparationAction(
+		UOpenMobileHapticPreparationAsyncAction* Action
+	);
+	void UnregisterPreparationAction(
+		UOpenMobileHapticPreparationAsyncAction* Action
+	);
+	void BroadcastPreparationStateChange(
+		EOpenMobileHapticPreparationState PreviousState,
+		EOpenMobileHapticPreparationState NewState,
+		FString Reason,
+		bool bPreparedAssetsRemainLoaded
+	);
 	FOpenMobileHapticsSubsystemState& GetOrCreateState() const;
 	FOpenMobileHapticControlResult ApplyUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy,
@@ -470,6 +516,10 @@ private:
 	TAtomic<bool> bUserPolicyEnabled = true;
 	FOpenMobileHapticNativePlaybackEvent NativePlaybackEvent;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> ActiveAsyncActions;
+	TSet<TWeakObjectPtr<UOpenMobileHapticPreparationAsyncAction>>
+		ActivePreparationActions;
+	TSet<TWeakObjectPtr<UOpenMobileHapticPreparationLease>>
+		ActivePreparationLeases;
 
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<UOpenMobileHapticPlayback>> ActivePlaybackObjects;
@@ -481,5 +531,6 @@ private:
 	FDelegateHandle InterruptionDelegateHandle;
 	FDelegateHandle RecoveryDelegateHandle;
 	FDelegateHandle ApplicationLifecycleDelegateHandle;
+	bool bLegacyPreparationClaim = false;
 	bool bDeinitialized = false;
 };

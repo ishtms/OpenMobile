@@ -2,7 +2,10 @@
 
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
+#include "OpenMobileHapticPatternPlaybackAsyncAction.h"
 #include "OpenMobileHapticPlatformAssets.h"
+#include "OpenMobileHapticPreparationAsyncAction.h"
+#include "OpenMobileHapticPreparationLease.h"
 #include "OpenMobileHapticPlayback.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "OpenMobileHapticsBlueprintLibrary.h"

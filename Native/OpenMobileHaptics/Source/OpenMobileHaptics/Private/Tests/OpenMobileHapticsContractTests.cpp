@@ -31,6 +31,8 @@
 #include "OpenMobileHapticLibrary.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
+#include "OpenMobileHapticPreparationAsyncAction.h"
+#include "OpenMobileHapticPreparationLease.h"
 #include "OpenMobileHapticsLibraryResolver.h"
 #include "OpenMobileHapticsLifecyclePolicy.h"
 #include "OpenMobileHapticsOneShotPolicy.h"
@@ -6444,6 +6446,81 @@ bool FOpenMobileHapticsAsyncContractTest::RunTest(const FString& Parameters)
 		TeardownCancellationCount,
 		1
 	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPreparationAsyncContractTest,
+	"OpenMobile.Haptics.Preparation.OwnershipAndTerminalContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPreparationAsyncContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
+
+	UOpenMobileHapticPreparationAsyncAction* InvalidAction =
+		UOpenMobileHapticPreparationAsyncAction::PrepareHapticsAsync(nullptr);
+	InvalidAction->Activate();
+	TestTrue(
+		TEXT("Invalid context reaches a terminal preparation branch"),
+		InvalidAction->bFinished
+	);
+	TestEqual(
+		TEXT("Invalid context reports failed preparation"),
+		InvalidAction->PreparationResult.Outcome,
+		EOpenMobileHapticPreparationOutcome::Failed
+	);
+	TestTrue(
+		TEXT("Invalid context exposes a typed preparation error"),
+		InvalidAction->PreparationResult.Error.IsSet()
+	);
+	InvalidAction->Cancel();
+	TestEqual(
+		TEXT("A late cancel cannot replace the first terminal result"),
+		InvalidAction->PreparationResult.Outcome,
+		EOpenMobileHapticPreparationOutcome::Failed
+	);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileHapticsSubsystem* Subsystem =
+		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	FSubsystemCollection<UGameInstanceSubsystem> Collection;
+	Subsystem->Initialize(Collection);
+	TArray<FString> Errors;
+	TestTrue(
+		TEXT("Empty configured content can establish ready ownership"),
+		Subsystem->PrepareLoadedNamedLibraries({}, Errors)
+	);
+	UOpenMobileHapticPreparationLease* FirstLease =
+		Subsystem->AcquirePreparationLease();
+	UOpenMobileHapticPreparationLease* SecondLease =
+		Subsystem->AcquirePreparationLease();
+	TestNotNull(TEXT("First preparation owner receives a lease"), FirstLease);
+	TestNotNull(TEXT("Second preparation owner receives a lease"), SecondLease);
+	FirstLease->Release();
+	TestEqual(
+		TEXT("Releasing one owner preserves shared preparation"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Prepared
+	);
+	Subsystem->ReleaseNamedLibraries();
+	TestEqual(
+		TEXT("Legacy release cannot invalidate an owned lease"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Prepared
+	);
+	SecondLease->Release();
+	TestEqual(
+		TEXT("The final owner releases prepared resources"),
+		Subsystem->GetPreparationState(),
+		EOpenMobileHapticPreparationState::Unprepared
+	);
+	Subsystem->Deinitialize();
+	FOpenMobileHapticsBackendRegistry::ResetForTests();
 	return true;
 }
 
