@@ -99,10 +99,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsMockTimelineFrame
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", Units = "s"))
 	double TimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorsMockInput Input;
 };
 
@@ -111,16 +111,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsMockTimeline
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	TArray<FOpenMobileSensorsMockTimelineFrame> Frames;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ClampMin = "0.01", ClampMax = "100.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.01", ClampMax = "100.0"))
 	double PlaybackSpeed = 1.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	bool bLoop = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	bool bUseManualClock = false;
 };
 

@@ -27,17 +27,17 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorPermissionDescriptor
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorPermission Permission =
 		EOpenMobileSensorPermission::MotionActivity;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FName PermissionName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FString Explanation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobilePermissionStatus Status =
 		EOpenMobilePermissionStatus::NotDetermined;
 };
@@ -47,19 +47,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorLocationInput
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Geodetic latitude in degrees."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Geodetic latitude in degrees."))
 	double LatitudeDegrees = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Geodetic longitude in degrees."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Geodetic longitude in degrees."))
 	double LongitudeDegrees = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Altitude above the WGS84 ellipsoid in metres."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Altitude above the WGS84 ellipsoid in metres."))
 	double AltitudeMeters = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Horizontal position accuracy radius in metres."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Horizontal position accuracy radius in metres."))
 	double HorizontalAccuracyMeters = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Location capture timestamp in Unix time seconds."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Location capture timestamp in Unix time seconds."))
 	double TimestampSeconds = 0.0;
 };
 

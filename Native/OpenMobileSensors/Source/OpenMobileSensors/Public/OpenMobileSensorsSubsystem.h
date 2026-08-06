@@ -221,7 +221,7 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Sensor Metadata", ToolTip = "Copies the current cached portable metadata for discovered sensors."))
 	TArray<FOpenMobileSensorMetadata> GetMetadataNative() const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Start Sensor Subscription", ToolTip = "Accepts a sensor stream request and returns a typed handle or failure."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Start Sensor Subscription", ToolTip = "Accepts a sensor stream request and returns a typed handle or failure."))
 	FOpenMobileSensorSubscriptionResult StartSubscriptionNative(
 		const FOpenMobileSensorSubscriptionRequest& Request
 	);
@@ -244,7 +244,7 @@ public:
 		const FOpenMobileSensorStreamOptions& Options
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Stop Sensor Subscription", ToolTip = "Stops one owned subscription and returns an explicit invalid-handle result when needed."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stop Sensor Subscription", ToolTip = "Stops one owned subscription and returns an explicit invalid-handle result when needed."))
 	FOpenMobileSensorOperationResult StopSubscriptionNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
@@ -325,7 +325,7 @@ public:
 		FOpenMobileProximitySensorSample& OutSample
 	) const;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Vector Samples", ToolTip = "Drains a bounded number of ordered vector samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Vector Samples", ToolTip = "Drains a bounded number of ordered vector samples and returns overflow counters."))
 	bool GetBufferedVectorSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -333,7 +333,7 @@ public:
 		FOpenMobileVectorSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Attitude Samples", ToolTip = "Drains a bounded number of ordered attitude samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Attitude Samples", ToolTip = "Drains a bounded number of ordered attitude samples and returns overflow counters."))
 	bool GetBufferedAttitudeSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -341,7 +341,7 @@ public:
 		FOpenMobileAttitudeSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Scalar Samples", ToolTip = "Drains a bounded number of ordered scalar samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Scalar Samples", ToolTip = "Drains a bounded number of ordered scalar samples and returns overflow counters."))
 	bool GetBufferedScalarSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -349,7 +349,7 @@ public:
 		FOpenMobileScalarSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Heading Samples", ToolTip = "Drains a bounded number of ordered heading samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Heading Samples", ToolTip = "Drains a bounded number of ordered heading samples and returns overflow counters."))
 	bool GetBufferedHeadingSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -357,7 +357,7 @@ public:
 		FOpenMobileHeadingSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Steps Samples", ToolTip = "Drains a bounded number of ordered steps samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Steps Samples", ToolTip = "Drains a bounded number of ordered steps samples and returns overflow counters."))
 	bool GetBufferedStepsSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -365,7 +365,7 @@ public:
 		FOpenMobileStepsSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Activity Samples", ToolTip = "Drains a bounded number of ordered activity samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Activity Samples", ToolTip = "Drains a bounded number of ordered activity samples and returns overflow counters."))
 	bool GetBufferedActivitySamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -373,7 +373,7 @@ public:
 		FOpenMobileActivitySensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Orientation Samples", ToolTip = "Drains a bounded number of ordered orientation samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Orientation Samples", ToolTip = "Drains a bounded number of ordered orientation samples and returns overflow counters."))
 	bool GetBufferedOrientationSamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -381,7 +381,7 @@ public:
 		FOpenMobileOrientationSensorBatch& OutBatch
 	);
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Read Buffered Proximity Samples", ToolTip = "Drains a bounded number of ordered proximity samples and returns overflow counters."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Read Buffered Proximity Samples", ToolTip = "Drains a bounded number of ordered proximity samples and returns overflow counters."))
 	bool GetBufferedProximitySamplesNative(
 		const FOpenMobileSensorSubscriptionHandle& Handle,
 		UPARAM(meta = (ClampMin = "1", ClampMax = "4096")) int32 MaximumSamples,
@@ -452,7 +452,7 @@ public:
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Step Count Session Policy", ToolTip = "Returns the lifetime and discontinuity policy used by resettable step sessions."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Step Count Session Policy", ToolTip = "Returns the lifetime and discontinuity policy used by resettable step sessions."))
 	FOpenMobileStepCountSessionPolicy GetStepCountSessionPolicyNative() const;
 	FGuid QueryNativeStepCountNative(
 		const FOpenMobileNativeStepCountQuery& Query,
@@ -565,16 +565,16 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "OpenMobile|Sensors|Advanced|Diagnostics", meta = (DisplayName = "Get Sensor Diagnostics", ToolTip = "Copies one coherent current diagnostics snapshot without changing sensor state."))
 	FOpenMobileSensorDiagnosticsSnapshot GetDiagnosticsSnapshotNative() const;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Capabilities Changed", ToolTip = "Broadcast when a material sensor capability field changes."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Capabilities Changed", ToolTip = "Broadcast when a material sensor capability field changes."))
 	FOpenMobileSensorCapabilitiesChangedDynamic OnCapabilitiesChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Subscription State Changed", ToolTip = "Broadcast when an owned subscription changes state."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Subscription State Changed", ToolTip = "Broadcast when an owned subscription changes state."))
 	FOpenMobileSensorSubscriptionStateChangedDynamic OnSubscriptionStateChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Accuracy Changed", ToolTip = "Broadcast the initial accuracy state and later quality or calibration changes on the game thread."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Accuracy Changed", ToolTip = "Broadcast the initial accuracy state and later quality or calibration changes on the game thread."))
 	FOpenMobileSensorAccuracyChangedDynamic OnAccuracyChanged;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Sensor Calibration Changed", ToolTip = "Broadcast deduplicated calibration-required and resolution guidance on the game thread."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Calibration Changed", ToolTip = "Broadcast deduplicated calibration-required and resolution guidance on the game thread."))
 	FOpenMobileSensorCalibrationChangedDynamic OnCalibrationChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "On Sensor Samples Dropped", ToolTip = "Broadcast one coalesced loss report per game-thread dispatch cycle for an affected subscription."))
@@ -583,28 +583,28 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Sensor Error", ToolTip = "Broadcast a compact runtime error for an owned sensor stream without requiring diagnostics polling."))
 	FOpenMobileSensorErrorDynamic OnSensorError;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Vector Sensor Samples", ToolTip = "Broadcast a rate-capped batch of vector samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Vector Sensor Samples", ToolTip = "Broadcast a rate-capped batch of vector samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileVectorSensorBatchDynamic OnVectorSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Attitude Sensor Samples", ToolTip = "Broadcast a rate-capped batch of attitude samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Attitude Sensor Samples", ToolTip = "Broadcast a rate-capped batch of attitude samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileAttitudeSensorBatchDynamic OnAttitudeSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Scalar Sensor Samples", ToolTip = "Broadcast a rate-capped batch of scalar samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Scalar Sensor Samples", ToolTip = "Broadcast a rate-capped batch of scalar samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileScalarSensorBatchDynamic OnScalarSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Heading Sensor Samples", ToolTip = "Broadcast a rate-capped batch of heading samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Heading Sensor Samples", ToolTip = "Broadcast a rate-capped batch of heading samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileHeadingSensorBatchDynamic OnHeadingSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Steps Sensor Samples", ToolTip = "Broadcast a rate-capped batch of steps samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Steps Sensor Samples", ToolTip = "Broadcast a rate-capped batch of steps samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileStepsSensorBatchDynamic OnStepsSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Activity Sensor Samples", ToolTip = "Broadcast a rate-capped batch of activity samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Activity Sensor Samples", ToolTip = "Broadcast a rate-capped batch of activity samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileActivitySensorBatchDynamic OnActivitySamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Orientation Sensor Samples", ToolTip = "Broadcast a rate-capped batch of physical-orientation samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Orientation Sensor Samples", ToolTip = "Broadcast a rate-capped batch of physical-orientation samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileOrientationSensorBatchDynamic OnOrientationSamples;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "On Proximity Sensor Samples", ToolTip = "Broadcast a rate-capped batch of proximity samples on the game thread. Requires Delivery Mode = Event Batches."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "On Proximity Sensor Samples", ToolTip = "Broadcast a rate-capped batch of proximity samples on the game thread. Requires Delivery Mode = Event Batches."))
 	FOpenMobileProximitySensorBatchDynamic OnProximitySamples;
 
 	FOnOpenMobileSensorCapabilitiesChanged& OnCapabilitiesChangedNative();

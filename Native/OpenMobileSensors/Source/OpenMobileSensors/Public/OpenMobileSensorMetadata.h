@@ -67,46 +67,46 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorMetadata
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	bool bPreferred = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalText Vendor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalText NativeName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalInteger Version;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalNumber MaximumRange;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalNumber Resolution;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalNumber EstimatedPowerMilliwatts;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalNumber MinimumIntervalSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalNumber MaximumIntervalSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalInteger FifoCapacitySamples;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOptionalBoolean WakeUpBehavior;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	bool bReportingModeAvailable = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorReportingMode ReportingMode =
 		EOpenMobileSensorReportingMode::Unknown;
 };

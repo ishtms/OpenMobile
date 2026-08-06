@@ -24,26 +24,26 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCalibrationEvent
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorCalibrationState State =
 		EOpenMobileSensorCalibrationState::Required;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorCalibrationReason Reason =
 		EOpenMobileSensorCalibrationReason::NativeRequirement;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorAccuracy Accuracy = EOpenMobileSensorAccuracy::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FText Guidance;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	double TimestampSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	int64 Sequence = 0;
 };

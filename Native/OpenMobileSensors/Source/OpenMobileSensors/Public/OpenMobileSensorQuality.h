@@ -33,21 +33,21 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFusionContext
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorFusionQuality Quality =
 		EOpenMobileSensorFusionQuality::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	bool bHasNativeQualityReport = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorFusionQuality NativeQuality =
 		EOpenMobileSensorFusionQuality::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	bool bHasEstimatedLag = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	double EstimatedLagSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw expected-input bit mask. Prefer Get Expected Fusion Inputs or Break Sensor Fusion Context."))
@@ -83,31 +83,31 @@ public:
 		TArray<EOpenMobileSensorType>& OutMissingInputs,
 		TArray<EOpenMobileSensorType>& OutDegradedInputs);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Make Sensor Input Mask", ToolTip = "Returns the fixed fusion-input bit for one sensor type."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Make Sensor Input Mask", ToolTip = "Returns the fixed fusion-input bit for one sensor type."))
 	static int64 MakeInputMask(EOpenMobileSensorType Sensor);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Fusion Mask Contains Sensor", ToolTip = "Returns whether a fusion-input mask contains the sensor type."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Fusion Mask Contains Sensor", ToolTip = "Returns whether a fusion-input mask contains the sensor type."))
 	static bool ContainsSensor(
 		int64 InputMask,
 		EOpenMobileSensorType Sensor
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Expected Fusion Inputs", ToolTip = "Returns the sensor types expected by the fusion result."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Expected Fusion Inputs", ToolTip = "Returns the sensor types expected by the fusion result."))
 	static TArray<EOpenMobileSensorType> GetExpectedInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Contributing Fusion Inputs", ToolTip = "Returns the sensor types that contributed to the fusion result."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Contributing Fusion Inputs", ToolTip = "Returns the sensor types that contributed to the fusion result."))
 	static TArray<EOpenMobileSensorType> GetContributingInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Missing Fusion Inputs", ToolTip = "Returns expected sensor types that did not contribute."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Missing Fusion Inputs", ToolTip = "Returns expected sensor types that did not contribute."))
 	static TArray<EOpenMobileSensorType> GetMissingInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Sensors", meta = (DisplayName = "Get Degraded Fusion Inputs", ToolTip = "Returns available sensor types with invalid, low-quality, or calibration-blocked input."))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Degraded Fusion Inputs", ToolTip = "Returns available sensor types with invalid, low-quality, or calibration-blocked input."))
 	static TArray<EOpenMobileSensorType> GetDegradedInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);

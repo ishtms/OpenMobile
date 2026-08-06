@@ -8,9 +8,19 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
 #include "OpenMobileSensorFlushAsyncAction.h"
+#include "OpenMobileNativeStepCountAsyncAction.h"
+#include "OpenMobileSensorActivityListeners.h"
+#include "OpenMobileSensorDiscoveryLibrary.h"
+#include "OpenMobileSensorFlagLibrary.h"
+#include "OpenMobileSensorListener.h"
+#include "OpenMobileSensorOptionalValueLibrary.h"
 #include "OpenMobileSensorPermissionAsyncAction.h"
+#include "OpenMobileSensorQuality.h"
 #include "OpenMobileSensorRecordingAsyncAction.h"
+#include "OpenMobileSensorRecordingSession.h"
 #include "OpenMobileSensorReplayAsyncAction.h"
+#include "OpenMobileSensorReplaySession.h"
+#include "OpenMobileSensorsDevelopmentInput.h"
 #include "OpenMobileSensorsSubsystem.h"
 #include "UObject/UnrealType.h"
 
@@ -27,10 +37,22 @@ bool FOpenMobileSensorsBlueprintReflectionTest::RunTest(
 	static_cast<void>(Parameters);
 	const TArray<UClass*> BlueprintClasses = {
 		UOpenMobileSensorsSubsystem::StaticClass(),
+		UOpenMobileSensorDiscoveryLibrary::StaticClass(),
+		UOpenMobileSensorListener::StaticClass(),
+		UOpenMobileGyroscopeListener::StaticClass(),
+		UOpenMobileStepCountListener::StaticClass(),
+		UOpenMobileSensorRecordingSession::StaticClass(),
+		UOpenMobileSensorReplaySession::StaticClass(),
 		UOpenMobileSensorPermissionAsyncAction::StaticClass(),
 		UOpenMobileSensorFlushAsyncAction::StaticClass(),
 		UOpenMobileSensorRecordingAsyncAction::StaticClass(),
-		UOpenMobileSensorReplayAsyncAction::StaticClass()
+		UOpenMobileSensorReplayAsyncAction::StaticClass(),
+		UOpenMobileNativeStepCountAsyncAction::StaticClass(),
+		UOpenMobileSensorsDevelopmentLibrary::StaticClass(),
+		UOpenMobileSensorQualityLibrary::StaticClass(),
+		UOpenMobileSensorFlagLibrary::StaticClass(),
+		UOpenMobileSensorOptionalValueLibrary::StaticClass(),
+		UOpenMobileSensorRateLibrary::StaticClass()
 	};
 	int32 BlueprintCallableCount = 0;
 	for (UClass* Class : BlueprintClasses)
@@ -45,11 +67,11 @@ bool FOpenMobileSensorsBlueprintReflectionTest::RunTest(
 				continue;
 			}
 			++BlueprintCallableCount;
-			TestEqual(
+			TestTrue(
 				*FString::Printf(TEXT("%s uses the Sensors category"),
 					*Function->GetName()),
-				Function->GetMetaData(TEXT("Category")),
-				FString(TEXT("Open Mobile|Sensors"))
+				Function->GetMetaData(TEXT("Category")).StartsWith(
+					TEXT("OpenMobile|Sensors"))
 			);
 			TestFalse(
 				*FString::Printf(TEXT("%s has a display name"),
@@ -76,11 +98,11 @@ bool FOpenMobileSensorsBlueprintReflectionTest::RunTest(
 			{
 				continue;
 			}
-			TestEqual(
+			TestTrue(
 				*FString::Printf(TEXT("%s uses the Sensors category"),
 					*Event->GetName()),
-				Event->GetMetaData(TEXT("Category")),
-				FString(TEXT("Open Mobile|Sensors"))
+				Event->GetMetaData(TEXT("Category")).StartsWith(
+					TEXT("OpenMobile|Sensors"))
 			);
 			TestFalse(
 				*FString::Printf(TEXT("%s has a display name"),

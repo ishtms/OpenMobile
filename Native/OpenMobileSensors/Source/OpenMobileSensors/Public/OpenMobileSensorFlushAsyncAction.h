@@ -17,16 +17,16 @@ class OPENMOBILESENSORS_API UOpenMobileSensorFlushAsyncAction final
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once after accepted native and plugin buffers are drained."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once after accepted native and plugin buffers are drained."))
 	FOpenMobileSensorFlushAsyncResult Completed;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the flush is cancelled."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the flush is cancelled."))
 	FOpenMobileSensorFlushAsyncResult Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the flush cannot complete."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the flush cannot complete."))
 	FOpenMobileSensorFlushAsyncResult Failed;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Flush Sensor Samples", ToolTip = "Flushes one subscription and completes exactly once on the game thread."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Flush Sensor Samples", ToolTip = "Flushes one subscription and completes exactly once on the game thread."))
 	static UOpenMobileSensorFlushAsyncAction* FlushSensorSamples(
 		const UObject* WorldContextObject,
 		FOpenMobileSensorSubscriptionHandle Handle

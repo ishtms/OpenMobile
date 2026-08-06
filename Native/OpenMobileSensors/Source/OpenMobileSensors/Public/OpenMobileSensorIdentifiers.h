@@ -61,10 +61,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorIdentifier
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	EOpenMobileSensorType Type = EOpenMobileSensorType::Unknown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
 	FName InstanceId;
 
 	bool IsValid() const

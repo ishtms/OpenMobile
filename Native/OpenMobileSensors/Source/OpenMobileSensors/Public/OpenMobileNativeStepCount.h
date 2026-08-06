@@ -10,10 +10,10 @@ struct OPENMOBILESENSORS_API FOpenMobileNativeStepCountQuery
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Inclusive query start in Unix time seconds."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Inclusive query start in Unix time seconds."))
 	double StartUnixTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Sensors", meta = (ToolTip = "Exclusive query end in Unix time seconds."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Exclusive query end in Unix time seconds."))
 	double EndUnixTimeSeconds = 0.0;
 };
 
@@ -27,13 +27,13 @@ struct OPENMOBILESENSORS_API FOpenMobileNativeStepCountQueryResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Activity", meta = (ToolTip = "Typed identity for this historical step query. Different request-handle types cannot be connected in Blueprint."))
 	FOpenMobileNativeStepCountQueryHandle Request;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileNativeStepCountQuery Query;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
 	FOpenMobileStepsSensorSample Sample;
 };
 

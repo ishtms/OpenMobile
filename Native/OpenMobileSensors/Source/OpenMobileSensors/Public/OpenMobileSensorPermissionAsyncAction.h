@@ -18,16 +18,16 @@ class OPENMOBILESENSORS_API UOpenMobileSensorPermissionAsyncAction final
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once with the normalized permission decision."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Completed", ToolTip = "Broadcast once with the normalized permission decision."))
 	FOpenMobileSensorPermissionAsyncResult Completed;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the permission request is cancelled."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Cancelled", ToolTip = "Broadcast once when the permission request is cancelled."))
 	FOpenMobileSensorPermissionAsyncResult Cancelled;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the permission request cannot complete."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Failed", ToolTip = "Broadcast once with typed details when the permission request cannot complete."))
 	FOpenMobileSensorPermissionAsyncResult Failed;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Request Sensor Permission", ToolTip = "Requests one sensor-owned permission and completes exactly once on the game thread."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Request Sensor Permission", ToolTip = "Requests one sensor-owned permission and completes exactly once on the game thread."))
 	static UOpenMobileSensorPermissionAsyncAction* RequestSensorPermission(
 		const UObject* WorldContextObject,
 		EOpenMobileSensorPermission Permission
