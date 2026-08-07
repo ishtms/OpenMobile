@@ -846,6 +846,8 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	StepsSample.Header.TimestampSeconds = 1.0;
 	StepsSample.Header.bValid = true;
 	StepsSample.Count = 123;
+	StepsSample.Origin = EOpenMobileStepCountOrigin::DeviceBoot;
+	StepsSample.OriginIdentifier = FGuid::NewGuid();
 	FOpenMobileSensorsSampleService::PublishSteps(StepsSample);
 	FOpenMobileActivitySensorSample ActivitySample;
 	ActivitySample.Header.Sensor =
@@ -902,7 +904,8 @@ bool FOpenMobileSensorsListenerSampleFamiliesTest::RunTest(
 	int64 Steps = 0;
 	TestTrue(TEXT("Steps listeners receive steps batches"),
 		StepCount->GetLatestSteps(Steps, SampleInfo));
-	TestEqual(TEXT("Steps listeners keep the count"), Steps, 123ll);
+	TestEqual(TEXT("Step listeners start their session count at zero"),
+		Steps, 0ll);
 	EOpenMobileMotionActivity Activity;
 	EOpenMobileActivityConfidence ActivityConfidence;
 	TestTrue(TEXT("Activity listeners receive activity batches"),
