@@ -7,16 +7,16 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorCalibrationState : uint8
 {
-	Required,
-	Resolved
+	Required UMETA(DisplayName = "Calibration Required", ToolTip = "The sensor needs user or platform calibration before reliable readings are expected."),
+	Resolved UMETA(DisplayName = "Calibration Resolved", ToolTip = "The sensor has recovered to an acceptable calibration state.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorCalibrationReason : uint8
 {
-	NativeRequirement,
-	MagneticInterference,
-	QualityRecovered
+	NativeRequirement UMETA(DisplayName = "Platform Requested Calibration", ToolTip = "The native sensor provider requested its platform calibration workflow."),
+	MagneticInterference UMETA(DisplayName = "Magnetic Interference", ToolTip = "Nearby magnetic interference reduced heading or magnetometer reliability."),
+	QualityRecovered UMETA(DisplayName = "Quality Recovered", ToolTip = "Sensor quality recovered enough to clear the calibration request.")
 };
 
 USTRUCT(BlueprintType)

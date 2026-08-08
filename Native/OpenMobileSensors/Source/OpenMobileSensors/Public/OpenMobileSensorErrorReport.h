@@ -26,21 +26,21 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRuntimeError
 UENUM(BlueprintType)
 enum class EOpenMobileSensorOperation : uint8
 {
-	Unknown,
-	CapabilityQuery,
-	StartStream,
-	ReconfigureStream,
-	StopStream,
-	ReadLatest,
-	ReadBuffer,
-	Flush,
-	Permission,
-	Calibration,
-	Recenter,
-	Recording,
-	Replay,
-	Lifecycle,
-	BackendCallback
+	Unknown UMETA(DisplayName = "Unknown Operation", ToolTip = "The failing operation could not be identified."),
+	CapabilityQuery UMETA(DisplayName = "Capability Query", ToolTip = "The error occurred while discovering sensor availability or metadata."),
+	StartStream UMETA(DisplayName = "Start Stream", ToolTip = "The error occurred while accepting or starting a sensor stream."),
+	ReconfigureStream UMETA(DisplayName = "Reconfigure Stream", ToolTip = "The error occurred while changing options on an active stream."),
+	StopStream UMETA(DisplayName = "Stop Stream", ToolTip = "The error occurred while stopping a sensor stream."),
+	ReadLatest UMETA(DisplayName = "Read Latest Sample", ToolTip = "The error occurred while reading the latest cached sample."),
+	ReadBuffer UMETA(DisplayName = "Read Buffered Samples", ToolTip = "The error occurred while reading buffered sensor samples."),
+	Flush UMETA(DisplayName = "Flush Samples", ToolTip = "The error occurred while requesting or completing a sensor flush."),
+	Permission UMETA(DisplayName = "Permission", ToolTip = "The error occurred during sensor permission discovery or a permission request."),
+	Calibration UMETA(DisplayName = "Calibration", ToolTip = "The error occurred during a sensor calibration workflow."),
+	Recenter UMETA(DisplayName = "Recenter", ToolTip = "The error occurred while recentering attitude or relative altitude."),
+	Recording UMETA(DisplayName = "Recording", ToolTip = "The error occurred while starting, running, or stopping a recording."),
+	Replay UMETA(DisplayName = "Replay", ToolTip = "The error occurred while loading or controlling a recorded stream."),
+	Lifecycle UMETA(DisplayName = "Application Lifecycle", ToolTip = "The error was caused by a foreground, background, pause, or resume transition."),
+	BackendCallback UMETA(DisplayName = "Provider Callback", ToolTip = "The active sensor provider reported an asynchronous runtime failure.")
 };
 
 USTRUCT(BlueprintType)

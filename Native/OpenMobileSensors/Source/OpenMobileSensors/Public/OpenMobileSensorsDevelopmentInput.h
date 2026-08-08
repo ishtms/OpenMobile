@@ -9,13 +9,13 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorsMockPreset : uint8
 {
-	Custom,
-	Stationary,
-	Walking,
-	Running,
-	Driving,
-	PoorQuality,
-	PermissionDenied
+	Custom UMETA(DisplayName = "Custom Values", ToolTip = "Uses the mock values configured in OpenMobile Sensors Project Settings."),
+	Stationary UMETA(DisplayName = "Stationary Device", ToolTip = "Uses deterministic values for a still device under normal gravity."),
+	Walking UMETA(DisplayName = "Walking", ToolTip = "Uses deterministic motion, steps, and activity values representing walking."),
+	Running UMETA(DisplayName = "Running", ToolTip = "Uses deterministic motion, steps, and activity values representing running."),
+	Driving UMETA(DisplayName = "Driving", ToolTip = "Uses deterministic motion and automotive activity values."),
+	PoorQuality UMETA(DisplayName = "Poor Sensor Quality", ToolTip = "Uses unreliable or degraded values for testing quality and calibration handling."),
+	PermissionDenied UMETA(DisplayName = "Permission Denied", ToolTip = "Simulates denied sensor permission outcomes for development workflow tests.")
 };
 
 UENUM(BlueprintType)

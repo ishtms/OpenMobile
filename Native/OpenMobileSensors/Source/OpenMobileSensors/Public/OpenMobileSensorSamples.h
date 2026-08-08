@@ -11,10 +11,10 @@
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileSensorTimestampIssue : uint8
 {
-	None = 0,
-	Invalid = 1 << 0,
-	Duplicate = 1 << 1,
-	Backward = 1 << 2
+	None = 0 UMETA(DisplayName = "No Timestamp Issue", ToolTip = "The sample timestamp is finite and later than the previous accepted timestamp."),
+	Invalid = 1 << 0 UMETA(DisplayName = "Invalid Timestamp", ToolTip = "The provider supplied a nonfinite or otherwise invalid monotonic timestamp."),
+	Duplicate = 1 << 1 UMETA(DisplayName = "Duplicate Timestamp", ToolTip = "The timestamp matches the previous accepted sample timestamp."),
+	Backward = 1 << 2 UMETA(DisplayName = "Backward Timestamp", ToolTip = "The timestamp is earlier than the previous accepted sample timestamp.")
 };
 ENUM_CLASS_FLAGS(EOpenMobileSensorTimestampIssue);
 
@@ -202,18 +202,18 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeSensorSample
 UENUM(BlueprintType)
 enum class EOpenMobileRelativeAltitudeSource : uint8
 {
-	None,
-	NativePlatform,
-	PressureBaseline
+	None UMETA(DisplayName = "No Source", ToolTip = "No relative-altitude provider produced this sample."),
+	NativePlatform UMETA(DisplayName = "Native Platform", ToolTip = "The platform's native relative-altitude API produced the value."),
+	PressureBaseline UMETA(DisplayName = "Pressure Baseline", ToolTip = "OpenMobile Sensors derived displacement from barometric pressure relative to a captured baseline.")
 };
 
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileRelativeAltitudeQualityLimitation : uint8
 {
-	None = 0,
-	WeatherSensitive = 1 << 0,
-	StandardAtmosphereAssumption = 1 << 1,
-	NativeModelUnspecified = 1 << 2
+	None = 0 UMETA(DisplayName = "No Known Limitation", ToolTip = "No additional relative-altitude quality limitation was reported."),
+	WeatherSensitive = 1 << 0 UMETA(DisplayName = "Weather Sensitive", ToolTip = "Atmospheric pressure changes unrelated to movement can shift the reported altitude."),
+	StandardAtmosphereAssumption = 1 << 1 UMETA(DisplayName = "Standard Atmosphere Assumption", ToolTip = "Pressure conversion assumes a standard atmosphere and is not survey-grade elevation."),
+	NativeModelUnspecified = 1 << 2 UMETA(DisplayName = "Native Model Unspecified", ToolTip = "The platform does not document the model used for its relative-altitude value.")
 };
 ENUM_CLASS_FLAGS(EOpenMobileRelativeAltitudeQualityLimitation);
 
@@ -245,8 +245,8 @@ struct OPENMOBILESENSORS_API FOpenMobileRelativeAltitudeMetadata
 UENUM(BlueprintType)
 enum class EOpenMobileAbsoluteAltitudeSource : uint8
 {
-	None,
-	NativePlatform
+	None UMETA(DisplayName = "No Source", ToolTip = "No absolute-altitude provider produced this sample."),
+	NativePlatform UMETA(DisplayName = "Native Platform", ToolTip = "The platform's native altitude service produced the value and accuracy estimate.")
 };
 
 USTRUCT(BlueprintType)
@@ -286,17 +286,17 @@ struct OPENMOBILESENSORS_API FOpenMobileScalarSensorSample
 UENUM(BlueprintType)
 enum class EOpenMobileHeadingReference : uint8
 {
-	Unknown,
-	MagneticNorth,
-	TrueNorth
+	Unknown UMETA(DisplayName = "Unknown Reference", ToolTip = "The provider did not identify the heading's north reference."),
+	MagneticNorth UMETA(DisplayName = "Magnetic North", ToolTip = "Heading is measured in degrees clockwise from magnetic north."),
+	TrueNorth UMETA(DisplayName = "True North", ToolTip = "Heading is measured in degrees clockwise from geographic true north.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileHeadingDeclinationSource : uint8
 {
-	None,
-	WorldMagneticModel2025,
-	NativePlatform
+	None UMETA(DisplayName = "No Declination", ToolTip = "No magnetic declination correction was applied."),
+	WorldMagneticModel2025 UMETA(DisplayName = "World Magnetic Model 2025", ToolTip = "The plugin calculated declination from the 2025 World Magnetic Model and the supplied location and time."),
+	NativePlatform UMETA(DisplayName = "Native Platform", ToolTip = "The platform supplied true heading or its own declination correction.")
 };
 
 USTRUCT(BlueprintType)
@@ -352,36 +352,36 @@ struct OPENMOBILESENSORS_API FOpenMobileHeadingSensorSample
 UENUM(BlueprintType)
 enum class EOpenMobileStepCountOrigin : uint8
 {
-	Unknown,
-	DeviceBoot,
-	QueryInterval,
-	Session
+	Unknown UMETA(DisplayName = "Unknown Origin", ToolTip = "The provider did not identify the step count's zero point."),
+	DeviceBoot UMETA(DisplayName = "Since Device Boot", ToolTip = "The count is cumulative from the platform's device-boot counter and may reset after reboot."),
+	QueryInterval UMETA(DisplayName = "Query Interval", ToolTip = "The count covers the explicit start and end time of a native historical query."),
+	Session UMETA(DisplayName = "Listener Session", ToolTip = "The count starts from the listener session baseline and can be reset explicitly.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileStepCountDiscontinuity : uint8
 {
-	None,
-	StreamStarted,
-	NativeCounterReset,
-	OriginChanged,
-	SessionReset
+	None UMETA(DisplayName = "No Discontinuity", ToolTip = "The step count continues from the prior sample without a known baseline change."),
+	StreamStarted UMETA(DisplayName = "Stream Started", ToolTip = "This is the first count after starting or restarting the step stream."),
+	NativeCounterReset UMETA(DisplayName = "Native Counter Reset", ToolTip = "The platform cumulative counter decreased or reset, commonly after a device reboot."),
+	OriginChanged UMETA(DisplayName = "Count Origin Changed", ToolTip = "The provider changed the meaning of the count's zero point."),
+	SessionReset UMETA(DisplayName = "Session Reset", ToolTip = "Blueprint explicitly reset the typed step listener's session baseline.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileStepDetectionSource : uint8
 {
-	Unknown,
-	AndroidStepDetector,
-	IOSPedometerDelta
+	Unknown UMETA(DisplayName = "Unknown Source", ToolTip = "The provider did not identify how the step event was detected."),
+	AndroidStepDetector UMETA(DisplayName = "Android Step Detector", ToolTip = "Android's native discrete step detector produced the event."),
+	IOSPedometerDelta UMETA(DisplayName = "iOS Pedometer Delta", ToolTip = "The plugin inferred the event from an increase in Core Motion pedometer count.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileStepDetectionQuality : uint8
 {
-	Unknown,
-	DirectHardwareEvent,
-	InferredFromPedometerDelta
+	Unknown UMETA(DisplayName = "Unknown Quality", ToolTip = "The provider did not report whether detection was direct or inferred."),
+	DirectHardwareEvent UMETA(DisplayName = "Direct Hardware Event", ToolTip = "A native discrete detector reported this step directly."),
+	InferredFromPedometerDelta UMETA(DisplayName = "Inferred from Pedometer", ToolTip = "The plugin inferred this step from a cumulative pedometer count change.")
 };
 
 USTRUCT(BlueprintType)
@@ -477,28 +477,28 @@ struct OPENMOBILESENSORS_API FOpenMobileStepsSensorSample
 UENUM(BlueprintType)
 enum class EOpenMobileMotionActivity : uint8
 {
-	Unknown,
-	Stationary,
-	Walking,
-	Running,
-	Cycling,
-	Automotive
+	Unknown UMETA(DisplayName = "Unknown Activity", ToolTip = "The provider could not classify the current motion activity."),
+	Stationary UMETA(DisplayName = "Stationary", ToolTip = "The device is classified as not moving meaningfully."),
+	Walking UMETA(DisplayName = "Walking", ToolTip = "The device is classified as moving with a walking pattern."),
+	Running UMETA(DisplayName = "Running", ToolTip = "The device is classified as moving with a running pattern."),
+	Cycling UMETA(DisplayName = "Cycling", ToolTip = "The device is classified as moving by bicycle."),
+	Automotive UMETA(DisplayName = "Automotive", ToolTip = "The device is classified as moving in a motor vehicle.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileActivityTransition : uint8
 {
-	None,
-	Started,
-	Stopped
+	None UMETA(DisplayName = "No Transition", ToolTip = "The sample does not represent an activity state transition."),
+	Started UMETA(DisplayName = "Activity Started", ToolTip = "The classified activity became active."),
+	Stopped UMETA(DisplayName = "Activity Stopped", ToolTip = "The classified activity ceased to be active.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileActivityTransitionOrigin : uint8
 {
-	Unknown,
-	Native,
-	Derived
+	Unknown UMETA(DisplayName = "Unknown Origin", ToolTip = "The provider did not identify how the transition was produced."),
+	Native UMETA(DisplayName = "Native Transition", ToolTip = "The platform reported the activity transition directly."),
+	Derived UMETA(DisplayName = "Plugin Derived Transition", ToolTip = "OpenMobile Sensors derived the transition from classified activity samples.")
 };
 
 USTRUCT(BlueprintType)
@@ -534,13 +534,13 @@ struct OPENMOBILESENSORS_API FOpenMobileActivitySensorSample
 UENUM(BlueprintType)
 enum class EOpenMobilePhysicalOrientation : uint8
 {
-	Unknown,
-	Portrait,
-	PortraitUpsideDown,
-	LandscapeLeft,
-	LandscapeRight,
-	FaceUp,
-	FaceDown
+	Unknown UMETA(DisplayName = "Unknown Orientation", ToolTip = "The device posture is ambiguous or has not been classified yet."),
+	Portrait UMETA(DisplayName = "Portrait", ToolTip = "The device is upright in its natural portrait orientation."),
+	PortraitUpsideDown UMETA(DisplayName = "Portrait Upside Down", ToolTip = "The device is upright with its natural portrait orientation inverted."),
+	LandscapeLeft UMETA(DisplayName = "Landscape Left", ToolTip = "The device is held in landscape with its left edge oriented downward."),
+	LandscapeRight UMETA(DisplayName = "Landscape Right", ToolTip = "The device is held in landscape with its right edge oriented downward."),
+	FaceUp UMETA(DisplayName = "Face Up", ToolTip = "The device screen is approximately horizontal and facing upward."),
+	FaceDown UMETA(DisplayName = "Face Down", ToolTip = "The device screen is approximately horizontal and facing downward.")
 };
 
 USTRUCT(BlueprintType)

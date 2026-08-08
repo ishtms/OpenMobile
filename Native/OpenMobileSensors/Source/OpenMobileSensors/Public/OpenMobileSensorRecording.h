@@ -8,13 +8,13 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorRecordingState : uint8
 {
-	Idle,
-	Starting,
-	Recording,
-	Stopping,
-	Completed,
-	Failed,
-	Cancelled
+	Idle UMETA(DisplayName = "Idle", ToolTip = "The recording session has not started."),
+	Starting UMETA(DisplayName = "Starting", ToolTip = "The recording request was accepted and is opening its output file."),
+	Recording UMETA(DisplayName = "Recording", ToolTip = "The session is actively writing accepted sensor samples."),
+	Stopping UMETA(DisplayName = "Stopping", ToolTip = "The session is finalizing its file after a stop request or configured limit."),
+	Completed UMETA(DisplayName = "Completed", ToolTip = "The recording file was finalized successfully."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The recording could not start or finalize successfully."),
+	Cancelled UMETA(DisplayName = "Cancelled", ToolTip = "The recording was cancelled before successful completion.")
 };
 
 UENUM(BlueprintType)
@@ -28,33 +28,33 @@ enum class EOpenMobileSensorRecordingLimitReason : uint8
 UENUM(BlueprintType)
 enum class EOpenMobileSensorReplayClockMode : uint8
 {
-	RealTime,
-	Manual
+	RealTime UMETA(DisplayName = "Real Time", ToolTip = "Advances replay from engine time using the selected playback speed."),
+	Manual UMETA(DisplayName = "Manual Clock", ToolTip = "Advances replay only when Blueprint explicitly steps the typed replay session.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorReplayState : uint8
 {
-	Invalid,
-	Loading,
-	Playing,
-	Paused,
-	Completed,
-	Failed,
-	Cancelled
+	Invalid UMETA(DisplayName = "Invalid", ToolTip = "The replay session does not reference a valid loaded recording."),
+	Loading UMETA(DisplayName = "Loading", ToolTip = "The recording is being opened and validated."),
+	Playing UMETA(DisplayName = "Playing", ToolTip = "The replay clock is advancing and delivering recorded samples."),
+	Paused UMETA(DisplayName = "Paused", ToolTip = "The replay remains loaded but its clock is not advancing."),
+	Completed UMETA(DisplayName = "Completed", ToolTip = "Replay reached the end of the recording without looping."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The recording could not be loaded or replayed."),
+	Cancelled UMETA(DisplayName = "Cancelled", ToolTip = "Replay was cancelled before normal completion.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorRecordingDecodeStatus : uint8
 {
-	NotChecked,
-	Success,
-	InvalidMagic,
-	IncompatibleVersion,
-	Truncated,
-	ChecksumMismatch,
-	InvalidData,
-	LimitExceeded
+	NotChecked UMETA(DisplayName = "Not Checked", ToolTip = "The recording file has not been decoded or validated."),
+	Success UMETA(DisplayName = "Valid Recording", ToolTip = "The recording passed format, checksum, and data validation."),
+	InvalidMagic UMETA(DisplayName = "Invalid File Header", ToolTip = "The file does not begin with the OpenMobile Sensors recording signature."),
+	IncompatibleVersion UMETA(DisplayName = "Incompatible Version", ToolTip = "The recording version is not supported by this plugin build."),
+	Truncated UMETA(DisplayName = "Truncated File", ToolTip = "The file ended before its declared recording data was complete."),
+	ChecksumMismatch UMETA(DisplayName = "Checksum Mismatch", ToolTip = "The recording contents do not match the stored integrity checksum."),
+	InvalidData UMETA(DisplayName = "Invalid Data", ToolTip = "The file structure or one of its sample records is invalid."),
+	LimitExceeded UMETA(DisplayName = "Safety Limit Exceeded", ToolTip = "The recording exceeds a configured decode size or sample-count safety limit.")
 };
 
 USTRUCT(BlueprintType)

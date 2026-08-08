@@ -22,7 +22,54 @@
 #include "OpenMobileSensorReplaySession.h"
 #include "OpenMobileSensorsDevelopmentInput.h"
 #include "OpenMobileSensorsSubsystem.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintEnumMetadataTest,
+	"OpenMobile.Sensors.Blueprint.EnumMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintEnumMetadataTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	int32 BlueprintEnumCount = 0;
+	for (TObjectIterator<UEnum> Enum; Enum; ++Enum)
+	{
+		if (Enum->GetOutermost()->GetName() != TEXT("/Script/OpenMobileSensors") ||
+			!Enum->GetBoolMetaData(TEXT("BlueprintType")))
+		{
+			continue;
+		}
+		++BlueprintEnumCount;
+		for (int32 Index = 0; Index < Enum->NumEnums(); ++Index)
+		{
+			if (Enum->HasMetaData(TEXT("Hidden"), Index) ||
+				Enum->GetNameStringByIndex(Index).EndsWith(TEXT("_MAX")))
+			{
+				continue;
+			}
+			const FString EntryName = FString::Printf(
+				TEXT("%s::%s"),
+				*Enum->GetName(),
+				*Enum->GetNameStringByIndex(Index)
+			);
+			TestTrue(
+				*FString::Printf(TEXT("%s has an authored display name"), *EntryName),
+				Enum->HasMetaData(TEXT("DisplayName"), Index)
+			);
+			TestTrue(
+				*FString::Printf(TEXT("%s has an authored tooltip"), *EntryName),
+				Enum->HasMetaData(TEXT("ToolTip"), Index)
+			);
+		}
+	}
+	TestTrue(TEXT("Blueprint Sensors enums are reflected"), BlueprintEnumCount >= 40);
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsBlueprintReflectionTest,

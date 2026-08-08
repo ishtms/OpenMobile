@@ -6,10 +6,10 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorScreenRotation : uint8
 {
-	Rotation0,
-	Rotation90,
-	Rotation180,
-	Rotation270
+	Rotation0 UMETA(DisplayName = "0 Degrees", ToolTip = "Uses the display's natural orientation without an additional clockwise rotation."),
+	Rotation90 UMETA(DisplayName = "90 Degrees Clockwise", ToolTip = "Rotates device-fixed sensor axes 90 degrees clockwise into the current screen orientation."),
+	Rotation180 UMETA(DisplayName = "180 Degrees", ToolTip = "Rotates device-fixed sensor axes 180 degrees into the current screen orientation."),
+	Rotation270 UMETA(DisplayName = "270 Degrees Clockwise", ToolTip = "Rotates device-fixed sensor axes 270 degrees clockwise into the current screen orientation.")
 };
 
 USTRUCT(BlueprintType)

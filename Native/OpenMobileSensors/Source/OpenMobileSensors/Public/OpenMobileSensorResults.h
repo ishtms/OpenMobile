@@ -13,14 +13,14 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorResultCode : uint8
 {
-	Success,
+	Success UMETA(DisplayName = "Success", ToolTip = "The operation completed successfully."),
 	Accepted UMETA(DisplayName = "Accepted, Starting Asynchronously", ToolTip = "The request was accepted and its final state will arrive asynchronously."),
-	NotSupported,
-	InvalidHandle,
-	InvalidArgument,
-	Unavailable,
-	Cancelled,
-	Failed
+	NotSupported UMETA(DisplayName = "Not Supported", ToolTip = "The active platform or provider does not support this operation."),
+	InvalidHandle UMETA(DisplayName = "Invalid Handle", ToolTip = "The supplied subscription or session handle is invalid or stale."),
+	InvalidArgument UMETA(DisplayName = "Invalid Argument", ToolTip = "One or more request fields are invalid or inconsistent."),
+	Unavailable UMETA(DisplayName = "Unavailable", ToolTip = "The operation is valid but its required sensor or service is currently unavailable."),
+	Cancelled UMETA(DisplayName = "Cancelled", ToolTip = "The operation was cancelled before successful completion."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The operation failed for the reason and message returned with the result.")
 };
 
 USTRUCT(BlueprintType)
@@ -68,12 +68,12 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionResult
 UENUM(BlueprintType)
 enum class EOpenMobileSensorReadStatus : uint8
 {
-	NoSample,
-	Valid,
-	Stale,
-	Paused,
-	Stopped,
-	InvalidHandle
+	NoSample UMETA(DisplayName = "No Sample Yet", ToolTip = "The stream is valid but has not accepted its first sample."),
+	Valid UMETA(DisplayName = "Valid Sample", ToolTip = "The latest sample exists and is within its rate-derived freshness window."),
+	Stale UMETA(DisplayName = "Stale Sample", ToolTip = "A cached sample exists but is older than the stream's freshness window."),
+	Paused UMETA(DisplayName = "Stream Paused", ToolTip = "The stream is paused and its cached sample is not currently updating."),
+	Stopped UMETA(DisplayName = "Stream Stopped", ToolTip = "The stream has reached a terminal stopped state."),
+	InvalidHandle UMETA(DisplayName = "Invalid Handle", ToolTip = "The supplied listener or subscription handle is invalid or stale.")
 };
 
 USTRUCT(BlueprintType)

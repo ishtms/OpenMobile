@@ -67,22 +67,22 @@ private:
 UENUM(BlueprintType)
 enum class EOpenMobileSensorSubscriptionState : uint8
 {
-	Invalid,
-	Accepted,
-	Starting,
-	Active,
-	Paused,
-	Stopping,
-	Stopped,
-	Failed
+	Invalid UMETA(DisplayName = "Invalid", ToolTip = "The subscription handle was never valid or no longer belongs to this Game Instance."),
+	Accepted UMETA(DisplayName = "Accepted", ToolTip = "The request passed synchronous validation and is waiting for asynchronous startup."),
+	Starting UMETA(DisplayName = "Starting", ToolTip = "The provider is starting the physical sensor stream."),
+	Active UMETA(DisplayName = "Active", ToolTip = "The subscription is active and can receive samples."),
+	Paused UMETA(DisplayName = "Paused", ToolTip = "Delivery is paused by lifecycle or explicit control and may resume."),
+	Stopping UMETA(DisplayName = "Stopping", ToolTip = "A stop request is being completed by the provider."),
+	Stopped UMETA(DisplayName = "Stopped", ToolTip = "The subscription reached a normal terminal state."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The subscription reached a terminal failure state.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorRecenterMode : uint8
 {
-	FullAttitude,
-	YawOnly,
-	Clear
+	FullAttitude UMETA(DisplayName = "Full Attitude", ToolTip = "Makes the current attitude the new local orientation origin."),
+	YawOnly UMETA(DisplayName = "Yaw Only", ToolTip = "Makes the current heading the new local yaw origin while preserving pitch and roll."),
+	Clear UMETA(DisplayName = "Clear Recenter", ToolTip = "Removes the listener's recenter transform and returns to its provider reference frame.")
 };
 
 USTRUCT(BlueprintType)

@@ -18,12 +18,12 @@ enum class EOpenMobileSensorRatePreset : uint8
 UENUM(BlueprintType)
 enum class EOpenMobileSensorRateAdjustmentReason : uint8
 {
-	None,
-	ProjectPolicy,
-	HardwareLimit,
-	MissingPlatformDeclaration,
-	OperatingSystemLimit,
-	BackendLimit
+	None UMETA(DisplayName = "No Adjustment", ToolTip = "The requested and resolved sample rates match."),
+	ProjectPolicy UMETA(DisplayName = "Project Policy Limit", ToolTip = "OpenMobile Sensors Project Settings reduced the requested rate."),
+	HardwareLimit UMETA(DisplayName = "Hardware Limit", ToolTip = "The device sensor cannot sustain the requested rate."),
+	MissingPlatformDeclaration UMETA(DisplayName = "Platform Declaration Missing", ToolTip = "A required high-rate platform declaration is missing from the packaged application."),
+	OperatingSystemLimit UMETA(DisplayName = "Operating System Limit", ToolTip = "The operating system capped the requested rate for this app or device."),
+	BackendLimit UMETA(DisplayName = "Provider Limit", ToolTip = "The active sensor provider capped the requested rate.")
 };
 
 USTRUCT(BlueprintType)
@@ -63,23 +63,23 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRateResolution
 UENUM(BlueprintType)
 enum class EOpenMobileSensorDeliveryMode : uint8
 {
-	LatestValue,
+	LatestValue UMETA(DisplayName = "Latest Value", ToolTip = "Caches only the newest accepted sample for polling. Sample events are not fired."),
 	EventBatches UMETA(DisplayName = "Event Batches", ToolTip = "Feeds listener and raw sample events with rate-capped batches."),
-	Buffered
+	Buffered UMETA(DisplayName = "Buffered Reads", ToolTip = "Keeps a bounded sample queue for explicit buffered reads. Sample events are not fired.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorCoordinateSpace : uint8
 {
-	DeviceFixed,
-	CurrentScreen
+	DeviceFixed UMETA(DisplayName = "Device Fixed", ToolTip = "Uses stable Unreal device axes: X forward, Y right, and Z up, independent of screen rotation."),
+	CurrentScreen UMETA(DisplayName = "Current Screen", ToolTip = "Rotates supported sensor values from device-fixed axes into the subsystem's current screen rotation.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorOverflowPolicy : uint8
 {
-	DropOldest,
-	RejectNewest
+	DropOldest UMETA(DisplayName = "Drop Oldest", ToolTip = "Removes the oldest queued sample to make room for each new sample."),
+	RejectNewest UMETA(DisplayName = "Reject Newest", ToolTip = "Keeps the existing queue and rejects each new sample while the buffer is full.")
 };
 
 UENUM(BlueprintType)
@@ -127,28 +127,28 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorOptionIssue
 UENUM(BlueprintType)
 enum class EOpenMobileActivityConfidence : uint8
 {
-	Unknown,
-	Low,
-	Medium,
-	High
+	Unknown UMETA(DisplayName = "Unknown Confidence", ToolTip = "The provider did not report activity classification confidence."),
+	Low UMETA(DisplayName = "Low Confidence", ToolTip = "The activity classification has low provider confidence."),
+	Medium UMETA(DisplayName = "Medium Confidence", ToolTip = "The activity classification has moderate provider confidence."),
+	High UMETA(DisplayName = "High Confidence", ToolTip = "The activity classification has high provider confidence.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileAttitudeReferenceFrame : uint8
 {
-	GameRelative,
-	ArbitraryVertical,
-	MagneticNorth,
-	TrueNorth
+	GameRelative UMETA(DisplayName = "Game Relative", ToolTip = "Uses a recenterable game origin without requiring a north reference."),
+	ArbitraryVertical UMETA(DisplayName = "Arbitrary Vertical", ToolTip = "Keeps gravity vertical while allowing yaw to drift around an arbitrary starting direction."),
+	MagneticNorth UMETA(DisplayName = "Magnetic North", ToolTip = "References attitude yaw to magnetic north and may require magnetometer calibration."),
+	TrueNorth UMETA(DisplayName = "True North", ToolTip = "References attitude yaw to true north and requires supported heading and location prerequisites.")
 };
 
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileAttitudeRepresentation : uint8
 {
-	None = 0,
-	Quaternion = 1 << 0,
-	EulerAngles = 1 << 1,
-	RotationMatrix = 1 << 2
+	None = 0 UMETA(DisplayName = "Quaternion Only", ToolTip = "Keeps only the canonical quaternion that is present in every attitude sample."),
+	Quaternion = 1 << 0 UMETA(DisplayName = "Quaternion Flag", ToolTip = "Requests the canonical normalized quaternion. It is already present in every attitude sample."),
+	EulerAngles = 1 << 1 UMETA(DisplayName = "Euler Angles", ToolTip = "Also derives Unreal yaw, pitch, and roll in degrees for each subscriber."),
+	RotationMatrix = 1 << 2 UMETA(DisplayName = "Rotation Matrix", ToolTip = "Also derives an orthonormal Unreal rotation matrix for each subscriber.")
 };
 ENUM_CLASS_FLAGS(EOpenMobileAttitudeRepresentation);
 

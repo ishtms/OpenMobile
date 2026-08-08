@@ -55,11 +55,11 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorOptionalBoolean
 UENUM(BlueprintType)
 enum class EOpenMobileSensorReportingMode : uint8
 {
-	Unknown,
-	Continuous,
-	OnChange,
-	OneShot,
-	SpecialTrigger
+	Unknown UMETA(DisplayName = "Unknown", ToolTip = "The platform did not report a sensor reporting mode."),
+	Continuous UMETA(DisplayName = "Continuous", ToolTip = "The sensor produces samples continuously at its resolved rate."),
+	OnChange UMETA(DisplayName = "On Change", ToolTip = "The sensor produces a sample when its measured state changes."),
+	OneShot UMETA(DisplayName = "One Shot", ToolTip = "The sensor produces one sample and then stops."),
+	SpecialTrigger UMETA(DisplayName = "Special Trigger", ToolTip = "The sensor reports discrete trigger events using platform-specific timing.")
 };
 
 USTRUCT(BlueprintType)

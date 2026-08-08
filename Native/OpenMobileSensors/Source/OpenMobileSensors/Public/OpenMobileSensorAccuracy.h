@@ -7,11 +7,11 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorAccuracy : uint8
 {
-	Unknown,
-	Unreliable,
-	Low,
-	Medium,
-	High
+	Unknown UMETA(DisplayName = "Unknown", ToolTip = "The provider did not report an accuracy estimate."),
+	Unreliable UMETA(DisplayName = "Unreliable", ToolTip = "The reading should not be used until sensor accuracy recovers."),
+	Low UMETA(DisplayName = "Low Accuracy", ToolTip = "The reading has low estimated accuracy and may require calibration."),
+	Medium UMETA(DisplayName = "Medium Accuracy", ToolTip = "The reading has moderate estimated accuracy."),
+	High UMETA(DisplayName = "High Accuracy", ToolTip = "The reading has the provider's highest reported accuracy level.")
 };
 
 USTRUCT(BlueprintType)

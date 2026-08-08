@@ -13,11 +13,11 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorBatchingMode : uint8
 {
-	Unknown,
-	Disabled,
-	Native,
-	Plugin,
-	Unavailable
+	Unknown UMETA(DisplayName = "Unknown", ToolTip = "The active backend did not report how samples are batched."),
+	Disabled UMETA(DisplayName = "Batching Disabled", ToolTip = "Samples are delivered without native or plugin batching."),
+	Native UMETA(DisplayName = "Native Batching", ToolTip = "The platform sensor API batches samples before delivery."),
+	Plugin UMETA(DisplayName = "Plugin Batching", ToolTip = "OpenMobile Sensors batches samples after receiving them from the platform."),
+	Unavailable UMETA(DisplayName = "Batching Unavailable", ToolTip = "The requested batching behavior is unavailable for this stream.")
 };
 
 USTRUCT(BlueprintType)

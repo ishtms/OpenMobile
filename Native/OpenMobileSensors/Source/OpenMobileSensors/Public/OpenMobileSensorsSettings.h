@@ -8,17 +8,17 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorsDevelopmentInputMode : uint8
 {
-	Disabled,
-	Mock,
-	Replay
+	Disabled UMETA(DisplayName = "Disabled", ToolTip = "Uses native sensor providers and disables development input substitution."),
+	Mock UMETA(DisplayName = "Mock Input", ToolTip = "Uses deterministic development sensor values instead of native device input."),
+	Replay UMETA(DisplayName = "Recording Replay", ToolTip = "Uses a recorded sensor stream as development input.")
 };
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorPowerIntent : uint8
 {
-	LowPower,
-	Balanced,
-	Performance
+	LowPower UMETA(DisplayName = "Low Power", ToolTip = "Prefers lower sampling and callback rates to reduce sensor and CPU use."),
+	Balanced UMETA(DisplayName = "Balanced", ToolTip = "Balances responsiveness with sensor, CPU, and battery cost."),
+	Performance UMETA(DisplayName = "Performance", ToolTip = "Prefers responsiveness and higher rates when the platform supports them.")
 };
 
 USTRUCT(BlueprintType)

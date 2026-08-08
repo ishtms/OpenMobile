@@ -8,24 +8,24 @@
 UENUM(BlueprintType, meta = (Bitflags))
 enum class EOpenMobileSensorSourceFlags : uint8
 {
-	None = 0,
-	Raw = 1 << 0,
-	CalibratedNative = 1 << 1,
-	NativeFused = 1 << 2,
-	PluginDerived = 1 << 3,
-	MagneticNorthReferenced = 1 << 4,
-	TrueNorthReferenced = 1 << 5,
-	Mock = 1 << 6,
-	Replay = 1 << 7
+	None = 0 UMETA(DisplayName = "No Source Flags", ToolTip = "The provider did not report additional source provenance."),
+	Raw = 1 << 0 UMETA(DisplayName = "Raw", ToolTip = "The sample comes from an uncalibrated or direct raw sensor stream."),
+	CalibratedNative = 1 << 1 UMETA(DisplayName = "Calibrated Native", ToolTip = "The native platform reports this sample as calibrated."),
+	NativeFused = 1 << 2 UMETA(DisplayName = "Native Fused", ToolTip = "The native platform fused multiple sensors to produce this sample."),
+	PluginDerived = 1 << 3 UMETA(DisplayName = "Plugin Derived", ToolTip = "OpenMobile Sensors derived this sample from other sensor inputs."),
+	MagneticNorthReferenced = 1 << 4 UMETA(DisplayName = "Magnetic North Referenced", ToolTip = "The sample's orientation or heading is referenced to magnetic north."),
+	TrueNorthReferenced = 1 << 5 UMETA(DisplayName = "True North Referenced", ToolTip = "The sample's orientation or heading is referenced to true north."),
+	Mock = 1 << 6 UMETA(DisplayName = "Development Mock", ToolTip = "A development mock provider produced this sample."),
+	Replay = 1 << 7 UMETA(DisplayName = "Recording Replay", ToolTip = "A recording replay produced this sample.")
 };
 ENUM_CLASS_FLAGS(EOpenMobileSensorSourceFlags);
 
 UENUM(BlueprintType)
 enum class EOpenMobileSensorFusionQuality : uint8
 {
-	Unknown,
-	Degraded,
-	Nominal
+	Unknown UMETA(DisplayName = "Unknown", ToolTip = "The provider did not report enough information to rate fusion quality."),
+	Degraded UMETA(DisplayName = "Degraded", ToolTip = "The fused or derived value is usable with reduced confidence or known limitations."),
+	Nominal UMETA(DisplayName = "Nominal", ToolTip = "The fused or derived value is operating at its expected quality.")
 };
 
 USTRUCT(BlueprintType)

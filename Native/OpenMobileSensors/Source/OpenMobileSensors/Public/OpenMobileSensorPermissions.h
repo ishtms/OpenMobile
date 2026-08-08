@@ -7,8 +7,8 @@
 UENUM(BlueprintType)
 enum class EOpenMobileSensorPermission : uint8
 {
-	MotionActivity,
-	ActivityRecognition,
+	MotionActivity UMETA(DisplayName = "Motion Activity (iOS)", ToolTip = "Allows access to Core Motion activity and pedometer data on Apple platforms."),
+	ActivityRecognition UMETA(DisplayName = "Activity Recognition (Android)", ToolTip = "Allows access to activity recognition, step, and related motion data on Android."),
 	TrueHeadingLocation UMETA(Hidden)
 };
 
