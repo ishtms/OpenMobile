@@ -61,10 +61,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorIdentifier
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Type for this sensor identifier."))
 	EOpenMobileSensorType Type = EOpenMobileSensorType::Unknown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Provider-defined sensor instance name. Default selects the normal device sensor."))
 	FName InstanceId;
 
 	bool IsValid() const

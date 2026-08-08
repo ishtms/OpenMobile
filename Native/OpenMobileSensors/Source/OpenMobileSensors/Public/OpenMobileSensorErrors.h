@@ -38,17 +38,17 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFailureDetails
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Reason for this sensor failure details."))
 	EOpenMobileSensorFailureReason Reason =
 		EOpenMobileSensorFailureReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Provider or operating-system error domain. None when unavailable."))
 	FString NativeDomain;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Provider or operating-system error code. Zero when no native code is available."))
 	FString NativeCode;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Suggested action that can correct or avoid the reported problem."))
 	FString Correction;
 
 	bool IsSet() const

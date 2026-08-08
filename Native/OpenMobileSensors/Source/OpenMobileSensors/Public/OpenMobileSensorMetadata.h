@@ -67,46 +67,46 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorMetadata
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor type and provider instance this value describes."))
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Whether this is the provider's preferred instance when more than one sensor of the same type exists."))
 	bool bPreferred = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Vendor for this sensor metadata."))
 	FOpenMobileSensorOptionalText Vendor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Native Name for this sensor metadata."))
 	FOpenMobileSensorOptionalText NativeName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Version for this sensor metadata."))
 	FOpenMobileSensorOptionalInteger Version;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Maximum measurable magnitude in the sensor type's standardized units, when reported by the platform."))
 	FOpenMobileSensorOptionalNumber MaximumRange;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Smallest reported measurement increment in the sensor type's standardized units, when available."))
 	FOpenMobileSensorOptionalNumber Resolution;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Platform-estimated sensor power draw in milliwatts, when available."))
 	FOpenMobileSensorOptionalNumber EstimatedPowerMilliwatts;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Shortest supported sample interval in seconds, equivalent to the sensor's highest native rate."))
 	FOpenMobileSensorOptionalNumber MinimumIntervalSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Longest supported sample interval in seconds, when the platform reports a minimum native rate."))
 	FOpenMobileSensorOptionalNumber MaximumIntervalSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Maximum native hardware FIFO capacity in samples, when reported by the platform."))
 	FOpenMobileSensorOptionalInteger FifoCapacitySamples;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Whether the native sensor can wake the application processor to deliver qualifying events, when reported."))
 	FOpenMobileSensorOptionalBoolean WakeUpBehavior;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Whether Reporting Mode was explicitly reported by the active platform provider."))
 	bool bReportingModeAvailable = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Metadata", meta = (ToolTip = "Native continuous, on-change, one-shot, or trigger delivery behavior. Read only when Reporting Mode Available is true."))
 	EOpenMobileSensorReportingMode ReportingMode =
 		EOpenMobileSensorReportingMode::Unknown;
 };

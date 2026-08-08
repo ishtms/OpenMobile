@@ -31,66 +31,66 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsMockInput
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion", meta = (Units = "m/s^2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Motion", meta = (ToolTip = "Acceleration in metres per second squared for this sensors mock input.", Units = "m/s^2"))
 	FVector AccelerationMetresPerSecondSquared = FVector(0.0, 0.0, 9.80665);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion", meta = (Units = "rad/s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Motion", meta = (ToolTip = "Angular velocity in radians per second for this sensors mock input.", Units = "rad/s"))
 	FVector AngularVelocityRadiansPerSecond = FVector::ZeroVector;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Motion", meta = (ToolTip = "Mock Unreal yaw, pitch, and roll attitude in degrees."))
 	FRotator RotationDegrees = FRotator::ZeroRotator;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heading", meta = (ClampMin = "0.0", ClampMax = "360.0", Units = "deg"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Heading", meta = (ToolTip = "Mock heading in degrees clockwise from north.", ClampMin = "0.0", ClampMax = "360.0", Units = "deg"))
 	double HeadingDegrees = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Steps", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Steps", meta = (ToolTip = "Mock cumulative step count. Decreases simulate a native counter reset.", ClampMin = "0"))
 	int64 StepCount = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activity")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Activity", meta = (ToolTip = "Activity for this sensors mock input."))
 	EOpenMobileMotionActivity Activity = EOpenMobileMotionActivity::Stationary;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Activity")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Activity", meta = (ToolTip = "Activity Confidence for this sensors mock input."))
 	EOpenMobileActivityConfidence ActivityConfidence =
 		EOpenMobileActivityConfidence::High;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Environment", meta = (ClampMin = "0.0", DisplayName = "Pressure (hPa)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Environment", meta = (ToolTip = "Pressure in hectopascals for this sensors mock input.", ClampMin = "0.0", DisplayName = "Pressure (hPa)"))
 	double PressureHectopascals = 1013.25;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Environment", meta = (ClampMin = "0.0", DisplayName = "Ambient Light (lux)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Environment", meta = (ToolTip = "Ambient light in lux for this sensors mock input.", ClampMin = "0.0", DisplayName = "Ambient Light (lux)"))
 	double AmbientLightLux = 500.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Proximity")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Proximity", meta = (ToolTip = "Mock Near or Far proximity classification."))
 	bool bProximityNear = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Proximity", meta = (ClampMin = "0.0", Units = "m"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Proximity", meta = (ToolTip = "Proximity distance in metres for this sensors mock input.", ClampMin = "0.0", Units = "m"))
 	double ProximityDistanceMeters = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Permissions")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Permissions", meta = (ToolTip = "Motion Activity Permission for this sensors mock input."))
 	EOpenMobilePermissionStatus MotionActivityPermission =
 		EOpenMobilePermissionStatus::Granted;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Permissions")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Permissions", meta = (ToolTip = "Activity Recognition Permission for this sensors mock input."))
 	EOpenMobilePermissionStatus ActivityRecognitionPermission =
 		EOpenMobilePermissionStatus::Granted;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Permissions")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Permissions", meta = (ToolTip = "True Heading Location Permission for this sensors mock input."))
 	EOpenMobilePermissionStatus TrueHeadingLocationPermission =
 		EOpenMobilePermissionStatus::Granted;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Quality", meta = (ToolTip = "Whether the complete mock snapshot should pass sample validity checks."))
 	bool bValuesValid = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Quality", meta = (ToolTip = "Provider-reported accuracy classification for this value."))
 	EOpenMobileSensorAccuracy Accuracy = EOpenMobileSensorAccuracy::High;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Quality", meta = (ToolTip = "Quality classification for the fused or derived value."))
 	EOpenMobileSensorFusionQuality FusionQuality =
 		EOpenMobileSensorFusionQuality::Nominal;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Quality", meta = (ToolTip = "Simulates a provider calibration requirement and its listener event."))
 	bool bCalibrationRequired = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Quality", meta = (ToolTip = "Mock sensor-specific uncertainty in the active sample family's standardized units.", ClampMin = "0.0"))
 	double EstimatedError = 0.0;
 };
 
@@ -99,10 +99,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsMockTimelineFrame
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "Timeline-relative time in seconds when this mock snapshot becomes active.", ClampMin = "0.0", Units = "s"))
 	double TimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "Complete mock sensor snapshot applied at Time Seconds."))
 	FOpenMobileSensorsMockInput Input;
 };
 
@@ -111,16 +111,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsMockTimeline
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "Mock snapshots ordered by timeline-relative Time Seconds."))
 	TArray<FOpenMobileSensorsMockTimelineFrame> Frames;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.01", ClampMax = "100.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "Multiplier applied to automatic timeline advancement.", ClampMin = "0.01", ClampMax = "100.0"))
 	double PlaybackSpeed = 1.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "Whether automatic or manual playback wraps to the first frame after the final frame."))
 	bool bLoop = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Development|Timeline", meta = (ToolTip = "When true, timeline time advances only through the explicit development clock node."))
 	bool bUseManualClock = false;
 };
 

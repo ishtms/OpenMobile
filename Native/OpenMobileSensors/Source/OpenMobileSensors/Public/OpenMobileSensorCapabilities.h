@@ -78,37 +78,37 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorPrerequisiteCapability
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Name for this sensor prerequisite capability."))
 	FName Name;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Availability for this sensor prerequisite capability."))
 	FOpenMobileCapability Availability;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Input Failure Reason for this sensor prerequisite capability."))
 	EOpenMobileSensorFailureReason InputFailureReason =
 		EOpenMobileSensorFailureReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Required Permission for this sensor prerequisite capability."))
 	FName RequiredPermission;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Prerequisites", meta = (ToolTip = "Whether Permission Status was resolved from the provider that owns Required Permission."))
 	bool bPermissionStatusKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Permission Status for this sensor prerequisite capability."))
 	EOpenMobilePermissionStatus PermissionStatus =
 		EOpenMobilePermissionStatus::NotDetermined;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Permission Failure Reason for this sensor prerequisite capability."))
 	EOpenMobileSensorFailureReason PermissionFailureReason =
 		EOpenMobileSensorFailureReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Prerequisites", meta = (ToolTip = "Whether this input or external prerequisite is ready for immediate use."))
 	bool bReady = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum age in seconds for this sensor prerequisite capability."))
 	double MaximumAgeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum horizontal accuracy in metres for this sensor prerequisite capability."))
 	double MaximumHorizontalAccuracyMeters = 0.0;
 
 	bool operator==(
@@ -136,36 +136,36 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Fallback", meta = (ToolTip = "Whether this plugin build contains a documented derived fallback for the sensor."))
 	bool bImplemented = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Fallback", meta = (ToolTip = "Whether the fallback can run now with its current inputs, permissions, and lifecycle state."))
 	bool bAvailable = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Fallback", meta = (ToolTip = "Whether every sensor listed in Required Inputs is currently available."))
 	bool bRequiredInputsAvailable = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Required Inputs for this sensor fallback capability."))
 	TArray<EOpenMobileSensorType> RequiredInputs;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Minimum input frequency in hertz for this sensor fallback capability."))
 	double MinimumInputFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Fallback", meta = (ToolTip = "Whether raw or poorly calibrated input prevents this fallback from producing valid output."))
 	bool bRequiresCalibratedInput = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Expected Quality for this sensor fallback capability."))
 	EOpenMobileSensorFusionQuality ExpectedQuality =
 		EOpenMobileSensorFusionQuality::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Power Cost for this sensor fallback capability."))
 	EOpenMobileSensorFallbackPowerCost PowerCost =
 		EOpenMobileSensorFallbackPowerCost::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Fallback", meta = (ToolTip = "Estimated CPU processing budget in microseconds for each derived output sample."))
 	double CpuBudgetMicrosecondsPerSample = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorFallbackUnsupportedCondition"))
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Unsupported Condition Flags for this sensor fallback capability.", Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorFallbackUnsupportedCondition"))
 	int32 UnsupportedConditionFlags = 0;
 
 	bool operator==(
@@ -192,26 +192,26 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceFrameCapability
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Reference Frame for this attitude reference frame capability."))
 	EOpenMobileAttitudeReferenceFrame ReferenceFrame =
 		EOpenMobileAttitudeReferenceFrame::GameRelative;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Availability for this attitude reference frame capability."))
 	FOpenMobileCapability Availability;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether the reference frame can be supplied by a documented fallback when native support is absent."))
 	bool bMayUseFallback = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether this reference frame depends on magnetic or true-heading input."))
 	bool bHeadingDependent = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether this reference frame needs an authorized fresh location fix."))
 	bool bLocationDependent = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether current sensor quality requires calibration for this reference frame."))
 	bool bCalibrationRequired = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether yaw is expected to drift because the reference frame has no north anchor."))
 	bool bExpectedToDrift = false;
 
 	bool operator==(
@@ -235,39 +235,39 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorBackgroundCapability
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	EOpenMobileSensorBackgroundOperation Operation =
 		EOpenMobileSensorBackgroundOperation::Stream;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor type and provider instance this value describes."))
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Platform Behavior for this sensor background capability."))
 	EOpenMobileSensorBackgroundSupport PlatformBehavior =
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Expected Behavior for this sensor background capability."))
 	EOpenMobileSensorBackgroundSupport ExpectedBehavior =
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Active Restriction for this sensor background capability."))
 	EOpenMobileSensorRestriction ActiveRestriction =
 		EOpenMobileSensorRestriction::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Reason for this sensor background capability."))
 	EOpenMobileSensorFailureReason Reason =
 		EOpenMobileSensorFailureReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Required Permission for this sensor background capability."))
 	FName RequiredPermission;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Background", meta = (ToolTip = "Whether OpenMobile Sensors Project Settings must explicitly allow this background operation."))
 	bool bProjectOptInRequired = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Background", meta = (ToolTip = "Whether the required OpenMobile Sensors background opt-in is currently enabled."))
 	bool bProjectOptInEnabled = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Detail for this sensor background capability."))
 	FString Detail;
 
 	bool operator==(
@@ -292,46 +292,46 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor type and provider instance this value describes."))
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Availability for this sensor capability."))
 	FOpenMobileCapability Availability;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Source for this sensor capability."))
 	EOpenMobileSensorAvailabilitySource Source =
 		EOpenMobileSensorAvailabilitySource::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Required Permission for this sensor capability."))
 	FName RequiredPermission;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Active Restriction for this sensor capability."))
 	EOpenMobileSensorRestriction ActiveRestriction =
 		EOpenMobileSensorRestriction::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Minimum frequency in hertz for this sensor capability."))
 	double MinimumFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum frequency in hertz for this sensor capability."))
 	double MaximumFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Whether the provider supports native batching."))
 	bool bSupportsNativeBatching = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Background Support for this sensor capability."))
 	EOpenMobileSensorBackgroundSupport BackgroundSupport =
 		EOpenMobileSensorBackgroundSupport::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Background Operations for this sensor capability."))
 	TArray<FOpenMobileSensorBackgroundCapability> BackgroundOperations;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Fallback for this sensor capability."))
 	FOpenMobileSensorFallbackCapability Fallback;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Prerequisites for this sensor capability."))
 	TArray<FOpenMobileSensorPrerequisiteCapability> Prerequisites;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Attitude Reference Frames for this sensor capability."))
 	TArray<FOpenMobileAttitudeReferenceFrameCapability>
 		AttitudeReferenceFrames;
 
@@ -365,16 +365,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapabilitySnapshot
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Backend Name for this sensor capability snapshot."))
 	FName BackendName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Backend Availability for this sensor capability snapshot."))
 	FOpenMobileCapability BackendAvailability;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Backend Generation for this sensor capability snapshot."))
 	int64 BackendGeneration = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensors for this sensor capability snapshot."))
 	TArray<FOpenMobileSensorCapability> Sensors;
 
 	bool operator==(const FOpenMobileSensorCapabilitySnapshot& Other) const

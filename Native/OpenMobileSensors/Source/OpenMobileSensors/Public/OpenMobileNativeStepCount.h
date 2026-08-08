@@ -27,13 +27,13 @@ struct OPENMOBILESENSORS_API FOpenMobileNativeStepCountQueryResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Activity", meta = (ToolTip = "Typed identity for this historical step query. Different request-handle types cannot be connected in Blueprint."))
 	FOpenMobileNativeStepCountQueryHandle Request;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Query for this native step count query result."))
 	FOpenMobileNativeStepCountQuery Query;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sample for this native step count query result."))
 	FOpenMobileStepsSensorSample Sample;
 };
 

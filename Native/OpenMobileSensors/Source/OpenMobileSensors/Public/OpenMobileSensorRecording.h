@@ -62,19 +62,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensors for this sensor recording options."))
 	TArray<FOpenMobileSensorIdentifier> Sensors;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum duration in seconds for this sensor recording options."))
 	double MaximumDurationSeconds = 1.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum in bytes for this sensor recording options."))
 	int64 MaximumBytes = 1024ll * 1024;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Includes caller-supplied location only when the separate development project opt-in is enabled. Always blocked in Shipping."))
 	bool bIncludeSensitiveLocationContext = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Lifecycle Policy for this sensor recording options."))
 	EOpenMobileSensorLifecyclePolicy LifecyclePolicy =
 		EOpenMobileSensorLifecyclePolicy::SuspendInBackground;
 };
@@ -84,19 +84,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReplayOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Playback Speed for this sensor replay options."))
 	double PlaybackSpeed = 1.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Replay", meta = (ToolTip = "Whether replay returns to Start Time Seconds after reaching the recording end."))
 	bool bLoop = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Start time in seconds for this sensor replay options."))
 	double StartTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Replay", meta = (ToolTip = "Whether the replay loads at Start Time Seconds without advancing until resumed or manually stepped."))
 	bool bStartPaused = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Clock Mode for this sensor replay options."))
 	EOpenMobileSensorReplayClockMode ClockMode =
 		EOpenMobileSensorReplayClockMode::RealTime;
 };
@@ -109,22 +109,22 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReplaySnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced|Replay", meta = (AdvancedDisplay, ToolTip = "Raw replay request GUID retained for compatibility. Prefer the typed replay session object."))
 	FGuid RequestId;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Current lifecycle state reported for this value."))
 	EOpenMobileSensorReplayState State = EOpenMobileSensorReplayState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Playback time in seconds for this sensor replay snapshot."))
 	double PlaybackTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Duration in seconds for this sensor replay snapshot."))
 	double DurationSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Playback Speed for this sensor replay snapshot."))
 	double PlaybackSpeed = 1.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Replay", meta = (ToolTip = "Whether this replay wraps to its configured start after the recording end."))
 	bool bLoop = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Clock Mode for this sensor replay snapshot."))
 	EOpenMobileSensorReplayClockMode ClockMode =
 		EOpenMobileSensorReplayClockMode::RealTime;
 };
@@ -137,25 +137,25 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (AdvancedDisplay, ToolTip = "Raw recording request GUID retained for compatibility. Prefer the typed recording session object."))
 	FGuid RequestId;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Current lifecycle state reported for this value."))
 	EOpenMobileSensorRecordingState State =
 		EOpenMobileSensorRecordingState::Idle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Format Version for this sensor recording snapshot."))
 	int32 FormatVersion = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Recording", meta = (ToolTip = "Whether the recording stores caller-supplied location context used for true heading."))
 	bool bContainsSensitiveLocationContext = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Duration in seconds for this sensor recording snapshot."))
 	double DurationSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Bytes Written for this sensor recording snapshot."))
 	int64 BytesWritten = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Dropped Samples for this sensor recording snapshot."))
 	int64 DroppedSamples = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Absolute path of the recording file used by this session."))
 	FString FilePath;
 };

@@ -31,23 +31,23 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRateResolution
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Requested frequency in hertz for this sensor rate resolution."))
 	double RequestedFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Clamped frequency in hertz for this sensor rate resolution."))
 	double ClampedFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Applied native frequency in hertz for this sensor rate resolution."))
 	double AppliedNativeFrequencyHz = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Adjustment Reason for this sensor rate resolution."))
 	EOpenMobileSensorRateAdjustmentReason AdjustmentReason =
 		EOpenMobileSensorRateAdjustmentReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Adjustment Explanation for this sensor rate resolution."))
 	FText AdjustmentExplanation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Adjustment Correction for this sensor rate resolution."))
 	FText AdjustmentCorrection;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Whether another compatible listener raised the shared physical stream above this listener's resolved rate."))
@@ -157,25 +157,25 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFilterOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Enables first-order low-pass filtering for vector samples."))
 	bool bEnableLowPass = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Low-pass time constant in seconds. Larger values smooth more strongly and respond more slowly.", ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
 	double LowPassTimeConstantSeconds = 0.1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Enables first-order high-pass filtering for vector samples. This does not claim gravity removal."))
 	bool bEnableHighPass = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "High-pass time constant in seconds. The cutoff frequency is 1 divided by 2 pi times this value.", ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
 	double HighPassTimeConstantSeconds = 0.1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Enables exponential smoothing for vector and heading samples."))
 	bool bEnableExponentialSmoothing = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Exponential-smoothing time constant in seconds. Larger values smooth more strongly and add more lag.", ClampMin = "0.0001", ClampMax = "60.0", Units = "s"))
 	double SmoothingTimeConstantSeconds = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", ToolTip = "Uses vector magnitude in standardized units, or shortest angular distance to north in degrees for heading samples."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ClampMin = "0.0", ToolTip = "Suppresses changes below this threshold. Uses vector magnitude in standardized units or shortest heading distance in degrees. Zero disables it."))
 	double DeadZone = 0.0;
 };
 
@@ -184,19 +184,19 @@ struct OPENMOBILESENSORS_API FOpenMobileShakeDetectionOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.1", ClampMax = "1000.0", Units = "m/s^2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Minimum linear-acceleration impulse strength in metres per second squared that can contribute to a shake.", ClampMin = "0.1", ClampMax = "1000.0", Units = "m/s^2"))
 	double StrengthThresholdMetresPerSecondSquared = 12.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "1", ClampMax = "32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Number of qualifying impulses required inside the duration window.", ClampMin = "1", ClampMax = "32"))
 	int32 MinimumImpulses = 3;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.01", ClampMax = "10.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Maximum time in seconds allowed between the first and last qualifying shake impulses.", ClampMin = "0.01", ClampMax = "10.0", Units = "s"))
 	double DurationWindowSeconds = 0.5;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "5.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Quiet time in seconds that clears an incomplete impulse sequence.", ClampMin = "0.0", ClampMax = "5.0", Units = "s"))
 	double QuietResetSeconds = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "60.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Minimum time in seconds after a shake before another shake can be reported.", ClampMin = "0.0", ClampMax = "60.0", Units = "s"))
 	double CooldownSeconds = 1.0;
 };
 
@@ -205,72 +205,72 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorStreamOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Rate", meta = (ToolTip = "Selects a configurable project rate preset or enables the custom rate fields."))
 	EOpenMobileSensorRatePreset RatePreset = EOpenMobileSensorRatePreset::UI;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "1.0", ClampMax = "1000.0", Units = "Hz"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Rate", meta = (ToolTip = "Requested physical sampling frequency in hertz when Rate Preset is Custom. The applied rate may be clamped.", ClampMin = "1.0", ClampMax = "1000.0", Units = "Hz"))
 	double CustomFrequencyHz = 15.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "10.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Rate", meta = (ToolTip = "Maximum requested batching latency in seconds when Rate Preset is Custom. Zero requests immediate delivery.", ClampMin = "0.0", ClampMax = "10.0", Units = "s"))
 	double MaximumDeliveryLatencySeconds = 0.05;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "1.0", ClampMax = "120.0", Units = "Hz"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Rate", meta = (ToolTip = "Maximum game-thread event callback frequency in hertz when Rate Preset is Custom. This does not reduce physical sampling.", ClampMin = "1.0", ClampMax = "120.0", Units = "Hz"))
 	double MaximumCallbackFrequencyHz = 15.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Events", meta = (ToolTip = "Suppresses event callbacks below this accuracy. Unknown accepts all accuracy levels."))
 	EOpenMobileSensorAccuracy MinimumCallbackAccuracy =
 		EOpenMobileSensorAccuracy::Unknown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Activity", meta = (ToolTip = "Minimum provider confidence accepted for motion-activity samples. Unknown accepts all confidence levels."))
 	EOpenMobileActivityConfidence MinimumActivityConfidence =
 		EOpenMobileActivityConfidence::Unknown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0", ClampMax = "3600.0", Units = "s"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Activity", meta = (ToolTip = "Time in seconds an activity must remain stable before a derived transition is emitted. Zero emits immediately.", ClampMin = "0.0", ClampMax = "3600.0", Units = "s"))
 	double MinimumActivityStableDurationSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Delivery", meta = (ToolTip = "Chooses latest-value polling, listener event batches, or explicit buffered reads."))
 	EOpenMobileSensorDeliveryMode DeliveryMode =
 		EOpenMobileSensorDeliveryMode::LatestValue;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Coordinates", meta = (ToolTip = "Chooses stable device axes or axes compensated for the subsystem's current screen rotation."))
 	EOpenMobileSensorCoordinateSpace CoordinateSpace =
 		EOpenMobileSensorCoordinateSpace::DeviceFixed;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "1", ClampMax = "4096"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Buffering", meta = (ToolTip = "Maximum queued sample count for Buffered delivery. Ignored by other delivery modes.", ClampMin = "1", ClampMax = "4096"))
 	int32 BufferCapacitySamples = 128;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Buffering", meta = (ToolTip = "Chooses which sample is lost when a Buffered delivery queue reaches capacity."))
 	EOpenMobileSensorOverflowPolicy OverflowPolicy =
 		EOpenMobileSensorOverflowPolicy::DropOldest;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Events", meta = (ToolTip = "Suppresses scalar event callbacks until the standardized value changes by at least this amount. Zero disables it.", ClampMin = "0.0"))
 	double MinimumScalarEventChange = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Filters", meta = (ToolTip = "Optional per-listener filtering applied after unit and coordinate normalization."))
 	FOpenMobileSensorFilterOptions Filters;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Shake", meta = (ToolTip = "Thresholds used only by Shake subscriptions. Ignored by other sensors."))
 	FOpenMobileShakeDetectionOptions ShakeDetection;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Lifecycle", meta = (ToolTip = "Controls whether the listener suspends, stops, or requests supported continuation when the app backgrounds."))
 	EOpenMobileSensorLifecyclePolicy LifecyclePolicy =
 		EOpenMobileSensorLifecyclePolicy::SuspendInBackground;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Attitude", meta = (ToolTip = "Reference frame requested only by Attitude subscriptions. Availability depends on heading and location prerequisites."))
 	EOpenMobileAttitudeReferenceFrame AttitudeReferenceFrame =
 		EOpenMobileAttitudeReferenceFrame::GameRelative;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileAttitudeRepresentation"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Attitude", meta = (ToolTip = "Optional attitude forms derived in addition to the canonical quaternion.", Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileAttitudeRepresentation"))
 	int32 AttitudeRepresentations =
 		static_cast<int32>(EOpenMobileAttitudeRepresentation::Quaternion);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Advanced", meta = (ToolTip = "Allows documented plugin-derived values when a native sensor is unavailable. Capability data reports inputs, quality, and power cost."))
 	bool bAllowDerivedFallback = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Advanced", meta = (ToolTip = "Allows rates above normal platform limits only when project settings and packaged declarations also permit them."))
 	bool bAllowHighSamplingRate = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors|Options|Advanced", meta = (ToolTip = "Requests the provider's lowest practical delivery latency, potentially increasing wakeups and power use."))
 	bool bLowLatency = false;
 };
 
@@ -279,10 +279,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionRequest
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor type and provider instance this value describes."))
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Options for this sensor subscription request."))
 	FOpenMobileSensorStreamOptions Options;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (AdvancedDisplay, ToolTip = "Treats a Step Counter subscription as an independently resettable count since subscription start."))

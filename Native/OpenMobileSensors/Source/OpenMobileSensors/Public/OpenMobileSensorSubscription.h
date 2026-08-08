@@ -90,14 +90,14 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecenterState
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Recenter", meta = (ToolTip = "Whether a recenter transform is currently applied to this subscription."))
 	bool bApplied = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Mode for this sensor recenter state."))
 	EOpenMobileSensorRecenterMode Mode =
 		EOpenMobileSensorRecenterMode::FullAttitude;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Inverse Reference for this sensor recenter state."))
 	FQuat InverseReference = FQuat::Identity;
 };
 
@@ -106,27 +106,27 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceState
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Requested Reference Frame for this attitude reference state."))
 	EOpenMobileAttitudeReferenceFrame RequestedReferenceFrame =
 		EOpenMobileAttitudeReferenceFrame::GameRelative;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Applied Reference Frame for this attitude reference state."))
 	EOpenMobileAttitudeReferenceFrame AppliedReferenceFrame =
 		EOpenMobileAttitudeReferenceFrame::GameRelative;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Attitude", meta = (ToolTip = "Whether the applied reference frame differs from the requested frame because a fallback was used."))
 	bool bFallbackApplied = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Attitude", meta = (ToolTip = "Whether the applied reference frame depends on heading input."))
 	bool bHeadingDependent = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Attitude", meta = (ToolTip = "Whether the applied reference frame depends on an authorized fresh location fix."))
 	bool bLocationDependent = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Attitude", meta = (ToolTip = "Whether the current provider reports that calibration is required for this reference frame."))
 	bool bCalibrationRequired = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State|Attitude", meta = (ToolTip = "Whether yaw may drift because the applied frame has no magnetic or true-north anchor."))
 	bool bExpectedToDrift = false;
 };
 
@@ -135,37 +135,37 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionStateSnapshot
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identifier for the subscription or session this value describes."))
 	FOpenMobileSensorSubscriptionHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor type and provider instance this value describes."))
 	FOpenMobileSensorIdentifier Sensor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|State", meta = (AdvancedDisplay, ToolTip = "Whether this Step Counter subscription reports an independently resettable count since its listener session began."))
 	bool bResettableStepCountSession = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Current lifecycle state reported for this value."))
 	EOpenMobileSensorSubscriptionState State =
 		EOpenMobileSensorSubscriptionState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stream options requested by the caller before validation and rate resolution."))
 	FOpenMobileSensorStreamOptions RequestedOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Validated stream options currently applied by the provider."))
 	FOpenMobileSensorStreamOptions AppliedOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Requested, clamped, and native rates with any adjustment explanation."))
 	FOpenMobileSensorRateResolution RateResolution;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Attitude Reference for this sensor subscription state snapshot."))
 	FOpenMobileAttitudeReferenceState AttitudeReference;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Recenter for this sensor subscription state snapshot."))
 	FOpenMobileSensorRecenterState Recenter;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stable error name and developer-facing diagnostic detail."))
 	FOpenMobileError Error;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Structured sensor failure reason and native provider context."))
 	FOpenMobileSensorFailureDetails Failure;
 };

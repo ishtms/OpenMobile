@@ -33,21 +33,21 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFusionContext
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Quality for this sensor fusion context."))
 	EOpenMobileSensorFusionQuality Quality =
 		EOpenMobileSensorFusionQuality::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "True when native quality report is present and safe to read."))
 	bool bHasNativeQualityReport = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Native Quality for this sensor fusion context."))
 	EOpenMobileSensorFusionQuality NativeQuality =
 		EOpenMobileSensorFusionQuality::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "True when estimated lag is present and safe to read."))
 	bool bHasEstimatedLag = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Estimated lag in seconds for this sensor fusion context."))
 	double EstimatedLagSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw expected-input bit mask. Prefer Get Expected Fusion Inputs or Break Sensor Fusion Context."))

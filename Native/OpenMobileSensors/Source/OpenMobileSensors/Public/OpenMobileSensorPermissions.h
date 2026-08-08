@@ -27,17 +27,17 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorPermissionDescriptor
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Permission for this sensor permission descriptor."))
 	EOpenMobileSensorPermission Permission =
 		EOpenMobileSensorPermission::MotionActivity;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Permission Name for this sensor permission descriptor."))
 	FName PermissionName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Explanation for this sensor permission descriptor."))
 	FString Explanation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Current status reported for this value."))
 	EOpenMobilePermissionStatus Status =
 		EOpenMobilePermissionStatus::NotDetermined;
 };

@@ -28,13 +28,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorOperationResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results", meta = (ToolTip = "Top-level synchronous or terminal outcome. Accepted means startup continues asynchronously and is not a failure."))
 	EOpenMobileSensorResultCode Code = EOpenMobileSensorResultCode::Failed;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Structured sensor failure reason and native provider context."))
 	FOpenMobileSensorFailureDetails Failure;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stable error name and developer-facing diagnostic detail."))
 	FOpenMobileError Error;
 
 	bool IsSuccess() const
@@ -49,19 +49,19 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identifier for the subscription or session this value describes."))
 	FOpenMobileSensorSubscriptionHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stream options requested by the caller before validation and rate resolution."))
 	FOpenMobileSensorStreamOptions RequestedOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Validated stream options currently applied by the provider."))
 	FOpenMobileSensorStreamOptions AppliedOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Requested, clamped, and native rates with any adjustment explanation."))
 	FOpenMobileSensorRateResolution RateResolution;
 };
 
@@ -81,28 +81,28 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReadResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Read", meta = (ToolTip = "Explains whether a cached sample exists, whether it is fresh, and whether the stream can still update it."))
 	EOpenMobileSensorReadStatus Status = EOpenMobileSensorReadStatus::NoSample;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Read", meta = (ToolTip = "Age in seconds from the sample's monotonic sensor timestamp to the read time. Zero when no sample exists."))
 	double SampleAgeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Read", meta = (ToolTip = "Whether Sequence is newer than the previous sequence supplied by the caller."))
 	bool bHasNewerSample = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Monotonically increasing sequence used to order values from this source."))
 	int64 Sequence = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Read", meta = (ToolTip = "Validity of the cached sample itself. A stale sample may still be structurally valid."))
 	bool bSampleValid = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Provider-reported accuracy classification for this value."))
 	EOpenMobileSensorAccuracy Accuracy = EOpenMobileSensorAccuracy::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags"))
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed provenance flags describing how the value was produced.", Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorSourceFlags"))
 	int32 SourceFlags = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stable error name and developer-facing diagnostic detail."))
 	FOpenMobileError Error;
 };
 
@@ -111,16 +111,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorBufferReadResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Buffer", meta = (ToolTip = "Number of samples copied into the caller's output batch by this read."))
 	int32 ReturnedSamples = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Buffer", meta = (ToolTip = "Cumulative samples lost by this subscription because its bounded buffer overflowed."))
 	int64 DroppedSamples = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Buffer", meta = (ToolTip = "Largest queue depth reached by this subscription since it started."))
 	int32 BufferHighWaterMark = 0;
 };
 
@@ -154,13 +154,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFlushResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identity for this flush request. Different request-handle types cannot be connected in Blueprint."))
 	FOpenMobileSensorFlushHandle Request;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identifier for the subscription or session this value describes."))
 	FOpenMobileSensorSubscriptionHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Results|Flush", meta = (ToolTip = "Number of provider-held samples made available by this completed flush."))
 	int32 FlushedSamples = 0;
 };
 
@@ -172,14 +172,14 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecenterResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw recenter request GUID retained for compatibility. Preferred typed listener controls do not require it."))
 	FGuid RequestId;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Typed identifier for the subscription or session this value describes."))
 	FOpenMobileSensorSubscriptionHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Mode for this sensor recenter result."))
 	EOpenMobileSensorRecenterMode Mode =
 		EOpenMobileSensorRecenterMode::FullAttitude;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 };
 
@@ -188,10 +188,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Recording for this sensor recording result."))
 	FOpenMobileSensorRecordingSnapshot Recording;
 };
 
@@ -200,16 +200,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorReplayResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Outcome details for the operation, including any failure and correction."))
 	FOpenMobileSensorOperationResult Operation;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Advanced", meta = (AdvancedDisplay, ToolTip = "Raw replay request GUID retained for compatibility. Prefer a typed replay session object."))
 	FGuid RequestId;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Playback time in seconds for this sensor replay result."))
 	double PlaybackTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "File Status for this sensor replay result."))
 	EOpenMobileSensorRecordingDecodeStatus FileStatus =
 		EOpenMobileSensorRecordingDecodeStatus::NotChecked;
 };

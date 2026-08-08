@@ -17,16 +17,16 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorScreenRotationSnapshot
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Rotation for this sensor screen rotation snapshot."))
 	EOpenMobileSensorScreenRotation Rotation =
 		EOpenMobileSensorScreenRotation::Rotation0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Monotonic sensor-service timestamp in seconds for this value."))
 	double TimestampSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Monotonically increasing sequence used to order values from this source."))
 	int64 Sequence = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Coordinates", meta = (ToolTip = "Whether the device reports landscape as its natural display orientation."))
 	bool bNaturalOrientationLandscape = false;
 };

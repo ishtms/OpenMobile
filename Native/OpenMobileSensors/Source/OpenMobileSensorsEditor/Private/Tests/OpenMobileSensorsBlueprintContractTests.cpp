@@ -72,6 +72,54 @@ bool FOpenMobileSensorsBlueprintEnumMetadataTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsBlueprintPropertyMetadataTest,
+	"OpenMobile.Sensors.Blueprint.PropertyMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsBlueprintPropertyMetadataTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	int32 BlueprintPropertyCount = 0;
+	for (TObjectIterator<UStruct> Struct; Struct; ++Struct)
+	{
+		if (Struct->GetOutermost()->GetName() != TEXT("/Script/OpenMobileSensors") ||
+			(!Struct->IsA<UClass>() && !Struct->IsA<UScriptStruct>()))
+		{
+			continue;
+		}
+		for (TFieldIterator<FProperty> Property(
+			*Struct, EFieldIterationFlags::None); Property; ++Property)
+		{
+			if (!Property->HasAnyPropertyFlags(CPF_BlueprintVisible))
+			{
+				continue;
+			}
+			++BlueprintPropertyCount;
+			const FString PropertyName = FString::Printf(
+				TEXT("%s::%s"),
+				*Struct->GetName(),
+				*Property->GetName()
+			);
+			TestTrue(
+				*FString::Printf(TEXT("%s uses the Sensors category"), *PropertyName),
+				Property->GetMetaData(TEXT("Category")).StartsWith(
+					TEXT("OpenMobile|Sensors"))
+			);
+			TestFalse(
+				*FString::Printf(TEXT("%s has an authored tooltip"), *PropertyName),
+				Property->GetMetaData(TEXT("ToolTip")).IsEmpty()
+			);
+		}
+	}
+	TestTrue(TEXT("Blueprint Sensors properties are reflected"),
+		BlueprintPropertyCount >= 400);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsBlueprintReflectionTest,
 	"OpenMobile.Sensors.Blueprint.Reflection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
