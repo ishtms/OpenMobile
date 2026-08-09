@@ -532,7 +532,8 @@ bool FOpenMobileSensorsShakeAccelerationFallbackTest::RunTest(
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsShakeRecordedFixtureTest,
 	"OpenMobile.Sensors.Shake.RecordedFixture",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+	EAutomationTestFlags_ApplicationContextMask |
+		EAutomationTestFlags::EngineFilter
 )
 
 bool FOpenMobileSensorsShakeRecordedFixtureTest::RunTest(
