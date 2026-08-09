@@ -6,6 +6,7 @@
 #include "OpenMobileHapticPlayback.generated.h"
 
 class UOpenMobileHapticsSubsystem;
+class UOpenMobileHapticPreparationLease;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileHapticPlaybackAcceptedDynamic,
@@ -140,12 +141,16 @@ public:
 private:
 	friend class UOpenMobileHapticsBlueprintLibrary;
 	friend class UOpenMobileHapticPatternPlaybackAsyncAction;
+	friend class UOpenMobileHapticNamedPlaybackAsyncAction;
 	friend class UOpenMobileHapticsSubsystem;
 
 	void InitializePlayback(
 		UOpenMobileHapticsSubsystem* InSubsystem,
 		const FOpenMobileHapticPlaybackResult& Result,
 		FName InPatternOrEffect
+	);
+	void AttachPreparationLease(
+		UOpenMobileHapticPreparationLease* InPreparationLease
 	);
 	void HandlePlaybackEvent(const FOpenMobileHapticPlaybackEvent& Event);
 	void HandleGameInstanceTeardown();
@@ -166,6 +171,10 @@ private:
 	FOpenMobileHapticPlaybackHandle Handle;
 	FOpenMobileHapticPlaybackResult ImmediateResult;
 	FDelegateHandle PlaybackEventHandle;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UOpenMobileHapticPreparationLease> PreparationLease;
+
 	bool bAcceptedBroadcast = false;
 	bool bFinished = false;
 };

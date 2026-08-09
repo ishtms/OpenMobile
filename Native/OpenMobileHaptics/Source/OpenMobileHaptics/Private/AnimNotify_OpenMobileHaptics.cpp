@@ -3,7 +3,12 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsSubsystem.h"
+
+#if WITH_EDITOR
+#include "Misc/DataValidation.h"
+#endif
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AnimNotify_OpenMobileHaptics)
 
@@ -32,6 +37,24 @@ FString UAnimNotify_OpenMobileHaptics::GetNotifyName_Implementation() const
 		&& !NamedPattern.IsNone())
 	{
 		return FString::Printf(TEXT("Haptics: %s"), *NamedPattern.ToString());
+	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::GamePreset)
+	{
+		return FString::Printf(
+			TEXT("Haptics: %s"),
+			*StaticEnum<EOpenMobileHapticGamePreset>()->
+				GetDisplayNameTextByValue(
+					static_cast<int64>(GamePreset)
+				).ToString()
+		);
+	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::PatternAsset
+		&& PatternAsset)
+	{
+		return FString::Printf(
+			TEXT("Haptics: %s"),
+			*PatternAsset->GetName()
+		);
 	}
 	return TEXT("OpenMobile Haptics");
 }
@@ -97,5 +120,69 @@ bool UAnimNotify_OpenMobileHaptics::Dispatch(
 		Request.Options = Options;
 		return Subsystem->SubmitNamedPattern(Request).IsAccepted();
 	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::GamePreset
+		&& static_cast<uint8>(GamePreset)
+			<= static_cast<uint8>(EOpenMobileHapticGamePreset::Achievement))
+	{
+		return Subsystem->PlayGameFeedbackAdvanced(
+			GamePreset,
+			Intensity,
+			Options
+		).IsAccepted();
+	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::PatternAsset
+		&& PatternAsset)
+	{
+		return Subsystem->SubmitPatternAsset(
+			PatternAsset,
+			Intensity,
+			Options
+		).IsAccepted();
+	}
 	return false;
 }
+
+#if WITH_EDITOR
+EDataValidationResult UAnimNotify_OpenMobileHaptics::IsDataValid(
+	FDataValidationContext& Context
+) const
+{
+	EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bValid = true;
+	if (Channel.IsNone())
+	{
+		Context.AddError(FText::FromString(
+			TEXT("Haptics channel cannot be empty.")
+		));
+		bValid = false;
+	}
+	if (!FMath::IsFinite(Intensity) || Intensity < 0.0f || Intensity > 1.0f
+		|| !FMath::IsFinite(IntensityScale)
+		|| IntensityScale < 0.0f || IntensityScale > 1.0f)
+	{
+		Context.AddError(FText::FromString(
+			TEXT("Haptics intensity values must be from zero through one.")
+		));
+		bValid = false;
+	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::NamedPattern
+		&& NamedPattern.IsNone())
+	{
+		Context.AddError(FText::FromString(
+			TEXT("Named Pattern mode requires a configured alias.")
+		));
+		bValid = false;
+	}
+	if (EffectMode == EOpenMobileHapticAnimNotifyEffectMode::PatternAsset
+		&& !PatternAsset)
+	{
+		Context.AddError(FText::FromString(
+			TEXT("Pattern Asset mode requires a Haptic Pattern asset.")
+		));
+		bValid = false;
+	}
+	return bValid
+		? CombineDataValidationResults(Result, EDataValidationResult::Valid)
+		: EDataValidationResult::Invalid;
+}
+#endif

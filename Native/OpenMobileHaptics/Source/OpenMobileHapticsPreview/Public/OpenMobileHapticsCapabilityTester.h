@@ -7,12 +7,12 @@
 
 class UOpenMobileHapticsSubsystem;
 
-UENUM(BlueprintType)
+UENUM(BlueprintType, meta = (ToolTip = "Outcome of capturing a sanitized Development-only Haptic capability snapshot."))
 enum class EOpenMobileHapticsCapabilitySnapshotOutcome : uint8
 {
-	Succeeded UMETA(DisplayName = "Succeeded"),
-	Failed UMETA(DisplayName = "Failed"),
-	Unavailable UMETA(DisplayName = "Unavailable In This Build")
+	Succeeded UMETA(DisplayName = "Succeeded", ToolTip = "The sanitized snapshot and deterministic JSON were created."),
+	Failed UMETA(DisplayName = "Failed", ToolTip = "The Game Instance, Haptics subsystem, or JSON serialization failed."),
+	Unavailable UMETA(DisplayName = "Unavailable In This Build", ToolTip = "Capability snapshots are available only in Development builds.")
 };
 
 USTRUCT(BlueprintType)

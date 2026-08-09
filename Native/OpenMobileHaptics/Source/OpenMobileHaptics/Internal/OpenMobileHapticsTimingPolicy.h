@@ -55,6 +55,12 @@ public:
 		EOpenMobileHapticSynchronizationMode SynchronizationMode
 	) const;
 
+	bool GetCalibrationPrecision(
+		EOpenMobileHapticTimingClock Clock,
+		int64 LifecycleGeneration,
+		double& OutEstimatedPrecisionSeconds
+	) const;
+
 private:
 	TOptional<FOpenMobileHapticTimingAnchor>& AnchorFor(
 		EOpenMobileHapticTimingClock Clock

@@ -29,6 +29,7 @@
 #include "OpenMobileHapticsFallbackPolicy.h"
 #include "OpenMobileHapticsIntensityPolicy.h"
 #include "OpenMobileHapticLibrary.h"
+#include "OpenMobileHapticNamedPlaybackAsyncAction.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPlatformAssets.h"
 #include "OpenMobileHapticPreparationAsyncAction.h"
@@ -6555,6 +6556,51 @@ bool FOpenMobileHapticsPreparationAsyncContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsNamedPlaybackAsyncContractTest,
+	"OpenMobile.Haptics.Async.NamedPreparationContract",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsNamedPlaybackAsyncContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileHapticPatternIdentifier Pattern;
+	Pattern.Name = TEXT("Combat.Impact");
+	UOpenMobileHapticNamedPlaybackAsyncAction* Action =
+		UOpenMobileHapticNamedPlaybackAsyncAction::PlayNamedHaptic(
+			nullptr,
+			Pattern,
+			1.0f,
+			true,
+			{}
+		);
+	TestNotNull(TEXT("Named playback always returns an async task"), Action);
+	Action->Activate();
+	TestTrue(TEXT("Invalid context reaches one terminal path"), Action->bFinished);
+	TestEqual(
+		TEXT("Invalid context is rejected before playback"),
+		Action->ImmediateResult.Outcome,
+		EOpenMobileHapticPlaybackOutcome::Rejected
+	);
+	TestEqual(
+		TEXT("Invalid context has an actionable typed error"),
+		Action->ImmediateResult.Error.Code,
+		EOpenMobileHapticErrorCode::InvalidRequest
+	);
+	const FOpenMobileHapticError FirstError = Action->ImmediateResult.Error;
+	Action->Activate();
+	Action->Cancel();
+	TestEqual(
+		TEXT("Late activation and cancellation cannot replace the terminal result"),
+		Action->ImmediateResult.Error.Code,
+		FirstError.Code
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsBackendRegistryTest,
 	"OpenMobile.Haptics.Backend.Registry",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -8690,8 +8736,10 @@ bool FOpenMobileHapticsAudioScheduleSubsystemTest::RunTest(
 		PolicyGuard
 		&& PolicyGuard->CanStart(
 			FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration()));
+	FOpenMobileHapticUserPolicy RevisedPolicy = Subsystem->GetUserPolicy();
+	RevisedPolicy.MasterIntensity = 0.9f;
 	TestEqual(TEXT("A valid policy update is accepted"),
-		Subsystem->UpdateUserPolicy(Subsystem->GetUserPolicy()).Outcome,
+		Subsystem->UpdateUserPolicy(RevisedPolicy).Outcome,
 		EOpenMobileHapticControlOutcome::Accepted);
 	TestFalse(TEXT("A policy revision invalidates a delayed start"),
 		PolicyGuard->CanStart(

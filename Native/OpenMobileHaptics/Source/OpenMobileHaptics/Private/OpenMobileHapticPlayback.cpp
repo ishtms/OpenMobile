@@ -1,6 +1,7 @@
 #include "OpenMobileHapticPlayback.h"
 
 #include "Async/Async.h"
+#include "OpenMobileHapticPreparationLease.h"
 #include "OpenMobileHapticsSubsystem.h"
 
 namespace OpenMobileHapticPlaybackPrivate
@@ -240,6 +241,13 @@ void UOpenMobileHapticPlayback::HandlePlaybackEvent(
 	}
 }
 
+void UOpenMobileHapticPlayback::AttachPreparationLease(
+	UOpenMobileHapticPreparationLease* InPreparationLease
+)
+{
+	PreparationLease = InPreparationLease;
+}
+
 void UOpenMobileHapticPlayback::HandleGameInstanceTeardown()
 {
 	if (!bFinished)
@@ -292,6 +300,11 @@ void UOpenMobileHapticPlayback::Cleanup()
 		Subsystem->UnregisterPlaybackObject(this);
 	}
 	Subsystem.Reset();
+	if (PreparationLease)
+	{
+		PreparationLease->Release();
+		PreparationLease = nullptr;
+	}
 }
 
 FOpenMobileHapticControlResult

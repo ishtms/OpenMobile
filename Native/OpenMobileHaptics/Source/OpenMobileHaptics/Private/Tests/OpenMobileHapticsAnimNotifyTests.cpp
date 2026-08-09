@@ -7,6 +7,8 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/DataValidation.h"
+#include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticsSubsystem.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -54,6 +56,45 @@ bool FOpenMobileHapticsAnimNotifyTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Named effects use the same owning subsystem"),
 		Haptics->GetDiagnostics().Performance.DroppedRequestCount,
 		Dropped + 1);
+
+	UAnimNotify_OpenMobileHaptics* GamePresetNotify =
+		NewObject<UAnimNotify_OpenMobileHaptics>();
+	GamePresetNotify->EffectMode =
+		EOpenMobileHapticAnimNotifyEffectMode::GamePreset;
+	GamePresetNotify->GamePreset = EOpenMobileHapticGamePreset::Damage;
+	Dropped = Haptics->GetDiagnostics().Performance.DroppedRequestCount;
+	GamePresetNotify->Dispatch(FirstMesh);
+	TestEqual(TEXT("Game presets use the authored notify path"),
+		Haptics->GetDiagnostics().Performance.DroppedRequestCount,
+		Dropped + 1);
+
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	Pattern->SourcePattern.Events.AddDefaulted();
+	TArray<FString> PatternErrors;
+	TestTrue(TEXT("Notify test pattern builds"),
+		Pattern->RebuildDerivedData(PatternErrors));
+	UAnimNotify_OpenMobileHaptics* AssetNotify =
+		NewObject<UAnimNotify_OpenMobileHaptics>();
+	AssetNotify->EffectMode =
+		EOpenMobileHapticAnimNotifyEffectMode::PatternAsset;
+	AssetNotify->PatternAsset = Pattern;
+	Dropped = Haptics->GetDiagnostics().Performance.DroppedRequestCount;
+	AssetNotify->Dispatch(FirstMesh);
+	TestEqual(TEXT("Pattern assets submit from the authored notify path"),
+		Haptics->GetDiagnostics().Performance.DroppedRequestCount,
+		Dropped + 1);
+
+#if WITH_EDITOR
+	UAnimNotify_OpenMobileHaptics* InvalidNotify =
+		NewObject<UAnimNotify_OpenMobileHaptics>();
+	InvalidNotify->EffectMode =
+		EOpenMobileHapticAnimNotifyEffectMode::PatternAsset;
+	FDataValidationContext ValidationContext;
+	TestEqual(TEXT("Missing pattern assets fail notify validation"),
+		InvalidNotify->IsDataValid(ValidationContext),
+		EDataValidationResult::Invalid);
+#endif
 
 	USkeletalMeshComponent* OrphanMesh =
 		NewObject<USkeletalMeshComponent>();

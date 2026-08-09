@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileHaptics.h"
 #include "OpenMobileHapticsAsyncAction.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -127,11 +128,11 @@ bool FOpenMobileHapticsPublicConsumerTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(
 			*FString::Printf(
-				TEXT("%s uses the Haptics category"),
+				TEXT("%s uses the advanced Haptics category"),
 				*FunctionName.ToString()
 			),
 			Function->GetMetaData(TEXT("Category")),
-			FString(TEXT("Open Mobile|Haptics"))
+			FString(TEXT("OpenMobile|Haptics|Advanced"))
 		);
 		TestFalse(
 			*FString::Printf(
@@ -698,6 +699,207 @@ bool FOpenMobileHapticsBlueprintPreviewAndAuthoringSurfaceTest::RunTest(
 					TEXT("Development Only")
 				)
 		);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBlueprintPolicyTimingAndIdentifiersSurfaceTest,
+	"OpenMobile.Haptics.API.BlueprintPolicyTimingAndIdentifiersSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBlueprintPolicyTimingAndIdentifiersSurfaceTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+
+	const UClass* BlueprintLibraryClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticsBlueprintLibrary")
+	);
+	TestNotNull(TEXT("Blueprint Haptics library is reflected"), BlueprintLibraryClass);
+	if (!BlueprintLibraryClass)
+	{
+		return false;
+	}
+
+	for (const TPair<FName, FString>& FunctionContract : {
+		TPair<FName, FString>(TEXT("GetHapticsEnabled"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("SetHapticsEnabled"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("GetHapticsMasterIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("SetHapticsMasterIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("GetHapticCategoryIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("SetHapticCategoryIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("ResetHapticCategoryIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("GetHapticEffectIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("SetHapticEffectIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("ResetHapticEffectIntensity"), TEXT("Policy")),
+		TPair<FName, FString>(TEXT("SupportsHapticFeature"), TEXT("Capabilities")),
+		TPair<FName, FString>(TEXT("CalibrateHapticTiming"), TEXT("Timing")),
+		TPair<FName, FString>(TEXT("IsHapticClockCalibrated"), TEXT("Timing")),
+		TPair<FName, FString>(TEXT("GetHapticTimingAccuracy"), TEXT("Timing")),
+		TPair<FName, FString>(TEXT("MakeHapticPlaybackOptions"), TEXT("Options")),
+		TPair<FName, FString>(TEXT("MakeStandardHapticChannel"), TEXT("Options")),
+		TPair<FName, FString>(TEXT("MakeHapticPatternIdentifier"), TEXT("Advanced")),
+		TPair<FName, FString>(TEXT("MakeHapticLibraryIdentifier"), TEXT("Advanced")),
+		TPair<FName, FString>(TEXT("GetConfiguredHapticPatternIdentifiers"), TEXT("Prepare")),
+		TPair<FName, FString>(TEXT("GetConfiguredHapticLibraryIdentifiers"), TEXT("Prepare")),
+		TPair<FName, FString>(TEXT("WaitForHapticPlayback"), TEXT("Control")),
+		TPair<FName, FString>(TEXT("BreakHapticPlaybackResult"), TEXT("Diagnostics"))
+	})
+	{
+		const UFunction* Function = BlueprintLibraryClass->FindFunctionByName(
+			FunctionContract.Key
+		);
+		TestNotNull(
+			*FString::Printf(
+				TEXT("%s is reflected"),
+				*FunctionContract.Key.ToString()
+			),
+			Function
+		);
+		if (!Function)
+		{
+			continue;
+		}
+		TestEqual(
+			TEXT("Blueprint-first functions use the intended category"),
+			Function->GetMetaData(TEXT("Category")),
+			FString::Printf(
+				TEXT("OpenMobile|Haptics|%s"),
+				*FunctionContract.Value
+			)
+		);
+		TestFalse(
+			TEXT("Blueprint-first functions have search keywords"),
+			Function->GetMetaData(TEXT("Keywords")).IsEmpty()
+		);
+		TestFalse(
+			TEXT("Blueprint-first functions have authored tooltips"),
+			Function->GetMetaData(TEXT("ToolTip")).IsEmpty()
+		);
+	}
+
+	for (const TCHAR* StructName : {
+		TEXT("OpenMobileHapticPatternIdentifier"),
+		TEXT("OpenMobileHapticLibraryIdentifier"),
+		TEXT("OpenMobileHapticChannelIdentifier"),
+		TEXT("OpenMobileHapticCategoryIdentifier"),
+		TEXT("OpenMobileHapticEffectIdentifier")
+	})
+	{
+		const UScriptStruct* Identifier = FindObject<UScriptStruct>(
+			nullptr,
+			*FString::Printf(
+				TEXT("/Script/OpenMobileHaptics.%s"),
+				StructName
+			)
+		);
+		TestTrue(
+			*FString::Printf(TEXT("%s is a typed Blueprint identifier"), StructName),
+			Identifier && Identifier->HasMetaData(TEXT("BlueprintType"))
+		);
+	}
+
+	const UClass* NamedTaskClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileHaptics.OpenMobileHapticNamedPlaybackAsyncAction")
+	);
+	TestTrue(
+		TEXT("Configured identifiers have prepare-if-needed playback"),
+		NamedTaskClass
+			&& NamedTaskClass->FindFunctionByName(TEXT("PlayNamedHaptic"))
+	);
+
+	for (const FName EventName : {
+		FName(TEXT("OnPolicyChanged")),
+		FName(TEXT("OnAvailabilityChanged"))
+	})
+	{
+		const FMulticastDelegateProperty* Event =
+			FindFProperty<FMulticastDelegateProperty>(
+				UOpenMobileHapticsSubsystem::StaticClass(),
+				EventName
+			);
+		TestTrue(
+			*FString::Printf(TEXT("%s is Blueprint assignable"), *EventName.ToString()),
+			Event && Event->SignatureFunction
+				&& Event->SignatureFunction->NumParms == 2
+		);
+	}
+
+	for (const FName LegacyName : {
+		FName(TEXT("PlaySelectionFeedback")),
+		FName(TEXT("PlayImpactFeedback")),
+		FName(TEXT("PlayNotificationFeedback")),
+		FName(TEXT("PlayGameFeedback")),
+		FName(TEXT("Vibrate")),
+		FName(TEXT("PlayNamedPattern"))
+	})
+	{
+		const UFunction* Legacy =
+			UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+				LegacyName
+			);
+		TestTrue(
+			*FString::Printf(
+				TEXT("%s is an advanced deprecated compatibility node"),
+				*LegacyName.ToString()
+			),
+			Legacy
+				&& Legacy->GetMetaData(TEXT("Category"))
+					== TEXT("OpenMobile|Haptics|Advanced")
+				&& Legacy->HasMetaData(TEXT("DeprecatedFunction"))
+				&& !Legacy->GetMetaData(TEXT("DeprecationMessage")).IsEmpty()
+		);
+	}
+
+	const UFunction* Diagnostics =
+		UOpenMobileHapticsSubsystem::StaticClass()->FindFunctionByName(
+			TEXT("GetDiagnostics")
+		);
+	TestTrue(
+		TEXT("Legacy full diagnostics are impure and advanced"),
+		Diagnostics
+			&& !Diagnostics->HasAnyFunctionFlags(FUNC_BlueprintPure)
+			&& Diagnostics->GetMetaData(TEXT("Category"))
+				== TEXT("OpenMobile|Haptics|Advanced")
+	);
+
+	for (TObjectIterator<UEnum> Enum; Enum; ++Enum)
+	{
+		if (!Enum->GetOutermost()->GetName().StartsWith(
+			TEXT("/Script/OpenMobileHaptics")
+		) || !Enum->HasMetaData(TEXT("BlueprintType")))
+		{
+			continue;
+		}
+		for (int32 Index = 0; Index < Enum->NumEnums() - 1; ++Index)
+		{
+			if (Enum->HasMetaData(TEXT("Hidden"), Index))
+			{
+				continue;
+			}
+			const FString ValueName = Enum->GetNameStringByIndex(Index);
+			TestFalse(
+				*FString::Printf(
+					TEXT("%s.%s has authored display text"),
+					*Enum->GetName(),
+					*ValueName
+				),
+				Enum->GetMetaData(TEXT("DisplayName"), Index).IsEmpty()
+			);
+			TestFalse(
+				*FString::Printf(
+					TEXT("%s.%s has an authored tooltip"),
+					*Enum->GetName(),
+					*ValueName
+				),
+				Enum->GetMetaData(TEXT("ToolTip"), Index).IsEmpty()
+			);
+		}
 	}
 	return true;
 }

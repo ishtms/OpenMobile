@@ -5,11 +5,11 @@
 #include "OpenMobileHapticsTypes.h"
 #include "OpenMobileHapticsSettings.generated.h"
 
-UENUM(BlueprintType)
+UENUM(BlueprintType, meta = (ToolTip = "Project policy for Haptics while the application is not active."))
 enum class EOpenMobileHapticBackgroundPolicy : uint8
 {
-	StopAll,
-	CriticalOnly,
+	StopAll UMETA(DisplayName = "Stop All", ToolTip = "Suppresses every Haptics request outside the active foreground state."),
+	CriticalOnly UMETA(DisplayName = "Critical Alerts Only", ToolTip = "Allows only Critical-priority Alerts or Accessibility feedback when the platform explicitly supports background output."),
 	AllowAll UMETA(Hidden)
 };
 

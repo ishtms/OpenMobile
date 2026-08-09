@@ -80,6 +80,21 @@ bool FOpenMobileHapticsAudioClockConversionTest::RunTest(
 		FMath::IsNearlyEqual(Resolution.StartDelaySeconds, 0.14));
 	TestEqual(TEXT("Calibration precision reaches the result contract"),
 		Resolution.Diagnostics.EstimatedPrecisionSeconds, 0.004);
+	double EstimatedPrecisionSeconds = 0.0;
+	TestTrue(TEXT("Current audio calibration is directly queryable"),
+		Policy.GetCalibrationPrecision(
+			EOpenMobileHapticTimingClock::Audio,
+			7,
+			EstimatedPrecisionSeconds
+		));
+	TestEqual(TEXT("Timing query returns the calibrated accuracy"),
+		EstimatedPrecisionSeconds, 0.004);
+	TestFalse(TEXT("A stale lifecycle has no current calibration"),
+		Policy.GetCalibrationPrecision(
+			EOpenMobileHapticTimingClock::Audio,
+			8,
+			EstimatedPrecisionSeconds
+		));
 	return true;
 }
 

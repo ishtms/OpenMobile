@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OpenMobileHapticLibrary.h"
+#include "OpenMobileHapticNamedPlaybackAsyncAction.h"
 #include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPatternPlaybackAsyncAction.h"
 #include "OpenMobileHapticPlatformAssets.h"

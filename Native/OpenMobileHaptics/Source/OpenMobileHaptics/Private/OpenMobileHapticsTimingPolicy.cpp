@@ -94,6 +94,29 @@ void FOpenMobileHapticsTimingPolicy::Invalidate()
 	AudioAnchor.Reset();
 }
 
+bool FOpenMobileHapticsTimingPolicy::GetCalibrationPrecision(
+	EOpenMobileHapticTimingClock Clock,
+	int64 LifecycleGeneration,
+	double& OutEstimatedPrecisionSeconds
+) const
+{
+	OutEstimatedPrecisionSeconds = 0.0;
+	if ((Clock != EOpenMobileHapticTimingClock::Game
+			&& Clock != EOpenMobileHapticTimingClock::Audio)
+		|| LifecycleGeneration <= 0)
+	{
+		return false;
+	}
+	const TOptional<FOpenMobileHapticTimingAnchor>& Anchor = AnchorFor(Clock);
+	if (!Anchor.IsSet()
+		|| Anchor->LifecycleGeneration != LifecycleGeneration)
+	{
+		return false;
+	}
+	OutEstimatedPrecisionSeconds = Anchor->EstimatedPrecisionSeconds;
+	return true;
+}
+
 FOpenMobileHapticsTimingResolution FOpenMobileHapticsTimingPolicy::Resolve(
 	const FOpenMobileHapticSchedule& Schedule,
 	double PlatformMonotonicNowSeconds,

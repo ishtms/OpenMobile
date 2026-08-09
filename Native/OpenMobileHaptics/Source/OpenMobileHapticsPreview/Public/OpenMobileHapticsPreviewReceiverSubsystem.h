@@ -5,12 +5,12 @@
 #include "Tickable.h"
 #include "OpenMobileHapticsPreviewReceiverSubsystem.generated.h"
 
-UENUM(BlueprintType)
+UENUM(BlueprintType, meta = (ToolTip = "Outcome of a Development-only Haptic preview receiver or pairing action."))
 enum class EOpenMobileHapticsPreviewActionOutcome : uint8
 {
-	Succeeded UMETA(DisplayName = "Succeeded"),
-	Rejected UMETA(DisplayName = "Rejected"),
-	Unavailable UMETA(DisplayName = "Unavailable In This Build")
+	Succeeded UMETA(DisplayName = "Succeeded", ToolTip = "The receiver or pairing action completed successfully."),
+	Rejected UMETA(DisplayName = "Rejected", ToolTip = "The action was invalid, expired, busy, or could not bind its receiver port."),
+	Unavailable UMETA(DisplayName = "Unavailable In This Build", ToolTip = "Haptic device preview is available only in Development builds.")
 };
 
 USTRUCT(BlueprintType)
