@@ -25,6 +25,11 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileHapticsApplicationLifecycleDelegate,
 	const FOpenMobileHapticsLifecycleTransition&
 );
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileHapticsCapabilitiesChangedDelegate,
+	const FOpenMobileHapticCapabilities&,
+	const FOpenMobileHapticCapabilities&
+);
 
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsBackendRegistry final
 {
@@ -62,6 +67,8 @@ public:
 	static FOpenMobileHapticsRecoveryDelegate& OnRecovery();
 	static FOpenMobileHapticsApplicationLifecycleDelegate&
 	OnApplicationLifecycle();
+	static FOpenMobileHapticsCapabilitiesChangedDelegate&
+	OnCapabilitiesChanged();
 	static bool IsShuttingDown();
 	static void BeginShutdown();
 

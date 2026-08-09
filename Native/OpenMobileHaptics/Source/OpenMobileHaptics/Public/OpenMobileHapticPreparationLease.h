@@ -5,6 +5,8 @@
 #include "OpenMobileHapticPreparationLease.generated.h"
 
 class UOpenMobileHapticsSubsystem;
+class UOpenMobileHapticPreparationAsyncAction;
+struct FStreamableHandle;
 
 UCLASS(
 	BlueprintType,
@@ -27,10 +29,21 @@ public:
 
 private:
 	friend class UOpenMobileHapticsSubsystem;
+	friend class UOpenMobileHapticPreparationAsyncAction;
 
 	void InitializeLease(UOpenMobileHapticsSubsystem* InSubsystem);
+	void InitializeAssetLease(
+		UObject* PrimaryAsset,
+		UObject* PreparedDependency,
+		TSharedPtr<FStreamableHandle> InAssetHandle
+	);
 	void HandleGameInstanceTeardown();
 
 	TWeakObjectPtr<UOpenMobileHapticsSubsystem> Subsystem;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UObject>> PreparedObjects;
+
+	TSharedPtr<FStreamableHandle> AssetHandle;
 	bool bReleased = false;
 };

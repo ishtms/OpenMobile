@@ -28,6 +28,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 	FOpenMobileHapticsInterruptionDelegate InterruptionDelegate;
 	FOpenMobileHapticsRecoveryDelegate RecoveryDelegate;
 	FOpenMobileHapticsApplicationLifecycleDelegate LifecycleDelegate;
+	FOpenMobileHapticsCapabilitiesChangedDelegate CapabilitiesChangedDelegate;
 
 	FOpenMobileHapticsTimelineManager& TimelineManager()
 	{
@@ -137,8 +138,26 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 				TEXT("The mobile Haptics backend is recovering from an interruption.");
 		}
 
-		FScopeLock Lock(&CapabilityMutex);
-		CapabilitySnapshot = MoveTemp(Capabilities);
+		FOpenMobileHapticCapabilities PreviousCapabilities;
+		bool bChanged = false;
+		{
+			FScopeLock Lock(&CapabilityMutex);
+			PreviousCapabilities = CapabilitySnapshot;
+			bChanged = !FOpenMobileHapticCapabilities::StaticStruct()
+				->CompareScriptStruct(
+					&PreviousCapabilities,
+					&Capabilities,
+					0
+				);
+			CapabilitySnapshot = Capabilities;
+		}
+		if (bChanged)
+		{
+			CapabilitiesChangedDelegate.Broadcast(
+				PreviousCapabilities,
+				Capabilities
+			);
+		}
 	}
 
 	void StopBackend(IOpenMobileHapticsBackend& Backend)
@@ -635,6 +654,12 @@ FOpenMobileHapticsBackendRegistry::OnApplicationLifecycle()
 	return OpenMobileHapticsBackendRegistryPrivate::LifecycleDelegate;
 }
 
+FOpenMobileHapticsCapabilitiesChangedDelegate&
+FOpenMobileHapticsBackendRegistry::OnCapabilitiesChanged()
+{
+	return OpenMobileHapticsBackendRegistryPrivate::CapabilitiesChangedDelegate;
+}
+
 bool FOpenMobileHapticsBackendRegistry::IsShuttingDown()
 {
 	return OpenMobileHapticsBackendRegistryPrivate::bShuttingDown.Load();
@@ -694,6 +719,7 @@ void FOpenMobileHapticsBackendRegistry::ResetForTests()
 	InterruptionDelegate.Clear();
 	RecoveryDelegate.Clear();
 	LifecycleDelegate.Clear();
+	CapabilitiesChangedDelegate.Clear();
 	ShutdownBackends.Reset();
 	AdvanceGeneration();
 	AdvanceLifecycleGeneration();

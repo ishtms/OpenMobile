@@ -6515,12 +6515,71 @@ bool FOpenMobileHapticsPreparationAsyncContractTest::RunTest(
 		InvalidAction->PreparationResult.Outcome,
 		EOpenMobileHapticPreparationOutcome::Failed
 	);
+	FOpenMobileHapticLibraryIdentifier MissingLibrary;
+	UOpenMobileHapticPreparationAsyncAction* InvalidLibraryAction =
+		UOpenMobileHapticPreparationAsyncAction::PrepareHapticLibraryAsync(
+			nullptr,
+			MissingLibrary
+		);
+	InvalidLibraryAction->Activate();
+	TestEqual(
+		TEXT("Library preparation always reaches a terminal branch"),
+		InvalidLibraryAction->PreparationResult.Outcome,
+		EOpenMobileHapticPreparationOutcome::Failed
+	);
+	UOpenMobileHapticPreparationAsyncAction* InvalidPatternAction =
+		UOpenMobileHapticPreparationAsyncAction::PrepareHapticPatternAsync(
+			nullptr,
+			nullptr
+		);
+	InvalidPatternAction->Activate();
+	TestEqual(
+		TEXT("Pattern preparation always reaches a terminal branch"),
+		InvalidPatternAction->PreparationResult.Outcome,
+		EOpenMobileHapticPreparationOutcome::Failed
+	);
 
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileHapticsSubsystem* Subsystem =
 		NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
 	FSubsystemCollection<UGameInstanceSubsystem> Collection;
 	Subsystem->Initialize(Collection);
+	UOpenMobileHapticPreparationAsyncAction* UnknownLibraryAction =
+		NewObject<UOpenMobileHapticPreparationAsyncAction>();
+	UnknownLibraryAction->Subsystem = Subsystem;
+	UnknownLibraryAction->PreparationTarget =
+		UOpenMobileHapticPreparationAsyncAction::EPreparationTarget::
+			ConfiguredLibrary;
+	UnknownLibraryAction->RequestedLibrary.Name = TEXT("Missing.Library");
+	UnknownLibraryAction->ActivateConfiguredLibraries();
+	TestEqual(
+		TEXT("Unknown typed libraries fail before shared preparation"),
+		UnknownLibraryAction->PreparationResult.Error.CommonCode,
+		EOpenMobileErrorCode::NotConfigured
+	);
+
+	UOpenMobileHapticPatternAsset* Pattern =
+		NewObject<UOpenMobileHapticPatternAsset>();
+	UOpenMobileHapticPreparationAsyncAction* PatternAction =
+		NewObject<UOpenMobileHapticPreparationAsyncAction>();
+	PatternAction->TargetGameInstance = GameInstance;
+	PatternAction->RequestedPattern = Pattern;
+	PatternAction->FinishPatternReady();
+	TestEqual(
+		TEXT("Pattern preparation returns a ready result"),
+		PatternAction->PreparationResult.Outcome,
+		EOpenMobileHapticPreparationOutcome::Ready
+	);
+	TestTrue(
+		TEXT("Pattern preparation returns an owned valid lease"),
+		PatternAction->PreparationResult.Lease
+			&& PatternAction->PreparationResult.Lease->IsValid()
+	);
+	PatternAction->PreparationResult.Lease->Release();
+	TestFalse(
+		TEXT("Pattern preparation leases release their asset references"),
+		PatternAction->PreparationResult.Lease->IsValid()
+	);
 	TArray<FString> Errors;
 	TestTrue(
 		TEXT("Empty configured content can establish ready ownership"),
@@ -6611,6 +6670,19 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 	static_cast<void>(Parameters);
 	using namespace OpenMobileHapticsTests;
 	FOpenMobileHapticsBackendRegistry::ResetForTests();
+	int32 CapabilityChangeCount = 0;
+	FOpenMobileHapticCapabilities LastCapabilities;
+	FOpenMobileHapticsBackendRegistry::OnCapabilitiesChanged().AddLambda(
+		[&CapabilityChangeCount, &LastCapabilities](
+			const FOpenMobileHapticCapabilities& PreviousCapabilities,
+			const FOpenMobileHapticCapabilities& NewCapabilities
+		)
+		{
+			static_cast<void>(PreviousCapabilities);
+			++CapabilityChangeCount;
+			LastCapabilities = NewCapabilities;
+		}
+	);
 
 	FMockBackend Beta(TEXT("Beta"), 10);
 	FMockBackend Alpha(TEXT("Alpha"), 10);
@@ -6650,6 +6722,20 @@ bool FOpenMobileHapticsBackendRegistryTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("Backend resolves lazily to the higher priority"),
 		FOpenMobileHapticsBackendRegistry::FindBackend() == &Higher
+	);
+	const int32 ChangesBeforeRefresh = CapabilityChangeCount;
+	Higher.Capabilities.BasicVibration =
+		EOpenMobileHapticSupportState::Supported;
+	FOpenMobileHapticsBackendRegistry::RefreshCapabilities();
+	TestEqual(
+		TEXT("Capability refresh broadcasts one state change"),
+		CapabilityChangeCount,
+		ChangesBeforeRefresh + 1
+	);
+	TestEqual(
+		TEXT("Capability refresh carries the new snapshot"),
+		LastCapabilities.BasicVibration,
+		EOpenMobileHapticSupportState::Supported
 	);
 	TestFalse(
 		TEXT("Registration invalidates stale callback tokens"),

@@ -8,6 +8,7 @@
 #include "K2Node_CallFunction.h"
 #include "OpenMobileHapticNamedPlaybackAsyncAction.h"
 #include "OpenMobileHapticPatternPlaybackAsyncAction.h"
+#include "OpenMobileHapticPreparationAsyncAction.h"
 #include "OpenMobileHapticsBlueprintLibrary.h"
 
 namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
@@ -178,6 +179,37 @@ namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
 					Node,
 					TEXT("needs a configured Haptic pattern identifier. Use the project-backed identifier picker or connect a dynamic identifier.")
 				);
+			}
+		}
+		else if (Function->GetOuterUClass()
+			== UOpenMobileHapticPreparationAsyncAction::StaticClass())
+		{
+			if (Function->GetFName() == TEXT("PrepareHapticPatternAsync"))
+			{
+				const UEdGraphPin* PatternPin = Node->FindPin(TEXT("Pattern"));
+				if (IsLiteral(PatternPin) && !PatternPin->DefaultObject)
+				{
+					Warn(
+						Context,
+						Node,
+						TEXT("needs a Haptic Pattern asset to prepare.")
+					);
+				}
+			}
+			else if (Function->GetFName()
+				== TEXT("PrepareHapticLibraryAsync"))
+			{
+				const UEdGraphPin* LibraryPin = Node->FindPin(TEXT("Library"));
+				if (IsLiteral(LibraryPin)
+					&& (LibraryPin->DefaultValue.IsEmpty()
+						|| LibraryPin->DefaultValue.Contains(TEXT("Name=None"))))
+				{
+					Warn(
+						Context,
+						Node,
+						TEXT("needs a configured Haptic library identifier from the project-backed picker.")
+					);
+				}
 			}
 		}
 	}

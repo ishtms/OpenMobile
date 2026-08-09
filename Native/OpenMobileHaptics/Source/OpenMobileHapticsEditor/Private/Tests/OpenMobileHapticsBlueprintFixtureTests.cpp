@@ -243,6 +243,18 @@ bool FOpenMobileHapticsBlueprintFixtureCompilationTest::RunTest(
 			{TEXT("Ready"), TEXT("Cancelled"), TEXT("Failed")}
 		},
 		{
+			TEXT("PrepareLibrary"),
+			UOpenMobileHapticPreparationAsyncAction::StaticClass()
+				->FindFunctionByName(TEXT("PrepareHapticLibraryAsync")),
+			{TEXT("Ready"), TEXT("Cancelled"), TEXT("Failed")}
+		},
+		{
+			TEXT("PreparePattern"),
+			UOpenMobileHapticPreparationAsyncAction::StaticClass()
+				->FindFunctionByName(TEXT("PrepareHapticPatternAsync")),
+			{TEXT("Ready"), TEXT("Cancelled"), TEXT("Failed")}
+		},
+		{
 			TEXT("PlayAsset"),
 			UOpenMobileHapticPatternPlaybackAsyncAction::StaticClass()
 				->FindFunctionByName(TEXT("PlayHapticPatternAsset")),

@@ -1242,7 +1242,7 @@ void UOpenMobileHapticsSubsystem::Initialize(
 		)
 	);
 	BindRecoveryEvents();
-	LastBroadcastAvailability = GetCapabilitiesNative().Availability;
+	LastBroadcastCapabilities = GetCapabilitiesNative();
 }
 
 void UOpenMobileHapticsSubsystem::Deinitialize()
@@ -1396,6 +1396,8 @@ void UOpenMobileHapticsSubsystem::Deinitialize()
 	OnPreparationStateChanged.Clear();
 	OnPolicyChanged.Clear();
 	OnAvailabilityChanged.Clear();
+	OnCapabilitiesChanged.Clear();
+	OnMasterIntensityChanged.Clear();
 	State.Reset();
 
 	Super::Deinitialize();
@@ -5707,7 +5709,14 @@ FOpenMobileHapticControlResult UOpenMobileHapticsSubsystem::ApplyUserPolicy(
 	FOpenMobileHapticControlResult Result;
 	Result.Outcome = EOpenMobileHapticControlOutcome::Accepted;
 	OnPolicyChanged.Broadcast(PreviousPolicy, UserPolicy);
-	BroadcastAvailabilityIfChanged();
+	if (PreviousPolicy.MasterIntensity != UserPolicy.MasterIntensity)
+	{
+		OnMasterIntensityChanged.Broadcast(
+			PreviousPolicy.MasterIntensity,
+			UserPolicy.MasterIntensity
+		);
+	}
+	BroadcastCapabilitiesIfChanged();
 	return Result;
 }
 
@@ -5983,21 +5992,33 @@ void UOpenMobileHapticsSubsystem::BroadcastPreparationStateChange(
 	}
 }
 
-void UOpenMobileHapticsSubsystem::BroadcastAvailabilityIfChanged()
+void UOpenMobileHapticsSubsystem::BroadcastCapabilitiesIfChanged()
 {
-	const EOpenMobileHapticAvailability CurrentAvailability =
-		GetCapabilitiesNative().Availability;
-	if (CurrentAvailability == LastBroadcastAvailability)
+	const FOpenMobileHapticCapabilities CurrentCapabilities =
+		GetCapabilitiesNative();
+	if (FOpenMobileHapticCapabilities::StaticStruct()->CompareScriptStruct(
+		&LastBroadcastCapabilities,
+		&CurrentCapabilities,
+		0
+	))
 	{
 		return;
 	}
-	const EOpenMobileHapticAvailability PreviousAvailability =
-		LastBroadcastAvailability;
-	LastBroadcastAvailability = CurrentAvailability;
-	OnAvailabilityChanged.Broadcast(
-		PreviousAvailability,
-		CurrentAvailability
+	const FOpenMobileHapticCapabilities PreviousCapabilities =
+		LastBroadcastCapabilities;
+	LastBroadcastCapabilities = CurrentCapabilities;
+	OnCapabilitiesChanged.Broadcast(
+		PreviousCapabilities,
+		CurrentCapabilities
 	);
+	if (PreviousCapabilities.Availability
+		!= CurrentCapabilities.Availability)
+	{
+		OnAvailabilityChanged.Broadcast(
+			PreviousCapabilities.Availability,
+			CurrentCapabilities.Availability
+		);
+	}
 }
 
 void UOpenMobileHapticsSubsystem::BindRecoveryEvents()
@@ -6031,6 +6052,15 @@ void UOpenMobileHapticsSubsystem::BindRecoveryEvents()
 					&UOpenMobileHapticsSubsystem::HandleApplicationLifecycle
 				);
 	}
+	if (!CapabilitiesChangedDelegateHandle.IsValid())
+	{
+		CapabilitiesChangedDelegateHandle =
+			FOpenMobileHapticsBackendRegistry::OnCapabilitiesChanged()
+				.AddUObject(
+					this,
+					&UOpenMobileHapticsSubsystem::HandleCapabilitiesChanged
+				);
+	}
 }
 
 void UOpenMobileHapticsSubsystem::UnbindRecoveryEvents()
@@ -6056,6 +6086,13 @@ void UOpenMobileHapticsSubsystem::UnbindRecoveryEvents()
 		);
 		ApplicationLifecycleDelegateHandle.Reset();
 	}
+	if (CapabilitiesChangedDelegateHandle.IsValid())
+	{
+		FOpenMobileHapticsBackendRegistry::OnCapabilitiesChanged().Remove(
+			CapabilitiesChangedDelegateHandle
+		);
+		CapabilitiesChangedDelegateHandle.Reset();
+	}
 }
 
 void UOpenMobileHapticsSubsystem::HandleInterruption(
@@ -6067,7 +6104,7 @@ void UOpenMobileHapticsSubsystem::HandleInterruption(
 	{
 		return;
 	}
-	BroadcastAvailabilityIfChanged();
+	BroadcastCapabilitiesIfChanged();
 	const UOpenMobileHapticsSettings* Settings =
 		GetDefault<UOpenMobileHapticsSettings>();
 	TArray<uint64> RequestIds;
@@ -6139,7 +6176,7 @@ void UOpenMobileHapticsSubsystem::HandleRecovery()
 	{
 		return;
 	}
-	BroadcastAvailabilityIfChanged();
+	BroadcastCapabilitiesIfChanged();
 	TArray<FOpenMobileHapticsPendingRecoveryPlayback> Pending =
 		MoveTemp(State->PendingRecoveryPlaybacks);
 	State->PendingRecoveryPlaybacks.Reset();
@@ -6179,7 +6216,7 @@ void UOpenMobileHapticsSubsystem::HandleApplicationLifecycle(
 	{
 		return;
 	}
-	BroadcastAvailabilityIfChanged();
+	BroadcastCapabilitiesIfChanged();
 	if (Transition.bChanged
 		&& Transition.CurrentState
 			== EOpenMobileHapticsApplicationState::Active
@@ -6217,6 +6254,19 @@ void UOpenMobileHapticsSubsystem::HandleApplicationLifecycle(
 			== EOpenMobileHapticPreparationState::Preparing)
 	{
 		ReleaseNamedLibrariesInternal(true);
+	}
+}
+
+void UOpenMobileHapticsSubsystem::HandleCapabilitiesChanged(
+	const FOpenMobileHapticCapabilities& PreviousCapabilities,
+	const FOpenMobileHapticCapabilities& NewCapabilities
+)
+{
+	static_cast<void>(PreviousCapabilities);
+	static_cast<void>(NewCapabilities);
+	if (!bDeinitialized)
+	{
+		BroadcastCapabilitiesIfChanged();
 	}
 }
 

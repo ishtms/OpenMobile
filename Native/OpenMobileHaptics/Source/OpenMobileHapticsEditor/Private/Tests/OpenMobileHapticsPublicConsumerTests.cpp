@@ -360,10 +360,20 @@ bool FOpenMobileHapticsBlueprintAuthoredContentSurfaceTest::RunTest(
 	);
 	if (PreparationActionClass)
 	{
-		TestNotNull(
-			TEXT("Preparation exposes its async factory"),
-			PreparationActionClass->FindFunctionByName(TEXT("PrepareHapticsAsync"))
-		);
+		for (const FName FactoryName : {
+			FName(TEXT("PrepareHapticsAsync")),
+			FName(TEXT("PrepareHapticLibraryAsync")),
+			FName(TEXT("PrepareHapticPatternAsync"))
+		})
+		{
+			TestNotNull(
+				*FString::Printf(
+					TEXT("%s exposes owned async preparation"),
+					*FactoryName.ToString()
+				),
+				PreparationActionClass->FindFunctionByName(FactoryName)
+			);
+		}
 		for (const FName BranchName : {
 			FName(TEXT("Ready")),
 			FName(TEXT("Cancelled")),
@@ -815,7 +825,9 @@ bool FOpenMobileHapticsBlueprintPolicyTimingAndIdentifiersSurfaceTest::RunTest(
 
 	for (const FName EventName : {
 		FName(TEXT("OnPolicyChanged")),
-		FName(TEXT("OnAvailabilityChanged"))
+		FName(TEXT("OnAvailabilityChanged")),
+		FName(TEXT("OnCapabilitiesChanged")),
+		FName(TEXT("OnMasterIntensityChanged"))
 	})
 	{
 		const FMulticastDelegateProperty* Event =

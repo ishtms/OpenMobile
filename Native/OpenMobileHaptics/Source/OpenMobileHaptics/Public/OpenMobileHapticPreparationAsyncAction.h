@@ -6,7 +6,10 @@
 #include "OpenMobileHapticPreparationAsyncAction.generated.h"
 
 class UOpenMobileHapticsSubsystem;
+class UOpenMobileHapticPatternAsset;
+class UGameInstance;
 class UWorld;
+struct FStreamableHandle;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileHapticPreparationReadyDynamic,
@@ -35,7 +38,7 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticPreparationAsyncAction final :
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Ready", ToolTip = "Fires once with an owned lease when all configured Haptics content is ready."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Ready", ToolTip = "Fires once with an owned lease when the requested Haptics content is ready."))
 	FOpenMobileHapticPreparationReadyDynamic Ready;
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Prepare", meta = (DisplayName = "Cancelled", ToolTip = "Fires once when this caller stops waiting or its world ends. Other preparation owners remain valid."))
@@ -52,6 +55,18 @@ public:
 		const UObject* WorldContextObject
 	);
 
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Prepare", meta = (BlueprintInternalUseOnly = "true", DisplayName = "Prepare Haptic Library Async", Keywords = "haptic preload load library ready typed configured", ToolTip = "Validates the selected typed library and prepares the shared configured-library cache that contains it. The returned lease keeps shared named content ready until this caller releases it.", WorldContext = "WorldContextObject"))
+	static UOpenMobileHapticPreparationAsyncAction* PrepareHapticLibraryAsync(
+		const UObject* WorldContextObject,
+		FOpenMobileHapticLibraryIdentifier Library
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Prepare", meta = (BlueprintInternalUseOnly = "true", DisplayName = "Prepare Haptic Pattern Async", Keywords = "haptic preload load pattern asset ready", ToolTip = "Asynchronously prepares a selected Haptic Pattern asset and its current-platform override without synchronous loading. The returned lease owns the loaded asset references.", WorldContext = "WorldContextObject"))
+	static UOpenMobileHapticPreparationAsyncAction* PrepareHapticPatternAsync(
+		const UObject* WorldContextObject,
+		UOpenMobileHapticPatternAsset* Pattern
+	);
+
 	virtual void Activate() override;
 	virtual void Cancel() override;
 
@@ -64,6 +79,12 @@ private:
 		const FOpenMobileHapticLibraryPreloadResult& Result
 	);
 
+	UFUNCTION()
+	void HandlePatternPreparationFinished();
+
+	void ActivateConfiguredLibraries();
+	void ActivatePattern();
+	void FinishPatternReady();
 	void HandleWorldCleanup(
 		UWorld* World,
 		bool bSessionEnded,
@@ -79,9 +100,24 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UObject> StoredWorldContextObject;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UOpenMobileHapticPatternAsset> RequestedPattern;
+
 	TWeakObjectPtr<UOpenMobileHapticsSubsystem> Subsystem;
+	TWeakObjectPtr<UGameInstance> TargetGameInstance;
 	TWeakObjectPtr<UWorld> TargetWorld;
+	TSharedPtr<FStreamableHandle> PatternPreparationHandle;
 	FOpenMobileHapticLibraryPreloadHandle PreloadHandle;
 	FDelegateHandle WorldCleanupHandle;
+	FOpenMobileHapticLibraryIdentifier RequestedLibrary;
+
+	enum class EPreparationTarget : uint8
+	{
+		AllConfigured,
+		ConfiguredLibrary,
+		PatternAsset
+	};
+
+	EPreparationTarget PreparationTarget = EPreparationTarget::AllConfigured;
 	bool bFinished = false;
 };

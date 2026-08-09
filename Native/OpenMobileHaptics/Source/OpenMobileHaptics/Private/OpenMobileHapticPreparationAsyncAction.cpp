@@ -1,9 +1,13 @@
 #include "OpenMobileHapticPreparationAsyncAction.h"
 
+#include "Engine/AssetManager.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/StreamableManager.h"
 #include "Engine/World.h"
+#include "OpenMobileHapticPatternAsset.h"
 #include "OpenMobileHapticPreparationLease.h"
+#include "OpenMobileHapticsSettings.h"
 #include "OpenMobileHapticsSubsystem.h"
 
 namespace OpenMobileHapticPreparationAsyncActionPrivate
@@ -64,6 +68,34 @@ UOpenMobileHapticPreparationAsyncAction::PrepareHapticsAsync(
 	return Action;
 }
 
+UOpenMobileHapticPreparationAsyncAction*
+UOpenMobileHapticPreparationAsyncAction::PrepareHapticLibraryAsync(
+	const UObject* WorldContextObject,
+	FOpenMobileHapticLibraryIdentifier Library
+)
+{
+	UOpenMobileHapticPreparationAsyncAction* Action =
+		NewObject<UOpenMobileHapticPreparationAsyncAction>();
+	Action->StoredWorldContextObject = const_cast<UObject*>(WorldContextObject);
+	Action->RequestedLibrary = Library;
+	Action->PreparationTarget = EPreparationTarget::ConfiguredLibrary;
+	return Action;
+}
+
+UOpenMobileHapticPreparationAsyncAction*
+UOpenMobileHapticPreparationAsyncAction::PrepareHapticPatternAsync(
+	const UObject* WorldContextObject,
+	UOpenMobileHapticPatternAsset* Pattern
+)
+{
+	UOpenMobileHapticPreparationAsyncAction* Action =
+		NewObject<UOpenMobileHapticPreparationAsyncAction>();
+	Action->StoredWorldContextObject = const_cast<UObject*>(WorldContextObject);
+	Action->RequestedPattern = Pattern;
+	Action->PreparationTarget = EPreparationTarget::PatternAsset;
+	return Action;
+}
+
 void UOpenMobileHapticPreparationAsyncAction::Activate()
 {
 	check(IsInGameThread());
@@ -94,6 +126,7 @@ void UOpenMobileHapticPreparationAsyncAction::Activate()
 
 	RegisterWithGameInstance(StoredWorldContextObject);
 	TargetWorld = World;
+	TargetGameInstance = GameInstance;
 	WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(
 		this,
 		&UOpenMobileHapticPreparationAsyncAction::HandleWorldCleanup
@@ -113,6 +146,43 @@ void UOpenMobileHapticPreparationAsyncAction::Activate()
 		return;
 	}
 	Subsystem->RegisterPreparationAction(this);
+	if (PreparationTarget == EPreparationTarget::PatternAsset)
+	{
+		ActivatePattern();
+		return;
+	}
+	ActivateConfiguredLibraries();
+}
+
+void UOpenMobileHapticPreparationAsyncAction::ActivateConfiguredLibraries()
+{
+	if (PreparationTarget == EPreparationTarget::ConfiguredLibrary)
+	{
+		const bool bConfigured = RequestedLibrary.IsValid()
+			&& GetDefault<UOpenMobileHapticsSettings>()->NamedLibraries
+				.ContainsByPredicate(
+					[this](
+						const FOpenMobileHapticNamedLibrarySettings& Library
+					)
+					{
+						return Library.Name == RequestedLibrary.Name
+							&& !Library.Asset.IsNull();
+					}
+				);
+		if (!bConfigured)
+		{
+			FinishFailed(
+				OpenMobileHapticPreparationAsyncActionPrivate::MakeFailure(
+					OpenMobileHapticPreparationAsyncActionPrivate::MakeError(
+						EOpenMobileErrorCode::NotConfigured,
+						TEXT("The selected Haptic library is not configured."),
+						TEXT("Select a project-backed library identifier in OpenMobile Haptics settings.")
+					)
+				)
+			);
+			return;
+		}
+	}
 	Subsystem->OnNamedLibrariesPrepared.AddDynamic(
 		this,
 		&UOpenMobileHapticPreparationAsyncAction::HandlePreparationFinished
@@ -130,6 +200,111 @@ void UOpenMobileHapticPreparationAsyncAction::Activate()
 			)
 		);
 	}
+}
+
+void UOpenMobileHapticPreparationAsyncAction::ActivatePattern()
+{
+	if (!RequestedPattern || !RequestedPattern->IsDerivedDataCurrent())
+	{
+		FinishFailed(
+			OpenMobileHapticPreparationAsyncActionPrivate::MakeFailure(
+				OpenMobileHapticPreparationAsyncActionPrivate::MakeError(
+					EOpenMobileErrorCode::InvalidArgument,
+					TEXT("The selected Haptic Pattern has invalid cooked data."),
+					TEXT("Select a valid pattern asset, then open and save it to rebuild cooked data.")
+				)
+			)
+		);
+		return;
+	}
+	const FSoftObjectPath Override =
+		RequestedPattern->GetOverrideForCurrentPlatform();
+	if (Override.IsNull() || Override.ResolveObject())
+	{
+		FinishPatternReady();
+		return;
+	}
+	PatternPreparationHandle =
+		UAssetManager::GetStreamableManager().RequestAsyncLoad(
+			Override,
+			FStreamableDelegate::CreateUObject(
+				this,
+				&UOpenMobileHapticPreparationAsyncAction::
+					HandlePatternPreparationFinished
+			),
+			FStreamableManager::DefaultAsyncLoadPriority,
+			false,
+			false,
+			TEXT("OpenMobile Haptic Pattern preparation")
+		);
+	if (!PatternPreparationHandle)
+	{
+		FinishFailed(
+			OpenMobileHapticPreparationAsyncActionPrivate::MakeFailure(
+				OpenMobileHapticPreparationAsyncActionPrivate::MakeError(
+					EOpenMobileErrorCode::Unavailable,
+					TEXT("The Haptic Pattern override could not begin loading."),
+					TEXT("Check the current-platform override reference and try again.")
+				)
+			)
+		);
+	}
+}
+
+void UOpenMobileHapticPreparationAsyncAction::HandlePatternPreparationFinished()
+{
+	if (bFinished || !RequestedPattern)
+	{
+		return;
+	}
+	const FSoftObjectPath Override =
+		RequestedPattern->GetOverrideForCurrentPlatform();
+	if (!Override.IsNull() && !Override.ResolveObject())
+	{
+		FinishFailed(
+			OpenMobileHapticPreparationAsyncActionPrivate::MakeFailure(
+				OpenMobileHapticPreparationAsyncActionPrivate::MakeError(
+					EOpenMobileErrorCode::NativeFailure,
+					TEXT("The Haptic Pattern override failed to load."),
+					TEXT("Open the override asset and resolve its validation errors.")
+				)
+			)
+		);
+		return;
+	}
+	FinishPatternReady();
+}
+
+void UOpenMobileHapticPreparationAsyncAction::FinishPatternReady()
+{
+	UGameInstance* GameInstance = TargetGameInstance.Get();
+	if (!GameInstance || !RequestedPattern)
+	{
+		FinishFailed(
+			OpenMobileHapticPreparationAsyncActionPrivate::MakeFailure(
+				OpenMobileHapticPreparationAsyncActionPrivate::MakeError(
+					EOpenMobileErrorCode::Unavailable,
+					TEXT("The Haptic Pattern lost its Game Instance owner."),
+					TEXT("Start preparation again from an active game world.")
+				)
+			)
+		);
+		return;
+	}
+	const FSoftObjectPath Override =
+		RequestedPattern->GetOverrideForCurrentPlatform();
+	UOpenMobileHapticPreparationLease* Lease =
+		NewObject<UOpenMobileHapticPreparationLease>(GameInstance);
+	Lease->InitializeAssetLease(
+		RequestedPattern,
+		Override.ResolveObject(),
+		MoveTemp(PatternPreparationHandle)
+	);
+	FOpenMobileHapticPreparationResult Result;
+	Result.Outcome = EOpenMobileHapticPreparationOutcome::Ready;
+	Result.Lease = Lease;
+	Result.PreparedPatternCount = 1;
+	FinishReady(MoveTemp(Result));
 }
 
 void UOpenMobileHapticPreparationAsyncAction::Cancel()
@@ -300,6 +475,15 @@ void UOpenMobileHapticPreparationAsyncAction::Cleanup()
 		Subsystem->UnregisterPreparationAction(this);
 		Subsystem.Reset();
 	}
+	if (PatternPreparationHandle)
+	{
+		PatternPreparationHandle->CancelHandle();
+		PatternPreparationHandle->ReleaseHandle();
+		PatternPreparationHandle.Reset();
+	}
+	RequestedPattern = nullptr;
+	RequestedLibrary = {};
+	TargetGameInstance.Reset();
 	TargetWorld.Reset();
 	StoredWorldContextObject = nullptr;
 }

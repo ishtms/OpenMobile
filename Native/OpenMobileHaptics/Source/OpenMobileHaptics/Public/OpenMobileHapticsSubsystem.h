@@ -45,6 +45,22 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	NewAvailability
 );
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileHapticCapabilitiesChangedDynamic,
+	const FOpenMobileHapticCapabilities&,
+	PreviousCapabilities,
+	const FOpenMobileHapticCapabilities&,
+	NewCapabilities
+);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileHapticMasterIntensityChangedDynamic,
+	float,
+	PreviousIntensity,
+	float,
+	NewIntensity
+);
+
 class UOpenMobileHapticLibrary;
 class UOpenMobileHapticNamedPlaybackAsyncAction;
 class UOpenMobileHapticPatternAsset;
@@ -296,6 +312,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Capabilities", meta = (DisplayName = "On Haptics Availability Changed", ToolTip = "Reports categorical availability changes caused by player policy, application lifecycle, or backend recovery."))
 	FOpenMobileHapticAvailabilityChangedDynamic OnAvailabilityChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Capabilities", meta = (DisplayName = "On Haptics Capabilities Changed", ToolTip = "Reports old and new full capability snapshots after backend, lifecycle, recovery, or player-policy changes. Use the availability event when only output readiness matters."))
+	FOpenMobileHapticCapabilitiesChangedDynamic OnCapabilitiesChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Policy", meta = (DisplayName = "On Haptics Master Intensity Changed", ToolTip = "Reports old and new normalized master intensity after a successful dedicated or whole-policy update."))
+	FOpenMobileHapticMasterIntensityChangedDynamic OnMasterIntensityChanged;
+
 	virtual FOpenMobileHapticCapabilities GetCapabilitiesNative() const override;
 	virtual FOpenMobileHapticPlaybackResult SubmitSemantic(
 		const FOpenMobileHapticSemanticRequest& Request
@@ -399,7 +421,7 @@ private:
 		FString Reason,
 		bool bPreparedAssetsRemainLoaded
 	);
-	void BroadcastAvailabilityIfChanged();
+	void BroadcastCapabilitiesIfChanged();
 	FOpenMobileHapticsSubsystemState& GetOrCreateState() const;
 	FOpenMobileHapticControlResult ApplyUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy,
@@ -421,6 +443,10 @@ private:
 	void HandleRecovery();
 	void HandleApplicationLifecycle(
 		const FOpenMobileHapticsLifecycleTransition& Transition
+	);
+	void HandleCapabilitiesChanged(
+		const FOpenMobileHapticCapabilities& PreviousCapabilities,
+		const FOpenMobileHapticCapabilities& NewCapabilities
 	);
 	void PublishSubmissionEvents(
 		const FOpenMobileHapticPlaybackResult& Result,
@@ -550,8 +576,7 @@ private:
 
 	FOpenMobileHapticUserPolicy UserPolicy;
 	TAtomic<bool> bUserPolicyEnabled = true;
-	EOpenMobileHapticAvailability LastBroadcastAvailability =
-		EOpenMobileHapticAvailability::UnsupportedPlatform;
+	FOpenMobileHapticCapabilities LastBroadcastCapabilities;
 	FOpenMobileHapticNativePlaybackEvent NativePlaybackEvent;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPlaybackAsyncAction>> ActiveAsyncActions;
 	TSet<TWeakObjectPtr<UOpenMobileHapticPreparationAsyncAction>>
@@ -571,6 +596,7 @@ private:
 	FDelegateHandle InterruptionDelegateHandle;
 	FDelegateHandle RecoveryDelegateHandle;
 	FDelegateHandle ApplicationLifecycleDelegateHandle;
+	FDelegateHandle CapabilitiesChangedDelegateHandle;
 	bool bLegacyPreparationClaim = false;
 	bool bDeinitialized = false;
 };
