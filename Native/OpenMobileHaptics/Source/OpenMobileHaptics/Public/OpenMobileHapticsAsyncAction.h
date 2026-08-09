@@ -85,13 +85,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Started", ToolTip = "Broadcasts when accepted playback starts. Inspect synchronization diagnostics when exact timing matters."))
 	FOpenMobileHapticAsyncStarted Started;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Completed", ToolTip = "Broadcasts once when the accepted Haptics playback completes."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Advanced", meta = (DisplayName = "Completed", ToolTip = "Broadcasts once when the accepted Haptics playback completes."))
 	FOpenMobileHapticAsyncCompleted Completed;
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Stopped", ToolTip = "Broadcasts once when an owner stops accepted playback before its natural end."))
 	FOpenMobileHapticAsyncStopped Stopped;
 
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Haptics", meta = (DisplayName = "Cancelled", ToolTip = "Broadcasts once when pending or active Haptics playback is cancelled."))
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Advanced", meta = (DisplayName = "Cancelled", ToolTip = "Broadcasts once when pending or active Haptics playback is cancelled."))
 	FOpenMobileHapticAsyncCancelled Cancelled;
 
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Suppressed", ToolTip = "Broadcasts once when the request is intentionally silent. Suppression never reaches Completed."))
@@ -103,13 +103,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Haptics|Play", meta = (DisplayName = "Failed", ToolTip = "Broadcasts once when the request is rejected or playback fails. Interruption and suppression use their own branches."))
 	FOpenMobileHapticAsyncFailed Failed;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Raw handle for accepted named-pattern playback."))
 	FOpenMobileHapticPlaybackHandle PlaybackHandle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Immediate accepted, fallback, suppressed, or rejected submission result."))
 	FOpenMobileHapticPlaybackResult ImmediateResult;
 
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Haptics", meta = (AdvancedDisplay = "Options", BlueprintInternalUseOnly = "true", DisplayName = "Play Named Haptic Pattern Async", ToolTip = "Plays a named Haptics pattern and reports exactly one terminal event.", WorldContext = "WorldContextObject"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Advanced", meta = (AdvancedDisplay = "Options", AutoCreateRefTerm = "Options", BlueprintInternalUseOnly = "true", DeprecatedFunction, DeprecationMessage = "Use Play Named Haptic with a typed configured identifier.", DisplayName = "Play Named Haptic Pattern Async (Legacy)", Keywords = "haptic named pattern legacy", ToolTip = "Legacy raw-name async playback retained for existing Blueprint assets.", WorldContext = "WorldContextObject"))
 	static UOpenMobileHapticPlaybackAsyncAction* PlayNamedHapticAsync(
 		const UObject* WorldContextObject,
 		FName PatternName,

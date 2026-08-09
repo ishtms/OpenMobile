@@ -496,7 +496,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackHandle
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Opaque raw request identifier. Prefer a Haptic Playback object in common graphs."))
 	FGuid Id;
 
 	bool IsValid() const
@@ -525,16 +525,16 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDynamicParameterUpdate
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "When true, the update includes the normalized Intensity value."))
 	bool bUpdateIntensity = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized runtime intensity applied when Update Intensity is true."))
 	float Intensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "When true, the update includes the normalized Sharpness value."))
 	bool bUpdateSharpness = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized sharpness control. 0.5 is neutral, 0 is softer, and 1 is sharper."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized sharpness control. 0.5 is neutral, 0 is softer, and 1 is sharper."))
 	float Sharpness = 0.5f;
 };
 
@@ -543,44 +543,44 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticError
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Stable Haptics-specific error code used for graph decisions."))
 	EOpenMobileHapticErrorCode Code = EOpenMobileHapticErrorCode::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Provider-neutral OpenMobile error code for cross-plugin handling."))
 	EOpenMobileErrorCode CommonCode = EOpenMobileErrorCode::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Runtime stage where the request failed or was rejected."))
 	EOpenMobileHapticFailureStage Stage =
 		EOpenMobileHapticFailureStage::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Short safe developer-facing description of the failure."))
 	FString Message;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Platform-native error domain for advanced device diagnostics."))
 	FString NativeDomain;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Platform-native error code for advanced device diagnostics."))
 	FString NativeCode;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Configured pattern, asset, or operation item that failed, when known."))
 	FName FailedItem;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved playback channel associated with the failure, when known."))
 	FName Channel;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Raw playback handle associated with an accepted request that later failed."))
 	FOpenMobileHapticPlaybackHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded ordered representations attempted before the failure."))
 	TArray<FName> FallbackAttempts;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Actionable correction or recovery hint for development UI."))
 	FString Correction;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when native submission was never attempted."))
 	bool bRejectedBeforeSubmission = true;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when accepted playback was interrupted after native submission."))
 	bool bInterruptedAfterAcceptance = false;
 
 	bool IsSet() const
@@ -661,10 +661,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedSupport
 	{
 	}
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Native primitive or preset name reported by the backend."))
 	FName Name;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Tri-state support reported for the named primitive or preset."))
 	EOpenMobileHapticSupportState Support =
 		EOpenMobileHapticSupportState::Unknown;
 };
@@ -681,10 +681,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticIntegerLimit
 	{
 	}
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the device reported this integer limit."))
 	bool bKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Reported integer limit when Known is true."))
 	int32 Value = 0;
 };
 
@@ -700,10 +700,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationLimit
 	{
 	}
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the device reported this duration limit."))
 	bool bKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Reported duration in seconds when Known is true."))
 	double Seconds = 0.0;
 };
 
@@ -724,13 +724,13 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticFrequencyRange
 	{
 	}
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the device reported a frequency range."))
 	bool bKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics", meta = (Units = "Hz"))
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "Hz", ToolTip = "Minimum supported frequency in hertz when Known is true."))
 	float MinimumHertz = 0.0f;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics", meta = (Units = "Hz"))
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "Hz", ToolTip = "Maximum supported frequency in hertz when Known is true."))
 	float MaximumHertz = 0.0f;
 };
 
@@ -739,194 +739,194 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCapabilities
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current categorical availability. Do not compare its numeric ordinal."))
 	EOpenMobileHapticAvailability Availability =
 		EOpenMobileHapticAvailability::UnsupportedPlatform;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for basic bounded phone vibration."))
 	EOpenMobileHapticSupportState BasicVibration =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for portable semantic selection, impact, and notification feedback."))
 	EOpenMobileHapticSupportState SemanticFeedback =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for prepared rich pattern playback."))
 	EOpenMobileHapticSupportState RichHaptics =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for request or waveform amplitude control."))
 	EOpenMobileHapticSupportState AmplitudeControl =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for the backend semantic-effect family."))
 	EOpenMobileHapticSupportState SemanticEffects =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for native predefined effect identifiers."))
 	EOpenMobileHapticSupportState PredefinedEffects =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for authored waveform timing steps."))
 	EOpenMobileHapticSupportState WaveformTiming =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for bounded native or emulated looping."))
 	EOpenMobileHapticSupportState Looping =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for native primitive composition."))
 	EOpenMobileHapticSupportState Primitives =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for amplitude or waveform envelope playback."))
 	EOpenMobileHapticSupportState Envelopes =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for frequency control or frequency intent."))
 	EOpenMobileHapticSupportState FrequencyControl =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for short transient pattern events."))
 	EOpenMobileHapticSupportState TransientEvents =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for duration-bearing continuous pattern events."))
 	EOpenMobileHapticSupportState ContinuousEvents =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for runtime intensity or sharpness updates."))
 	EOpenMobileHapticSupportState DynamicParameters =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for audio events embedded in rich Haptic content."))
 	EOpenMobileHapticSupportState AudioEvents =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for Apple Haptic and Audio Pattern content."))
 	EOpenMobileHapticSupportState AHAP =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for delayed or calibrated absolute scheduling."))
 	EOpenMobileHapticSupportState Scheduling =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for simultaneous mixed playback."))
 	EOpenMobileHapticSupportState Mixing =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for permitted Critical background alerts."))
 	EOpenMobileHapticSupportState BackgroundAlerts =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for pausing active playback."))
 	EOpenMobileHapticSupportState Pause =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for resuming paused playback."))
 	EOpenMobileHapticSupportState Resume =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Support for seeking within active playback."))
 	EOpenMobileHapticSupportState Seek =
 		EOpenMobileHapticSupportState::Unknown;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Per-name support states for native primitive identifiers."))
 	TArray<FOpenMobileHapticNamedSupport> PrimitiveSupport;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Per-name support states for native preset identifiers."))
 	TArray<FOpenMobileHapticNamedSupport> PresetSupport;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Maximum native or portable event count when the device reports it."))
 	FOpenMobileHapticIntegerLimit MaximumEventCount;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Maximum parameter control-point count when the device reports it."))
 	FOpenMobileHapticIntegerLimit MaximumControlPointCount;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Maximum supported pattern duration when the device reports it."))
 	FOpenMobileHapticDurationLimit MaximumDurationSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Maximum native request queue depth when the device reports it."))
 	FOpenMobileHapticIntegerLimit MaximumQueueDepth;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Minimum native timing interval when the device reports it."))
 	FOpenMobileHapticDurationLimit MinimumTimingGranularitySeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Maximum control-point timeline duration when the device reports it."))
 	FOpenMobileHapticDurationLimit MaximumControlPointDurationSeconds;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Supported frequency range when the device reports it."))
 	FOpenMobileHapticFrequencyRange FrequencyRange;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Selected provider-neutral backend name."))
 	FName BackendName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded backend capability detail intended for development diagnostics."))
 	FString Detail;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPatternEvent
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ToolTip = "Transient or continuous portable event type."))
 	EOpenMobileHapticPatternEventType Type =
 		EOpenMobileHapticPatternEventType::Transient;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Event start time in seconds from pattern start."))
 	double StartTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Continuous event duration in seconds. Transient events use zero."))
 	double DurationSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized event strength from zero through one."))
 	float Intensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized tactile character from soft through sharp."))
 	float Sharpness = 0.5f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized low-to-high frequency intent used by capable backends."))
 	float FrequencyIntent = 0.5f;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticCurvePoint
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Point time in seconds relative to the parameter curve start."))
 	double RelativeTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized control value. Intensity 1.0 and sharpness 0.5 are neutral."))
 	float Value = 1.0f;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticParameterCurve
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ToolTip = "Pattern parameter controlled by this curve."))
 	EOpenMobileHapticCurveParameter Parameter =
 		EOpenMobileHapticCurveParameter::IntensityControl;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Curve start time in seconds from pattern start."))
 	double StartTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ToolTip = "Pattern-wide normalized control points. Intensity 1.0 and sharpness 0.5 are neutral."))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ToolTip = "Ordered normalized control points. Intensity 1.0 and sharpness 0.5 are neutral."))
 	TArray<FOpenMobileHapticCurvePoint> ControlPoints;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticPattern
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ToolTip = "Portable Haptic event sequence authored inside a Pattern asset."))
 	TArray<FOpenMobileHapticPatternEvent> Events;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Pattern", meta = (ToolTip = "Pattern-wide intensity and sharpness control curves."))
 	TArray<FOpenMobileHapticParameterCurve> ParameterCurves;
 };
 
@@ -935,14 +935,14 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticSchedule
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Immediate, relative, game-clock, or audio-clock scheduling mode."))
 	EOpenMobileHapticScheduleMode Mode =
 		EOpenMobileHapticScheduleMode::Immediate;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Delay for Relative mode or absolute clock time for Game and Audio modes. Immediate mode uses zero."))
 	double TimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Signed latency compensation in seconds, bounded by the runtime timing policy."))
 	double LatencyOffsetSeconds = 0.0;
 };
 
@@ -951,22 +951,22 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticTimingAnchor
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "External clock represented by this calibration anchor."))
 	EOpenMobileHapticTimingClock Clock = EOpenMobileHapticTimingClock::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Sampled external clock time in seconds."))
 	double ClockTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Platform monotonic time captured with the external clock sample."))
 	double PlatformMonotonicTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Estimated clock-sample accuracy in seconds."))
 	double EstimatedPrecisionSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Monotonic calibration revision used to reject stale schedules."))
 	int64 CalibrationRevision = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Application lifecycle generation in which this anchor was captured."))
 	int64 LifecycleGeneration = 0;
 
 	bool IsValid() const
@@ -982,17 +982,17 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticTimingCalibrationResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the timing sample was accepted for absolute scheduling."))
 	bool bAccepted = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed calibration acceptance or discontinuity status."))
 	EOpenMobileHapticTimingCalibrationStatus Status =
 		EOpenMobileHapticTimingCalibrationStatus::Rejected;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Accepted timing anchor. Invalid when calibration was rejected."))
 	FOpenMobileHapticTimingAnchor Anchor;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Plain-language calibration failure or clock-discontinuity reason."))
 	FString Error;
 };
 
@@ -1001,26 +1001,26 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticSynchronizationDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Synchronization quality requested from the active backend."))
 	EOpenMobileHapticSynchronizationMode Mode =
 		EOpenMobileHapticSynchronizationMode::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Source clock used to resolve this request."))
 	EOpenMobileHapticTimingClock Clock = EOpenMobileHapticTimingClock::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Original relative delay or absolute clock target in seconds."))
 	double RequestedTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Resolved platform monotonic target in seconds."))
 	double ResolvedPlatformTimeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Estimated scheduling accuracy in seconds."))
 	double EstimatedPrecisionSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Seconds late at resolution time. Zero means the target was not late."))
 	double LatenessSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Calibration revision used to resolve the schedule."))
 	int64 CalibrationRevision = 0;
 };
 
@@ -1029,16 +1029,16 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLoopOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Enables bounded repeat behavior for this request."))
 	bool bLoop = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0", ToolTip = "Repeats after the first play. Zero means repeat until stopped within Maximum Duration."))
 	int32 RepeatCount = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Timeline position in seconds used when each repeat begins."))
 	double RepeatStartTimeSeconds = 0.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Safety duration in seconds for all loop modes."))
 	double MaximumDurationSeconds = 30.0;
 };
 
@@ -1047,87 +1047,87 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved project channel. Use purpose-built option constructors in common graphs."))
 	FName Channel = TEXT("Gameplay");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Player-policy category. Empty defers through effect, asset, and project defaults."))
 	FName Category;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Request priority combined with channel policy."))
 	EOpenMobileHapticChannelPriority Priority =
 		EOpenMobileHapticChannelPriority::Normal;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Behavior when this request overlaps active work on the same channel."))
 	EOpenMobileHapticOverlapPolicy OverlapPolicy =
 		EOpenMobileHapticOverlapPolicy::Replace;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Allowed fallback behavior when the requested representation is unsupported."))
 	EOpenMobileHapticFallbackPolicy FallbackPolicy =
 		EOpenMobileHapticFallbackPolicy::Automatic;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Immediate, relative, or calibrated absolute playback schedule."))
 	FOpenMobileHapticSchedule Schedule;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded loop configuration for this request."))
 	FOpenMobileHapticLoopOptions Loop;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Playback behavior after an application or audio interruption."))
 	EOpenMobileHapticInterruptionPolicy InterruptionPolicy =
 		EOpenMobileHapticInterruptionPolicy::Stop;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Additional normalized request scale multiplied with project and player policy."))
 	float IntensityScale = 1.0f;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticSemanticRequest
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Portable semantic effect selected by the native C++ request."))
 	EOpenMobileHapticSemanticEffect Effect =
 		EOpenMobileHapticSemanticEffect::Selection;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(meta = (ToolTip = "Normalized C++ request intensity from zero through one."))
 	float Intensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Advanced playback policy for the native C++ request."))
 	FOpenMobileHapticPlaybackOptions Options;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticOneShotRequest
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0"))
+	UPROPERTY(meta = (ToolTip = "Requested one-shot duration in seconds."))
 	float DurationSeconds = 0.05f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(meta = (ToolTip = "Normalized C++ request intensity from zero through one."))
 	float Intensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Advanced playback policy for the native C++ request."))
 	FOpenMobileHapticPlaybackOptions Options;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedPatternRequest
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Prepared configured pattern alias used by the native C++ request."))
 	FName PatternName;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Resolved portable pattern asset path after configured lookup."))
 	FSoftObjectPath PatternAsset;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Resolved platform override asset path when one is selected."))
 	FSoftObjectPath PlatformOverrideAsset;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(meta = (ToolTip = "Normalized C++ request intensity from zero through one."))
 	float Intensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(meta = (ToolTip = "Advanced playback policy for the native C++ request."))
 	FOpenMobileHapticPlaybackOptions Options;
 };
 
@@ -1136,7 +1136,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadHandle
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Opaque raw preparation identifier. Prefer an owned preparation task in common graphs."))
 	FGuid Id;
 
 	bool IsValid() const { return Id.IsValid(); }
@@ -1163,17 +1163,17 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Raw preload handle that produced this advanced compatibility result."))
 	FOpenMobileHapticLibraryPreloadHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Prepared, cancelled, or failed terminal preload outcome."))
 	EOpenMobileHapticLibraryPreloadOutcome Outcome =
 		EOpenMobileHapticLibraryPreloadOutcome::Failed;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Number of configured named patterns prepared by this preload."))
 	int32 PreparedPatternCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Legacy per-item error strings. Prefer typed preparation task errors."))
 	TArray<FString> Errors;
 };
 
@@ -1221,19 +1221,19 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Duration requested before platform and project constraints."))
 	double RequestedSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Portable duration after project validation and clamping."))
 	double ResolvedSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the active backend reported a native duration."))
 	bool bNativeDurationKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Native duration in seconds when Known is true."))
 	double NativeSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the backend clamped the resolved duration."))
 	bool bNativeClamped = false;
 };
 
@@ -1242,19 +1242,19 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticIntensityDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Normalized intensity requested before policy and backend scaling."))
 	float Requested = 0.0f;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Normalized intensity after project, asset, and player policy."))
 	float Resolved = 0.0f;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the active backend reported its applied intensity."))
 	bool bNativeIntensityKnown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Normalized native intensity when Known is true."))
 	float Native = 0.0f;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the backend clamped the resolved intensity."))
 	bool bNativeClamped = false;
 };
 
@@ -1263,40 +1263,40 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Immediate accepted, fallback, suppressed, or rejected outcome."))
 	EOpenMobileHapticPlaybackOutcome Outcome =
 		EOpenMobileHapticPlaybackOutcome::Rejected;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Playback state at the moment this result was returned."))
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Reason for intentional silence when Outcome is Suppressed."))
 	EOpenMobileHapticSuppressionReason SuppressionReason =
 		EOpenMobileHapticSuppressionReason::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Raw playback handle for accepted controllable requests."))
 	FOpenMobileHapticPlaybackHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed error for rejected or failed requests."))
 	FOpenMobileHapticError Error;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved channel used for policy, overlap, and diagnostics."))
 	FName Channel;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Representation selected for playback, such as native semantic, portable rich, or basic fallback."))
 	FName ResolvedPath;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded ordered representation attempts made during fallback resolution."))
 	TArray<FName> FallbackAttempts;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Requested, resolved, and native duration diagnostics."))
 	FOpenMobileHapticDurationDiagnostics Duration;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Requested, policy-resolved, and native intensity diagnostics."))
 	FOpenMobileHapticIntensityDiagnostics Intensity;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Timing resolution, calibration, precision, and lateness diagnostics."))
 	FOpenMobileHapticSynchronizationDiagnostics Synchronization;
 
 	bool IsAccepted() const
@@ -1335,37 +1335,37 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Accepted, no-op, or rejected control outcome."))
 	EOpenMobileHapticControlOutcome Outcome =
 		EOpenMobileHapticControlOutcome::Rejected;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Native, emulated, or unavailable implementation used for this control."))
 	EOpenMobileHapticControlImplementation Implementation =
 		EOpenMobileHapticControlImplementation::None;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Playback state after the control operation."))
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Seek position requested in seconds. Zero for non-seek controls."))
 	double RequestedPositionSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Seek position applied after validation or quantization."))
 	double ResolvedPositionSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Native or emulated seek granularity in seconds."))
 	double PositionGranularitySeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Completed repeat count reported with repeat-aware controls."))
 	int32 CompletedRepeatCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Monotonic revision assigned to successful control changes."))
 	int64 ControlRevision = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when a seek or parameter value was quantized."))
 	bool bQuantized = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed validation, stale-handle, or backend control error."))
 	FOpenMobileHapticError Error;
 
 	static FOpenMobileHapticControlResult MakeRejected(
@@ -1396,33 +1396,33 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackEvent
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Raw handle whose lifecycle changed."))
 	FOpenMobileHapticPlaybackHandle Handle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Original handle when this event belongs to recovered playback."))
 	FOpenMobileHapticPlaybackHandle RecoverySourceHandle;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "New request-scoped playback state."))
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Whether the state is backend-confirmed or runtime-estimated."))
 	EOpenMobileHapticEventEvidence Evidence =
 		EOpenMobileHapticEventEvidence::Estimated;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "s", ToolTip = "Platform monotonic event time in seconds."))
 	double TimestampSeconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Stable pattern, preset, or semantic effect identity."))
 	FName PatternOrEffect;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved playback channel."))
 	FName Channel;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Representation selected for this playback."))
 	FName ResolvedPath;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed terminal or lifecycle error when present."))
 	FOpenMobileHapticError Error;
 };
 
@@ -1431,19 +1431,19 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticUserPolicy
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Per-player Haptics switch for the current Game Instance. Persistence is game-owned."))
 	bool bEnabled = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ToolTip = "Allows Critical-priority Alerts or Accessibility feedback while the global Haptics switch is off."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Allows Critical-priority Alerts or Accessibility feedback while the global Haptics switch is off."))
 	bool bAllowCriticalFeedbackWhenDisabled = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized per-player master intensity from zero through one."))
 	float MasterIntensity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed category keys mapped to normalized per-player scales. Prefer granular policy nodes."))
 	TMap<FName, float> CategoryScales;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Haptics")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed effect keys mapped to normalized per-player scales. Prefer granular policy nodes."))
 	TMap<FName, float> EffectScales;
 };
 
@@ -1452,49 +1452,49 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsPerformanceDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Requests rejected, suppressed, expired, or dropped before native playback."))
 	int64 DroppedRequestCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Highest observed queued playback count."))
 	int32 PeakQueuedPlaybackCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved timeline cache hits since subsystem initialization."))
 	int64 TimelineCacheHitCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved timeline cache misses since subsystem initialization."))
 	int64 TimelineCacheMissCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved timeline entries evicted by count or memory limits."))
 	int64 TimelineCacheEvictionCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current resolved timeline cache entry count."))
 	int32 TimelineCacheEntryCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "B", ToolTip = "Approximate bytes used by resolved timeline cache entries."))
 	int64 TimelineCacheMemoryBytes = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Configured maximum resolved timeline entry count."))
 	int32 TimelineCacheMaximumEntryCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "B", ToolTip = "Configured approximate memory limit for resolved timelines."))
 	int64 TimelineCacheMaximumMemoryBytes = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Completed preparation attempts since subsystem initialization."))
 	int64 PreparationCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "ms", ToolTip = "Most recent preparation latency in milliseconds."))
 	double LastPreparationLatencyMilliseconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "ms", ToolTip = "Highest observed preparation latency in milliseconds."))
 	double MaximumPreparationLatencyMilliseconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Requests submitted to a native backend."))
 	int64 NativeSubmissionCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "ms", ToolTip = "Most recent native submission latency in milliseconds."))
 	double LastNativeSubmissionLatencyMilliseconds = 0.0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (Units = "ms", ToolTip = "Highest observed native submission latency in milliseconds."))
 	double MaximumNativeSubmissionLatencyMilliseconds = 0.0;
 };
 
@@ -1503,13 +1503,13 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved channel represented by this diagnostic row."))
 	FName Channel;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Active playback count for this channel."))
 	int32 ActivePlaybackCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Queued playback count for this channel."))
 	int32 QueuedPlaybackCount = 0;
 };
 
@@ -1518,23 +1518,23 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticHandleDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Snapshot-local stable ordinal that does not expose the raw GUID."))
 	int32 Ordinal = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current state for this active or queued request."))
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Resolved channel for this request."))
 	FName Channel;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Stable pattern, preset, or semantic effect identity."))
 	FName PatternOrEffect;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Representation selected for this request."))
 	FName ResolvedPath;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when the request is waiting rather than actively playing."))
 	bool bQueued = false;
 };
 
@@ -1543,68 +1543,68 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticsDiagnostics
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Full capability snapshot captured with these diagnostics."))
 	FOpenMobileHapticCapabilities Capabilities;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current active playback count."))
 	int32 ActivePlaybackCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current queued playback count."))
 	int32 QueuedPlaybackCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Sanitized application lifecycle state."))
 	FName ApplicationState = TEXT("Active");
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True while the backend is attempting recovery."))
 	bool bBackendRecovering = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True while backend shutdown blocks new submissions."))
 	bool bBackendShuttingDown = false;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Accepted requests that used a lower-quality fallback path."))
 	int64 FallbackPlaybackCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded runtime performance counters and latency observations."))
 	FOpenMobileHapticsPerformanceDiagnostics Performance;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Most recent typed runtime error."))
 	FOpenMobileHapticError LastError;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Most recent duration resolution diagnostics."))
 	FOpenMobileHapticDurationDiagnostics LastDuration;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Most recent intensity resolution diagnostics."))
 	FOpenMobileHapticIntensityDiagnostics LastIntensity;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Last configured pattern alias looked up by the runtime."))
 	FName LastNamedPattern;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Readiness status from the most recent configured pattern lookup."))
 	EOpenMobileHapticNamedPatternStatus LastNamedPatternStatus =
 		EOpenMobileHapticNamedPatternStatus::Unprepared;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current number of prepared configured pattern aliases."))
 	int32 PreparedNamedPatternCount = 0;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Current aggregate configured-content and backend preparation state."))
 	EOpenMobileHapticPreparationState PreparationState =
 		EOpenMobileHapticPreparationState::Unprepared;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Representation selected by the most recent playback request."))
 	FName LastResolvedPath;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded fallback attempts from the most recent request."))
 	TArray<FName> LastFallbackAttempts;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Bounded recent playback lifecycle events."))
 	TArray<FOpenMobileHapticPlaybackEvent> RecentPlaybackEvents;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Per-channel active and queued counts."))
 	TArray<FOpenMobileHapticChannelDiagnostics> Channels;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Sanitized active-handle rows using snapshot-local ordinals."))
 	TArray<FOpenMobileHapticHandleDiagnostics> ActiveHandles;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Haptics")
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when bounded arrays omitted older diagnostic entries."))
 	bool bTruncated = false;
 };

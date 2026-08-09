@@ -7,7 +7,7 @@
 
 class UOpenMobileHapticPatternAsset;
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryEntry
 {
 	GENERATED_BODY()
@@ -22,14 +22,14 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryEntry
 	{
 	}
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Patterns")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Patterns", meta = (ToolTip = "Stable configured alias used by typed pattern identifiers."))
 	FName Name;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Patterns")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Patterns", meta = (ToolTip = "Portable Haptic Pattern asset resolved when this library is prepared."))
 	TSoftObjectPtr<UOpenMobileHapticPatternAsset> Pattern;
 };
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct OPENMOBILEHAPTICS_API FOpenMobileHapticGamePresetOverride
 {
 	GENERATED_BODY()
@@ -44,27 +44,27 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticGamePresetOverride
 	{
 	}
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Game Presets")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Game Presets", meta = (ToolTip = "Stable game preset whose configured pattern should be preferred."))
 	EOpenMobileHapticGamePreset Preset =
 		EOpenMobileHapticGamePreset::Confirm;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Game Presets")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Game Presets", meta = (ToolTip = "Pattern alias from this library used before the preset semantic fallback."))
 	FName PatternName;
 };
 
-UCLASS(BlueprintType)
+UCLASS()
 class OPENMOBILEHAPTICS_API UOpenMobileHapticLibrary : public UDataAsset
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Metadata", meta = (ClampMin = "1"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Metadata", meta = (ClampMin = "1", ToolTip = "Author-controlled content version used by project migration and review tools."))
 	int32 LibraryVersion = 1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Patterns")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Patterns", meta = (TitleProperty = "Name", ToolTip = "Named portable patterns made available during library preparation."))
 	TArray<FOpenMobileHapticLibraryEntry> Patterns;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Game Presets")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Game Presets", meta = (TitleProperty = "Preset", ToolTip = "Optional prepared-pattern overrides for stable game preset nodes."))
 	TArray<FOpenMobileHapticGamePresetOverride> GamePresetOverrides;
 
 	bool BuildPatternLookup(

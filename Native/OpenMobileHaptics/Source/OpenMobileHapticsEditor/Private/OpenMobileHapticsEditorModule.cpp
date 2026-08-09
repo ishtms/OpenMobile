@@ -1,3 +1,25 @@
+#include "BlueprintCompilationManager.h"
+#include "Engine/Blueprint.h"
 #include "Modules/ModuleManager.h"
+#include "OpenMobileHapticsBlueprintCompilerExtension.h"
 
-IMPLEMENT_MODULE(FDefaultModuleImpl, OpenMobileHapticsEditor)
+class FOpenMobileHapticsEditorModule final : public IModuleInterface
+{
+public:
+	virtual void StartupModule() override
+	{
+		CompilerExtension.Reset(
+			NewObject<UOpenMobileHapticsBlueprintCompilerExtension>()
+		);
+		FBlueprintCompilationManager::RegisterCompilerExtension(
+			UBlueprint::StaticClass(),
+			CompilerExtension.Get()
+		);
+	}
+
+private:
+	TStrongObjectPtr<UOpenMobileHapticsBlueprintCompilerExtension>
+		CompilerExtension;
+};
+
+IMPLEMENT_MODULE(FOpenMobileHapticsEditorModule, OpenMobileHapticsEditor)

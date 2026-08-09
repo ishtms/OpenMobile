@@ -69,7 +69,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Play", meta = (ToolTip = "Request-scoped playback object when accepted playback exposes a useful handle."))
 	TObjectPtr<UOpenMobileHapticPlayback> Playback = nullptr;
 
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Haptic Pattern Asset", Keywords = "haptic pattern asset vibrate rumble tactile feedback prepared", ToolTip = "Plays a selected Haptic Pattern asset without a raw name. Unloaded platform overrides wait asynchronously when Prepare If Needed is enabled; playback never loads synchronously.", WorldContext = "WorldContextObject"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", AutoCreateRefTerm = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Haptic Pattern Asset", Keywords = "haptic pattern asset vibrate rumble tactile feedback prepared", ToolTip = "Plays a selected Haptic Pattern asset without a raw name. Unloaded platform overrides wait asynchronously when Prepare If Needed is enabled; playback never loads synchronously.", WorldContext = "WorldContextObject"))
 	static UOpenMobileHapticPatternPlaybackAsyncAction* PlayHapticPatternAsset(
 		const UObject* WorldContextObject,
 		UOpenMobileHapticPatternAsset* Pattern,

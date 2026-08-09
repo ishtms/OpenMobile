@@ -68,7 +68,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Play", meta = (ToolTip = "Request-scoped playback object for accepted controllable playback."))
 	TObjectPtr<UOpenMobileHapticPlayback> Playback = nullptr;
 
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Named Haptic", Keywords = "haptic typed configured pattern prepare library vibrate rumble tactile", ToolTip = "Plays one typed configured pattern. When Prepare If Needed is enabled, the task owns preparation and never requires global delegate filtering.", WorldContext = "WorldContextObject"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", AutoCreateRefTerm = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Named Haptic", Keywords = "haptic typed configured pattern prepare library vibrate rumble tactile", ToolTip = "Plays one typed configured pattern. When Prepare If Needed is enabled, the task owns preparation and never requires global delegate filtering.", WorldContext = "WorldContextObject"))
 	static UOpenMobileHapticNamedPlaybackAsyncAction* PlayNamedHaptic(
 		const UObject* WorldContextObject,
 		FOpenMobileHapticPatternIdentifier Pattern,

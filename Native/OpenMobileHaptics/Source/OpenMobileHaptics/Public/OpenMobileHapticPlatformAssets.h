@@ -54,14 +54,14 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidPrimitiveStep
 	{
 	}
 
-	UPROPERTY(EditAnywhere, Category = "Android")
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ToolTip = "Android predefined primitive played by this composition step."))
 	EOpenMobileHapticAndroidPrimitive Primitive =
 		EOpenMobileHapticAndroidPrimitive::Click;
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized strength applied to this primitive step."))
 	float Scale = 1.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0", Units = "ms"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0", Units = "ms", ToolTip = "Delay in milliseconds before this primitive begins."))
 	int32 DelayMilliseconds = 0;
 };
 
@@ -82,7 +82,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidWaveformStep
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android",
+		Category = "OpenMobile|Haptics|Android",
 		meta = (
 			ClampMin = "0",
 			Units = "ms",
@@ -93,7 +93,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidWaveformStep
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android",
+		Category = "OpenMobile|Haptics|Android",
 		meta = (
 			ClampMin = "0",
 			ClampMax = "255",
@@ -108,16 +108,16 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidEnvelopePoint
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", Units = "s"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0.0", Units = "s", ToolTip = "Envelope point time in seconds from pattern start."))
 	float TimeSeconds = 0.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized envelope amplitude at this point."))
 	float Amplitude = 1.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", Units = "Hz"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0.0", Units = "Hz", ToolTip = "Requested envelope frequency in hertz when the device supports it."))
 	float FrequencyHz = 0.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Android", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Android", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized sharpness intent at this envelope point."))
 	float Sharpness = 0.5f;
 };
 
@@ -126,10 +126,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticIOSAudioResource
 {
 	GENERATED_BODY()
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "Sanitized resource path relative to the imported AHAP document."))
 	FString RelativePath;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "Imported audio bytes kept internal to iOS asset cooking and playback."))
 	TArray<uint8> Data;
 };
 
@@ -192,7 +192,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android",
+		Category = "OpenMobile|Haptics|Android",
 		meta = (
 			ClampMin = "26",
 			ToolTip = "Optional project floor for this pattern. The selected format can require a newer Android API."
@@ -203,7 +203,7 @@ public:
 	UPROPERTY(
 		VisibleAnywhere,
 		Transient,
-		Category = "Android",
+		Category = "OpenMobile|Haptics|Android",
 		meta = (
 			DisplayName = "Resolved Minimum Android API",
 			ToolTip = "The effective Android API required by the selected format and project floor."
@@ -213,7 +213,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android",
+		Category = "OpenMobile|Haptics|Android",
 		meta = (ToolTip = "Selects the Android-native representation authored by this asset.")
 	)
 	EOpenMobileHapticAndroidPatternFormat Format =
@@ -221,7 +221,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android|Primitives",
+		Category = "OpenMobile|Haptics|Android|Primitives",
 		meta = (
 			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Primitives",
 			EditConditionHides,
@@ -232,7 +232,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android|Waveform",
+		Category = "OpenMobile|Haptics|Android|Waveform",
 		meta = (
 			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Waveform",
 			EditConditionHides,
@@ -260,7 +260,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android|Waveform",
+		Category = "OpenMobile|Haptics|Android|Waveform",
 		meta = (
 			ClampMin = "-1",
 			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::Waveform",
@@ -272,7 +272,7 @@ public:
 
 	UPROPERTY(
 		EditAnywhere,
-		Category = "Android|Envelope",
+		Category = "OpenMobile|Haptics|Android|Envelope",
 		meta = (
 			EditCondition = "Format == EOpenMobileHapticAndroidPatternFormat::BasicEnvelope || Format == EOpenMobileHapticAndroidPatternFormat::WaveformEnvelope",
 			EditConditionHides,
@@ -306,7 +306,7 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticIOSPatternAsset final
 public:
 	virtual void PostInitProperties() override;
 
-	UPROPERTY(EditAnywhere, Category = "iOS", meta = (ClampMin = "13"))
+	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ClampMin = "13", ToolTip = "Optional iOS major-version floor for this AHAP asset. Core Haptics requires iOS 13 or newer."))
 	int32 MinimumIOSMajorVersion = 13;
 
 	bool SetAHAPSource(const FString& Source, TArray<FString>& Errors);
@@ -375,26 +375,26 @@ public:
 	virtual bool Validate(TArray<FString>& Errors) const override;
 
 private:
-	UPROPERTY(VisibleAnywhere, Category = "iOS", meta = (MultiLine = "true"))
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (MultiLine = "true", ToolTip = "Normalized validated AHAP JSON stored for deterministic iOS playback."))
 	FString AHAPJson;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS", meta = (Units = "s"))
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (Units = "s", ToolTip = "Validated AHAP duration in seconds."))
 	double AHAPDurationSeconds = 0.0;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "True when this AHAP needs an advanced Core Haptics player."))
 	bool bRequiresAdvancedPlayer = false;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "True when the AHAP contains any audio event."))
 	bool bContainsAudioEvents = false;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "True when the AHAP references imported custom audio resources."))
 	bool bContainsCustomAudioEvents = false;
 
-	UPROPERTY(VisibleAnywhere, Category = "iOS")
+	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ToolTip = "Imported audio resource records used only by iOS playback and cooking."))
 	TArray<FOpenMobileHapticIOSAudioResource> AudioResources;
 
 #if WITH_EDITORONLY_DATA
-	UPROPERTY(VisibleAnywhere, Instanced, Category = "Import")
+	UPROPERTY(VisibleAnywhere, Instanced, Category = "OpenMobile|Haptics|iOS|Import", meta = (ToolTip = "Editor import source and reimport metadata for this AHAP asset."))
 	TObjectPtr<UAssetImportData> AssetImportData;
 #endif
 };

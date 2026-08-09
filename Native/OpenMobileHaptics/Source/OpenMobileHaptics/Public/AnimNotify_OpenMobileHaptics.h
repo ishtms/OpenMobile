@@ -46,7 +46,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify", meta = (EditCondition = "EffectMode == EOpenMobileHapticAnimNotifyEffectMode::PatternAsset", EditConditionHides, ToolTip = "Direct authored pattern asset. The owning animation or gameplay system must keep any required prepared content ready."))
 	TObjectPtr<UOpenMobileHapticPatternAsset> PatternAsset;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify|Advanced", meta = (EditCondition = "EffectMode == EOpenMobileHapticAnimNotifyEffectMode::NamedPattern", EditConditionHides, ToolTip = "Legacy raw configured alias. The owning animation or gameplay system must prepare its library before the notify fires."))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify|Advanced", meta = (EditCondition = "EffectMode == EOpenMobileHapticAnimNotifyEffectMode::NamedPattern", EditConditionHides, GetOptions = "OpenMobileHaptics.OpenMobileHapticsBlueprintLibrary.GetConfiguredHapticPatternNames", ToolTip = "Legacy configured alias selected from Project Settings libraries. The owning animation or gameplay system must prepare its library before the notify fires."))
 	FName NamedPattern;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify", meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized request intensity from zero through one."))
