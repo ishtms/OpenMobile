@@ -27,7 +27,7 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 		):
 			self.assertIn(operation, header)
 		self.assertGreaterEqual(header.count("UFUNCTION("), 25)
-		self.assertIn('Category = "Open Mobile|Sensors"', header)
+		self.assertIn('Category = "OpenMobile|Sensors', header)
 		self.assertIn("BlueprintAssignable", header)
 
 	def test_terminal_operations_use_async_action_classes(self) -> None:
@@ -43,7 +43,7 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 			self.assertIn(class_name, header)
 			self.assertIn("UOpenMobileSensorAsyncActionBase", header)
 			self.assertIn("BlueprintInternalUseOnly", header)
-			self.assertIn('Category = "Open Mobile|Sensors"', header)
+			self.assertIn('Category = "OpenMobile|Sensors', header)
 
 	def test_runtime_defaults_bound_blueprint_work(self) -> None:
 		options = (
@@ -79,11 +79,13 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 		for token in (
 			"TFieldIterator<UFunction>",
 			"BlueprintCallable",
-			"Open Mobile|Sensors",
+			"OpenMobile|Sensors",
 			"UK2Node_CallFunction",
 			"AllocateDefaultPins",
-			"StartSubscriptionNative",
-			"GetLatestVectorSampleNative",
+			"ListenForGyroscope",
+			"GetLatestAngularVelocity",
+			"CompileBlueprint",
+			"LinkedTo",
 		):
 			self.assertIn(token, test_source)
 

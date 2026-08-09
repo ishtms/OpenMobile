@@ -19,7 +19,7 @@ class SensorsHeadingAccuracyTests(unittest.TestCase):
 		).read_text(encoding="utf-8")
 		enqueue = service[
 			service.index("bool EnqueueEventSample("):
-			service.index("void EnqueueBufferedSample(")
+			service.index("bool EnqueueBufferedSample(")
 		]
 		self.assertIn("MeetsMinimum", enqueue)
 		self.assertIn("MinimumCallbackAccuracy", enqueue)

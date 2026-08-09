@@ -29,15 +29,15 @@ class SensorsRateDiagnosticsTests(unittest.TestCase):
 			self.assertIn(behavior, implementation)
 
 	def test_subsystem_returns_owned_stream_diagnostics(self) -> None:
-		implementation = (
-			COMMON_SOURCE / "Private" / "OpenMobileSensorsSubsystem.cpp"
+		diagnostics = (
+			COMMON_SOURCE / "Private" / "OpenMobileSensorsDiagnosticsService.cpp"
 		).read_text(encoding="utf-8")
 		subscriptions = (
 			COMMON_SOURCE
 			/ "Private"
 			/ "OpenMobileSensorsSubscriptionService.cpp"
 		).read_text(encoding="utf-8")
-		self.assertIn("GetStreamDiagnostics", implementation)
+		self.assertIn("GetStreamDiagnostics", diagnostics)
 		self.assertIn("GetStreamDiagnostics", subscriptions)
 		self.assertIn("RateResolution.AppliedNativeFrequencyHz", subscriptions)
 

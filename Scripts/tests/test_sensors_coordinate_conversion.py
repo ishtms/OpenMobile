@@ -87,7 +87,9 @@ class SensorsCoordinateConversionTests(unittest.TestCase):
 
     def test_runtime_test_host_has_a_visible_axis_model(self):
         header = (
-            SENSORS
+            SENSORS_ROOT
+            / "Source"
+            / "OpenMobileSensorsValidation"
             / "Public"
             / "OpenMobileSensorAxisModelActor.h"
         ).read_text()

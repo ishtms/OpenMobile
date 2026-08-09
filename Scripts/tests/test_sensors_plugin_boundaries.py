@@ -23,6 +23,7 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 				"OpenMobileSensorsAndroid",
 				"OpenMobileSensorsIOS",
 				"OpenMobileSensorsConsumerTests",
+				"OpenMobileSensorsValidation",
 				"OpenMobileSensorsEditor",
 			},
 			set(modules),
@@ -40,6 +41,10 @@ class SensorsPluginBoundaryTests(unittest.TestCase):
 		self.assertEqual(
 			"DeveloperTool",
 			modules["OpenMobileSensorsConsumerTests"]["Type"],
+		)
+		self.assertEqual(
+			"DeveloperTool",
+			modules["OpenMobileSensorsValidation"]["Type"],
 		)
 		self.assertEqual("Editor", modules["OpenMobileSensorsEditor"]["Type"])
 
