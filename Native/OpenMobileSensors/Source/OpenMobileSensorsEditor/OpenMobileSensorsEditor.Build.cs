@@ -17,6 +17,7 @@ public class OpenMobileSensorsEditor : ModuleRules
 			"Engine",
 			"Json",
 			"Kismet",
+			"KismetCompiler",
 			"MessageLog",
 			"OpenMobileCore",
 			"OpenMobilePermissions",

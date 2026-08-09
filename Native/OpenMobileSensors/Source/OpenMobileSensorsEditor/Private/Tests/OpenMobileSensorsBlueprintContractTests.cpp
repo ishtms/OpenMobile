@@ -3,7 +3,10 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
+#include "GameFramework/Actor.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_CustomEvent.h"
+#include "KismetCompiler.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
@@ -255,7 +258,7 @@ bool FOpenMobileSensorsBlueprintGraphNodesTest::RunTest(
 {
 	static_cast<void>(Parameters);
 	UBlueprint* Blueprint = FKismetEditorUtilities::CreateBlueprint(
-		UObject::StaticClass(),
+		AActor::StaticClass(),
 		GetTransientPackage(),
 		MakeUniqueObjectName(
 			GetTransientPackage(),
@@ -278,35 +281,33 @@ bool FOpenMobileSensorsBlueprintGraphNodesTest::RunTest(
 		UEdGraphSchema_K2::StaticClass()
 	);
 	FBlueprintEditorUtils::AddUbergraphPage(Blueprint, Graph);
-	const TArray<UFunction*> RepresentativeFunctions = {
-		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+	UK2Node_CustomEvent* Entry = NewObject<UK2Node_CustomEvent>(Graph);
+	Entry->CustomFunctionName = TEXT("ExerciseSensorListener");
+	Graph->AddNode(Entry, false, false);
+	Entry->AllocateDefaultPins();
+
+	const TArray<UFunction*> WorkflowFunctions = {
+		UOpenMobileGyroscopeListener::StaticClass()->FindFunctionByName(
 			GET_FUNCTION_NAME_CHECKED(
-				UOpenMobileSensorsSubsystem,
-				StartSubscriptionNative
-			)
-		),
-		UOpenMobileSensorsSubsystem::StaticClass()->FindFunctionByName(
+				UOpenMobileGyroscopeListener,
+				ListenForGyroscope)),
+		UOpenMobileGyroscopeListener::StaticClass()->FindFunctionByName(
 			GET_FUNCTION_NAME_CHECKED(
-				UOpenMobileSensorsSubsystem,
-				GetLatestVectorSampleNative
-			)
-		),
-		UOpenMobileSensorPermissionAsyncAction::StaticClass()->FindFunctionByName(
+				UOpenMobileGyroscopeListener,
+				GetLatestAngularVelocity)),
+		UOpenMobileSensorListener::StaticClass()->FindFunctionByName(
 			GET_FUNCTION_NAME_CHECKED(
-				UOpenMobileSensorPermissionAsyncAction,
-				RequestSensorPermission
-			)
-		),
-		UOpenMobileSensorFlushAsyncAction::StaticClass()->FindFunctionByName(
+				UOpenMobileSensorListener,
+				GetLastSensorError)),
+		UOpenMobileSensorListener::StaticClass()->FindFunctionByName(
 			GET_FUNCTION_NAME_CHECKED(
-				UOpenMobileSensorFlushAsyncAction,
-				FlushSensorSamples
-			)
-		)
+				UOpenMobileSensorListener,
+				Stop))
 	};
-	for (UFunction* Function : RepresentativeFunctions)
+	TArray<UK2Node_CallFunction*> WorkflowNodes;
+	for (UFunction* Function : WorkflowFunctions)
 	{
-		TestNotNull(TEXT("Representative function is reflected"), Function);
+		TestNotNull(TEXT("Workflow function is reflected"), Function);
 		if (!Function)
 		{
 			continue;
@@ -315,12 +316,81 @@ bool FOpenMobileSensorsBlueprintGraphNodesTest::RunTest(
 		Node->SetFromFunction(Function);
 		Graph->AddNode(Node, false, false);
 		Node->AllocateDefaultPins();
+		WorkflowNodes.Add(Node);
 		TestTrue(
 			*FString::Printf(TEXT("%s allocates graph pins"),
 				*Function->GetName()),
 			Node->Pins.Num() >= 2
 		);
 	}
+	if (WorkflowNodes.Num() != WorkflowFunctions.Num())
+	{
+		return false;
+	}
+	UK2Node_CallFunction* Start = WorkflowNodes[0];
+	UK2Node_CallFunction* ReadLatest = WorkflowNodes[1];
+	UK2Node_CallFunction* ReadError = WorkflowNodes[2];
+	UK2Node_CallFunction* Stop = WorkflowNodes[3];
+	const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+	auto Connect = [this, Schema](
+		UEdGraphNode* FromNode,
+		const FName FromPin,
+		UEdGraphNode* ToNode,
+		const FName ToPin)
+	{
+		UEdGraphPin* Output = FromNode->FindPin(FromPin, EGPD_Output);
+		UEdGraphPin* Input = ToNode->FindPin(ToPin, EGPD_Input);
+		TestNotNull(*FString::Printf(TEXT("%s has output pin %s"),
+			*FromNode->GetName(), *FromPin.ToString()), Output);
+		TestNotNull(*FString::Printf(TEXT("%s has input pin %s"),
+			*ToNode->GetName(), *ToPin.ToString()), Input);
+		return Output && Input && Schema->TryCreateConnection(Output, Input);
+	};
+	TestTrue(TEXT("The workflow starts from an execution event"),
+		Connect(Entry, UEdGraphSchema_K2::PN_Then,
+			Start, UEdGraphSchema_K2::PN_Execute));
+	TestTrue(TEXT("The workflow always reaches explicit cleanup"),
+		Connect(Start, UEdGraphSchema_K2::PN_Then,
+			Stop, UEdGraphSchema_K2::PN_Execute));
+	TestTrue(TEXT("The latest read uses the typed listener"),
+		Connect(Start, UEdGraphSchema_K2::PN_ReturnValue,
+			ReadLatest, UEdGraphSchema_K2::PN_Self));
+	TestTrue(TEXT("The error read uses the typed listener"),
+		Connect(Start, UEdGraphSchema_K2::PN_ReturnValue,
+			ReadError, UEdGraphSchema_K2::PN_Self));
+	TestTrue(TEXT("Cleanup uses the typed listener"),
+		Connect(Start, UEdGraphSchema_K2::PN_ReturnValue,
+			Stop, UEdGraphSchema_K2::PN_Self));
+	UEdGraphPin* RatePreset = Start->FindPin(TEXT("RatePreset"));
+	TestNotNull(TEXT("The listener exposes its rate preset"), RatePreset);
+	if (RatePreset)
+	{
+		TestEqual(TEXT("The gyroscope listener defaults to the Game preset"),
+			RatePreset->DefaultValue, FString(TEXT("Game")));
+	}
+	TestEqual(TEXT("Advanced listener inputs start collapsed"),
+		Start->AdvancedPinDisplay, ENodeAdvancedPins::Hidden);
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+	int32 ConnectedPinCount = 0;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			ConnectedPinCount += Pin && !Pin->LinkedTo.IsEmpty() ? 1 : 0;
+		}
+	}
+	TestTrue(TEXT("The representative workflow has connected data and execution pins"),
+		ConnectedPinCount >= 8);
+	FCompilerResultsLog CompileResults;
+	FKismetEditorUtilities::CompileBlueprint(
+		Blueprint,
+		EBlueprintCompileOptions::None,
+		&CompileResults
+	);
+	TestEqual(TEXT("The representative workflow compiles without errors"),
+		CompileResults.NumErrors, 0);
+	TestEqual(TEXT("The representative Blueprint is up to date"),
+		Blueprint->Status, BS_UpToDate);
 	return true;
 }
 
