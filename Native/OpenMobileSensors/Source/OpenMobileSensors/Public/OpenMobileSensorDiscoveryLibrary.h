@@ -10,7 +10,7 @@
 
 class UOpenMobileSensorsSubsystem;
 
-UENUM(BlueprintType)
+UENUM(BlueprintType, meta = (ScriptName = "OpenMobileSensorAccessRequirementKind"))
 enum class EOpenMobileSensorAccessRequirement : uint8
 {
 	None UMETA(DisplayName = "No Permission Needed", ToolTip = "This sensor can start without a user permission prompt."),

@@ -119,6 +119,15 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 				msg=f"{event_name} must explain why a default raw stream is silent",
 			)
 
+	def test_access_requirement_types_have_distinct_python_names(self) -> None:
+		header = (
+			COMMON_SOURCE / "Public" / "OpenMobileSensorDiscoveryLibrary.h"
+		).read_text(encoding="utf-8")
+		self.assertIn(
+			'UENUM(BlueprintType, meta = (ScriptName = "OpenMobileSensorAccessRequirementKind"))',
+			header,
+		)
+
 
 if __name__ == "__main__":
 	unittest.main()
