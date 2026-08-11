@@ -1,10 +1,59 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "OpenMobileHaptics.h"
 #include "OpenMobileHapticsAsyncAction.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsBlueprintDocumentationRecipesTest,
+	"OpenMobile.Haptics.API.BlueprintDocumentationRecipes",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsBlueprintDocumentationRecipesTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	const TSharedPtr<IPlugin> Plugin =
+		IPluginManager::Get().FindPlugin(TEXT("OpenMobileHaptics"));
+	TestTrue(TEXT("The Haptics plugin is discoverable"), Plugin.IsValid());
+	if (!Plugin)
+	{
+		return false;
+	}
+	FString Readme;
+	TestTrue(
+		TEXT("The Haptics README can be loaded"),
+		FFileHelper::LoadFileToString(
+			Readme,
+			*FPaths::Combine(Plugin->GetBaseDir(), TEXT("README.md"))
+		)
+	);
+	for (const TCHAR* Recipe : {
+		TEXT("### Simple UI feedback"),
+		TEXT("### Game feedback and fallback"),
+		TEXT("### Prepared library and asset playback"),
+		TEXT("### Cancellable delayed playback"),
+		TEXT("### Dynamic intensity and playback control"),
+		TEXT("### Player policy settings"),
+		TEXT("### Calibrated scheduling"),
+		TEXT("### Suppression and failure display"),
+		TEXT("### Editor and physical-device validation")
+	})
+	{
+		TestTrue(
+			*FString::Printf(TEXT("README contains %s"), Recipe),
+			Readme.Contains(Recipe)
+		);
+	}
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileHapticsPublicConsumerTest,
