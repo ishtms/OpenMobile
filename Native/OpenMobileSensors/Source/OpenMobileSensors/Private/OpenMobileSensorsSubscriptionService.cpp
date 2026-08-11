@@ -565,14 +565,15 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 	}
 
 	bool ValidateAndResolveOptions(
-		const FOpenMobileSensorIdentifier& Sensor,
+		const FOpenMobileSensorIdentifier& LogicalSensor,
+		const FOpenMobileSensorIdentifier& PhysicalSensor,
 		const FOpenMobileSensorStreamOptions& Requested,
 		FOpenMobileSensorStreamOptions& OutApplied,
 		FOpenMobileSensorRateResolution& OutRateResolution
 	)
 	{
 		const FOpenMobileSensorStreamOptions Applicable =
-			KeepApplicableOptions(Sensor, Requested);
+			KeepApplicableOptions(LogicalSensor, Requested);
 		const int32 AllowedAttitudeRepresentations =
 			static_cast<int32>(
 				EOpenMobileAttitudeRepresentation::Quaternion
@@ -583,7 +584,8 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 			| static_cast<int32>(
 				EOpenMobileAttitudeRepresentation::RotationMatrix
 			);
-		if (!Sensor.IsValid()
+		if (!LogicalSensor.IsValid()
+			|| !PhysicalSensor.IsValid()
 			|| !IsValidEnum(Applicable.RatePreset)
 			|| !IsValidEnum(Applicable.DeliveryMode)
 			|| !IsValidEnum(Applicable.CoordinateSpace)
@@ -627,16 +629,16 @@ namespace OpenMobileSensorsSubscriptionServicePrivate
 		{
 			return false;
 		}
-		ApplyLowPowerDefaults(Sensor, Applicable, OutApplied);
+		ApplyLowPowerDefaults(PhysicalSensor, Applicable, OutApplied);
 		if (!IsPressureRateSupported(
-			Sensor,
+			PhysicalSensor,
 			OutApplied.CustomFrequencyHz
 		))
 		{
 			return false;
 		}
 		ApplyRateLimits(
-			Sensor,
+			PhysicalSensor,
 			Requested,
 			*Settings,
 			OutApplied,
@@ -2445,6 +2447,7 @@ bool FOpenMobileSensorsSubscriptionService::PreviewOptions(
 {
 	return OpenMobileSensorsSubscriptionServicePrivate::ValidateAndResolveOptions(
 		Sensor,
+		Sensor,
 		Requested,
 		OutApplied,
 		OutRateResolution
@@ -2570,6 +2573,7 @@ FOpenMobileSensorsSubscriptionService::StartSubscription(
 	FOpenMobileSensorStreamOptions AppliedOptions;
 	FOpenMobileSensorRateResolution RateResolution;
 	if (!ValidateAndResolveOptions(
+		Request.Sensor,
 		PhysicalSensor,
 		Request.Options,
 		AppliedOptions,
@@ -2729,6 +2733,7 @@ FOpenMobileSensorsSubscriptionService::UpdateSubscription(
 	FOpenMobileSensorStreamOptions AppliedOptions;
 	FOpenMobileSensorRateResolution RateResolution;
 	if (!ValidateAndResolveOptions(
+		Entry->Request.Sensor,
 		PhysicalSensor,
 		Options,
 		AppliedOptions,

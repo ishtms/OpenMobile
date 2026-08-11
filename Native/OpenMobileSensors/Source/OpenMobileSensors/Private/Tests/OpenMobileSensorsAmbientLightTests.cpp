@@ -366,6 +366,8 @@ bool FOpenMobileSensorsAmbientLightEventThresholdTest::RunTest(
 	TestEqual(TEXT("Unfiltered subscriber receives every light change"),
 		UnfilteredValues.Num(), 4);
 	FOpenMobileSensorSubscriptionRequest InvalidRequest = MakeRequest();
+	InvalidRequest.Options.DeliveryMode =
+		EOpenMobileSensorDeliveryMode::EventBatches;
 	InvalidRequest.Options.MinimumScalarEventChange = -0.01;
 	const FOpenMobileSensorSubscriptionResult Invalid =
 		FOpenMobileSensorsSubscriptionService::StartSubscription(
