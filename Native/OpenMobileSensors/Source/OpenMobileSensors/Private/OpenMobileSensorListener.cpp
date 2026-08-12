@@ -623,7 +623,9 @@ void UOpenMobileSensorListener::HandleVectorBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleVectorSample(Batch.Samples.Last());
+		const FOpenMobileVectorSensorSample& Sample = Batch.Samples.Last();
+		HandleVectorSample(Sample);
+		VectorSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -633,7 +635,9 @@ void UOpenMobileSensorListener::HandleAttitudeBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleAttitudeSample(Batch.Samples.Last());
+		const FOpenMobileAttitudeSensorSample& Sample = Batch.Samples.Last();
+		HandleAttitudeSample(Sample);
+		AttitudeSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -643,7 +647,9 @@ void UOpenMobileSensorListener::HandleScalarBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleScalarSample(Batch.Samples.Last());
+		const FOpenMobileScalarSensorSample& Sample = Batch.Samples.Last();
+		HandleScalarSample(Sample);
+		ScalarSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -653,7 +659,9 @@ void UOpenMobileSensorListener::HandleHeadingBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleHeadingSample(Batch.Samples.Last());
+		const FOpenMobileHeadingSensorSample& Sample = Batch.Samples.Last();
+		HandleHeadingSample(Sample);
+		HeadingSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -663,7 +671,9 @@ void UOpenMobileSensorListener::HandleStepsBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleStepsSample(Batch.Samples.Last());
+		const FOpenMobileStepsSensorSample& Sample = Batch.Samples.Last();
+		HandleStepsSample(Sample);
+		StepsSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -673,7 +683,9 @@ void UOpenMobileSensorListener::HandleActivityBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleActivitySample(Batch.Samples.Last());
+		const FOpenMobileActivitySensorSample& Sample = Batch.Samples.Last();
+		HandleActivitySample(Sample);
+		ActivitySampleNative.Broadcast(Sample);
 	}
 }
 
@@ -683,7 +695,9 @@ void UOpenMobileSensorListener::HandleOrientationBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleOrientationSample(Batch.Samples.Last());
+		const FOpenMobileOrientationSensorSample& Sample = Batch.Samples.Last();
+		HandleOrientationSample(Sample);
+		OrientationSampleNative.Broadcast(Sample);
 	}
 }
 
@@ -693,7 +707,9 @@ void UOpenMobileSensorListener::HandleProximityBatch(
 {
 	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
 	{
-		HandleProximitySample(Batch.Samples.Last());
+		const FOpenMobileProximitySensorSample& Sample = Batch.Samples.Last();
+		HandleProximitySample(Sample);
+		ProximitySampleNative.Broadcast(Sample);
 	}
 }
 

@@ -102,6 +102,39 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	Error
 );
 
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorVectorSampleNative,
+	const FOpenMobileVectorSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorAttitudeSampleNative,
+	const FOpenMobileAttitudeSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorScalarSampleNative,
+	const FOpenMobileScalarSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorHeadingSampleNative,
+	const FOpenMobileHeadingSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorStepsSampleNative,
+	const FOpenMobileStepsSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorActivitySampleNative,
+	const FOpenMobileActivitySensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorOrientationSampleNative,
+	const FOpenMobileOrientationSensorSample&
+);
+DECLARE_MULTICAST_DELEGATE_OneParam(
+	FOnOpenMobileSensorProximitySampleNative,
+	const FOpenMobileProximitySensorSample&
+);
+
 UCLASS(Abstract, BlueprintType, Transient, meta = (ExposedAsyncProxy = "Listener"))
 class OPENMOBILESENSORS_API UOpenMobileSensorListener
 	: public UOpenMobileSensorAsyncActionBase
@@ -181,6 +214,49 @@ public:
 	bool GetLastSensorError(FOpenMobileSensorRuntimeError& OutError) const;
 
 	virtual void Activate() override;
+	static FOpenMobileSensorSampleInfo MakeSampleInfo(
+		const FOpenMobileSensorSampleHeader& Header
+	);
+
+	FOnOpenMobileSensorVectorSampleNative& OnVectorSampleNative()
+	{
+		return VectorSampleNative;
+	}
+
+	FOnOpenMobileSensorAttitudeSampleNative& OnAttitudeSampleNative()
+	{
+		return AttitudeSampleNative;
+	}
+
+	FOnOpenMobileSensorScalarSampleNative& OnScalarSampleNative()
+	{
+		return ScalarSampleNative;
+	}
+
+	FOnOpenMobileSensorHeadingSampleNative& OnHeadingSampleNative()
+	{
+		return HeadingSampleNative;
+	}
+
+	FOnOpenMobileSensorStepsSampleNative& OnStepsSampleNative()
+	{
+		return StepsSampleNative;
+	}
+
+	FOnOpenMobileSensorActivitySampleNative& OnActivitySampleNative()
+	{
+		return ActivitySampleNative;
+	}
+
+	FOnOpenMobileSensorOrientationSampleNative& OnOrientationSampleNative()
+	{
+		return OrientationSampleNative;
+	}
+
+	FOnOpenMobileSensorProximitySampleNative& OnProximitySampleNative()
+	{
+		return ProximitySampleNative;
+	}
 
 #if WITH_DEV_AUTOMATION_TESTS
 	bool TickOwnerForTests();
@@ -197,9 +273,6 @@ protected:
 		bool bUseAdvancedOptions
 	);
 	void ConfigureResettableStepCountSession();
-	static FOpenMobileSensorSampleInfo MakeSampleInfo(
-		const FOpenMobileSensorSampleHeader& Header
-	);
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& Sample
 	);
@@ -293,6 +366,14 @@ private:
 	bool bHasDropInfo = false;
 	FOpenMobileSensorRuntimeError LastRuntimeError;
 	bool bHasRuntimeError = false;
+	FOnOpenMobileSensorVectorSampleNative VectorSampleNative;
+	FOnOpenMobileSensorAttitudeSampleNative AttitudeSampleNative;
+	FOnOpenMobileSensorScalarSampleNative ScalarSampleNative;
+	FOnOpenMobileSensorHeadingSampleNative HeadingSampleNative;
+	FOnOpenMobileSensorStepsSampleNative StepsSampleNative;
+	FOnOpenMobileSensorActivitySampleNative ActivitySampleNative;
+	FOnOpenMobileSensorOrientationSampleNative OrientationSampleNative;
+	FOnOpenMobileSensorProximitySampleNative ProximitySampleNative;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(

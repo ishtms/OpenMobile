@@ -128,6 +128,38 @@ class SensorsBlueprintContractTests(unittest.TestCase):
 			header,
 		)
 
+	def test_declarative_sensor_component_uses_the_listener_contract(self) -> None:
+		header = (
+			COMMON_SOURCE / "Public" / "OpenMobileSensorComponent.h"
+		).read_text(encoding="utf-8")
+		for token in (
+			"UOpenMobileSensorComponent",
+			"BlueprintSpawnableComponent",
+			"bStopWhenOwnerEndsPlay",
+			"AdvancedOptions",
+			"SensorReady",
+			"Sample",
+			"SensorPaused",
+			"SensorFailed",
+			"SensorStopped",
+			"GetActiveListener",
+		):
+			self.assertIn(token, header)
+
+		test_source = (
+			COMMON_SOURCE
+			/ "Private"
+			/ "Tests"
+			/ "OpenMobileSensorsComponentTests.cpp"
+		).read_text(encoding="utf-8")
+		for token in (
+			"DeclarativeLifecycle",
+			"GetLatestVectorSample",
+			"EndPlay",
+			"GetStopSensorStreamCount",
+		):
+			self.assertIn(token, test_source)
+
 
 if __name__ == "__main__":
 	unittest.main()
