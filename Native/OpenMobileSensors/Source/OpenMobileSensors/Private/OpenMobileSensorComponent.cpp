@@ -1,5 +1,6 @@
 #include "OpenMobileSensorComponent.h"
 
+#include "GameFramework/Actor.h"
 #include "OpenMobileSensorActivityListeners.h"
 #include "OpenMobileSensorPoseEnvironmentListeners.h"
 
