@@ -37,6 +37,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorOperationResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Stable error name and developer-facing diagnostic detail."))
 	FOpenMobileError Error;
 
+	/** Use this for normal result checks because Accepted is a valid asynchronous start also. Looking for Success alone will reject good requests. */
 	bool IsSuccess() const
 	{
 		return Code == EOpenMobileSensorResultCode::Success

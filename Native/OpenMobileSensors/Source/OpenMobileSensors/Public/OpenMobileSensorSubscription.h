@@ -15,37 +15,44 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSubscriptionHandle
 {
 	GENERATED_BODY()
 
+	/** Use this before a raw subscription operation. Both the GUID and generation must be present because old GUIDs can be reused. */
 	bool IsValid() const
 	{
 		return Identifier.IsValid() && Generation != 0;
 	}
 
+	/** Use this when you want to forget the token locally. It won't stop the sensor stream itself. */
 	void Reset()
 	{
 		Identifier.Invalidate();
 		Generation = 0;
 	}
 
+	/** This compares the GUID and generation together. A stale generation won't match a newer stream. */
 	bool operator==(const FOpenMobileSensorSubscriptionHandle& Other) const
 	{
 		return Identifier == Other.Identifier && Generation == Other.Generation;
 	}
 
+	/** This stays tied to the full equality check, so handle identity has one source only. */
 	bool operator!=(const FOpenMobileSensorSubscriptionHandle& Other) const
 	{
 		return !(*this == Other);
 	}
 
+	/** You'll get the internal GUID for diagnostics or native maps. Generation is still required for full identity. */
 	FGuid GetIdentifier() const
 	{
 		return Identifier;
 	}
 
+	/** You'll get the generation that protects against stale GUID reuse. Don't compare the GUID alone. */
 	uint32 GetGeneration() const
 	{
 		return Generation;
 	}
 
+	/** This hashes the same GUID and generation used by equality. Native maps won't merge stale and current handles then. */
 	friend uint32 GetTypeHash(
 		const FOpenMobileSensorSubscriptionHandle& Handle
 	)

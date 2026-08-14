@@ -172,97 +172,121 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Shared Stream Rate Raised", ToolTip = "Broadcast when another compatible listener raises the shared physical sensor rate above this listener's resolved rate, which can increase power use."))
 	FOpenMobileSensorListenerSharedRateWarningDynamic SharedStreamRateRaised;
 
+	/** Use this to stop this listener. Calling Stop more than once is safe. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors", meta = (DisplayName = "Stop Sensor Listener", Keywords = "OpenMobile sensors cancel cleanup", ToolTip = "Stops this listener. Calling Stop more than once is safe."))
 	void Stop();
 
+	/** You'll get true while this listener is starting, active, or paused. Finished listeners stay false even if Blueprint still holds the object. */
 	virtual bool IsActive() const override;
 
+	/** You'll get the listener's cached state without querying live service state. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Sensor Listener State", ToolTip = "Returns the listener's cached state without querying live service state."))
 	EOpenMobileSensorSubscriptionState GetListenerState() const;
 
+	/** You'll get the sensor identifier selected for this listener. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Listener Sensor", ToolTip = "Returns the sensor identifier selected for this listener."))
 	FOpenMobileSensorIdentifier GetSensor() const;
 
+	/** You'll get the resolved stream options used by this listener. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Advanced", meta = (DisplayName = "Get Applied Sensor Listener Options", ToolTip = "Returns the resolved stream options used by this listener."))
 	FOpenMobileSensorStreamOptions GetAppliedOptions() const;
 
+	/** Use this when you want to change only this listener's rate preset. Custom Frequency is used only for the Custom preset. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Rate Preset", Keywords = "OpenMobile sensors listener update frequency hertz", AdvancedDisplay = "CustomFrequencyHz", ToolTip = "Updates only this listener's rate preset. Custom Frequency is used only for the Custom preset."))
 	FOpenMobileSensorOperationResult SetSensorRatePreset(
 		EOpenMobileSensorRatePreset RatePreset,
 		double CustomFrequencyHz = 15.0
 	);
 
+	/** Use this when you want to change only this listener's coordinate space without resetting its other options. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Coordinate Space", Keywords = "OpenMobile sensors listener update device screen coordinates", ToolTip = "Updates only this listener's coordinate space without resetting its other options."))
 	FOpenMobileSensorOperationResult SetSensorCoordinateSpace(
 		EOpenMobileSensorCoordinateSpace CoordinateSpace
 	);
 
+	/** Use this when you want to change only this listener's foreground and background lifecycle policy. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Lifecycle Policy", Keywords = "OpenMobile sensors listener update background suspend stop", ToolTip = "Updates only this listener's foreground and background lifecycle policy."))
 	FOpenMobileSensorOperationResult SetSensorLifecyclePolicy(
 		EOpenMobileSensorLifecyclePolicy LifecyclePolicy
 	);
 
+	/** Use this when you want to change only this listener's filter settings without resetting its rate, coordinates, or lifecycle policy. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Options", meta = (DisplayName = "Set Sensor Filter Options", Keywords = "OpenMobile sensors listener update low pass high pass smoothing dead zone", ToolTip = "Updates only this listener's filter settings without resetting its rate, coordinates, or lifecycle policy."))
 	FOpenMobileSensorOperationResult SetSensorFilterOptions(
 		const FOpenMobileSensorFilterOptions& Filters
 	);
 
+	/** You'll get the most recent sample-loss report cached by this listener. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Sample Drop", ToolTip = "Returns the most recent sample-loss report cached by this listener."))
 	bool GetLastSampleDrop(FOpenMobileSensorDropInfo& OutDropInfo) const;
 
+	/** You'll get the most recent compact runtime error cached by this listener. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Last Sensor Error", ToolTip = "Returns the most recent compact runtime error cached by this listener."))
 	bool GetLastSensorError(FOpenMobileSensorRuntimeError& OutError) const;
 
+	/** Unreal calls this after the async listener node is wired. It validates owner lifetime before submitting one stream request. */
 	virtual void Activate() override;
+
+	/** Use this to compress the common header into the pins every typed Sample event shares. It copies one delivery only. */
 	static FOpenMobileSensorSampleInfo MakeSampleInfo(
 		const FOpenMobileSensorSampleHeader& Header
 	);
 
+	/** Bind here when native code needs vector samples from this listener only. The delegate stops with the listener. */
 	FOnOpenMobileSensorVectorSampleNative& OnVectorSampleNative()
 	{
 		return VectorSampleNative;
 	}
 
+	/** Bind here when native code needs attitude samples from this listener only. You won't receive subsystem-wide traffic. */
 	FOnOpenMobileSensorAttitudeSampleNative& OnAttitudeSampleNative()
 	{
 		return AttitudeSampleNative;
 	}
 
+	/** Bind here when native code needs scalar samples from this listener only. The delegate follows owner cleanup also. */
 	FOnOpenMobileSensorScalarSampleNative& OnScalarSampleNative()
 	{
 		return ScalarSampleNative;
 	}
 
+	/** Bind here when native code needs heading samples from this listener only. Magnetic and true-heading listeners stay separate. */
 	FOnOpenMobileSensorHeadingSampleNative& OnHeadingSampleNative()
 	{
 		return HeadingSampleNative;
 	}
 
+	/** Bind here when native code needs step-family samples from this listener only. The typed listener decides the count semantics. */
 	FOnOpenMobileSensorStepsSampleNative& OnStepsSampleNative()
 	{
 		return StepsSampleNative;
 	}
 
+	/** Bind here when native code needs activity-family samples from this listener only. Normal activity and transitions keep their typed payload. */
 	FOnOpenMobileSensorActivitySampleNative& OnActivitySampleNative()
 	{
 		return ActivitySampleNative;
 	}
 
+	/** Bind here when native code needs physical-orientation samples from this listener only. Lifecycle cleanup removes the binding with the listener. */
 	FOnOpenMobileSensorOrientationSampleNative& OnOrientationSampleNative()
 	{
 		return OrientationSampleNative;
 	}
 
+	/** Bind here when native code needs proximity samples from this listener only. Optional distance stays in the typed sample. */
 	FOnOpenMobileSensorProximitySampleNative& OnProximitySampleNative()
 	{
 		return ProximitySampleNative;
 	}
 
 #if WITH_DEV_AUTOMATION_TESTS
+	/** Tests call this to check owner teardown without waiting for the engine ticker. Shipping builds don't expose it. */
 	bool TickOwnerForTests();
 #endif
 
 protected:
+	/** Every typed listener calls this before Activate. It stores one owner, one sensor, and either project defaults or the supplied advanced options. */
 	void ConfigureListener(
 		const UObject* WorldContextObject,
 		UObject* ListenerOwner,
@@ -272,26 +296,52 @@ protected:
 		EOpenMobileSensorCoordinateSpace CoordinateSpace,
 		bool bUseAdvancedOptions
 	);
+	/** Step Count calls this before activation so native totals become an owner-scoped resettable session. Other step listeners shouldn't use it. */
 	void ConfigureResettableStepCountSession();
+
+	/** Override this when a vector listener needs to publish sensor-specific pins. The base has already checked handle ownership and order. */
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& Sample
 	);
+	/** Override this when an attitude listener needs typed output. One accepted delivery reaches this hook only. */
 	virtual void HandleAttitudeSample(const FOpenMobileAttitudeSensorSample& Sample);
+
+	/** Override this when a scalar listener needs typed output. One accepted delivery reaches this hook only. */
 	virtual void HandleScalarSample(const FOpenMobileScalarSensorSample& Sample);
+
+	/** Override this when a heading listener needs typed output. The reference and accuracy fields are already coherent. */
 	virtual void HandleHeadingSample(const FOpenMobileHeadingSensorSample& Sample);
+
+	/** Override this when a step listener needs typed output. Session rebasing has already happened when enabled. */
 	virtual void HandleStepsSample(const FOpenMobileStepsSensorSample& Sample);
+
+	/** Override this when an activity listener needs typed output. Filtering and transition stability are already applied. */
 	virtual void HandleActivitySample(const FOpenMobileActivitySensorSample& Sample);
+
+	/** Override this when a physical-orientation listener needs typed output. Debounce has already accepted the posture. */
 	virtual void HandleOrientationSample(const FOpenMobileOrientationSensorSample& Sample);
+
+	/** Override this when a proximity listener needs typed output. Near state and optional distance come from one sample. */
 	virtual void HandleProximitySample(const FOpenMobileProximitySensorSample& Sample);
+
+	/** Use this from a focused listener control after changing a copy of Applied Options. It preserves the listener and returns the provider result. */
 	FOpenMobileSensorOperationResult UpdateListenerOptions(
 		const FOpenMobileSensorStreamOptions& Options
 	);
+	/** Use this from typed attitude controls so recentering stays scoped to this listener. Unsupported providers return their real result. */
 	FOpenMobileSensorOperationResult RecenterListenerAttitude(
 		EOpenMobileSensorRecenterMode Mode
 	);
+	/** Use this from Step Count only. It keeps the native baseline and reported session total in sync. */
 	FOpenMobileSensorOperationResult ResetListenerStepCount();
+
+	/** Use this from Relative Altitude only. The next accepted altitude becomes the local zero. */
 	FOpenMobileSensorOperationResult RecenterListenerRelativeAltitude();
+
+	/** Use this from typed calibration nodes only. It asks the provider tied to this listener, not every sensor. */
 	FOpenMobileSensorOperationResult RequestListenerCalibration();
+
+	/** This turns one provider result into the standard control execution pins and text. Typed controls shouldn't each invent their own mapping. */
 	static void ResolveControlOutcome(
 		const FOpenMobileSensorOperationResult& Operation,
 		EOpenMobileSensorControlOutcome& Outcome,
@@ -299,9 +349,16 @@ protected:
 		FText& Correction,
 		FOpenMobileSensorOperationResult& Details
 	);
+	/** This stops the owned stream when the listener or its world is cancelled. Repeated stop remains harmless. */
 	virtual void CancelNativeOperation() override;
+
+	/** This broadcasts Started only after the subsystem confirms an active listener. */
 	virtual void OnActionSucceeded() override;
+
+	/** This selects Permission Required, Unavailable, or Failed from the typed startup result. */
 	virtual void OnActionFailed(const FOpenMobileError& Error) override;
+
+	/** This broadcasts Stopped once after explicit stop or owner cleanup. */
 	virtual void OnActionCancelled(const FOpenMobileError& Error) override;
 
 private:
@@ -400,6 +457,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast the latest coalesced gyroscope sample in radians per second."))
 	FOpenMobileGyroscopeSampleDynamic Sample;
 
+	/** Use this when you want gyroscope samples tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Gyroscope", Keywords = "OpenMobile sensors gyroscope gyro rotation rate angular velocity aim", ToolTip = "Starts an owner-scoped gyroscope listener that emits samples and stops automatically when its owner is destroyed."))
 	static UOpenMobileGyroscopeListener* ListenForGyroscope(
 		const UObject* WorldContextObject,
@@ -412,18 +470,21 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you need angular velocity in radians per second. Value and Sample Info come from the same gyroscope delivery. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Gyroscope Sample", Keywords = "OpenMobile sensors gyro angular velocity cached", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestAngularVelocity(
 		UPARAM(DisplayName = "Angular Velocity (rad/s)") FVector& OutAngularVelocityRadiansPerSecond,
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
 
+	/** Bind here when native code wants angular velocity with the compact sample info. The delegate belongs to this gyroscope listener only. */
 	FOnOpenMobileGyroscopeListenerSampleNative& OnSampleNative()
 	{
 		return SampleNative;
 	}
 
 protected:
+	/** This caches one accepted gyroscope sample and broadcasts angular velocity in radians per second. It won't publish another vector sensor's units. */
 	virtual void HandleVectorSample(
 		const FOpenMobileVectorSensorSample& InSample
 	) override;
@@ -454,6 +515,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast acceleration in metres per second squared."))
 	FOpenMobileAccelerometerSampleDynamic Sample;
 
+	/** Use this when you want accelerometer samples tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Accelerometer", Keywords = "OpenMobile sensors accelerometer acceleration motion movement tilt", ToolTip = "Starts an owner-scoped accelerometer listener with automatic cleanup."))
 	static UOpenMobileAccelerometerListener* ListenForAccelerometer(
 		const UObject* WorldContextObject,
@@ -464,6 +526,7 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you need acceleration including gravity in metres per second squared. Value and Sample Info stay on one delivery. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Accelerometer Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestAcceleration(
 		UPARAM(DisplayName = "Acceleration (m/s2)") FVector& OutAccelerationMetresPerSecondSquared,
@@ -471,6 +534,7 @@ public:
 	) const;
 
 protected:
+	/** This caches one accepted accelerometer sample and broadcasts acceleration in metres per second squared. */
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
@@ -498,6 +562,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast magnetic field strength in microteslas."))
 	FOpenMobileMagnetometerSampleDynamic Sample;
 
+	/** Use this when you want magnetometer samples tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Magnetometer", Keywords = "OpenMobile sensors magnetometer magnetic field compass microtesla", ToolTip = "Starts an owner-scoped magnetometer listener with automatic cleanup."))
 	static UOpenMobileMagnetometerListener* ListenForMagnetometer(
 		const UObject* WorldContextObject,
@@ -508,12 +573,14 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you need magnetic field in microteslas. Value, accuracy, and Sample Info won't come from different deliveries. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Magnetometer Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestMagneticField(
 		UPARAM(DisplayName = "Magnetic Field (uT)") FVector& OutMagneticFieldMicroteslas,
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
 
+	/** Use this when you want to ask the platform for native calibration UI for this magnetometer listener when supported. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Request Magnetometer Calibration", ExpandEnumAsExecs = "Outcome", ToolTip = "Explicitly requests native calibration UI for this magnetometer listener when supported."))
 	void RequestMagnetometerCalibration(
 		EOpenMobileSensorControlOutcome& Outcome,
@@ -523,6 +590,7 @@ public:
 	);
 
 protected:
+	/** This caches one accepted magnetometer sample and broadcasts magnetic field in microteslas. Calibration state stays attached. */
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
@@ -554,6 +622,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast the gravity vector in metres per second squared."))
 	FOpenMobileGravitySampleDynamic Sample;
 
+	/** Use this when you want gravity samples tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Gravity", Keywords = "OpenMobile sensors gravity down vector tilt motion", ToolTip = "Starts an owner-scoped gravity listener with automatic cleanup."))
 	static UOpenMobileGravityListener* ListenForGravity(
 		const UObject* WorldContextObject,
@@ -564,18 +633,21 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you need the gravity vector in metres per second squared. Value and Sample Info stay on one delivery. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Gravity Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestGravity(
 		UPARAM(DisplayName = "Gravity (m/s2)") FVector& OutGravityMetresPerSecondSquared,
 		FOpenMobileSensorSampleInfo& OutSampleInfo
 	) const;
 
+	/** Bind here when native code wants gravity with the compact sample info. The delegate belongs to this gravity listener only. */
 	FOnOpenMobileGravityListenerSampleNative& OnSampleNative()
 	{
 		return SampleNative;
 	}
 
 protected:
+	/** This caches one accepted gravity sample and broadcasts it in metres per second squared. */
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
@@ -604,6 +676,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast acceleration with gravity removed in metres per second squared."))
 	FOpenMobileLinearAccelerationSampleDynamic Sample;
 
+	/** Use this when you want linear-acceleration samples tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Linear Acceleration", Keywords = "OpenMobile sensors linear acceleration user acceleration movement gravity removed", ToolTip = "Starts an owner-scoped linear-acceleration listener with automatic cleanup."))
 	static UOpenMobileLinearAccelerationListener* ListenForLinearAcceleration(
 		const UObject* WorldContextObject,
@@ -614,6 +687,7 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you need acceleration with gravity removed. Value and Sample Info stay on one delivery only. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Linear Acceleration Sample", ToolTip = "Copies one coherent snapshot of the last sample delivered to this listener."))
 	bool GetLatestLinearAcceleration(
 		UPARAM(DisplayName = "Linear Acceleration (m/s2)") FVector& OutLinearAccelerationMetresPerSecondSquared,
@@ -621,6 +695,7 @@ public:
 	) const;
 
 protected:
+	/** This caches one accepted linear-acceleration sample after gravity removal. The typed event keeps its metres-per-second-squared units. */
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:
@@ -652,6 +727,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Sample", ToolTip = "Broadcast a detected shake with strength, duration, and impulse count."))
 	FOpenMobileShakeSampleDynamic Sample;
 
+	/** Use this when you want shake events tied to one Blueprint owner. It'll stop itself when that owner goes away. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DefaultToSelf = "ListenerOwner", AutoCreateRefTerm = "AdvancedOptions", AdvancedDisplay = "AdvancedOptions,bUseAdvancedOptions,ListenerOwner", DisplayName = "Listen for Shake", Keywords = "OpenMobile sensors shake gesture impulse movement", ToolTip = "Starts an owner-scoped shake detector with automatic cleanup."))
 	static UOpenMobileShakeListener* ListenForShake(
 		const UObject* WorldContextObject,
@@ -661,6 +737,7 @@ public:
 		UObject* ListenerOwner = nullptr
 	);
 
+	/** Read this after Sample when you want the last shake delivered to this listener. You won't mix fields from two deliveries. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Motion", meta = (DisplayName = "Get Latest Shake", ToolTip = "Copies one coherent snapshot of the last shake delivered to this listener."))
 	bool GetLatestShake(
 		UPARAM(DisplayName = "Shake") FOpenMobileShakeEventData& OutShake,
@@ -668,6 +745,7 @@ public:
 	) const;
 
 protected:
+	/** This caches one accepted shake result and broadcasts strength, duration, and impulse count together. */
 	virtual void HandleVectorSample(const FOpenMobileVectorSensorSample& InSample) override;
 
 private:

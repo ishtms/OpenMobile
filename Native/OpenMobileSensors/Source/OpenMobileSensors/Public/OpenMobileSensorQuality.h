@@ -70,6 +70,7 @@ class OPENMOBILESENSORS_API UOpenMobileSensorQualityLibrary final
 	GENERATED_BODY()
 
 public:
+	/** Use this when Blueprint needs typed contributing, missing, and degraded sensor arrays. You won't have to inspect the raw masks. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Values", meta = (DisplayName = "Break Sensor Fusion Context", NativeBreakFunc, Keywords = "OpenMobile sensors fusion quality expected contributing missing degraded typed inputs", AdvancedDisplay = "bOutHasNativeQuality,OutNativeQuality,bOutHasEstimatedLag,OutEstimatedLagSeconds", ToolTip = "Breaks fusion quality into typed sensor arrays. Raw masks stay on the advanced struct path."))
 	static void BreakSensorFusionContext(
 		const FOpenMobileSensorFusionContext& Context,
@@ -83,30 +84,36 @@ public:
 		TArray<EOpenMobileSensorType>& OutMissingInputs,
 		TArray<EOpenMobileSensorType>& OutDegradedInputs);
 
+	/** You'll get the fixed fusion-input bit for one sensor type. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Make Sensor Input Mask", ToolTip = "Returns the fixed fusion-input bit for one sensor type."))
 	static int64 MakeInputMask(EOpenMobileSensorType Sensor);
 
+	/** Use this to check whether a fusion-input mask contains the sensor type. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Fusion Mask Contains Sensor", ToolTip = "Returns whether a fusion-input mask contains the sensor type."))
 	static bool ContainsSensor(
 		int64 InputMask,
 		EOpenMobileSensorType Sensor
 	);
 
+	/** You'll get the sensor types expected by the fusion result. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Expected Fusion Inputs", ToolTip = "Returns the sensor types expected by the fusion result."))
 	static TArray<EOpenMobileSensorType> GetExpectedInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
+	/** You'll get the sensor types that contributed to the fusion result. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Contributing Fusion Inputs", ToolTip = "Returns the sensor types that contributed to the fusion result."))
 	static TArray<EOpenMobileSensorType> GetContributingInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
+	/** You'll get expected sensor types that didn't contribute. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Missing Fusion Inputs", ToolTip = "Returns expected sensor types that did not contribute."))
 	static TArray<EOpenMobileSensorType> GetMissingInputs(
 		const FOpenMobileSensorFusionContext& Context
 	);
 
+	/** You'll get available sensor types with invalid, low-quality, or calibration-blocked input. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Degraded Fusion Inputs", ToolTip = "Returns available sensor types with invalid, low-quality, or calibration-blocked input."))
 	static TArray<EOpenMobileSensorType> GetDegradedInputs(
 		const FOpenMobileSensorFusionContext& Context

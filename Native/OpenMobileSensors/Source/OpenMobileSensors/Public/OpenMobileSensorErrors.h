@@ -51,6 +51,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFailureDetails
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Suggested action that can correct or avoid the reported problem."))
 	FString Correction;
 
+	/** Use this before showing failure details. None means the operation didn't report a sensor failure reason. */
 	bool IsSet() const
 	{
 		return Reason != EOpenMobileSensorFailureReason::None;

@@ -26,8 +26,10 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRatePresetSettings
 {
 	GENERATED_BODY()
 
+	/** The default gives you the low-power UI preset values. Use the full constructor when a named preset needs different rates. */
 	FOpenMobileSensorRatePresetSettings() = default;
 
+	/** Use this when building a preset from config or a platform recommendation. All four values stay together, so no rate field is silently inherited. */
 	FOpenMobileSensorRatePresetSettings(
 		double InRequestedFrequencyHz,
 		double InMaximumDeliveryLatencySeconds,
@@ -66,11 +68,13 @@ class OPENMOBILESENSORS_API UOpenMobileSensorsSettings final
 	GENERATED_BODY()
 
 public:
+	/** Unreal uses this to group every OpenMobile settings page together. Returning another name will scatter the plugin settings. */
 	virtual FName GetCategoryName() const override
 	{
 		return TEXT("OpenMobile");
 	}
 
+	/** Unreal uses this as the Sensors section label. It must stay aligned with the class display name. */
 	virtual FName GetSectionName() const override
 	{
 		return TEXT("OpenMobile Sensors");
@@ -144,6 +148,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Sensors|Settings|Development", meta = (ToolTip = "Recording file loaded as sensor input when Development Input Mode is Recording Replay. Ignored in Shipping builds.", DisplayName = "Development Replay File", EditCondition = "DevelopmentInputMode == EOpenMobileSensorsDevelopmentInputMode::Replay"))
 	FString DevelopmentReplayFile;
 
+	/** Call this before using settings for packaging or runtime policy. You'll get all invalid values and Shipping-only conflicts in one pass. */
 	bool Validate(
 		TArray<FString>& OutErrors,
 		bool bShipping = UE_BUILD_SHIPPING

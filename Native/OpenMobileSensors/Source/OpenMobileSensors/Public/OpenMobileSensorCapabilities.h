@@ -111,6 +111,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorPrerequisiteCapability
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum horizontal accuracy in metres for this sensor prerequisite capability."))
 	double MaximumHorizontalAccuracyMeters = 0.0;
 
+	/** Use this when capability snapshots need value comparison. Every prerequisite field participates, so a changed reason won't be missed. */
 	bool operator==(
 		const FOpenMobileSensorPrerequisiteCapability& Other
 	) const
@@ -168,6 +169,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorFallbackCapability
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Unsupported Condition Flags for this sensor fallback capability.", Bitmask, BitmaskEnum = "/Script/OpenMobileSensors.EOpenMobileSensorFallbackUnsupportedCondition"))
 	int32 UnsupportedConditionFlags = 0;
 
+	/** This compares the complete fallback report. A changed input, quality, cost, or restriction will make the values differ. */
 	bool operator==(
 		const FOpenMobileSensorFallbackCapability& Other
 	) const
@@ -214,6 +216,7 @@ struct OPENMOBILESENSORS_API FOpenMobileAttitudeReferenceFrameCapability
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors|Discovery|Attitude", meta = (ToolTip = "Whether yaw is expected to drift because the reference frame has no north anchor."))
 	bool bExpectedToDrift = false;
 
+	/** Use this to spot any change in one attitude reference-frame option. Availability and all dependency flags are included. */
 	bool operator==(
 		const FOpenMobileAttitudeReferenceFrameCapability& Other
 	) const
@@ -270,6 +273,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorBackgroundCapability
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Detail for this sensor background capability."))
 	FString Detail;
 
+	/** This compares the full background answer, including project opt-in and provider reason. UI can refresh when any part changes. */
 	bool operator==(
 		const FOpenMobileSensorBackgroundCapability& Other
 	) const
@@ -335,6 +339,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 	TArray<FOpenMobileAttitudeReferenceFrameCapability>
 		AttitudeReferenceFrames;
 
+	/** Use this when deciding whether one discovered sensor capability changed. It compares the full report, including fallbacks and reference frames. */
 	bool operator==(const FOpenMobileSensorCapability& Other) const
 	{
 		return Sensor == Other.Sensor
@@ -354,6 +359,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapability
 			&& AttitudeReferenceFrames == Other.AttitudeReferenceFrames;
 	}
 
+	/** This stays tied to the full equality check. Adding one compared field there is enough. */
 	bool operator!=(const FOpenMobileSensorCapability& Other) const
 	{
 		return !(*this == Other);
@@ -377,6 +383,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapabilitySnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensors for this sensor capability snapshot."))
 	TArray<FOpenMobileSensorCapability> Sensors;
 
+	/** Use this to detect a real capability refresh. Backend identity, generation, availability, and every sensor entry are compared. */
 	bool operator==(const FOpenMobileSensorCapabilitySnapshot& Other) const
 	{
 		return BackendName == Other.BackendName
@@ -387,6 +394,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorCapabilitySnapshot
 			&& Sensors == Other.Sensors;
 	}
 
+	/** This stays tied to snapshot equality, so refresh logic can't drift between two comparisons. */
 	bool operator!=(const FOpenMobileSensorCapabilitySnapshot& Other) const
 	{
 		return !(*this == Other);

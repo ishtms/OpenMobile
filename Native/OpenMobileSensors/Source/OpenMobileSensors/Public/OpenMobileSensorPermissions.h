@@ -66,8 +66,13 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorLocationInput
 class OPENMOBILESENSORS_API FOpenMobileSensorPermissions final
 {
 public:
+	/** You'll get the stable platform-facing name for this sensor permission. UI text belongs in GetExplanation instead. */
 	static FName GetPermissionName(EOpenMobileSensorPermission Permission);
+
+	/** You'll get a short explanation users can actually act on. It doesn't request anything. */
 	static FString GetExplanation(EOpenMobileSensorPermission Permission);
+
+	/** Use this when code needs the permission name, explanation, and current status together. No platform prompt is opened here. */
 	static FOpenMobileSensorPermissionDescriptor Describe(
 		EOpenMobileSensorPermission Permission,
 		EOpenMobilePermissionStatus Status =

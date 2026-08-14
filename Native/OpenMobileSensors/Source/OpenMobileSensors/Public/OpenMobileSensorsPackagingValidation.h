@@ -46,6 +46,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorsPackagingContext
 class OPENMOBILESENSORS_API FOpenMobileSensorsPackagingValidator
 {
 public:
+	/** Run this before packaging when sensor permissions or development input are configured. You'll get every actionable issue in Out Issues, not only the first one. */
 	static bool Validate(
 		const UOpenMobileSensorsSettings& Settings,
 		const FOpenMobileSensorsPackagingContext& Context,

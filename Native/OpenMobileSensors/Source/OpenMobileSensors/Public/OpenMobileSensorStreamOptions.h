@@ -296,12 +296,14 @@ class OPENMOBILESENSORS_API UOpenMobileSensorRateLibrary final
 	GENERATED_BODY()
 
 public:
+	/** Use this when an API gives you frequency but you need seconds between samples. Non-finite or non-positive input won't produce a usable interval. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Sensor Hertz to Interval Seconds", ToolTip = "Converts a finite positive sensor frequency to its sample interval."))
 	static bool HertzToIntervalSeconds(
 		double FrequencyHz,
 		double& OutIntervalSeconds
 	);
 
+	/** Use this when an API gives you seconds between samples but you need frequency. Non-finite or non-positive input won't produce usable hertz. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Sensor Interval Seconds to Hertz", ToolTip = "Converts a finite positive sample interval to sensor frequency."))
 	static bool IntervalSecondsToHertz(
 		double IntervalSeconds,

@@ -44,11 +44,13 @@ class OPENMOBILESENSORS_API UOpenMobileNativeStepCountLibrary final
 	GENERATED_BODY()
 
 public:
+	/** Use this to build a historical step query ending at the current UTC time. Duration must be positive and fit after the Unix epoch. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Activity", meta = (DisplayName = "Make Native Step Query for Last Duration", ExpandBoolAsExecs = "ReturnValue", Keywords = "OpenMobile sensors historical steps recent duration date time", ToolTip = "Builds a historical step query ending at the current UTC time. Duration must be positive and fit after the Unix epoch."))
 	static bool MakeNativeStepQueryForLastDuration(
 		FTimespan Duration,
 		FOpenMobileNativeStepCountQuery& OutQuery);
 
+	/** Use this to build a historical step query from two UTC dates without manual Unix-time arithmetic. Start is inclusive and End is exclusive. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Activity", meta = (DisplayName = "Make Native Step Query Between Dates", ExpandBoolAsExecs = "ReturnValue", Keywords = "OpenMobile sensors historical steps dates UTC range", ToolTip = "Builds a historical step query from two UTC dates without manual Unix-time arithmetic. Start is inclusive and End is exclusive."))
 	static bool MakeNativeStepQueryBetweenDates(
 		FDateTime StartInclusiveUtc,

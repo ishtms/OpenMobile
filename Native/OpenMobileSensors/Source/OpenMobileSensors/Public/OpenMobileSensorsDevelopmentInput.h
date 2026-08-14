@@ -131,6 +131,7 @@ class OPENMOBILESENSORS_API UOpenMobileSensorsDevelopmentLibrary final
 	GENERATED_BODY()
 
 public:
+	/** Use this to apply one complete mock sensor snapshot in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Apply Sensor Mock Input", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock simulate test", ToolTip = "Applies one complete mock sensor snapshot in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void ApplyMockInputWithOutcome(
 		const FOpenMobileSensorsMockInput& Input,
@@ -140,6 +141,7 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** Use this to apply a named sensor mock preset in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Apply Sensor Mock Preset", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock preset simulate test walking running", ToolTip = "Applies a named sensor mock preset in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void ApplyMockPresetWithOutcome(
 		EOpenMobileSensorsMockPreset Preset,
@@ -149,6 +151,7 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** Use this to start a mock sensor timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Play Sensor Mock Timeline", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline sequence simulate test", ToolTip = "Starts a mock sensor timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void PlayMockTimelineWithOutcome(
 		const FOpenMobileSensorsMockTimeline& Timeline,
@@ -158,6 +161,7 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** Use this to stop the active mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Stop Sensor Mock Timeline", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline stop simulate test", ToolTip = "Stops the active mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void StopMockTimelineWithOutcome(
 		EOpenMobileSensorMockActionOutcome& Outcome,
@@ -166,6 +170,7 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** Use this to advance a manual-clock mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Advance Sensor Mock Timeline", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline manual clock advance test", ToolTip = "Advances a manual-clock mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void AdvanceMockTimelineWithOutcome(
 		double DeltaSeconds,
@@ -175,6 +180,7 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** Use this to inject one normalized sensor failure in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Inject Sensor Mock Error", ExpandEnumAsExecs = "Outcome", DevelopmentOnly, Keywords = "OpenMobile sensors development mock error failure inject test", ToolTip = "Injects one normalized sensor failure in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static void InjectMockErrorWithOutcome(
 		EOpenMobileSensorType Sensor,
@@ -186,29 +192,35 @@ public:
 		FOpenMobileSensorOperationResult& Details
 	);
 
+	/** You'll only need this raw-result path for applying mock input in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Apply Sensor Mock Input (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock raw result", ToolTip = "Advanced raw-result path for applying mock input in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult ApplyMockInput(
 		const FOpenMobileSensorsMockInput& Input
 	);
 
+	/** You'll only need this raw-result path for applying a mock preset in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Apply Sensor Mock Preset (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock preset raw result", ToolTip = "Advanced raw-result path for applying a mock preset in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult ApplyMockPreset(
 		EOpenMobileSensorsMockPreset Preset
 	);
 
+	/** You'll only need this raw-result path for playing a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Play Sensor Mock Timeline (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline raw result", ToolTip = "Advanced raw-result path for playing a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult PlayMockTimeline(
 		const FOpenMobileSensorsMockTimeline& Timeline
 	);
 
+	/** You'll only need this raw-result path for stopping a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Stop Sensor Mock Timeline (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline stop raw result", ToolTip = "Advanced raw-result path for stopping a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult StopMockTimeline();
 
+	/** You'll only need this raw-result path for advancing a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Advance Sensor Mock Timeline (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock timeline manual clock raw result", ToolTip = "Advanced raw-result path for advancing a mock timeline in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult AdvanceMockTimeline(
 		double DeltaSeconds
 	);
 
+	/** You'll only need this raw-result path for injecting a sensor failure in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only|Advanced", meta = (DisplayName = "Inject Sensor Mock Error (Advanced)", DevelopmentOnly, Keywords = "OpenMobile sensors development mock error failure raw result", ToolTip = "Advanced raw-result path for injecting a sensor failure in non-Shipping builds. Enable Mock in Project Settings > OpenMobile > OpenMobile Sensors."))
 	static FOpenMobileSensorOperationResult InjectMockError(
 		EOpenMobileSensorType Sensor,
@@ -216,6 +228,7 @@ public:
 		FString NativeCode
 	);
 
+	/** Use this to check whether the non-Shipping mock provider is currently active. Always returns false in Shipping builds. Configure Project Settings > OpenMobile > OpenMobile Sensors. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Development Only", meta = (DisplayName = "Is Sensor Mock Input Active", DevelopmentOnly, Keywords = "OpenMobile sensors development mock enabled status", ToolTip = "Checks whether the non-Shipping mock provider is currently active. Always returns false in Shipping builds. Configure Project Settings > OpenMobile > OpenMobile Sensors."))
 	static bool IsMockInputActive();
 };

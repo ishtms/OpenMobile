@@ -49,8 +49,13 @@ enum class EOpenMobileSensorSampleFamily : uint8
 class OPENMOBILESENSORS_API FOpenMobileSensorTypes final
 {
 public:
+	/** You'll get every sensor type that can appear in the public contract. Unknown isn't included because it can't identify a stream. */
 	static const TArray<EOpenMobileSensorType>& GetAll();
+
+	/** Use this stable name for config, files, and logs. Display text can change, this name shouldn't. */
 	static FName GetStableName(EOpenMobileSensorType Type);
+
+	/** You'll get the typed sample family used by generic stream code. Unknown comes back when no public sample struct fits. */
 	static EOpenMobileSensorSampleFamily GetSampleFamily(
 		EOpenMobileSensorType Type
 	);
@@ -67,21 +72,25 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorIdentifier
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Provider-defined sensor instance name. Default selects the normal device sensor."))
 	FName InstanceId;
 
+	/** Use this before a raw identifier reaches the subsystem. Unknown is the only invalid sensor type. */
 	bool IsValid() const
 	{
 		return Type != EOpenMobileSensorType::Unknown;
 	}
 
+	/** This compares both sensor type and provider instance. Matching only the type could pick the wrong physical sensor. */
 	bool operator==(const FOpenMobileSensorIdentifier& Other) const
 	{
 		return Type == Other.Type && InstanceId == Other.InstanceId;
 	}
 
+	/** This stays tied to the full equality check, so a new identity field can't be forgotten here. */
 	bool operator!=(const FOpenMobileSensorIdentifier& Other) const
 	{
 		return !(*this == Other);
 	}
 
+	/** This hashes the same fields equality reads. You'll get safe map and set lookup for named sensor instances. */
 	friend uint32 GetTypeHash(const FOpenMobileSensorIdentifier& Identifier)
 	{
 		return HashCombine(
