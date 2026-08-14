@@ -8,6 +8,7 @@
 
 namespace OpenMobileAdsAdMobPrivate
 {
+	/** Groups banner, adaptive banner, and MREC under the shared reusable display path. */
 	bool IsPersistentDisplayFormat(EOpenMobileAdFormat Format)
 	{
 		return Format == EOpenMobileAdFormat::Banner
@@ -15,11 +16,15 @@ namespace OpenMobileAdsAdMobPrivate
 			|| Format == EOpenMobileAdFormat::MediumRectangle;
 	}
 
+	/** Adapts the provider-neutral service contract to AdMob platform operations and Google UMP. */
 	class FProvider final : public IOpenMobileAdsProvider
 	{
 	public:
+		/** Returns the provider name used by settings, event routing, and modular discovery. */
 		virtual FName GetProviderName() const override { return TEXT("AdMob"); }
+		/** Requires one active Android or iOS backend before the provider is selectable. */
 		virtual bool IsSupported() const override { return FOpenMobileAdsAdMobPlatform::IsSupported(); }
+		/** Describes only operations implemented by the current AdMob integration. */
 		virtual FOpenMobileAdsProviderCapabilities GetCapabilities() const override
 		{
 			FOpenMobileAdFormatCapabilities Banner;
@@ -110,21 +115,25 @@ namespace OpenMobileAdsAdMobPrivate
 			return Capabilities;
 		}
 
+		/** Names Google UMP separately so consent diagnostics don't appear as ad delivery failures. */
 		virtual FName GetConsentProviderName() const override
 		{
 			return TEXT("GoogleUMP");
 		}
 
+		/** AdMob exposes Google's user-invoked privacy options form through UMP. */
 		virtual bool SupportsPrivacyOptionsForm() const override
 		{
 			return true;
 		}
 
+		/** AdMob allows UMP state reset only through the service's development-only path. */
 		virtual bool SupportsConsentResetForTesting() const override
 		{
 			return true;
 		}
 
+		/** Clears UMP state and local remembered signals together so later setup starts fresh. */
 		virtual bool ResetConsentForTesting(
 			FOpenMobileAdsError& OutError
 		) override
@@ -147,22 +156,26 @@ namespace OpenMobileAdsAdMobPrivate
 			return true;
 		}
 
+		/** Accepts every normalized privacy signal even though runtime updates are narrower. */
 		virtual int32 GetSupportedConsentSignalMask() const override
 		{
 			return FOpenMobileAdsConsentSignals::AllSignalMask;
 		}
 
+		/** Confirms every signal after the backend has applied it to Google request configuration. */
 		virtual int32 GetConfirmableConsentSignalMask() const override
 		{
 			return FOpenMobileAdsConsentSignals::AllSignalMask;
 		}
 
+		/** Limits post-initialization changes to consent and US privacy values supported by Google. */
 		virtual int32 GetRuntimeUpdatableConsentSignalMask() const override
 		{
 			return static_cast<int32>(EOpenMobileAdsConsentSignal::Gdpr)
 				| static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
 		}
 
+		/** Applies only requested signal bits and reports a typed failure when native configuration rejects them. */
 		virtual FOpenMobileAdsConsentSignalApplyResult ApplyConsentSignals(
 			const FOpenMobileAdsConsentSignals& Signals,
 			int32 SignalMask
@@ -195,6 +208,7 @@ namespace OpenMobileAdsAdMobPrivate
 			);
 		}
 
+		/** Merges global and provider test devices before starting a Google UMP information refresh. */
 		virtual bool RefreshConsent(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -245,6 +259,7 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Presents the UMP form required by the immediately preceding provider refresh. */
 		virtual bool PresentRequiredConsentForm(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -286,6 +301,7 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Presents Google's privacy options form for a user-invoked service request. */
 		virtual bool PresentPrivacyOptionsForm(
 			const FOpenMobileAdsConsentRequest& Request,
 			TSharedRef<IOpenMobileAdsConsentProviderSink, ESPMode::ThreadSafe> CompletionSink,
@@ -327,11 +343,13 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Cancels only the UMP operation carrying this public request identity. */
 		virtual void CancelConsent(FGuid RequestId) override
 		{
 			FOpenMobileAdsAdMobPlatform::CancelConsent(RequestId);
 		}
 
+		/** Validates test mode, merges test devices, then starts one native SDK generation. */
 		virtual bool Initialize(
 			const FOpenMobileAdsInitializationRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderInitializationSink, ESPMode::ThreadSafe> CompletionSink,
@@ -407,6 +425,7 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Resolves test units and persistent display formats before handing one load to the platform layer. */
 		virtual bool Load(
 			const FOpenMobileAdsLoadRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -544,6 +563,7 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Presents one cached identity through the format route advertised in capabilities. */
 		virtual bool Show(
 			const FOpenMobileAdsShowRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -590,6 +610,7 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Hides only reusable display formats and leaves their loaded cache owned by the service. */
 		virtual bool Hide(
 			const FOpenMobileAdsHideRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -629,11 +650,13 @@ namespace OpenMobileAdsAdMobPrivate
 			return bStarted;
 		}
 
+		/** Cancels one native operation without releasing another placement's cache. */
 		virtual void Cancel(FGuid RequestId) override
 		{
 			FOpenMobileAdsAdMobPlatform::Cancel(RequestId);
 		}
 
+		/** Reports destroy immediately because cache release is handled through the separate identity callback. */
 		virtual bool Destroy(
 			const FOpenMobileAdsDestroyRequest& Request,
 			TSharedRef<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink,
@@ -646,11 +669,13 @@ namespace OpenMobileAdsAdMobPrivate
 			return true;
 		}
 
+		/** Releases the exact native object previously paired with this cache identity. */
 		virtual void ReleaseCachedAd(FGuid CachedAdId) override
 		{
 			FOpenMobileAdsAdMobPlatform::ReleaseCachedAd(CachedAdId);
 		}
 
+		/** Shuts down native state and clears test-unit mode before the provider can be selected again. */
 		virtual void Shutdown() override
 		{
 			FOpenMobileAdsAdMobPlatform::Shutdown();
@@ -658,6 +683,7 @@ namespace OpenMobileAdsAdMobPrivate
 			InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
 		}
 
+		/** Keeps the older rewarded API on the configured AdMob rewarded unit and shared platform state. */
 		virtual bool RequestAndShowRewardedAd(
 			FOpenMobileRewardedAdCallbacks&& Callbacks,
 			FOpenMobileError& OutError
@@ -721,9 +747,11 @@ namespace OpenMobileAdsAdMobPrivate
 	};
 }
 
+/** Registers the AdMob provider only while its module owns the implementation object. */
 class FOpenMobileAdsAdMobModule final : public IModuleInterface
 {
 public:
+	/** Creates and registers one provider instance for modular service discovery. */
 	virtual void StartupModule() override
 	{
 		Provider = MakeUnique<OpenMobileAdsAdMobPrivate::FProvider>();
@@ -733,6 +761,7 @@ public:
 		);
 	}
 
+	/** Unregisters the provider before shutting down callbacks and native platform state. */
 	virtual void ShutdownModule() override
 	{
 		if (Provider)

@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsIOS : ModuleRules
 {
+	/** Adds Apple's tracking frameworks and packaged usage-description support only to the iOS backend. */
 	public OpenMobileAdsIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

@@ -8,6 +8,7 @@
 
 namespace OpenMobileAdsAdMobPlatformPrivate
 {
+	/** Keeps public load identity and callbacks beside the native request that owns them. */
 	struct FAdLoadOperation
 	{
 		FGuid RequestId;
@@ -16,6 +17,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		FOnOpenMobileAdMobAdLoadFailed Failed;
 	};
 
+	/** Keeps one presentation's cache identity, event sink, and reward state together. */
 	struct FShowOperation
 	{
 		FGuid RequestId;
@@ -26,6 +28,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		bool bRewardDispatched = false;
 	};
 
+	/** Links one banner hide request back to its reusable load and active show. */
 	struct FBannerHideOperation
 	{
 		FGuid RequestId;
@@ -35,12 +38,14 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 	};
 
+	/** Stores only the format and native load identity needed to reuse or release a cached ad. */
 	struct FCachedAdReference
 	{
 		EOpenMobileAdFormat Format = EOpenMobileAdFormat::Rewarded;
 		int64 LoadedRequestId = 0;
 	};
 
+	/** Owns one UMP callback pair until the matching native request finishes or is cancelled. */
 	struct FConsentOperation
 	{
 		FGuid RequestId;
@@ -75,6 +80,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	bool bRewardDispatched = false;
 	bool bInitialized = false;
 
+	/** Clears initialization delegates only after the active generation has reached a terminal result. */
 	void ResetInitialization()
 	{
 		InitializationDelegates.Reset();
@@ -84,6 +90,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		bInitializationInProgress = false;
 	}
 
+	/** Replaces one adapter status row and sends the current value to every initialization caller. */
 	void BroadcastInitializationStatus(
 		FOpenMobileAdsInitializationComponentStatus Status
 	)
@@ -112,6 +119,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 	}
 
+	/** Clears only the older combined rewarded request state. */
 	void ResetRequest()
 	{
 		LoadedDelegate.Unbind();
@@ -124,6 +132,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		bRewardDispatched = false;
 	}
 
+	/** Drops all modern operation maps during backend shutdown so stale callbacks lose ownership. */
 	void ResetOperations()
 	{
 		LoadOperations.Reset();
@@ -139,6 +148,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		NativeConsentRequestIds.Reset();
 	}
 
+	/** Removes a load from both native and public identity maps in one step. */
 	bool RemoveLoadOperation(
 		int64 NativeRequestId,
 		FAdLoadOperation& OutOperation
@@ -152,6 +162,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return true;
 	}
 
+	/** Accepts a native load callback only when its stored format matches the callback route. */
 	bool RemoveLoadOperationForFormat(
 		int64 NativeRequestId,
 		EOpenMobileAdFormat Format,
@@ -164,6 +175,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 			&& RemoveLoadOperation(NativeRequestId, OutOperation);
 	}
 
+	/** Accepts banner callbacks for every persistent display format handled by the shared native path. */
 	bool RemoveBannerLoadOperation(
 		int64 NativeRequestId,
 		FAdLoadOperation& OutOperation
@@ -180,6 +192,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 			&& RemoveLoadOperation(NativeRequestId, OutOperation);
 	}
 
+	/** Removes a show and its banner visibility index before any terminal event is forwarded. */
 	bool RemoveShowOperation(
 		int64 NativeRequestId,
 		FShowOperation& OutOperation
@@ -194,6 +207,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return true;
 	}
 
+	/** Removes a banner hide from public, native, and cache-specific indexes together. */
 	bool RemoveBannerHideOperation(
 		int64 NativeRequestId,
 		FBannerHideOperation& OutOperation
@@ -211,6 +225,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return true;
 	}
 
+	/** Routes one provider-neutral format to its exact native load method. */
 	bool LoadNativeAd(
 		IOpenMobileAdsAdMobBackend& Backend,
 		const FOpenMobileAdsLoadRequest& Request,
@@ -265,6 +280,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 	}
 
+	/** Cancels native load or cache state through the same format path that created it. */
 	void CancelNativeAd(
 		IOpenMobileAdsAdMobBackend& Backend,
 		EOpenMobileAdFormat Format,
@@ -297,6 +313,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 	}
 
+	/** Routes one cached format to its native show method and applies verification only to rewarded formats. */
 	bool ShowNativeAd(
 		IOpenMobileAdsAdMobBackend& Backend,
 		const FOpenMobileAdsShowRequest& Request,
@@ -370,6 +387,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return false;
 	}
 
+	/** Removes one consent operation from both identity maps before running its callback. */
 	bool RemoveConsentOperation(
 		int64 NativeRequestId,
 		FConsentOperation& OutOperation
@@ -386,6 +404,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return true;
 	}
 
+	/** Converts UMP's stable integer status to the provider's typed consent enum. */
 	EOpenMobileAdsAdMobUMPConsentStatus ToConsentStatus(int32 Status)
 	{
 		switch (Status)
@@ -401,6 +420,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 	}
 
+	/** Converts UMP privacy-options availability without treating unknown values as not required. */
 	EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement ToPrivacyOptions(
 		int32 Requirement
 	)
@@ -416,6 +436,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		}
 	}
 
+	/** Builds one normalized Google UMP update from the native callback payload. */
 	FOpenMobileAdsConsentStatusUpdate MakeConsentUpdate(
 		int32 ConsentStatus,
 		bool bCanRequestAds,
@@ -430,6 +451,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		);
 	}
 
+	/** Maps one UMP native error through the shared consent error domain. */
 	FOpenMobileAdsError MakeConsentError(
 		const FString& ErrorCode,
 		const FString& ErrorMessage
@@ -444,6 +466,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return FOpenMobileAdsErrorMapper::FromNative(Context);
 	}
 
+	/** Selects the active platform backend without caching it across module unloads. */
 	IOpenMobileAdsAdMobBackend* FindBackend()
 	{
 		TArray<IOpenMobileAdsAdMobBackend*> Backends =
@@ -460,6 +483,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		return nullptr;
 	}
 
+	/** Starts required or privacy-options presentation through one request ownership path. */
 	bool BeginConsentFormOperation(
 		const FOpenMobileAdsConsentRequest& Request,
 		FOnOpenMobileAdMobConsentCompleted&& OnCompleted,

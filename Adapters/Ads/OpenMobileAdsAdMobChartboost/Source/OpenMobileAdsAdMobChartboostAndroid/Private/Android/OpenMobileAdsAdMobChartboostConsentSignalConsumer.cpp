@@ -11,6 +11,7 @@ namespace
 	constexpr int32 UsPrivacySignal =
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
 
+	/** Protects Chartboost from receiving a guessed GDPR value when state is still unknown. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -23,6 +24,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Applies Chartboost's US privacy flag only when the snapshot contains a decision. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability

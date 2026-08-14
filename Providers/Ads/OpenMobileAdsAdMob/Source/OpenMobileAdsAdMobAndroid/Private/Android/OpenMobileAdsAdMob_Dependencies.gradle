@@ -27,6 +27,7 @@ def openMobileAdsMaximumAgp = GradleVersion.version("8.7")
 def openMobileAdsMinimumJava = 17
 def openMobileAdsMaximumJava = 21
 
+/** Reads Unreal's SDK properties without letting a malformed value skip toolchain checks. */
 def openMobileAdsReadSdkProperty = { String name, List errors ->
     def value = project.findProperty(name)?.toString()
     if (value == null || !(value ==~ /\d+/)) {
@@ -36,6 +37,7 @@ def openMobileAdsReadSdkProperty = { String name, List errors ->
     return value.toInteger()
 }
 
+/** Verifies the Android toolchain and resolved AAR payload before any Ads package is produced. */
 afterEvaluate {
     def toolchainErrors = []
     def minSdk = openMobileAdsReadSdkProperty("MIN_SDK_VERSION", toolchainErrors)

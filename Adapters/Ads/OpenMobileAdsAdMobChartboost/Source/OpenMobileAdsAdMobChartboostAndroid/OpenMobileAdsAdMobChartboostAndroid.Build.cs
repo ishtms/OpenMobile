@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobChartboostAndroid : ModuleRules
 {
+	/** Stages the pinned Chartboost mediation payload and consent bridge only for enabled Android targets. */
 	public OpenMobileAdsAdMobChartboostAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

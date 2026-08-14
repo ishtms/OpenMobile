@@ -33,6 +33,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsNativeDiagnostics
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FString Adapter;
 
+	/** Treats any native SDK detail as a real diagnostics payload even when the numeric code is empty. */
 	bool IsSet() const
 	{
 		return !NativeCode.IsEmpty()
@@ -70,24 +71,32 @@ struct OPENMOBILEADS_API FOpenMobileAdsDiagnosticRecord
 class OPENMOBILEADS_API FOpenMobileAdsLog
 {
 public:
+	/** Applies global, Ads-specific, and development-test verbosity before formatting a message. */
 	static bool ShouldLog(EOpenMobileAdsLogLevel Level);
+	/** Resolves verbosity from supplied values so tests and editor validation don't touch live console state. */
 	static bool IsLevelEnabled(
 		EOpenMobileAdsLogLevel Level,
 		int32 GlobalLevel,
 		int32 AdsLevel,
 		bool bDevelopmentTestMode = false
 	);
+	/** Allows additional diagnostics only while development test mode is explicitly active. */
 	static void SetDevelopmentTestMode(bool bEnabled);
+	/** Registers identifiers that must be removed from every later Ads log message. */
 	static void SetTestDeviceIdentifiers(const TArray<FString>& Identifiers);
+	/** Reads the Ads console verbosity independently from the engine-wide log level. */
 	static int32 GetAdsLevel();
+	/** Removes known identifiers and credential-like values before text reaches logs or errors. */
 	static FString Redact(
 		const FString& Message,
 		const TArray<FString>& SensitiveValues = {}
 	);
+	/** Redacts every free-text native diagnostics field while keeping routing names intact. */
 	static FOpenMobileAdsNativeDiagnostics Redact(
 		const FOpenMobileAdsNativeDiagnostics& Diagnostics,
 		const TArray<FString>& SensitiveValues = {}
 	);
+	/** Writes a provider-neutral record only after its message has passed redaction. */
 	static void Write(
 		EOpenMobileAdsLogLevel Level,
 		const FString& Message,

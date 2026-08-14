@@ -11,9 +11,11 @@ namespace OpenMobileAdsAdMobEditorPrivate
 	const FName MessageLogName(TEXT("OpenMobileAds"));
 }
 
+/** Reports AdMob-specific settings failures through the shared Ads Message Log before PIE. */
 class FOpenMobileAdsAdMobEditorModule final : public IModuleInterface
 {
 public:
+	/** Loads shared Ads editor support before binding the AdMob pre-PIE validator. */
 	virtual void StartupModule() override
 	{
 		FModuleManager::Get().LoadModuleChecked(TEXT("OpenMobileAdsEditor"));
@@ -23,12 +25,14 @@ public:
 		);
 	}
 
+	/** Removes the pre-PIE hook before this provider editor module unloads. */
 	virtual void ShutdownModule() override
 	{
 		FEditorDelegates::PreBeginPIE.Remove(PreBeginPIEHandle);
 	}
 
 private:
+	/** Writes provider identifier problems to the same log used by core Ads validation. */
 	void HandlePreBeginPIE(bool) const
 	{
 		const UOpenMobileAdsAdMobSettings* Settings =

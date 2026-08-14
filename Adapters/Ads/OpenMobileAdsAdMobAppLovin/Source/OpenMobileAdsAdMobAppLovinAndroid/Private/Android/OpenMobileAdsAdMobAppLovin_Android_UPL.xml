@@ -39,6 +39,7 @@ dependencies {
 
     <gameActivityClassAdditions>
         <insert>
+    /** Applies only supplied AppLovin privacy signals and reads them back before confirming success. */
     public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobAppLovinConsentSignals(
         final boolean applyGdpr,
         final boolean hasUserConsent,

@@ -40,6 +40,7 @@ dependencies {
 
     <gameActivityClassAdditions>
         <insert>
+    /** Converts portable privacy flags into Chartboost consent objects and verifies each stored value. */
     public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobChartboostConsentSignals(
         final boolean applyGdpr,
         final boolean hasUserConsent,

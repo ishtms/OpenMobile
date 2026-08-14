@@ -12,6 +12,7 @@ namespace
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
 	constexpr int32 SupportedSignals = GdprSignal | UsPrivacySignal;
 
+	/** Sends Liftoff a GDPR value only after the service has resolved real consent state. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -24,6 +25,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Avoids overwriting Liftoff US privacy state when the snapshot remains unspecified. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability

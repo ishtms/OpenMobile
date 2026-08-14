@@ -18,6 +18,7 @@ namespace OpenMobileAdsEditorPrivate
 {
 	const FName MessageLogName(TEXT("OpenMobileAds"));
 
+	/** Resolves the configured provider without forcing an optional provider module to load. */
 	IOpenMobileAdsProvider* FindConfiguredProvider(
 		const UOpenMobileAdsSettings& Settings
 	)
@@ -40,6 +41,7 @@ namespace OpenMobileAdsEditorPrivate
 		return Providers.Num() == 1 ? Providers[0] : nullptr;
 	}
 
+	/** Combines portable and selected-provider checks for editor settings feedback. */
 	TArray<FOpenMobileAdsConfigurationIssue> ValidateSettings(
 		const UOpenMobileAdsSettings& Settings
 	)
@@ -60,9 +62,11 @@ namespace OpenMobileAdsEditorPrivate
 	}
 }
 
+/** Adds live Ads validation under Project Settings while preserving Unreal's ordinary details layout. */
 class FOpenMobileAdsSettingsCustomization final : public IDetailCustomization
 {
 public:
+	/** Disconnects the settings delegate before the customization is released. */
 	virtual ~FOpenMobileAdsSettingsCustomization() override
 	{
 		if (Settings.IsValid() && SettingsChangedHandle.IsValid())
@@ -71,11 +75,13 @@ public:
 		}
 	}
 
+	/** Creates one customization instance per details panel. */
 	static TSharedRef<IDetailCustomization> MakeInstance()
 	{
 		return MakeShared<FOpenMobileAdsSettingsCustomization>();
 	}
 
+	/** Adds the current validation result and refreshes it when settings change. */
 	virtual void CustomizeDetails(IDetailLayoutBuilder& DetailBuilder) override
 	{
 		if (Settings.IsValid() && SettingsChangedHandle.IsValid())
@@ -113,11 +119,13 @@ public:
 	}
 
 private:
+	/** Re-runs validation after any Ads setting changes in the details panel. */
 	void HandleSettingsChanged(UObject*, FPropertyChangedEvent&)
 	{
 		RefreshValidation();
 	}
 
+	/** Rebuilds cached issues from the currently edited settings object. */
 	void RefreshValidation()
 	{
 		ValidationText = LOCTEXT("ValidationUnavailable", "Configuration validation is unavailable.");
@@ -153,11 +161,13 @@ private:
 		ValidationText = FText::FromString(MoveTemp(Message));
 	}
 
+	/** Formats the cached issue list without hiding warnings behind errors. */
 	FText GetValidationText() const
 	{
 		return ValidationText;
 	}
 
+	/** Uses error, warning, or success color from the highest cached severity. */
 	FSlateColor GetValidationColor() const
 	{
 		if (bHasErrors)
@@ -178,9 +188,11 @@ private:
 	bool bHasWarnings = false;
 };
 
+/** Registers Ads settings validation and reports the same issues before PIE starts. */
 class FOpenMobileAdsEditorModule final : public IModuleInterface
 {
 public:
+	/** Registers Message Log, settings customization, and the pre-PIE validation hook. */
 	virtual void StartupModule() override
 	{
 		FMessageLogModule& MessageLogModule =
@@ -203,6 +215,7 @@ public:
 		);
 	}
 
+	/** Removes editor registrations only while their owning modules are still available. */
 	virtual void ShutdownModule() override
 	{
 		FEditorDelegates::PreBeginPIE.Remove(PreBeginPIEHandle);
@@ -223,6 +236,7 @@ public:
 	}
 
 private:
+	/** Stops PIE startup feedback at the editor log without changing project settings. */
 	void HandlePreBeginPIE(bool) const
 	{
 		const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();

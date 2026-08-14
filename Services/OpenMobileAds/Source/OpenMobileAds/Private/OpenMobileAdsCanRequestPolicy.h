@@ -24,6 +24,7 @@ struct FOpenMobileAdsCanRequestAdsContext
 class FOpenMobileAdsCanRequestPolicy
 {
 public:
+	/** Returns the first service, consent, or provider gate in a stable user-facing order. */
 	static FOpenMobileAdsCanRequestAdsResult Evaluate(
 		const FOpenMobileAdsCanRequestAdsContext& Context
 	);

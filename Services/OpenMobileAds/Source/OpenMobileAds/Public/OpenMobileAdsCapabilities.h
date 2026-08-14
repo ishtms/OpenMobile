@@ -177,6 +177,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsProviderCapabilities
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TArray<FOpenMobileAdFormatCapabilities> Formats;
 
+	/** Returns the exact format row so callers don't infer support from unrelated provider features. */
 	const FOpenMobileAdFormatCapabilities* FindFormat(EOpenMobileAdFormat Format) const
 	{
 		return Formats.FindByPredicate(
@@ -187,6 +188,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsProviderCapabilities
 		);
 	}
 
+	/** Treats a format as supported only when its provider row allows loading. */
 	bool SupportsFormat(EOpenMobileAdFormat Format) const
 	{
 		const FOpenMobileAdFormatCapabilities* Capabilities = FindFormat(Format);

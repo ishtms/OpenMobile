@@ -20,6 +20,7 @@ public class OpenMobileAds : ModuleRules
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAds.OpenMobileAdsSettings")]
 	string TrackingUsageDescription = "";
 
+	/** Keeps provider SDKs out of the service module while enforcing shipping and iOS privacy settings at build time. */
 	public OpenMobileAds(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
@@ -82,6 +83,7 @@ public class OpenMobileAds : ModuleRules
 		}
 	}
 
+	/** Rejects empty, oversized, or control-character prompt text before iOS packaging. */
 	static bool ValidateTrackingUsageDescription(string Description)
 	{
 		if (string.IsNullOrWhiteSpace(Description))

@@ -15,6 +15,7 @@ namespace
 	constexpr int32 UnderAgeSignal =
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UnderAgeOfConsent);
 
+	/** Writes Unity GDPR metadata only after the service has an applicable consent answer. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -27,6 +28,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Writes Unity US privacy metadata only from an explicit choice or processing mode. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability
@@ -37,6 +39,7 @@ namespace
 				!= EOpenMobileAdsDataProcessingMode::Unspecified;
 	}
 
+	/** Derives Unity's non-behavioral flag from explicit child or under-age treatment. */
 	bool RequiresNonBehavioralValue(
 		const FOpenMobileAdsConsentSignals& Signals,
 		int32 SignalMask

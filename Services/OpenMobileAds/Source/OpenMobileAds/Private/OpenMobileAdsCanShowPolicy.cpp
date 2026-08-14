@@ -2,6 +2,7 @@
 
 namespace
 {
+	/** Builds one presentation refusal while preserving pacing scope and next eligibility. */
 	FOpenMobileAdsCanShowResult Blocked(
 		EOpenMobileAdsCanShowBlockReason Reason,
 		const TCHAR* Explanation,

@@ -7,6 +7,7 @@ def openMobileAdsAdMobAppLovinDependencies = [
     "com.google.android.gms:play-services-ads": "25.4.0",
 ]
 
+/** Checks AppLovin, its adapter, common mediation, and Google Ads stay on pinned versions. */
 afterEvaluate {
     def manifestTasks = tasks.matching {
         it.name ==~ /^process.+ManifestForPackage$/

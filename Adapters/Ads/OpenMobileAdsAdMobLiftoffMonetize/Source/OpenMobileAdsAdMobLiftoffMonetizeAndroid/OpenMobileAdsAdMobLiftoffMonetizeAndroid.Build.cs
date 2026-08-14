@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobLiftoffMonetizeAndroid : ModuleRules
 {
+	/** Adds Liftoff Monetize dependencies and Java privacy wiring only for opted-in Android builds. */
 	public OpenMobileAdsAdMobLiftoffMonetizeAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

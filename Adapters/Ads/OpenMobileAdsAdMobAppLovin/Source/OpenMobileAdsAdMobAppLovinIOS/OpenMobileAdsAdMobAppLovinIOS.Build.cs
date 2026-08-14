@@ -6,6 +6,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobAppLovinIOS : ModuleRules
 {
+	/** Reads the packaged AppLovin or Google version from its checked-in manifest. */
 	private static string ReadPackageVersion(string ManifestPath, string PackageName)
 	{
 		JsonObject Document = JsonObject.Read(new FileReference(ManifestPath));
@@ -21,6 +22,7 @@ public class OpenMobileAdsAdMobAppLovinIOS : ModuleRules
 		);
 	}
 
+	/** Rejects versions outside AppLovin's supported range and warns for allowed versions not yet tested. */
 	private static void ValidateVersion(
 		string Name,
 		string Actual,
@@ -69,6 +71,7 @@ public class OpenMobileAdsAdMobAppLovinIOS : ModuleRules
 		}
 	}
 
+	/** Cross-checks provider, adapter, and network package versions before linking the iOS payload. */
 	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
@@ -111,6 +114,7 @@ public class OpenMobileAdsAdMobAppLovinIOS : ModuleRules
 		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
+	/** Links pinned AppLovin frameworks and privacy resources only for the enabled iOS adapter. */
 	public OpenMobileAdsAdMobAppLovinIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

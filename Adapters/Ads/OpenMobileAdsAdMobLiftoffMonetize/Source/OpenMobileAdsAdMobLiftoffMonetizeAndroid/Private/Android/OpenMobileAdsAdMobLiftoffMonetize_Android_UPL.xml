@@ -44,6 +44,7 @@ dependencies {
 
     <gameActivityClassAdditions>
         <insert>
+    /** Applies Liftoff's GDPR and CCPA values and confirms the SDK accepted both. */
     public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobLiftoffMonetizeConsentSignals(
         final boolean applyGdpr,
         final boolean hasUserConsent,

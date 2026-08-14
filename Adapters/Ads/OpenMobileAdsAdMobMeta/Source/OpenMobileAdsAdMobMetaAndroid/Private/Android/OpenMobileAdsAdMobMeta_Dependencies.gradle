@@ -7,6 +7,7 @@ def openMobileAdsAdMobMetaDependencies = [
     "com.google.android.gms:play-services-ads": "25.4.0",
 ]
 
+/** Checks Meta Audience Network and its Google adapter keep the tested version pair. */
 afterEvaluate {
     def manifestTasks = tasks.matching {
         it.name ==~ /^process.+ManifestForPackage$/

@@ -2,9 +2,11 @@
 #include "Features/IModularFeatures.h"
 #include "Modules/ModuleManager.h"
 
+/** Owns the Android AppLovin privacy consumer while this optional adapter module is enabled. */
 class FOpenMobileAdsAdMobAppLovinAndroidModule final : public IModuleInterface
 {
 public:
+	/** Registers AppLovin privacy delivery before AdMob discovers mediated consumers. */
 	virtual void StartupModule() override
 	{
 		ConsentConsumer =
@@ -15,6 +17,7 @@ public:
 		);
 	}
 
+	/** Unregisters the consumer before releasing its Android implementation. */
 	virtual void ShutdownModule() override
 	{
 		if (ConsentConsumer)

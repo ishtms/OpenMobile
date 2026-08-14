@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobAppLovinAndroid : ModuleRules
 {
+	/** Stages the pinned AppLovin adapter and its privacy bridge only when this Android plugin is enabled. */
 	public OpenMobileAdsAdMobAppLovinAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

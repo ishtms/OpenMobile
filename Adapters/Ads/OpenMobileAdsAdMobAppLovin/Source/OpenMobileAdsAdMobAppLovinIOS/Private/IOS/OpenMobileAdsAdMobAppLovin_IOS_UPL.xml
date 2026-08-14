@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Adds AppLovin attribution identifiers and its privacy bundle to opted-in iOS packages. -->
     <registerBuildSettings>
         <insert>OpenMobileAdsAdMobAppLovinIOSDependencyContract=2</insert>
         <insertNewline/>

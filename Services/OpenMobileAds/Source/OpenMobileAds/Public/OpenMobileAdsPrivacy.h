@@ -190,13 +190,18 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentSignals
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FName Source;
 
+	/** Marks every signal carrying an explicit value without claiming that value is currently usable. */
 	int32 GetConfiguredSignalMask() const;
+	/** Marks configured signals whose value blocks requests until a consumer accepts them. */
 	int32 GetRequiredSignalMask() const;
+	/** Compares signal values only and returns the bits a runtime update needs to deliver again. */
 	int32 GetChangedSignalMask(
 		const FOpenMobileAdsConsentSignals& Other
 	) const;
 
+	/** Compares normalized privacy values and source while ignoring delivery bookkeeping held elsewhere. */
 	bool operator==(const FOpenMobileAdsConsentSignals& Other) const;
+	/** Keeps inequality tied to the equality rule above so privacy change detection can't drift. */
 	bool operator!=(const FOpenMobileAdsConsentSignals& Other) const
 	{
 		return !(*this == Other);
@@ -286,6 +291,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentSignalDeliverySnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TArray<FOpenMobileAdsConsentSignalDeliveryStatus> Consumers;
 
+	/** Finds one exact provider, network, or adapter row without merging equal names from different parents. */
 	const FOpenMobileAdsConsentSignalDeliveryStatus* Find(
 		EOpenMobileAdsConsentSignalConsumerType Type,
 		FName Name,
@@ -299,6 +305,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentSignalApplyResult
 	int32 ConfirmedSignals = 0;
 	FOpenMobileAdsError Error;
 
+	/** Masks confirmation to the bits actually applied so a consumer can't confirm work it rejected. */
 	static FOpenMobileAdsConsentSignalApplyResult Applied(
 		int32 AppliedSignals,
 		int32 ConfirmedSignals
@@ -471,6 +478,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError Error;
 
+	/** Treats an absent expiry as fresh while still honoring an explicit stale provider answer. */
 	bool IsConsentStatusFreshAt(FDateTime Now) const
 	{
 		return bConsentStatusFresh
@@ -534,6 +542,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsCanRequestAdsResult
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FName Provider;
 
+	/** Compares every user-visible request gate so change broadcasts happen only when the decision changed. */
 	bool operator==(const FOpenMobileAdsCanRequestAdsResult& Other) const
 	{
 		return bCanRequestAds == Other.bCanRequestAds
@@ -543,6 +552,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsCanRequestAdsResult
 			&& Provider == Other.Provider;
 	}
 
+	/** Keeps inequality tied to the complete decision comparison above. */
 	bool operator!=(const FOpenMobileAdsCanRequestAdsResult& Other) const
 	{
 		return !(*this == Other);
@@ -577,9 +587,13 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 	FDateTime ExpiresAt;
 	bool bRestoredFromProviderStorage = false;
 
+	/** Marks a provider refresh as active without fabricating a new consent answer. */
 	static FOpenMobileAdsConsentStatusUpdate BeginRefresh(FName Source);
+	/** Marks required-form presentation separately from a background consent refresh. */
 	static FOpenMobileAdsConsentStatusUpdate BeginFormPresentation(FName Source);
+	/** Marks development-only provider reset while the old snapshot remains visible. */
 	static FOpenMobileAdsConsentStatusUpdate BeginReset(FName Source);
+	/** Completes a simple provider update while preserving freshness, expiry, and restored-state evidence. */
 	static FOpenMobileAdsConsentStatusUpdate Complete(
 		EOpenMobileAdsConsentStatus Status,
 		FName Source,
@@ -588,6 +602,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 		FDateTime ExpiresAt = {},
 		bool bRestoredFromProviderStorage = false
 	);
+	/** Completes the full provider state when applicability and request state are reported separately. */
 	static FOpenMobileAdsConsentStatusUpdate CompleteProviderState(
 		EOpenMobileAdsConsentStatus Status,
 		EOpenMobileAdsGdprApplicability GdprApplicability,
@@ -599,6 +614,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentStatusUpdate
 		FDateTime ExpiresAt = {},
 		bool bRestoredFromProviderStorage = false
 	);
+	/** Carries a typed provider failure without replacing the last known consent values. */
 	static FOpenMobileAdsConsentStatusUpdate Fail(
 		FName Source,
 		FOpenMobileAdsError Error

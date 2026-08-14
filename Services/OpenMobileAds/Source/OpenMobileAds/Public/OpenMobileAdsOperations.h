@@ -15,6 +15,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 	EOpenMobileAdsDebugGeography DebugGeography =
 		EOpenMobileAdsDebugGeography::Disabled;
 
+	/** Enables debug geography only when test mode, consent debugging, and a test device are all configured. */
 	EOpenMobileAdsDebugGeography GetEffectiveDebugGeography() const
 	{
 		if (
@@ -36,6 +37,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 		}
 	}
 
+	/** Accepts bounded printable identifiers so provider logs and native configuration stay safe to handle. */
 	static bool IsValidTestDeviceIdentifier(const FString& Identifier)
 	{
 		if (Identifier.IsEmpty() || Identifier.Len() > 256)
@@ -52,6 +54,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 		return true;
 	}
 
+	/** Merges global and provider IDs case-insensitively while dropping invalid entries. */
 	static TArray<FString> MergeTestDeviceIdentifiers(
 		const TArray<FString>& GlobalIdentifiers,
 		const TArray<FString>& ProviderIdentifiers = {}
@@ -83,6 +86,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsDevelopmentConfiguration
 		return Result;
 	}
 
+	/** Expands one test-mode switch into the SDK controls that are safe outside shipping builds. */
 	static FOpenMobileAdsDevelopmentConfiguration FromMode(
 		bool bEnabled,
 		const TArray<FString>& ConfiguredTestDeviceIdentifiers = {},

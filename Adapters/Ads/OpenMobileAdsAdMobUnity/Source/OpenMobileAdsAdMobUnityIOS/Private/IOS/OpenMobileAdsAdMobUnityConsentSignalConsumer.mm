@@ -21,6 +21,7 @@ namespace
 	constexpr int32 UnderAgeSignal =
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UnderAgeOfConsent);
 
+	/** Keeps Unity GDPR metadata absent till consent state is usable. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -33,6 +34,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Keeps Unity do-not-sell metadata absent till US privacy has a real value. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability
@@ -43,6 +45,7 @@ namespace
 				!= EOpenMobileAdsDataProcessingMode::Unspecified;
 	}
 
+	/** Resolves Unity non-behavioral metadata only from explicit age treatment. */
 	bool RequiresNonBehavioralValue(
 		const FOpenMobileAdsConsentSignals& Signals,
 		int32 SignalMask

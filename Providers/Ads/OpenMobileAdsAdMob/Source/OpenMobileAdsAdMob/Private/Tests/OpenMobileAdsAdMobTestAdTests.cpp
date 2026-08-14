@@ -10,6 +10,7 @@
 
 namespace OpenMobileAdsAdMobTestAdTests
 {
+	/** Records native AdMob calls while the test drives callbacks through the platform bridge. */
 	class FMockBackend final : public IOpenMobileAdsAdMobBackend
 	{
 	public:
@@ -346,6 +347,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		TArray<int64> CancelledBannerRequestIds;
 	};
 
+	/** Keeps the mock native backend visible only for the current test scope. */
 	class FScopedBackendRegistration
 	{
 	public:
@@ -370,6 +372,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FMockBackend& Backend;
 	};
 
+	/** Captures initialization completion and invalidation from the provider bridge. */
 	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
 	{
 	public:
@@ -393,6 +396,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		FOpenMobileAdsError CompletionError;
 	};
 
+	/** Collects provider events until the bridge invalidates the request. */
 	class FEventSink final : public IOpenMobileAdsProviderEventSink
 	{
 	public:
@@ -413,6 +417,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		bool bInvalidated = false;
 	};
 
+	/** Counts terminal consent callbacks without depending on their payload. */
 	class FConsentSink final : public IOpenMobileAdsConsentProviderSink
 	{
 	public:
@@ -436,6 +441,7 @@ namespace OpenMobileAdsAdMobTestAdTests
 		bool bInvalidated = false;
 	};
 
+	/** Restores AdMob settings after installing known test IDs for a case. */
 	class FScopedSettings
 	{
 	public:

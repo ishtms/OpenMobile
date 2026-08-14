@@ -5,18 +5,22 @@
 
 namespace OpenMobileAdsRetryPrivate
 {
+	/** Supplies ordinary runtime randomness without making policy calculations depend on global calls. */
 	class FRandomSource final : public IOpenMobileAdsRetryRandomSource
 	{
 	public:
+		/** Samples Unreal's unit random source once for each requested jitter calculation. */
 		virtual double NextUnit() override
 		{
 			return FMath::FRand();
 		}
 	};
 
+	/** Owns game-thread ticker callbacks behind cancellable retry handles. */
 	class FTickerScheduler final : public IOpenMobileAdsRetryScheduler
 	{
 	public:
+		/** Removes every outstanding ticker so callbacks can't outlive the scheduler. */
 		virtual ~FTickerScheduler() override
 		{
 			for (const TPair<uint64, FTSTicker::FDelegateHandle>& Pair : Handles)
@@ -25,6 +29,7 @@ namespace OpenMobileAdsRetryPrivate
 			}
 		}
 
+		/** Converts one delay to a ticker callback and erases its handle before invoking caller code. */
 		virtual FOpenMobileAdsRetryScheduleHandle Schedule(
 			double DelaySeconds,
 			TFunction<void()>&& Callback
@@ -56,6 +61,7 @@ namespace OpenMobileAdsRetryPrivate
 			return Handle;
 		}
 
+		/** Removes the matching ticker when present and always clears caller ownership. */
 		virtual void Cancel(
 			FOpenMobileAdsRetryScheduleHandle& Handle
 		) override

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Adds Meta and its mediation adapter to the generated Android dependency list. -->
     <minimumSDKAPI>
         <insertValue value="23"/>
         <insertNewline/>

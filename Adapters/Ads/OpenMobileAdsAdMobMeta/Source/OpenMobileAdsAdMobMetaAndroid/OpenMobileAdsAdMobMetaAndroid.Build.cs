@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobMetaAndroid : ModuleRules
 {
+	/** Adds Meta Audience Network's pinned adapter payload only when the Android adapter plugin is active. */
 	public OpenMobileAdsAdMobMetaAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

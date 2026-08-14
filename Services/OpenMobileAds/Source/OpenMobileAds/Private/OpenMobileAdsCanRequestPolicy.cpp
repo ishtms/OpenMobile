@@ -2,6 +2,7 @@
 
 namespace
 {
+	/** Builds one blocked decision with its user action class and selected provider intact. */
 	FOpenMobileAdsCanRequestAdsResult Blocked(
 		const FOpenMobileAdsCanRequestAdsContext& Context,
 		EOpenMobileAdsCanRequestAdsBlockReason Reason,
@@ -17,6 +18,7 @@ namespace
 		return Result;
 	}
 
+	/** Converts provider policy state to the matching service block reason and action class. */
 	FOpenMobileAdsCanRequestAdsResult ProviderBlocked(
 		const FOpenMobileAdsCanRequestAdsContext& Context,
 		EOpenMobileAdsCanRequestAdsBlockType Type,

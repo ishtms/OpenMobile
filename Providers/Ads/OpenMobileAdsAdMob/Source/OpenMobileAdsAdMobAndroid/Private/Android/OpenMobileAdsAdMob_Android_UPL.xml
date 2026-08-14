@@ -162,6 +162,7 @@ import java.util.Set;
     private static final int OPEN_MOBILE_DISPLAY_FIXED_BANNER = 0;
     private static final int OPEN_MOBILE_DISPLAY_ADAPTIVE_BANNER = 1;
     private static final int OPEN_MOBILE_DISPLAY_MREC = 2;
+    /** Keeps one loaded banner tied to its native load request while its Android view can be rebuilt. */
     private static final class OpenMobileBannerEntry
     {
         final long loadRequestId;
@@ -300,6 +301,7 @@ import java.util.Set;
         String instanceId
     );
 
+    /** Converts Google load failures into the smaller error set used by the provider contract. */
     private String openMobileAdsLoadErrorCode(LoadAdError error)
     {
         if (error == null)
@@ -322,6 +324,7 @@ import java.util.Set;
         }
     }
 
+    /** Sends paid events with the winning mediation source when Google reports one. */
     private void dispatchOpenMobileRevenuePaid(
         boolean banner,
         long requestId,
@@ -371,6 +374,7 @@ import java.util.Set;
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    /** Removes banner UI without destroying the loaded ad when a later show can reuse it. */
     private void detachOpenMobileBanner(
         OpenMobileBannerEntry entry,
         boolean clearShowRequest
@@ -394,6 +398,7 @@ import java.util.Set;
         }
     }
 
+    /** Clears listeners before destroying a banner view so late SDK callbacks are harmless. */
     private void destroyOpenMobileBannerView(OpenMobileBannerEntry entry)
     {
         if (entry.adView != null)
@@ -411,6 +416,7 @@ import java.util.Set;
         destroyOpenMobileBannerView(entry);
     }
 
+    /** Calculates adaptive width after safe insets and caller margins have taken their space. */
     private int resolveOpenMobileAdaptiveWidth(
         OpenMobileBannerEntry entry,
         WindowInsets windowInsets
@@ -461,6 +467,7 @@ import java.util.Set;
         return availableDp;
     }
 
+    /** Resolves fixed, adaptive, and MREC display choices to the matching Google size. */
     private AdSize resolveOpenMobileBannerAdSize(
         OpenMobileBannerEntry entry,
         WindowInsets windowInsets
@@ -489,6 +496,7 @@ import java.util.Set;
             &amp;&amp; entry.loadedHeight == adSize.getHeight();
     }
 
+    /** Rebuilds the Google view when an adaptive banner needs a different measured size. */
     private void loadOpenMobileBannerView(
         final OpenMobileBannerEntry entry,
         final AdSize adSize
@@ -505,6 +513,7 @@ import java.util.Set;
         adView.setAdListener(new AdListener()
         {
             @Override
+            /** Accepts only the view still owned by this load request before notifying native code. */
             public void onAdLoaded()
             {
                 if (
@@ -548,6 +557,7 @@ import java.util.Set;
             }
 
             @Override
+            /** Separates first-load failure from a later adaptive resize failure. */
             public void onAdFailedToLoad(LoadAdError loadAdError)
             {
                 if (
@@ -622,6 +632,7 @@ import java.util.Set;
         adView.loadAd(new AdRequest.Builder().build());
     }
 
+    /** Checks the actual ad pixels against safe-area space before attaching the view. */
     private boolean canOpenMobileBannerFit(
         OpenMobileBannerEntry entry,
         WindowInsets windowInsets
@@ -681,6 +692,7 @@ import java.util.Set;
             &amp;&amp; availableHeight >= currentSize.getHeightInPixels(GameActivity.this);
     }
 
+    /** Reflows a visible banner and reloads adaptive content when its available width changes. */
     private void applyOpenMobileBannerLayout(
         final OpenMobileBannerEntry entry,
         WindowInsets windowInsets
@@ -782,6 +794,7 @@ import java.util.Set;
 
     }
 
+    /** Attaches a ready banner to GameActivity and keeps layout updated with window insets. */
     private void attachOpenMobileBanner(final OpenMobileBannerEntry entry)
     {
         if (entry.adView == null || !entry.bannerReady)
@@ -799,6 +812,7 @@ import java.util.Set;
         final FrameLayout container = new FrameLayout(GameActivity.this)
         {
             @Override
+            /** Requests fresh insets after rotation or another container size change. */
             protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight)
             {
                 super.onSizeChanged(width, height, oldWidth, oldHeight);
@@ -823,6 +837,7 @@ import java.util.Set;
         container.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener()
         {
             @Override
+            /** Reapplies caller margins and cutout insets whenever Android updates them. */
             public WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets)
             {
                 applyOpenMobileBannerLayout(entry, windowInsets);
@@ -842,6 +857,7 @@ import java.util.Set;
         container.requestApplyInsets();
     }
 
+    /** Forwards each mediation adapter result so initialization diagnostics retain network detail. */
     private void reportOpenMobileAdsAdapterInitializationStatuses(
         long requestId,
         InitializationStatus initializationStatus
@@ -869,6 +885,7 @@ import java.util.Set;
         }
     }
 
+    /** Maps UMP privacy-options state without relying on matching enum values across JNI. */
     private int normalizeOpenMobileUMPPrivacyOptions(
         ConsentInformation consentInformation
     )
@@ -884,6 +901,7 @@ import java.util.Set;
         }
     }
 
+    /** Gives native consent handling stable error codes across UMP SDK versions. */
     private String normalizeOpenMobileUMPErrorCode(FormError error)
     {
         if (error == null)
@@ -903,6 +921,7 @@ import java.util.Set;
         }
     }
 
+    /** Starts UMP refresh on UI thread and applies debug geography only for configured test devices. */
     public boolean AndroidThunkJava_RequestOpenMobileUMPConsent(
         final long requestId,
         final boolean underAgeOfConsent,
@@ -993,6 +1012,7 @@ import java.util.Set;
         }
     }
 
+    /** Shows the required UMP form and returns the refreshed consent snapshot after dismissal. */
     public boolean AndroidThunkJava_PresentRequiredOpenMobileUMPConsentForm(
         final long requestId
     )
@@ -1049,6 +1069,7 @@ import java.util.Set;
         }
     }
 
+    /** Opens the user-requested privacy form and reports the consent state it leaves behind. */
     public boolean AndroidThunkJava_PresentOpenMobileUMPPrivacyOptionsForm(
         final long requestId
     )
@@ -1105,6 +1126,7 @@ import java.util.Set;
         }
     }
 
+    /** Applies request-wide settings before one process-level Mobile Ads initialization. */
     public boolean AndroidThunkJava_InitializeOpenMobileRewardedAds(
         final long requestId,
         final int childDirectedTreatment,
@@ -1155,6 +1177,7 @@ import java.util.Set;
                         MobileAds.initialize(activityContext, new OnInitializationCompleteListener()
                         {
                             @Override
+                            /** Stores Google's status map so repeated initialization requests get the same detail. */
                             public void onInitializationComplete(InitializationStatus initializationStatus)
                             {
                                 openMobileRewardedAdsInitializing = false;
@@ -1188,6 +1211,7 @@ import java.util.Set;
         }
     }
 
+    /** Destroys banner views and drops cached ad ownership during provider shutdown. */
     public void AndroidThunkJava_ShutdownOpenMobileRewardedAds()
     {
         GameActivity.this.runOnUiThread(new Runnable()
@@ -1215,6 +1239,7 @@ import java.util.Set;
         });
     }
 
+    /** Updates Google's restricted-data preference before the next request is built. */
     private void applyOpenMobileDataProcessingMode(final int dataProcessingMode)
     {
         if (dataProcessingMode == OPEN_MOBILE_DATA_PROCESSING_RESTRICTED)
@@ -1229,6 +1254,7 @@ import java.util.Set;
         }
     }
 
+    /** Clears both UMP consent and the separate restricted-data preference used by Google Ads. */
     public boolean AndroidThunkJava_ResetOpenMobileUMPConsent()
     {
         try
@@ -1257,6 +1283,7 @@ import java.util.Set;
         }
     }
 
+    /** Applies runtime consent signals without starting an ad operation. */
     public boolean AndroidThunkJava_ApplyOpenMobileAdsConsentSignals(
         final int dataProcessingMode
     )
@@ -1273,6 +1300,7 @@ import java.util.Set;
         }
     }
 
+    /** Loads one rewarded ad under its native request id and ignores callbacks after cancellation. */
     public boolean AndroidThunkJava_LoadOpenMobileRewardedAd(
         final String adUnitId,
         final long requestId,
@@ -1319,6 +1347,7 @@ import java.util.Set;
                             new RewardedAdLoadCallback()
                             {
                                 @Override
+                                /** Moves a still-active load from the pending set into the rewarded cache. */
                                 public void onAdLoaded(RewardedAd rewardedAd)
                                 {
                                     if (!openMobileRewardedAdLoadRequests.remove(requestId))
@@ -1330,6 +1359,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Reports failure only while native code still owns this load request. */
                                 public void onAdFailedToLoad(LoadAdError loadAdError)
                                 {
                                     if (!openMobileRewardedAdLoadRequests.remove(requestId))
@@ -1365,6 +1395,7 @@ import java.util.Set;
         }
     }
 
+    /** Invalidates pending and cached rewarded work without waiting for Google's callback. */
     public void AndroidThunkJava_CancelOpenMobileRewardedAdLoad(final long requestId)
     {
         GameActivity.this.runOnUiThread(new Runnable()
@@ -1378,6 +1409,7 @@ import java.util.Set;
         });
     }
 
+    /** Loads and caches a rewarded interstitial together with Google's reward metadata. */
     public boolean AndroidThunkJava_LoadOpenMobileRewardedInterstitialAd(
         final String adUnitId,
         final long requestId,
@@ -1424,6 +1456,7 @@ import java.util.Set;
                             new RewardedInterstitialAdLoadCallback()
                             {
                                 @Override
+                                /** Caches only a request that has not been cancelled while Google was loading. */
                                 public void onAdLoaded(
                                     RewardedInterstitialAd rewardedInterstitialAd
                                 )
@@ -1449,6 +1482,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Drops late failure after cancellation by requiring pending ownership. */
                                 public void onAdFailedToLoad(LoadAdError loadAdError)
                                 {
                                     if (
@@ -1492,6 +1526,7 @@ import java.util.Set;
         }
     }
 
+    /** Removes pending and loaded rewarded-interstitial ownership for one native request. */
     public void AndroidThunkJava_CancelOpenMobileRewardedInterstitialAdLoad(
         final long requestId
     )
@@ -1507,6 +1542,7 @@ import java.util.Set;
         });
     }
 
+    /** Loads one interstitial into a single-use cache keyed by the native request id. */
     public boolean AndroidThunkJava_LoadOpenMobileInterstitialAd(
         final String adUnitId,
         final long requestId,
@@ -1553,6 +1589,7 @@ import java.util.Set;
                             new InterstitialAdLoadCallback()
                             {
                                 @Override
+                                /** Publishes the interstitial only if cancellation has not removed its request. */
                                 public void onAdLoaded(InterstitialAd interstitialAd)
                                 {
                                     if (!openMobileInterstitialAdLoadRequests.remove(requestId))
@@ -1567,6 +1604,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Keeps a cancelled interstitial load silent when Google replies later. */
                                 public void onAdFailedToLoad(LoadAdError loadAdError)
                                 {
                                     if (!openMobileInterstitialAdLoadRequests.remove(requestId))
@@ -1603,6 +1641,7 @@ import java.util.Set;
         }
     }
 
+    /** Clears pending or cached interstitial state for a cancelled native load. */
     public void AndroidThunkJava_CancelOpenMobileInterstitialAdLoad(
         final long requestId
     )
@@ -1618,6 +1657,7 @@ import java.util.Set;
         });
     }
 
+    /** Loads one app-open ad into the same request-owned cache contract as other formats. */
     public boolean AndroidThunkJava_LoadOpenMobileAppOpenAd(
         final String adUnitId,
         final long requestId,
@@ -1664,6 +1704,7 @@ import java.util.Set;
                             new AppOpenAdLoadCallback()
                             {
                                 @Override
+                                /** Caches the app-open ad only while its native request remains active. */
                                 public void onAdLoaded(AppOpenAd appOpenAd)
                                 {
                                     if (!openMobileAppOpenAdLoadRequests.remove(requestId))
@@ -1675,6 +1716,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Suppresses a late Google failure after native cancellation. */
                                 public void onAdFailedToLoad(LoadAdError loadAdError)
                                 {
                                     if (!openMobileAppOpenAdLoadRequests.remove(requestId))
@@ -1711,6 +1753,7 @@ import java.util.Set;
         }
     }
 
+    /** Removes both pending and cached app-open state for one request. */
     public void AndroidThunkJava_CancelOpenMobileAppOpenAdLoad(
         final long requestId
     )
@@ -1726,6 +1769,7 @@ import java.util.Set;
         });
     }
 
+    /** Creates a reusable banner entry and resolves its first size on the UI thread. */
     public boolean AndroidThunkJava_LoadOpenMobileBannerAd(
         final String adUnitId,
         final long requestId,
@@ -1815,6 +1859,7 @@ import java.util.Set;
         }
     }
 
+    /** Removes banner ownership and destroys any Android views created for it. */
     public void AndroidThunkJava_CancelOpenMobileBannerAd(final long requestId)
     {
         GameActivity.this.runOnUiThread(new Runnable()
@@ -1831,6 +1876,7 @@ import java.util.Set;
         });
     }
 
+    /** Shows a cached banner and reloads adaptive content when the requested width has changed. */
     public boolean AndroidThunkJava_ShowOpenMobileBannerAd(
         final long loadedRequestId,
         final long showRequestId,
@@ -1923,6 +1969,7 @@ import java.util.Set;
         }
     }
 
+    /** Detaches a visible banner while retaining its loaded Google view for another show. */
     public boolean AndroidThunkJava_HideOpenMobileBannerAd(
         final long loadedRequestId,
         final long hideRequestId
@@ -1965,6 +2012,7 @@ import java.util.Set;
         }
     }
 
+    /** Consumes one cached interstitial and reserves the shared full-screen slot until dismissal. */
     public boolean AndroidThunkJava_ShowOpenMobileInterstitialAd(
         final long loadedRequestId,
         final long showRequestId
@@ -2026,6 +2074,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Releases the shared full-screen owner before native dismissal handling runs. */
                                 public void onAdDismissedFullScreenContent()
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2033,6 +2082,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Releases full-screen ownership on Google presentation failure as well. */
                                 public void onAdFailedToShowFullScreenContent(AdError adError)
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2080,6 +2130,7 @@ import java.util.Set;
         }
     }
 
+    /** Consumes a cached app-open ad through the common full-screen event contract. */
     public boolean AndroidThunkJava_ShowOpenMobileAppOpenAd(
         final long loadedRequestId,
         final long showRequestId
@@ -2141,6 +2192,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Makes the full-screen slot available before reporting app-open dismissal. */
                                 public void onAdDismissedFullScreenContent()
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2148,6 +2200,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Clears app-open ownership when Google rejects presentation. */
                                 public void onAdFailedToShowFullScreenContent(
                                     AdError adError
                                 )
@@ -2199,6 +2252,7 @@ import java.util.Set;
         }
     }
 
+    /** Consumes a rewarded interstitial and applies server verification before it can show. */
     public boolean AndroidThunkJava_ShowOpenMobileRewardedInterstitialAd(
         final long loadedRequestId,
         final long showRequestId,
@@ -2289,6 +2343,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Releases full-screen ownership before the rewarded-interstitial close event. */
                                 public void onAdDismissedFullScreenContent()
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2296,6 +2351,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Clears the shared owner when rewarded-interstitial presentation fails. */
                                 public void onAdFailedToShowFullScreenContent(
                                     AdError adError
                                 )
@@ -2329,6 +2385,7 @@ import java.util.Set;
                             new OnUserEarnedRewardListener()
                             {
                                 @Override
+                                /** Keeps Google's earned reward separate from dismissal and revenue events. */
                                 public void onUserEarnedReward(RewardItem rewardItem)
                                 {
                                     nativeOpenMobileRewardedAdEarned(
@@ -2363,6 +2420,7 @@ import java.util.Set;
         }
     }
 
+    /** Consumes one cached rewarded ad and installs server verification before presentation. */
     public boolean AndroidThunkJava_ShowOpenMobileRewardedAd(
         final long loadedRequestId,
         final long showRequestId,
@@ -2454,6 +2512,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Releases the shared full-screen slot before reporting rewarded dismissal. */
                                 public void onAdDismissedFullScreenContent()
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2461,6 +2520,7 @@ import java.util.Set;
                                 }
 
                                 @Override
+                                /** Clears active ownership when a cached rewarded ad cannot show. */
                                 public void onAdFailedToShowFullScreenContent(AdError adError)
                                 {
                                     openMobileActiveFullscreenShowRequestId = 0;
@@ -2489,6 +2549,7 @@ import java.util.Set;
                             new OnUserEarnedRewardListener()
                             {
                                 @Override
+                                /** Reports Google's reward independently from the terminal close callback. */
                                 public void onUserEarnedReward(RewardItem rewardItem)
                                 {
                                     nativeOpenMobileRewardedAdEarned(
@@ -2519,6 +2580,7 @@ import java.util.Set;
         }
     }
 
+    /** Preserves the legacy one-call rewarded flow with its own single active request. */
     public boolean AndroidThunkJava_RequestAndShowOpenMobileRewardedAd(
         final String adUnitId,
         final long requestId
@@ -2561,6 +2623,7 @@ import java.util.Set;
                         new RewardedAdLoadCallback()
                         {
                             @Override
+                            /** Shows immediately after legacy loading because no cached-id handoff exists here. */
                             public void onAdLoaded(RewardedAd rewardedAd)
                             {
                                 openMobileRewardedAdLoading = false;
@@ -2577,6 +2640,7 @@ import java.util.Set;
                                         }
 
                                         @Override
+                                        /** Clears legacy ad ownership before reporting dismissal. */
                                         public void onAdDismissedFullScreenContent()
                                         {
                                             openMobileRewardedAd = null;
@@ -2584,6 +2648,7 @@ import java.util.Set;
                                         }
 
                                         @Override
+                                        /** Clears the legacy slot when Google refuses to present the ad. */
                                         public void onAdFailedToShowFullScreenContent(AdError adError)
                                         {
                                             openMobileRewardedAd = null;
@@ -2624,6 +2689,7 @@ import java.util.Set;
                             }
 
                             @Override
+                            /** Releases the legacy loading flag before forwarding Google's load failure. */
                             public void onAdFailedToLoad(LoadAdError loadAdError)
                             {
                                 openMobileRewardedAdLoading = false;
@@ -2650,6 +2716,7 @@ import java.util.Set;
 
     <gameActivityOnPauseAdditions>
         <insert>
+        /** Pauses visible banner views with the activity while retaining their loaded state. */
         for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
         {
             if (entry.adView != null)
@@ -2662,6 +2729,7 @@ import java.util.Set;
 
     <gameActivityOnResumeAdditions>
         <insert>
+        /** Resumes retained banner views after GameActivity returns to foreground. */
         for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
         {
             if (entry.adView != null)
@@ -2678,6 +2746,7 @@ import java.util.Set;
 
     <gameActivityOnDestroyAdditions>
         <insert>
+        /** Destroys retained banner views before Android releases the activity window. */
         for (OpenMobileBannerEntry entry : openMobileBannerAds.values())
         {
             destroyOpenMobileBanner(entry);

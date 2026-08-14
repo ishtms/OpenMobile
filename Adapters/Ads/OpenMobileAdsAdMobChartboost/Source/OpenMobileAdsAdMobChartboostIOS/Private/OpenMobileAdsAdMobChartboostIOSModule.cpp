@@ -2,9 +2,11 @@
 #include "IOS/OpenMobileAdsAdMobChartboostConsentSignalConsumer.h"
 #include "Modules/ModuleManager.h"
 
+/** Owns Chartboost's iOS privacy consumer for the lifetime of its optional adapter module. */
 class FOpenMobileAdsAdMobChartboostIOSModule final : public IModuleInterface
 {
 public:
+	/** Publishes Chartboost signal delivery to the AdMob provider before startup. */
 	virtual void StartupModule() override
 	{
 		ConsentConsumer =
@@ -15,6 +17,7 @@ public:
 		);
 	}
 
+	/** Removes Chartboost from modular discovery before releasing the consumer. */
 	virtual void ShutdownModule() override
 	{
 		if (ConsentConsumer)

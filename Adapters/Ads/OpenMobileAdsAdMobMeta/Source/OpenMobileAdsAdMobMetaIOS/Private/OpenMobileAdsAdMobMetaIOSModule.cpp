@@ -3,9 +3,11 @@
 #include "IOS/OpenMobileAdsAdMobMetaIOSInitializationParticipant.h"
 #include "Modules/ModuleManager.h"
 
+/** Owns Meta's pre-initialization tracking participant for the optional iOS adapter. */
 class FOpenMobileAdsAdMobMetaIOSModule final : public IModuleInterface
 {
 public:
+	/** Registers Meta setup so AdMob runs it before Google SDK initialization. */
 	virtual void StartupModule() override
 	{
 		Participant =
@@ -16,6 +18,7 @@ public:
 		);
 	}
 
+	/** Removes Meta's participant before releasing its implementation object. */
 	virtual void ShutdownModule() override
 	{
 		if (Participant)

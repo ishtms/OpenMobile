@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobUnityAndroid : ModuleRules
 {
+	/** Stages Unity Ads mediation and privacy metadata code only for opted-in Android packaging. */
 	public OpenMobileAdsAdMobUnityAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

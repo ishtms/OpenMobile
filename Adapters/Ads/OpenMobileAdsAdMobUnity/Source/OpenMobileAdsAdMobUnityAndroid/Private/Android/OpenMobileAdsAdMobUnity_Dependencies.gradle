@@ -6,6 +6,7 @@ def openMobileAdsAdMobUnityDependencies = [
     "com.google.android.gms:play-services-ads": "25.4.0",
 ]
 
+/** Checks Unity Ads and its Google adapter resolve to their tested versions. */
 afterEvaluate {
     def manifestTasks = tasks.matching {
         it.name ==~ /^process.+ManifestForPackage$/

@@ -20,6 +20,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsOperationResult
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsError Error;
 
+	/** Creates an accepted result with the request identity callers need for cancellation and event matching. */
 	static FOpenMobileAdsOperationResult Accepted(FGuid InRequestId)
 	{
 		FOpenMobileAdsOperationResult Result;
@@ -28,6 +29,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsOperationResult
 		return Result;
 	}
 
+	/** Preserves a typed refusal without inventing a request identity for work that never started. */
 	static FOpenMobileAdsOperationResult Rejected(FOpenMobileAdsError InError)
 	{
 		FOpenMobileAdsOperationResult Result;

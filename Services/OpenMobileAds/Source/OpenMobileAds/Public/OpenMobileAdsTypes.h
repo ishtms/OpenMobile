@@ -48,4 +48,5 @@ enum class EOpenMobileAdsServiceState : uint8
 	ShuttingDown
 };
 
+/** Maps the compiled Unreal platform to the stable Ads platform used during settings resolution. */
 OPENMOBILEADS_API EOpenMobileAdsPlatform OpenMobileAdsGetCurrentPlatform();

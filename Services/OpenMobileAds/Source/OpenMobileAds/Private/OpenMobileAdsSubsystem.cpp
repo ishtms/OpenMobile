@@ -21,15 +21,18 @@
 #include "OpenMobileAdsRetry.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
+/** Orders callbacks from any SDK thread and drains them through the owning subsystem on the game thread. */
 class FOpenMobileAdsEventDispatcher final
 	: public TSharedFromThis<FOpenMobileAdsEventDispatcher, ESPMode::ThreadSafe>
 {
 public:
+	/** Keeps only a weak subsystem reference so queued events can't extend Game Instance lifetime. */
 	explicit FOpenMobileAdsEventDispatcher(UOpenMobileAdsSubsystem& InSubsystem)
 		: Subsystem(&InSubsystem)
 	{
 	}
 
+	/** Assigns sequence and time under the queue lock, then schedules at most one game-thread drain. */
 	void Submit(FOpenMobileAdsEvent Event)
 	{
 		bool bScheduleDrain = false;
@@ -63,6 +66,7 @@ public:
 		}
 	}
 
+	/** Drops the target and pending callbacks before provider or subsystem teardown can race the drain. */
 	void Invalidate()
 	{
 		FScopeLock Lock(&Mutex);
@@ -71,6 +75,7 @@ public:
 	}
 
 private:
+	/** Moves one ordered batch out of the lock before invoking subsystem code. */
 	void Drain()
 	{
 		check(IsInGameThread());
@@ -105,6 +110,7 @@ namespace OpenMobileAdsPrivate
 {
 	constexpr int32 MaxDismissedShowRewardContexts = 64;
 
+	/** Validates Unicode or ASCII policy while measuring the exact UTF-8 bytes sent to provider verification. */
 	bool TryMeasureServerVerificationValue(
 		const FString& Value,
 		EOpenMobileAdsServerVerificationCharacterSet CharacterSet,
@@ -166,6 +172,7 @@ namespace OpenMobileAdsPrivate
 		return true;
 	}
 
+	/** Copies one privacy generation into the smaller signal contract consumed by providers and adapters. */
 	FOpenMobileAdsConsentSignals MakeConsentSignals(
 		const FOpenMobileAdsPrivacySnapshot& Snapshot
 	)
@@ -184,6 +191,7 @@ namespace OpenMobileAdsPrivate
 		return Signals;
 	}
 
+	/** Builds the provider request gate from the same normalized privacy snapshot used for signal delivery. */
 	FOpenMobileAdsProviderRequestContext MakeProviderPrivacyContext(
 		const FOpenMobileAdsPrivacySnapshot& Snapshot
 	)
@@ -199,6 +207,7 @@ namespace OpenMobileAdsPrivate
 		return Context;
 	}
 
+	/** Buffers synchronous SDK callbacks till the subsystem has accepted provider initialization. */
 	class FInitializationSink final : public IOpenMobileAdsProviderInitializationSink
 	{
 	public:
@@ -211,6 +220,7 @@ namespace OpenMobileAdsPrivate
 		{
 		}
 
+		/** Queues component status before commit and forwards it directly afterwards. */
 		virtual void UpdateStatus(
 			FOpenMobileAdsInitializationComponentStatus Status
 		) override
@@ -232,6 +242,7 @@ namespace OpenMobileAdsPrivate
 			StatusUpdateToRun(MoveTemp(Status));
 		}
 
+		/** Accepts one terminal completion and buffers it when the provider finishes synchronously. */
 		virtual void Complete(FOpenMobileAdsError Error) override
 		{
 			TFunction<void(FOpenMobileAdsError)> CompletionToRun;
@@ -253,6 +264,7 @@ namespace OpenMobileAdsPrivate
 			CompletionToRun(MoveTemp(Error));
 		}
 
+		/** Releases buffered statuses in order before the optional terminal completion. */
 		void Commit()
 		{
 			TFunction<void(FOpenMobileAdsInitializationComponentStatus)> StatusUpdateToRun;
@@ -286,6 +298,7 @@ namespace OpenMobileAdsPrivate
 			}
 		}
 
+		/** Clears buffered work and callbacks so late provider threads become harmless. */
 		virtual void Invalidate() override
 		{
 			FScopeLock Lock(&Mutex);
@@ -308,6 +321,7 @@ namespace OpenMobileAdsPrivate
 		bool bValid = true;
 	};
 
+	/** Buffers synchronous consent completion till the subsystem knows the provider accepted the operation. */
 	class FConsentProviderSink final : public IOpenMobileAdsConsentProviderSink
 	{
 	public:
@@ -320,6 +334,7 @@ namespace OpenMobileAdsPrivate
 		{
 		}
 
+		/** Accepts one successful provider update and holds it until commit when needed. */
 		virtual void Complete(FOpenMobileAdsConsentStatusUpdate Update) override
 		{
 			TFunction<void(FOpenMobileAdsConsentStatusUpdate)> CompletionToRun;
@@ -341,6 +356,7 @@ namespace OpenMobileAdsPrivate
 			CompletionToRun(MoveTemp(Update));
 		}
 
+		/** Accepts one failure and prevents any later success from winning the same request. */
 		virtual void Fail(FOpenMobileAdsError Error) override
 		{
 			TFunction<void(FOpenMobileAdsError)> FailureToRun;
@@ -362,6 +378,7 @@ namespace OpenMobileAdsPrivate
 			FailureToRun(MoveTemp(Error));
 		}
 
+		/** Delivers the single buffered terminal result after provider acceptance is known. */
 		void Commit()
 		{
 			TFunction<void(FOpenMobileAdsConsentStatusUpdate)> CompletionToRun;
@@ -400,6 +417,7 @@ namespace OpenMobileAdsPrivate
 			}
 		}
 
+		/** Clears callbacks and buffered state before cancellation or subsystem teardown. */
 		virtual void Invalidate() override
 		{
 			FScopeLock Lock(&Mutex);
@@ -423,6 +441,7 @@ namespace OpenMobileAdsPrivate
 		bool bValid = true;
 	};
 
+	/** Fills missing provider error context, maps native details, and redacts per-request values. */
 	FOpenMobileAdsError NormalizeProviderError(
 		FOpenMobileAdsError Error,
 		EOpenMobileAdsFailureStage Stage,
@@ -513,6 +532,7 @@ namespace OpenMobileAdsPrivate
 		return Error;
 	}
 
+	/** Normalizes a consent failure while keeping its source separate from an Ads placement. */
 	FOpenMobileAdsError NormalizeConsentError(
 		FOpenMobileAdsError Error,
 		FName Source
@@ -561,6 +581,7 @@ namespace OpenMobileAdsPrivate
 		return Error;
 	}
 
+	/** Binds raw provider callbacks to one request and enforces its accepted event sequence. */
 	class FContextualEventSink final : public IOpenMobileAdsProviderEventSink
 	{
 	public:
@@ -593,6 +614,7 @@ namespace OpenMobileAdsPrivate
 		{
 		}
 
+		/** Normalizes and filters one callback before buffering or forwarding it. */
 		virtual void Submit(FOpenMobileAdsEvent Event) override
 		{
 			bool bForward = false;
@@ -620,6 +642,7 @@ namespace OpenMobileAdsPrivate
 			}
 		}
 
+		/** Releases callbacks buffered during a synchronous provider call after that call succeeds. */
 		void Commit()
 		{
 			FScopeLock Lock(&Mutex);
@@ -635,6 +658,7 @@ namespace OpenMobileAdsPrivate
 			bCommitted = true;
 		}
 
+		/** Prevents cancelled or completed requests from forwarding late SDK callbacks. */
 		virtual void Invalidate() override
 		{
 			FScopeLock Lock(&Mutex);
@@ -643,6 +667,7 @@ namespace OpenMobileAdsPrivate
 		}
 
 	private:
+		/** Compares revenue content while ignoring revision fields assigned by this sink. */
 		static bool IsSameRevenueReport(
 			const FOpenMobileAdsRevenue& Left,
 			const FOpenMobileAdsRevenue& Right
@@ -671,6 +696,7 @@ namespace OpenMobileAdsPrivate
 				);
 		}
 
+		/** Enforces one terminal result, one reward, one shown event, and non-duplicate revenue updates. */
 		bool TryAcceptEvent(FOpenMobileAdsEvent& Event)
 		{
 			const EOpenMobileAdsEventType Type = Event.Type;
@@ -766,6 +792,7 @@ namespace OpenMobileAdsPrivate
 			}
 		}
 
+		/** Stamps service identity, normalizes money and rewards, and fills missing typed errors. */
 		void Normalize(FOpenMobileAdsEvent& Event) const
 		{
 			Event.Provider = Provider;
@@ -901,6 +928,7 @@ namespace OpenMobileAdsPrivate
 		bool bValid = true;
 	};
 
+	/** Builds the shared refusal used when an Ads operation starts off the game thread. */
 	FOpenMobileAdsError MakeOperationThreadError(
 		FName Placement,
 		EOpenMobileAdsFailureStage Stage
@@ -916,6 +944,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Builds an operation-specific format refusal after provider capabilities have been resolved. */
 	FOpenMobileAdsError MakeUnsupportedFormatError(
 		FName Placement,
 		FName Provider,
@@ -932,6 +961,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Preserves a real initialization failure and otherwise explains the current service state. */
 	FOpenMobileAdsError MakeServiceNotReadyError(
 		FName Placement,
 		EOpenMobileAdsServiceState State,
@@ -956,6 +986,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Creates a retryable offline refusal without claiming weaker connection states are offline. */
 	FOpenMobileAdsError MakeOfflineError(
 		FName Placement,
 		FName Provider,
@@ -974,6 +1005,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Converts a detailed Can Show block to the nearest stable operation error. */
 	FOpenMobileAdsError MakeShowPolicyError(
 		FName Placement,
 		FName Provider,
@@ -1038,6 +1070,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Applies initialization stage and provider identity through the shared provider normalizer. */
 	FOpenMobileAdsError NormalizeInitializationError(
 		FOpenMobileAdsError Error,
 		FName ProviderName,
@@ -1054,6 +1087,7 @@ namespace OpenMobileAdsPrivate
 	}
 }
 
+/** Keeps provider request ownership, retry state, and rollback data together till one terminal event. */
 struct FOpenMobileAdsActiveRequestContext
 {
 	FOpenMobileAdsLoadRequest LoadRequest;
@@ -1074,6 +1108,7 @@ struct FOpenMobileAdsActiveRequestContext
 	bool bPreserveCachedAdOnHide = false;
 };
 
+/** Owns one placement's coalesced automatic preload timer and earliest permitted start. */
 struct FOpenMobileAdsAutomaticPreloadContext
 {
 	FOpenMobileAdsRetryScheduleHandle ScheduleHandle;
@@ -1082,6 +1117,7 @@ struct FOpenMobileAdsAutomaticPreloadContext
 
 namespace OpenMobileAdsPrivate
 {
+	/** Includes only formats that take exclusive application presentation ownership. */
 	bool UsesFullscreenLifecycle(EOpenMobileAdFormat Format)
 	{
 		switch (Format)
@@ -1096,12 +1132,14 @@ namespace OpenMobileAdsPrivate
 		}
 	}
 
+	/** Treats hidden persistent ads as reusable when the provider preserved their cache. */
 	bool HasReusableCachedAdState(EOpenMobileAdPlacementState State)
 	{
 		return State == EOpenMobileAdPlacementState::Ready
 			|| State == EOpenMobileAdPlacementState::Hidden;
 	}
 
+	/** Maps the richer Ads error set to the smaller legacy common error contract. */
 	EOpenMobileErrorCode ToLegacyErrorCode(EOpenMobileAdsErrorCode Code)
 	{
 		switch (Code)
@@ -1133,6 +1171,7 @@ namespace OpenMobileAdsPrivate
 		}
 	}
 
+	/** Carries normalized provider context into the older convenience rewarded failure type. */
 	FOpenMobileError ToLegacyError(const FOpenMobileAdsError& Error)
 	{
 		return FOpenMobileError::Make(
@@ -1143,6 +1182,7 @@ namespace OpenMobileAdsPrivate
 		);
 	}
 
+	/** Looks up one exact registered provider without caching a pointer across module unloads. */
 	IOpenMobileAdsProvider* FindRegisteredProvider(FName ProviderName)
 	{
 		const TArray<IOpenMobileAdsProvider*> Providers =
@@ -1159,6 +1199,7 @@ namespace OpenMobileAdsPrivate
 		return nullptr;
 	}
 
+	/** Runs matching optional participants in stable name order before provider SDK startup. */
 	bool PrepareInitializationParticipants(
 		FName ProviderName,
 		const FOpenMobileAdsInitializationRequest& Request,
@@ -1227,6 +1268,7 @@ namespace OpenMobileAdsPrivate
 		return true;
 	}
 
+	/** Chooses log severity from event meaning while keeping expected no-fill and cancellation quiet. */
 	void LogEvent(const FOpenMobileAdsEvent& Event)
 	{
 		EOpenMobileAdsLogLevel Level = EOpenMobileAdsLogLevel::Info;

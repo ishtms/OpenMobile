@@ -44,6 +44,7 @@ dependencies {
 
     <gameActivityClassAdditions>
         <insert>
+    /** Updates Unity privacy values individually so omitted signals leave the SDK untouched. */
     public boolean AndroidThunkJava_ApplyOpenMobileAdsAdMobUnityConsentSignals(
         final boolean applyGdpr,
         final boolean hasUserConsent,

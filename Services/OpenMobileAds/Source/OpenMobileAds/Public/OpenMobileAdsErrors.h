@@ -105,11 +105,13 @@ struct OPENMOBILEADS_API FOpenMobileAdsError
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FOpenMobileAdsNativeDiagnostics NativeDiagnostics;
 
+	/** Uses the stable error code as the source of truth even when every message field is empty. */
 	bool IsSet() const
 	{
 		return Code != EOpenMobileAdsErrorCode::None;
 	}
 
+	/** Builds the normalized error fields together so code, stage, placement, and retry policy can't drift apart. */
 	static FOpenMobileAdsError Make(
 		EOpenMobileAdsErrorCode InCode,
 		EOpenMobileAdsFailureStage InStage,
@@ -147,6 +149,7 @@ enum class EOpenMobileAdsRetryClassification : uint8
 class OPENMOBILEADS_API FOpenMobileAdsErrorClassifier
 {
 public:
+	/** Classifies normalized errors for retry policy without trusting provider message text. */
 	static EOpenMobileAdsRetryClassification Classify(
 		const FOpenMobileAdsError& Error
 	);
@@ -167,6 +170,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsErrorMappingContext
 class OPENMOBILEADS_API FOpenMobileAdsErrorMapper
 {
 public:
+	/** Maps provider, mediation, consent, and packaging failures while redacting supplied private values. */
 	static FOpenMobileAdsError FromNative(
 		const FOpenMobileAdsErrorMappingContext& Context,
 		const TArray<FString>& SensitiveValues = {}

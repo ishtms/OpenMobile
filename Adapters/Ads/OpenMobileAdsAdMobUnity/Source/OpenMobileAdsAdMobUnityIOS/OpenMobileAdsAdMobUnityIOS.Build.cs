@@ -6,6 +6,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobUnityIOS : ModuleRules
 {
+	/** Looks up Unity, adapter, and Google versions from the checked-in package manifests. */
 	private static string ReadPackageVersion(string ManifestPath, string PackageName)
 	{
 		JsonObject Document = JsonObject.Read(new FileReference(ManifestPath));
@@ -21,6 +22,7 @@ public class OpenMobileAdsAdMobUnityIOS : ModuleRules
 		);
 	}
 
+	/** Enforces Unity compatibility bounds and warns when an allowed version is still untested. */
 	private static void ValidateVersion(
 		string Name,
 		string Actual,
@@ -69,6 +71,7 @@ public class OpenMobileAdsAdMobUnityIOS : ModuleRules
 		}
 	}
 
+	/** Validates provider, Unity adapter, and Unity Ads SDK versions before linking. */
 	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
@@ -111,6 +114,7 @@ public class OpenMobileAdsAdMobUnityIOS : ModuleRules
 		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
+	/** Links Unity Ads mediation, metadata code, and privacy resources only for enabled iOS targets. */
 	public OpenMobileAdsAdMobUnityIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

@@ -2,9 +2,11 @@
 #include "Features/IModularFeatures.h"
 #include "Modules/ModuleManager.h"
 
+/** Owns Chartboost's Android privacy bridge while the mediation adapter is enabled. */
 class FOpenMobileAdsAdMobChartboostAndroidModule final : public IModuleInterface
 {
 public:
+	/** Registers the Chartboost consumer before AdMob provider initialization. */
 	virtual void StartupModule() override
 	{
 		ConsentConsumer =
@@ -15,6 +17,7 @@ public:
 		);
 	}
 
+	/** Unregisters Chartboost delivery before dropping its JNI-facing object. */
 	virtual void ShutdownModule() override
 	{
 		if (ConsentConsumer)

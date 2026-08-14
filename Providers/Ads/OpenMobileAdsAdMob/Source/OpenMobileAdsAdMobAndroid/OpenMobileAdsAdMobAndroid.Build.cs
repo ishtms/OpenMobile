@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobAndroid : ModuleRules
 {
+	/** Adds JNI and AdMob Android receipt data without pulling Launch into the provider-neutral module. */
 	public OpenMobileAdsAdMobAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

@@ -6,6 +6,7 @@ def openMobileAdsAdMobLiftoffMonetizeDependencies = [
     "com.google.android.gms:play-services-ads": "25.4.0",
 ]
 
+/** Checks Liftoff Monetize and its Google adapter keep the tested runtime pairing. */
 afterEvaluate {
     def manifestTasks = tasks.matching {
         it.name ==~ /^process.+ManifestForPackage$/

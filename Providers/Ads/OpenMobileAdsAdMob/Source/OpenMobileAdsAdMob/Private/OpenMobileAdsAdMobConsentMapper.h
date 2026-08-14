@@ -20,6 +20,7 @@ enum class EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement : uint8
 class FOpenMobileAdsAdMobConsentMapper
 {
 public:
+	/** Combines UMP status, request permission, and privacy-options availability into one normalized update. */
 	static FOpenMobileAdsConsentStatusUpdate MapGdprState(
 		EOpenMobileAdsAdMobUMPConsentStatus Status,
 		bool bCanRequestAds,
@@ -27,6 +28,7 @@ public:
 		EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement PrivacyOptions =
 			EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement::Unknown
 	);
+	/** Maps UMP privacy-options availability without inventing a US opt-out choice. */
 	static FOpenMobileAdsUsPrivacyState MapUsPrivacyState(
 		EOpenMobileAdsAdMobUMPPrivacyOptionsRequirement Requirement
 	);

@@ -9,12 +9,14 @@
 
 namespace OpenMobileAdsFullscreenLifecyclePrivate
 {
+	/** Remembers only worlds this coordinator paused so pre-existing pauses stay untouched. */
 	struct FWorldPauseChange
 	{
 		TWeakObjectPtr<UWorld> World;
 		bool bPausedByAds = false;
 	};
 
+	/** Remembers only controller input flags changed for fullscreen presentation. */
 	struct FControllerInputChange
 	{
 		TWeakObjectPtr<APlayerController> Controller;
@@ -22,15 +24,18 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 		bool bLookBlockedByAds = false;
 	};
 
+	/** Applies reversible Unreal gameplay, audio, input, and focus changes around native fullscreen UI. */
 	class FUnrealFullscreenLifecycleTarget final
 		: public IOpenMobileAdsFullscreenLifecycleTarget
 	{
 	public:
+		/** Holds the Game Instance weakly because restoration must tolerate world teardown. */
 		explicit FUnrealFullscreenLifecycleTarget(UGameInstance& InGameInstance)
 			: GameInstance(&InGameInstance)
 		{
 		}
 
+		/** Captures and changes each gameplay surface only once for the active presentation. */
 		virtual void Apply() override
 		{
 			ApplyPause();
@@ -39,6 +44,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 			ApplyFocusRelease();
 		}
 
+		/** Restores only values this target changed and leaves caller-owned state alone. */
 		virtual void RestoreGameplay() override
 		{
 			for (FWorldPauseChange& Change : PauseChanges)
@@ -82,6 +88,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 			PreviousVolumeMultiplier = 1.0f;
 		}
 
+		/** Returns keyboard focus to the previous widget when it still exists. */
 		virtual void RestoreFocus() override
 		{
 			if (
@@ -103,6 +110,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 		}
 
 	private:
+		/** Pauses only unpaused worlds owned by this Game Instance. */
 		void ApplyPause()
 		{
 			UGameInstance* Instance = GameInstance.Get();
@@ -139,6 +147,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 			}
 		}
 
+		/** Blocks move and look input while remembering each controller's original flags. */
 		void ApplyInputBlock()
 		{
 			UGameInstance* Instance = GameInstance.Get();
@@ -182,6 +191,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 			}
 		}
 
+		/** Mutes application audio only when the project hasn't already muted it. */
 		void ApplyAudioMute()
 		{
 			const float CurrentVolumeMultiplier = FApp::GetVolumeMultiplier();
@@ -201,6 +211,7 @@ namespace OpenMobileAdsFullscreenLifecyclePrivate
 			}
 		}
 
+		/** Releases Slate focus while retaining a weak path back to the previous widget. */
 		void ApplyFocusRelease()
 		{
 			if (!FSlateApplication::IsInitialized())

@@ -6,6 +6,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 {
+	/** Reads pinned Meta, adapter, and provider versions from their package manifests. */
 	private static string ReadPackageVersion(string ManifestPath, string PackageName)
 	{
 		JsonObject Document = JsonObject.Read(new FileReference(ManifestPath));
@@ -21,6 +22,7 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 		);
 	}
 
+	/** Rejects incompatible Meta versions and warns about supported combinations not yet exercised. */
 	private static void ValidateVersion(
 		string Name,
 		string Actual,
@@ -69,6 +71,7 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 		}
 	}
 
+	/** Checks provider, Meta adapter, and Audience Network versions before adding frameworks. */
 	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
@@ -111,6 +114,7 @@ public class OpenMobileAdsAdMobMetaIOS : ModuleRules
 		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
+	/** Links Meta Audience Network and its pre-initialization participant only for opted-in iOS builds. */
 	public OpenMobileAdsAdMobMetaIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

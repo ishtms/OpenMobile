@@ -12,6 +12,7 @@ namespace
 	constexpr int32 UsPrivacySignal =
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
 
+	/** Leaves AppLovin's existing GDPR value alone when the service has no usable answer. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -24,6 +25,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Applies AppLovin do-not-sell only from an explicit US privacy value. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability

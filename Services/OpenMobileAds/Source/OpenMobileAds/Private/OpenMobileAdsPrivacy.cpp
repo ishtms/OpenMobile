@@ -2,6 +2,7 @@
 
 namespace
 {
+	/** Derives whether a provider decision still requires a consent form. */
 	EOpenMobileAdsConsentRequirement RequirementFromStatus(
 		EOpenMobileAdsConsentStatus Status
 	)
@@ -23,6 +24,7 @@ namespace
 		}
 	}
 
+	/** Converts a consent result to the request state used by service-wide policy. */
 	EOpenMobileAdsConsentRequestState RequestStateFromStatus(
 		EOpenMobileAdsConsentStatus Status
 	)
@@ -44,6 +46,7 @@ namespace
 		}
 	}
 
+	/** Starts a consent activity update without replacing the last known provider decision. */
 	FOpenMobileAdsConsentStatusUpdate Begin(
 		EOpenMobileAdsConsentStatusUpdateType Type,
 		FName Source

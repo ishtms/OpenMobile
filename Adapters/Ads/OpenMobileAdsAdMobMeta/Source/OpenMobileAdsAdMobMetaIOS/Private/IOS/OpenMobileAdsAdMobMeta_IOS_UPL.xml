@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Merges Meta attribution IDs and its privacy bundle into enabled iOS packages. -->
     <registerBuildSettings>
         <insert>OpenMobileAdsAdMobMetaIOSDependencyContract=2</insert>
         <insertNewline/>

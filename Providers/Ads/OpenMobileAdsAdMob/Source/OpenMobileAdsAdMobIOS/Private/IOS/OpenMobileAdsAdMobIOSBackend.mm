@@ -14,6 +14,7 @@
 
 namespace OpenMobileAdsAdMobIOS
 {
+	/** Maps an unspecified age treatment to nil so Google keeps its default request setting. */
 	NSNumber* ToNSNumber(EOpenMobileAdsAgeTreatment Treatment)
 	{
 		switch (Treatment)
@@ -27,6 +28,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Converts the provider-neutral rating to Google's iOS request configuration value. */
 	GADMaxAdContentRating ToMaxAdContentRating(EOpenMobileAdsMaxAdContentRating Rating)
 	{
 		switch (Rating)
@@ -44,6 +46,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Converts consent debug geography without enabling a test region for Disabled. */
 	UMPDebugGeography ToDebugGeography(EOpenMobileAdsDebugGeography Geography)
 	{
 		switch (Geography)
@@ -59,6 +62,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Walks presented, navigation, and tab containers to find the controller safe for SDK presentation. */
 	UIViewController* TopViewController(UIViewController* Controller)
 	{
 		if (!Controller)
@@ -84,11 +88,13 @@ namespace OpenMobileAdsAdMobIOS
 		return Controller;
 	}
 
+	/** Converts nullable Objective-C text without returning a dangling UTF-8 view. */
 	FString ToFString(NSString* String)
 	{
 		return String ? FString(UTF8_TO_TCHAR(String.UTF8String)) : FString();
 	}
 
+	/** Maps Google load failures to the stable native codes understood by shared Ads errors. */
 	FString LoadErrorCode(NSError* Error)
 	{
 		if (!Error || ![Error.domain isEqualToString:GADErrorDomain])
@@ -119,6 +125,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Copies Google's winning mediation source from the loaded response when one exists. */
 	FOpenMobileAdsRevenueSource ToRevenueSource(GADResponseInfo* ResponseInfo)
 	{
 		FOpenMobileAdsRevenueSource Source;
@@ -137,6 +144,7 @@ namespace OpenMobileAdsAdMobIOS
 		return Source;
 	}
 
+	/** Converts UMP consent state to the stable integers shared with Android callbacks. */
 	int32 ToCanonicalConsentStatus(UMPConsentStatus Status)
 	{
 		switch (Status)
@@ -152,6 +160,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Converts UMP privacy-options availability without treating unknown as not required. */
 	int32 ToCanonicalPrivacyOptionsRequirement(
 		UMPPrivacyOptionsRequirementStatus Requirement
 	)
@@ -167,6 +176,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Separates UMP form and information errors before mapping their native codes. */
 	FString ToUMPErrorCode(NSError* Error, bool bFormOperation)
 	{
 		if (!Error)
@@ -200,6 +210,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Writes Google's restricted data-processing flag only when privacy state specifies a mode. */
 	void ApplyDataProcessingMode(EOpenMobileAdsDataProcessingMode Mode)
 	{
 		if (Mode == EOpenMobileAdsDataProcessingMode::Restricted)
@@ -212,6 +223,7 @@ namespace OpenMobileAdsAdMobIOS
 		}
 	}
 
+	/** Reads the latest UMP singleton state after either information refresh or form dismissal. */
 	void CompleteConsentInfo(int64 RequestId, bool bFormDismissed)
 	{
 		UMPConsentInformation* ConsentInformation =
@@ -242,6 +254,7 @@ namespace OpenMobileAdsAdMobIOS
 	}
 }
 
+/** Owns one presented rewarded object and forwards its fullscreen callbacks by request identity. */
 @interface OpenMobileRewardedAdDelegate : NSObject <GADFullScreenContentDelegate>
 
 @property(nonatomic, assign) int64_t requestId;
@@ -253,6 +266,7 @@ static OpenMobileRewardedAdDelegate* GOpenMobileRewardedAdDelegate = nil;
 static NSMutableDictionary<NSNumber*, GADRewardedAd*>* GOpenMobileLoadedRewardedAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileRewardedAdLoadRequests = nil;
 
+/** Owns one presented rewarded interstitial and its separate Google reward payload. */
 @interface OpenMobileRewardedInterstitialAdDelegate : NSObject <GADFullScreenContentDelegate>
 
 @property(nonatomic, assign) int64_t requestId;
@@ -266,6 +280,7 @@ static NSMutableDictionary<NSNumber*, GADRewardedInterstitialAd*>*
 	GOpenMobileLoadedRewardedInterstitialAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileRewardedInterstitialAdLoadRequests = nil;
 
+/** Owns one presented interstitial and clears its paid callback at terminal events. */
 @interface OpenMobileInterstitialAdDelegate : NSObject <GADFullScreenContentDelegate>
 
 @property(nonatomic, assign) int64_t requestId;
@@ -278,6 +293,7 @@ static NSMutableDictionary<NSNumber*, GADInterstitialAd*>*
 	GOpenMobileLoadedInterstitialAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileInterstitialAdLoadRequests = nil;
 
+/** Owns one presented App Open object without observing UIKit lifecycle directly. */
 @interface OpenMobileAppOpenAdDelegate : NSObject <GADFullScreenContentDelegate>
 
 @property(nonatomic, assign) int64_t requestId;
@@ -290,6 +306,7 @@ static NSMutableDictionary<NSNumber*, GADAppOpenAd*>*
 	GOpenMobileLoadedAppOpenAds = nil;
 static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 
+/** Keeps one reusable banner's load, view, layout, and active show identities together. */
 @interface OpenMobileBannerAdDelegate : NSObject <GADBannerViewDelegate>
 
 @property(nonatomic, assign) int64_t loadRequestId;
@@ -317,6 +334,7 @@ static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 
 @end
 
+/** Observes host layout and safe-area changes without intercepting touches. */
 @interface OpenMobileBannerLayoutObserver : UIView
 
 @property(nonatomic, copy, nullable) dispatch_block_t layoutHandler;
@@ -326,6 +344,7 @@ static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 
 @implementation OpenMobileBannerLayoutObserver
 
+/** Requests one coalesced banner layout refresh after UIKit has updated bounds. */
 - (void)layoutSubviews
 {
 	[super layoutSubviews];
@@ -335,6 +354,7 @@ static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 	}
 }
 
+/** Rechecks adaptive width after device insets or orientation change. */
 - (void)safeAreaInsetsDidChange
 {
 	[super safeAreaInsetsDidChange];
@@ -355,11 +375,13 @@ static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 static NSMutableDictionary<NSNumber*, OpenMobileBannerAdDelegate*>*
 	GOpenMobileBannerAds = nil;
 
+/** Attaches one ready banner to the current root view under the stored layout rules. */
 static BOOL AttachOpenMobileBanner(
 	OpenMobileBannerAdDelegate* Handler,
 	NSString** OutError
 );
 
+/** Removes constraints, observer, and view while optionally preserving the active show identity. */
 static void DetachOpenMobileBanner(
 	OpenMobileBannerAdDelegate* Handler,
 	BOOL ClearShowRequest
@@ -389,6 +411,7 @@ static void DetachOpenMobileBanner(
 	}
 }
 
+/** Disconnects Google callbacks before releasing the banner view itself. */
 static void DestroyOpenMobileBannerView(OpenMobileBannerAdDelegate* Handler)
 {
 	Handler.bannerView.delegate = nil;
@@ -396,12 +419,14 @@ static void DestroyOpenMobileBannerView(OpenMobileBannerAdDelegate* Handler)
 	Handler.bannerView = nil;
 }
 
+/** Detaches layout and releases the Google banner object together. */
 static void DestroyOpenMobileBanner(OpenMobileBannerAdDelegate* Handler)
 {
 	DetachOpenMobileBanner(Handler, YES);
 	DestroyOpenMobileBannerView(Handler);
 }
 
+/** Copies the provider-neutral banner layout into fields safe for later Objective-C callbacks. */
 static void UpdateOpenMobileBannerLayout(
 	OpenMobileBannerAdDelegate* Handler,
 	const FOpenMobileAdsBannerLayout& Layout
@@ -417,6 +442,7 @@ static void UpdateOpenMobileBannerLayout(
 	Handler.bottomMargin = Layout.Margins.Bottom;
 }
 
+/** Resolves fixed, MREC, or adaptive Google size against current safe-area width. */
 static BOOL ResolveOpenMobileBannerSize(
 	OpenMobileBannerAdDelegate* Handler,
 	UIView* HostView,
@@ -458,6 +484,7 @@ static BOOL ResolveOpenMobileBannerSize(
 	return YES;
 }
 
+/** Recreates the Google banner when adaptive size changes and reconnects paid events. */
 static void LoadOpenMobileBannerView(
 	OpenMobileBannerAdDelegate* Handler,
 	GADAdSize AdSize
@@ -494,6 +521,7 @@ static void LoadOpenMobileBannerView(
 	[BannerView loadRequest:[GADRequest request]];
 }
 
+/** Removes an unusable banner and reports the active show failure once. */
 static void FailOpenMobileBannerLayout(
 	OpenMobileBannerAdDelegate* Handler,
 	NSString* ErrorMessage
@@ -508,6 +536,7 @@ static void FailOpenMobileBannerLayout(
 	);
 }
 
+/** Coalesces UIKit layout notifications and reloads adaptive banners only when their size changes. */
 static void ScheduleOpenMobileBannerLayout(
 	OpenMobileBannerAdDelegate* Handler
 )
@@ -727,21 +756,25 @@ static BOOL AttachOpenMobileBanner(
 
 @implementation OpenMobileRewardedAdDelegate
 
+/** Reports rewarded presentation only after Google's delegate confirms it. */
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
 }
 
+/** Forwards the rewarded impression without ending presentation ownership. */
 - (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
 }
 
+/** Forwards a rewarded click as a non-terminal provider event. */
 - (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
 }
 
+/** Clears the consumed rewarded object before reporting presentation failure. */
 - (void)ad:(id<GADFullScreenPresentingAd>)ad
 	didFailToPresentFullScreenContentWithError:(NSError*)error
 {
@@ -762,6 +795,7 @@ static BOOL AttachOpenMobileBanner(
 	);
 }
 
+/** Releases the rewarded delegate before reporting fullscreen dismissal. */
 - (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	const int64_t closedRequestId = self.requestId;
@@ -779,21 +813,25 @@ static BOOL AttachOpenMobileBanner(
 
 @implementation OpenMobileRewardedInterstitialAdDelegate
 
+/** Marks rewarded-interstitial presentation through its stored show identity. */
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
 }
 
+/** Routes the rewarded-interstitial impression independently from its reward callback. */
 - (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
 }
 
+/** Routes a rewarded-interstitial click without changing terminal state. */
 - (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
 }
 
+/** Releases the rewarded-interstitial object before forwarding Google's presentation error. */
 - (void)ad:(id<GADFullScreenPresentingAd>)ad
 	didFailToPresentFullScreenContentWithError:(NSError*)error
 {
@@ -814,6 +852,7 @@ static BOOL AttachOpenMobileBanner(
 	);
 }
 
+/** Clears rewarded-interstitial ownership before ending the matching show. */
 - (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	const int64_t ClosedRequestId = self.requestId;
@@ -831,21 +870,25 @@ static BOOL AttachOpenMobileBanner(
 
 @implementation OpenMobileInterstitialAdDelegate
 
+/** Marks interstitial presentation only for the delegate's current request. */
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
 }
 
+/** Forwards one interstitial impression while the object remains presented. */
 - (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
 }
 
+/** Forwards one interstitial click without treating it as dismissal. */
 - (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
 }
 
+/** Disconnects paid events and releases the interstitial before reporting failure. */
 - (void)ad:(id<GADFullScreenPresentingAd>)ad
 	didFailToPresentFullScreenContentWithError:(NSError*)error
 {
@@ -866,6 +909,7 @@ static BOOL AttachOpenMobileBanner(
 	);
 }
 
+/** Releases the one-use interstitial before reporting the terminal close. */
 - (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	const int64_t ClosedRequestId = self.requestId;
@@ -883,21 +927,25 @@ static BOOL AttachOpenMobileBanner(
 
 @implementation OpenMobileAppOpenAdDelegate
 
+/** Marks App Open presentation through the request already approved by service lifecycle policy. */
 - (void)adWillPresentFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeShown(self.requestId);
 }
 
+/** Forwards the App Open impression without creating a new lifecycle opportunity. */
 - (void)adDidRecordImpression:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeImpression(self.requestId);
 }
 
+/** Forwards an App Open click while keeping presentation active. */
 - (void)adDidRecordClick:(id<GADFullScreenPresentingAd>)ad
 {
 	FOpenMobileAdsAdMobPlatform::NativeClicked(self.requestId);
 }
 
+/** Releases the App Open object before forwarding Google's presentation failure. */
 - (void)ad:(id<GADFullScreenPresentingAd>)ad
 	didFailToPresentFullScreenContentWithError:(NSError*)error
 {
@@ -918,6 +966,7 @@ static BOOL AttachOpenMobileBanner(
 	);
 }
 
+/** Clears App Open ownership before ending the service's fullscreen request. */
 - (void)adDidDismissFullScreenContent:(id<GADFullScreenPresentingAd>)ad
 {
 	const int64_t ClosedRequestId = self.requestId;
@@ -935,6 +984,7 @@ static BOOL AttachOpenMobileBanner(
 
 @implementation OpenMobileBannerAdDelegate
 
+/** Separates initial cache readiness from adaptive reloads triggered while already shown. */
 - (void)bannerViewDidReceiveAd:(GADBannerView*)bannerView
 {
 	if (
@@ -974,6 +1024,7 @@ static BOOL AttachOpenMobileBanner(
 	}
 }
 
+/** Handles adaptive reload failure separately from the first banner load failure. */
 - (void)bannerView:(GADBannerView*)bannerView
 	didFailToReceiveAdWithError:(NSError*)error
 {
@@ -1008,6 +1059,7 @@ static BOOL AttachOpenMobileBanner(
 	}
 }
 
+/** Emits banner impressions only while a service show request owns the attached view. */
 - (void)bannerViewDidRecordImpression:(GADBannerView*)bannerView
 {
 	if (self.showRequestId > 0)
@@ -1016,6 +1068,7 @@ static BOOL AttachOpenMobileBanner(
 	}
 }
 
+/** Emits banner clicks only while the attached view has an active show identity. */
 - (void)bannerViewDidRecordClick:(GADBannerView*)bannerView
 {
 	if (self.showRequestId > 0)

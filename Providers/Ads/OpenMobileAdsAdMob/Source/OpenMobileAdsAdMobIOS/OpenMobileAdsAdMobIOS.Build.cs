@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobIOS : ModuleRules
 {
+	/** Links Google Mobile Ads, UMP, privacy resources, and iOS receipt data only in the native backend. */
 	public OpenMobileAdsAdMobIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

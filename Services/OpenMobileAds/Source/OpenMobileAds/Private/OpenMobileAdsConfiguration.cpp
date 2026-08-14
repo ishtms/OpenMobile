@@ -5,6 +5,7 @@
 
 namespace OpenMobileAdsConfigurationPrivate
 {
+	/** Appends a normalized issue without repeating construction at every validation branch. */
 	void AddIssue(
 		TArray<FOpenMobileAdsConfigurationIssue>& Issues,
 		EOpenMobileAdsConfigurationIssueCode Code,
@@ -23,6 +24,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		Issue.Message = MoveTemp(Message);
 	}
 
+	/** Rejects empty provider option keys after platform overrides have been considered. */
 	void ValidateProviderOptions(
 		const TMap<FName, FString>& Options,
 		FName Placement,
@@ -40,6 +42,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 	}
 
+	/** Keeps cooldown policy limited to formats that occupy a fullscreen surface. */
 	bool UsesFullscreenCooldown(EOpenMobileAdFormat Format)
 	{
 		switch (Format)
@@ -54,6 +57,7 @@ namespace OpenMobileAdsConfigurationPrivate
 		}
 	}
 
+	/** Identifies formats whose provider object may stay visible and refresh in place. */
 	bool IsPersistentDisplayFormat(EOpenMobileAdFormat Format)
 	{
 		return Format == EOpenMobileAdFormat::Banner
@@ -61,6 +65,7 @@ namespace OpenMobileAdsConfigurationPrivate
 			|| Format == EOpenMobileAdFormat::MediumRectangle;
 	}
 
+	/** Validates one fully resolved placement so base and platform overrides share identical rules. */
 	void ValidateResolvedPolicy(
 		const FOpenMobileAdsResolvedPlacement& Placement,
 		TArray<FOpenMobileAdsConfigurationIssue>& Issues

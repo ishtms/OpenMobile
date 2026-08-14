@@ -2,9 +2,11 @@
 #include "IOS/OpenMobileAdsAdMobAppLovinConsentSignalConsumer.h"
 #include "Modules/ModuleManager.h"
 
+/** Owns the iOS AppLovin privacy consumer only while its adapter plugin is active. */
 class FOpenMobileAdsAdMobAppLovinIOSModule final : public IModuleInterface
 {
 public:
+	/** Registers AppLovin's iOS signal consumer for AdMob startup discovery. */
 	virtual void StartupModule() override
 	{
 		ConsentConsumer =
@@ -15,6 +17,7 @@ public:
 		);
 	}
 
+	/** Removes the modular feature before the native consumer is destroyed. */
 	virtual void ShutdownModule() override
 	{
 		if (ConsentConsumer)

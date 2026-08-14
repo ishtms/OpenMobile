@@ -4,6 +4,7 @@
 
 namespace OpenMobileAdsAdMobEditorPrivate
 {
+	/** Rejects spacing that Google app and ad-unit identifiers never permit. */
 	bool ContainsWhitespace(const FString& Value)
 	{
 		for (const TCHAR Character : Value)
@@ -16,6 +17,7 @@ namespace OpenMobileAdsAdMobEditorPrivate
 		return false;
 	}
 
+	/** Checks one Google identifier for presence, spacing, and its required app or unit separator. */
 	void ValidateIdentifier(
 		const TCHAR* FieldName,
 		const FString& Value,

@@ -7,6 +7,7 @@
 
 namespace OpenMobileAdsPrivacyTests
 {
+	/** Holds consent operations open so tests can finish or fail them in a chosen order. */
 	class FMockConsentProvider
 	{
 	public:

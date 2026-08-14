@@ -18,6 +18,7 @@ namespace OpenMobileAdsLogPrivate
 		ECVF_Default
 	);
 
+	/** Removes common credential fields before caller-supplied sensitive values are applied. */
 	FString ReplaceSensitiveFields(const FString& Message)
 	{
 		static const FRegexPattern SensitiveFieldPattern(TEXT(

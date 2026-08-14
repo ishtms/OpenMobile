@@ -6,6 +6,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobLiftoffMonetizeIOS : ModuleRules
 {
+	/** Finds one Liftoff-related package version in the checked-in iOS manifests. */
 	private static string ReadPackageVersion(string ManifestPath, string PackageName)
 	{
 		JsonObject Document = JsonObject.Read(new FileReference(ManifestPath));
@@ -21,6 +22,7 @@ public class OpenMobileAdsAdMobLiftoffMonetizeIOS : ModuleRules
 		);
 	}
 
+	/** Enforces Liftoff compatibility limits and warns when an allowed version lacks test evidence. */
 	private static void ValidateVersion(
 		string Name,
 		string Actual,
@@ -69,6 +71,7 @@ public class OpenMobileAdsAdMobLiftoffMonetizeIOS : ModuleRules
 		}
 	}
 
+	/** Checks Google, Liftoff adapter, and Vungle SDK versions before native linking starts. */
 	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
@@ -111,6 +114,7 @@ public class OpenMobileAdsAdMobLiftoffMonetizeIOS : ModuleRules
 		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
+	/** Links Liftoff Monetize frameworks and privacy resources only for enabled iOS targets. */
 	public OpenMobileAdsAdMobLiftoffMonetizeIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

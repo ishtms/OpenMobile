@@ -2,6 +2,7 @@
 
 namespace OpenMobileAdsProviderPrivate
 {
+	/** Gives default provider methods one consistent typed unsupported-operation error. */
 	FOpenMobileAdsError MakeUnsupportedError(
 		FName Provider,
 		FName Placement,

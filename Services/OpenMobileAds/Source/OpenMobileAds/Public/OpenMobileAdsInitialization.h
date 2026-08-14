@@ -88,6 +88,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsInitializationStatusSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	TArray<FOpenMobileAdsInitializationComponentStatus> Components;
 
+	/** Finds one provider, network, or adapter row without treating parentless names as interchangeable. */
 	const FOpenMobileAdsInitializationComponentStatus* FindComponent(
 		EOpenMobileAdsInitializationComponentType Type,
 		FName Name,

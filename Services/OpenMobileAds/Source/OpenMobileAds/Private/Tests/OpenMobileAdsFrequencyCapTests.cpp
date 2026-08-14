@@ -6,6 +6,7 @@
 
 namespace OpenMobileAdsFrequencyCapTests
 {
+	/** Keeps serialized cap data alive across tracker instances without touching disk. */
 	class FMemoryStore final : public IOpenMobileAdsFrequencyCapStore
 	{
 	public:

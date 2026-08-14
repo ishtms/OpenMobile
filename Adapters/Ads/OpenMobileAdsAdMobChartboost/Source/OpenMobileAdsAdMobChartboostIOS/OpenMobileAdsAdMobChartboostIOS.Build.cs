@@ -6,6 +6,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMobChartboostIOS : ModuleRules
 {
+	/** Reads the checked-in Chartboost, adapter, or Google package version by name. */
 	private static string ReadPackageVersion(string ManifestPath, string PackageName)
 	{
 		JsonObject Document = JsonObject.Read(new FileReference(ManifestPath));
@@ -21,6 +22,7 @@ public class OpenMobileAdsAdMobChartboostIOS : ModuleRules
 		);
 	}
 
+	/** Stops unsupported Chartboost versions and flags supported combinations that haven't been tested. */
 	private static void ValidateVersion(
 		string Name,
 		string Actual,
@@ -69,6 +71,7 @@ public class OpenMobileAdsAdMobChartboostIOS : ModuleRules
 		}
 	}
 
+	/** Verifies the three pinned iOS package versions against adapter compatibility metadata. */
 	private static string[] ValidateCompatibility(string ModulePath, ILogger Logger)
 	{
 		string AdapterRoot = Path.GetFullPath(Path.Combine(ModulePath, "../.."));
@@ -111,6 +114,7 @@ public class OpenMobileAdsAdMobChartboostIOS : ModuleRules
 		return new[] { AdapterManifestPath, AdapterPackagesPath, ProviderPackagesPath };
 	}
 
+	/** Links Chartboost adapter payloads and privacy bundles only in opted-in iOS builds. */
 	public OpenMobileAdsAdMobChartboostIOS(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.NoPCHs;

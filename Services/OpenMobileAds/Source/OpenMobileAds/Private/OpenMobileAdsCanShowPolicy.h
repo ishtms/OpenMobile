@@ -28,6 +28,7 @@ struct FOpenMobileAdsCanShowPolicyContext
 class FOpenMobileAdsCanShowPolicy
 {
 public:
+	/** Returns the first placement, cache, pacing, network, or lifecycle gate in stable order. */
 	static FOpenMobileAdsCanShowResult Evaluate(
 		const FOpenMobileAdsCanShowPolicyContext& Context
 	);

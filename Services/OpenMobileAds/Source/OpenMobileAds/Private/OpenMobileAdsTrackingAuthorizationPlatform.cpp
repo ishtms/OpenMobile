@@ -10,6 +10,7 @@ namespace OpenMobileAdsTrackingAuthorizationPlatformPrivate
 		PendingCompletions;
 	bool bRequestInFlight = false;
 
+	/** Converts unexpected backend statuses to Unsupported before they reach service policy. */
 	EOpenMobileAdsTrackingAuthorizationStatus NormalizeStatus(
 		EOpenMobileAdsTrackingAuthorizationStatus Status
 	)
@@ -27,6 +28,7 @@ namespace OpenMobileAdsTrackingAuthorizationPlatformPrivate
 		}
 	}
 
+	/** Selects the highest-priority available backend and breaks ties by name. */
 	IOpenMobileAdsTrackingAuthorizationBackend* FindBackend()
 	{
 		const TArray<IOpenMobileAdsTrackingAuthorizationBackend*> Backends =
@@ -55,6 +57,7 @@ namespace OpenMobileAdsTrackingAuthorizationPlatformPrivate
 		return Best;
 	}
 
+	/** Ends the single in-flight request and runs its completions after state is cleared. */
 	void CompleteRequest(EOpenMobileAdsTrackingAuthorizationStatus Status)
 	{
 		check(IsInGameThread());

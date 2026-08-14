@@ -17,6 +17,7 @@
 #include "OpenMobileAdsSubsystem.h"
 #include "OpenMobileAdsTypes.h"
 
+/** Compiles public Ads headers as an external consumer module without private include access. */
 class FOpenMobileAdsConsumerTestsModule final : public IModuleInterface
 {
 };

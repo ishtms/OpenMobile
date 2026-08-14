@@ -2,6 +2,7 @@
 
 namespace OpenMobileAdsErrorPrivate
 {
+	/** Normalizes native code spelling so SDK formatting doesn't affect stable mappings. */
 	FString NormalizeCode(const FString& Code)
 	{
 		FString Result = Code.ToLower();
@@ -10,6 +11,7 @@ namespace OpenMobileAdsErrorPrivate
 		return Result;
 	}
 
+	/** Maps provider account and policy states that require console or inventory fixes. */
 	bool MapExternalProviderState(
 		const FString& Message,
 		FOpenMobileAdsError& Error
@@ -90,6 +92,7 @@ namespace OpenMobileAdsErrorPrivate
 		return false;
 	}
 
+	/** Fills safe internal defaults when no domain-specific native mapping is known. */
 	void SetUnknownMapping(
 		EOpenMobileAdsErrorDomain Domain,
 		FOpenMobileAdsError& Error
@@ -118,6 +121,7 @@ namespace OpenMobileAdsErrorPrivate
 		Error.SuggestedCorrection = TEXT("Check the sanitized native diagnostics and update the owning provider plugin if the code is new.");
 	}
 
+	/** Maps provider SDK codes to stable service errors and retry guidance. */
 	bool MapProvider(const FString& Code, FOpenMobileAdsError& Error)
 	{
 		if (Code == TEXT("no_fill"))
@@ -186,6 +190,7 @@ namespace OpenMobileAdsErrorPrivate
 		return false;
 	}
 
+	/** Maps mediation failures and reuses provider rules for shared native codes. */
 	bool MapMediation(const FString& Code, FOpenMobileAdsError& Error)
 	{
 		if (Code == TEXT("adapter_not_ready"))
@@ -212,6 +217,7 @@ namespace OpenMobileAdsErrorPrivate
 		return false;
 	}
 
+	/** Maps consent SDK failures without treating user decisions as provider crashes. */
 	bool MapConsent(const FString& Code, FOpenMobileAdsError& Error)
 	{
 		if (Code == TEXT("consent_required"))
@@ -279,6 +285,7 @@ namespace OpenMobileAdsErrorPrivate
 		return false;
 	}
 
+	/** Maps packaging and adapter setup failures to configuration-focused corrections. */
 	bool MapPackaging(const FString& Code, FOpenMobileAdsError& Error)
 	{
 		if (Code == TEXT("missing_app_id"))

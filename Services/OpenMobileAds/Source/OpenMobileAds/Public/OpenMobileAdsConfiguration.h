@@ -69,6 +69,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsBannerMargins
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	float Bottom = 0.0f;
 
+	/** Rejects non-finite or negative insets before they reach platform banner layout code. */
 	bool IsValid() const
 	{
 		return FMath::IsFinite(Left)
@@ -103,6 +104,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsBannerLayout
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (ClampMin = "0.0"))
 	float AvailableWidth = 0.0f;
 
+	/** Validates custom width and margins while allowing zero to mean provider or viewport width. */
 	bool IsValid() const
 	{
 		return Margins.IsValid()
@@ -165,7 +167,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsRetryPolicy
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Open Mobile|Ads")
 	bool bUseJitter = true;
 
+	/** Requires finite non-negative delays and a backoff that never moves backwards. */
 	bool IsValid() const;
+	/** Uses a placement override when supplied and otherwise keeps the global retry limit. */
 	int32 ResolveMaxRetryAttempts(int32 PlacementMaxRetryAttempts) const;
 };
 
@@ -195,6 +199,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsPreloadPolicy
 	)
 	double RecoverableFailureDelaySeconds = 60.0;
 
+	/** Rejects non-finite or negative scheduling values before automatic preload starts. */
 	bool IsValid() const;
 };
 
@@ -212,6 +217,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsCooldownPolicy
 	)
 	double FullscreenCooldownSeconds = 0.0;
 
+	/** Keeps zero as an intentional disabled cooldown while rejecting invalid time values. */
 	bool IsValid() const
 	{
 		return FMath::IsFinite(FullscreenCooldownSeconds)
@@ -253,16 +259,19 @@ struct OPENMOBILEADS_API FOpenMobileAdsFrequencyCap
 	)
 	double WindowSeconds = 0.0;
 
+	/** Enables the session gate only when a positive impression limit was configured. */
 	bool IsSessionLimitEnabled() const
 	{
 		return MaxSessionImpressions > 0;
 	}
 
+	/** Requires both a positive count and time span before the rolling gate is active. */
 	bool IsRollingWindowEnabled() const
 	{
 		return MaxImpressions > 0 && WindowSeconds > 0.0;
 	}
 
+	/** Reports whether either independent frequency rule can block presentation. */
 	bool IsEnabled() const
 	{
 		return IsSessionLimitEnabled() || IsRollingWindowEnabled();
@@ -316,6 +325,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsAppOpenPolicy
 	)
 	double MaximumCacheAgeSeconds = 14400.0;
 
+	/** Rejects invalid opportunity windows and cache ages before lifecycle callbacks use them. */
 	bool IsValid() const;
 };
 
@@ -540,6 +550,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FOpenMobileAdsPlatformPlacementOverride IOS;
 
+	/** Applies only the current platform's explicit overrides and leaves unsupported platforms unresolved. */
 	FOpenMobileAdsResolvedPlacement Resolve(EOpenMobileAdsPlatform Platform) const;
 };
 
@@ -606,16 +617,19 @@ struct OPENMOBILEADS_API FOpenMobileAdsConfigurationIssue
 class OPENMOBILEADS_API FOpenMobileAdsConfigurationValidator
 {
 public:
+	/** Checks placement identity, per-platform values, and cross-placement collisions without provider knowledge. */
 	static TArray<FOpenMobileAdsConfigurationIssue> Validate(
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements
 	);
 
+	/** Adds selected-provider format and operation checks to the portable placement validation. */
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateProviderCapabilities(
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
 		const FOpenMobileAdsProviderCapabilities& Capabilities,
 		bool bAutomaticPreloadingEnabled = true
 	);
 
+	/** Validates project settings with shipping safety rules applied to every development option. */
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateSettings(
 		const UOpenMobileAdsSettings& Settings,
 		bool bForShipping
@@ -628,9 +642,12 @@ class OPENMOBILEADS_API UOpenMobileAdsSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
+	/** Registers provider and placement settings under the shared OpenMobile project category. */
 	UOpenMobileAdsSettings();
 
+	/** Keeps every OpenMobile plugin inside one Project Settings category. */
 	virtual FName GetCategoryName() const override { return TEXT("OpenMobile"); }
+	/** Gives Ads its own section instead of mixing provider-specific settings into the service. */
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile Ads"); }
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Providers")
@@ -724,13 +741,16 @@ public:
 	)
 	bool bDelayAdsInitializationUntilTrackingAuthorization = true;
 
+	/** Requires trimmed, project-specific prompt text when tracking authorization is enabled. */
 	static bool IsValidTrackingUsageDescription(const FString& Description);
 
+	/** Forces production behavior in shipping builds even when a stale config enables test mode. */
 	static bool ResolveDevelopmentTestMode(bool bConfigured, bool bForShipping)
 	{
 		return bConfigured && !bForShipping;
 	}
 
+	/** Resolves the live build flag through the same shipping-safe rule used by validation. */
 	bool IsDevelopmentTestModeEnabled() const
 	{
 		return ResolveDevelopmentTestMode(bDevelopmentTestMode, UE_BUILD_SHIPPING != 0);
@@ -766,9 +786,11 @@ public:
 	)
 	FName ConvenienceRewardedPlacement;
 
+	/** Uses a separate no-fill policy so inventory misses don't share ordinary failure timing. */
 	const FOpenMobileAdsRetryPolicy& GetRetryPolicyForError(
 		EOpenMobileAdsErrorCode ErrorCode
 	) const;
 
+	/** Matches placement names case-insensitively while configuration validation still reports case collisions. */
 	const FOpenMobileAdsPlacementSettings* FindPlacement(FName Placement) const;
 };

@@ -9,6 +9,7 @@ def openMobileAdsRequiredComponents = [
     provider: ["com.google.android.gms.ads.MobileAdsInitProvider"] as Set,
 ]
 
+/** Checks the final merged manifest because plugin fragments cannot reveal authority clashes by themselves. */
 def validateOpenMobileAdsAdMobManifest = { File manifestFile ->
     def document = new XmlSlurper(false, false).parse(manifestFile)
     def errors = []
@@ -97,6 +98,7 @@ def validateOpenMobileAdsAdMobManifest = { File manifestFile ->
     }
 }
 
+/** Wires validation after variant tasks exist and before their package or bundle can finish. */
 afterEvaluate {
     def manifestTasks = tasks.matching {
         it.name ==~ /^process.+ManifestForPackage$/

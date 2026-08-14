@@ -7,6 +7,7 @@ using UnrealBuildTool;
 
 public class OpenMobileAdsAdMob : ModuleRules
 {
+	/** Rejects missing, malformed, or sample Android app IDs before a production package is built. */
 	private static void ValidateAndroidAppId(string Value)
 	{
 		string TrimmedValue = Value.Trim();
@@ -32,6 +33,7 @@ public class OpenMobileAdsAdMob : ModuleRules
 		}
 	}
 
+	/** Rejects missing, malformed, or sample iOS app IDs before direct Xcode generation. */
 	private static void ValidateIOSAppId(string Value)
 	{
 		string TrimmedValue = Value.Trim();
@@ -57,6 +59,7 @@ public class OpenMobileAdsAdMob : ModuleRules
 		}
 	}
 
+	/** Reads the provider-owned SKAdNetwork list so direct Xcode metadata can be checked against the same source. */
 	private static HashSet<string> ReadRequiredSKAdNetworkIdentifiers(string UPLPath)
 	{
 		HashSet<string> Identifiers = new HashSet<string>(StringComparer.Ordinal);
@@ -88,6 +91,7 @@ public class OpenMobileAdsAdMob : ModuleRules
 		return Identifiers;
 	}
 
+	/** Verifies direct Xcode plist data contains the configured app ID and every required attribution identifier. */
 	private static void ValidateAdditionalPlistData(
 		string Value,
 		string ExpectedAppId,
@@ -258,6 +262,7 @@ public class OpenMobileAdsAdMob : ModuleRules
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/IOSRuntimeSettings.IOSRuntimeSettings")]
 	string AdditionalPlistData = "";
 
+	/** Enforces provider identifiers and Apple metadata while keeping native SDK payloads in platform modules. */
 	public OpenMobileAdsAdMob(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

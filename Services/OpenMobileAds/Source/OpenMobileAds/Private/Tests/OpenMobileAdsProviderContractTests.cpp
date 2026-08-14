@@ -25,6 +25,7 @@
 
 namespace OpenMobileAdsProviderContractTests
 {
+	/** Lets a test move wall and monotonic time together or disturb only the wall clock. */
 	class FControlledAdsClock final : public IOpenMobileAdsClock
 	{
 	public:
@@ -53,6 +54,7 @@ namespace OpenMobileAdsProviderContractTests
 		double CurrentMonotonicSeconds = 1000.0;
 	};
 
+	/** Holds retry callbacks until the test advances its private clock. */
 	class FControlledRetryScheduler final : public IOpenMobileAdsRetryScheduler
 	{
 	public:
@@ -133,6 +135,7 @@ namespace OpenMobileAdsProviderContractTests
 		uint64 NextHandle = 1;
 	};
 
+	/** Keeps retry jitter fixed so delay assertions stay exact. */
 	class FControlledRetryRandomSource final
 		: public IOpenMobileAdsRetryRandomSource
 	{
@@ -145,6 +148,7 @@ namespace OpenMobileAdsProviderContractTests
 		double NextValue = 0.0;
 	};
 
+	/** Counts lifecycle changes without touching the editor's real gameplay state. */
 	class FMockFullscreenLifecycleTarget final
 		: public IOpenMobileAdsFullscreenLifecycleTarget
 	{
@@ -158,6 +162,7 @@ namespace OpenMobileAdsProviderContractTests
 		int32 RestoreFocusCalls = 0;
 	};
 
+	/** Records provider calls and keeps callback sinks open for tests to finish in any order. */
 	class FMockProvider final : public IOpenMobileAdsProvider
 	{
 	public:
@@ -569,6 +574,7 @@ namespace OpenMobileAdsProviderContractTests
 		TArray<FGuid> ReleasedCachedAds;
 	};
 
+	/** Collects the network details and results used by one repeatable mediation run. */
 	struct FMediatedProviderScenario
 	{
 		FString Network;
@@ -581,6 +587,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError LoadFailure;
 	};
 
+	/** Plays a fixed mediation callback sequence through the regular provider sink. */
 	class FDeterministicMediatedProviderHarness
 	{
 	public:
@@ -675,6 +682,7 @@ namespace OpenMobileAdsProviderContractTests
 		const FMediatedProviderScenario& Scenario;
 	};
 
+	/** Captures the signals offered to one mediation adapter or network SDK. */
 	class FMockConsentSignalConsumer final
 		: public IOpenMobileAdsConsentSignalConsumer
 	{
@@ -750,6 +758,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError ConsentSignalError;
 	};
 
+	/** Keeps a mock consent consumer registered only for the lifetime of one test scope. */
 	class FScopedConsentSignalConsumerRegistration
 	{
 	public:
@@ -776,6 +785,7 @@ namespace OpenMobileAdsProviderContractTests
 		IOpenMobileAdsConsentSignalConsumer& Consumer;
 	};
 
+	/** Records the pre-initialization request and can stop startup on demand. */
 	class FMockInitializationParticipant final
 		: public IOpenMobileAdsInitializationParticipant
 	{
@@ -817,6 +827,7 @@ namespace OpenMobileAdsProviderContractTests
 		FOpenMobileAdsError Error;
 	};
 
+	/** Removes the mock initialization participant even when a test exits early. */
 	class FScopedInitializationParticipantRegistration
 	{
 	public:
@@ -843,6 +854,7 @@ namespace OpenMobileAdsProviderContractTests
 		IOpenMobileAdsInitializationParticipant& Participant;
 	};
 
+	/** Prevents a test provider from leaking into the next automation test. */
 	class FScopedProviderRegistration
 	{
 	public:
@@ -878,6 +890,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bRegistered = true;
 	};
 
+	/** Lets tests complete the tracking prompt whenever their expected ordering requires it. */
 	class FMockTrackingAuthorizationBackend final
 		: public IOpenMobileAdsTrackingAuthorizationBackend
 	{
@@ -925,6 +938,7 @@ namespace OpenMobileAdsProviderContractTests
 		bool bHasNonZeroAdvertisingIdentifier = false;
 	};
 
+	/** Limits the mock tracking backend registration to the current test scope. */
 	class FScopedTrackingAuthorizationBackendRegistration
 	{
 	public:
@@ -951,6 +965,7 @@ namespace OpenMobileAdsProviderContractTests
 		IOpenMobileAdsTrackingAuthorizationBackend& Backend;
 	};
 
+	/** Restores the shared Ads settings object after each test changes it. */
 	class FScopedSettings
 	{
 	public:

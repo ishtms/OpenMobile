@@ -17,6 +17,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenueSource
 {
 	GENERATED_BODY()
 
+	/** Keeps a source absent only when the provider supplied no network, adapter, or instance identity. */
 	bool IsEmpty() const
 	{
 		return SourceName.IsEmpty()
@@ -130,27 +131,33 @@ struct OPENMOBILEADS_API FOpenMobileAdsRevenue
 
 	static constexpr int64 MicrosPerMajorUnit = 1000000;
 
+	/** Converts a finite major-unit value to integer micros without rounding past the int64 range. */
 	static bool TryConvertMajorUnitsToMicros(
 		double MajorUnits,
 		int64& OutValueMicros
 	);
 
+	/** Scales a provider integer using checked arithmetic before storing canonical micros. */
 	static bool TryScaleToMicros(
 		int64 ProviderValue,
 		int64 MicrosPerProviderUnit,
 		int64& OutValueMicros
 	);
 
+	/** Accepts only trimmed three-letter currency codes and normalizes their case. */
 	static bool TryNormalizeCurrencyCode(
 		const FString& ProviderCurrencyCode,
 		FString& OutCurrencyCode
 	);
 
+	/** Converts unknown provider precision values to the stable fallback instead of exposing invalid enums. */
 	static EOpenMobileAdsRevenuePrecision NormalizePrecision(
 		EOpenMobileAdsRevenuePrecision ProviderPrecision
 	);
 
+	/** Trims optional mediation source fields so updates compare consistently. */
 	void NormalizeSource();
+	/** Normalizes provider and derived eCPM values independently without claiming either one exists. */
 	void NormalizeEcpm();
 
 	UPROPERTY(

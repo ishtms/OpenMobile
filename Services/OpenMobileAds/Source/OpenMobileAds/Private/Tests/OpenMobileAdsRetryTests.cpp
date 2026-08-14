@@ -5,6 +5,7 @@
 
 namespace OpenMobileAdsRetryTests
 {
+	/** Returns a prepared jitter sequence and falls back to zero after it runs out. */
 	class FControlledRandomSource final
 		: public IOpenMobileAdsRetryRandomSource
 	{

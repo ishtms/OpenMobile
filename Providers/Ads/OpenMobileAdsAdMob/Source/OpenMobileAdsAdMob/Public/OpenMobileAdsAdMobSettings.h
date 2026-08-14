@@ -5,14 +5,16 @@
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsAdMobSettings.generated.h"
 
-/** AdMob-owned build, ad-unit, and test-device configuration. */
+/** Keeps AdMob app IDs, ad units, and provider test devices separate from the core Ads service. */
 UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "OpenMobile - AdMob"))
 class OPENMOBILEADSADMOB_API UOpenMobileAdsAdMobSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
+	/** Keeps provider settings inside the shared OpenMobile Project Settings category. */
 	virtual FName GetCategoryName() const override { return TEXT("OpenMobile"); }
+	/** Gives AdMob its own provider section instead of mixing SDK values into core Ads settings. */
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile - AdMob"); }
 
 	UPROPERTY(Config, EditAnywhere, Category = "Android")
@@ -55,6 +57,7 @@ public:
 	)
 	TArray<FString> TestDeviceIdentifiers;
 
+	/** Merges global and AdMob device IDs through the same validation and duplicate rules. */
 	TArray<FString> ResolveTestDeviceIdentifiers(
 		const TArray<FString>& GlobalIdentifiers
 	) const
@@ -65,6 +68,7 @@ public:
 		);
 	}
 
+	/** Identifies Google's official sample prefix so production requests can't use test inventory. */
 	static bool IsGoogleSampleIdentifier(const FString& Identifier)
 	{
 		return Identifier.TrimStartAndEnd().StartsWith(
@@ -72,6 +76,7 @@ public:
 		);
 	}
 
+	/** Returns the packaged app ID for the selected platform and nothing for unsupported targets. */
 	FString GetAppId(EOpenMobileAdsPlatform Platform) const
 	{
 		if (Platform == EOpenMobileAdsPlatform::Android)
@@ -85,6 +90,7 @@ public:
 		return FString();
 	}
 
+	/** Returns the configured rewarded unit without substituting Google's sample value. */
 	FString GetRewardedAdUnitId(EOpenMobileAdsPlatform Platform) const
 	{
 		if (Platform == EOpenMobileAdsPlatform::Android)
@@ -98,6 +104,7 @@ public:
 		return FString();
 	}
 
+	/** Returns the configured interstitial unit without applying test-mode policy. */
 	FString GetInterstitialAdUnitId(EOpenMobileAdsPlatform Platform) const
 	{
 		if (Platform == EOpenMobileAdsPlatform::Android)
@@ -111,6 +118,7 @@ public:
 		return FString();
 	}
 
+	/** Returns the configured banner unit before format-specific test resolution. */
 	FString GetBannerAdUnitId(EOpenMobileAdsPlatform Platform) const
 	{
 		if (Platform == EOpenMobileAdsPlatform::Android)
@@ -124,6 +132,7 @@ public:
 		return FString();
 	}
 
+	/** Rejects every Google sample identifier once the service has selected production mode. */
 	bool IsConfigurationCompatibleWithMode(
 		EOpenMobileAdsPlatform Platform,
 		bool bDevelopmentTestMode,
@@ -147,6 +156,7 @@ public:
 		return true;
 	}
 
+	/** Uses Google's rewarded sample in test mode and rejects that same value in production. */
 	FString ResolveRewardedAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
@@ -171,6 +181,7 @@ public:
 		return FString();
 	}
 
+	/** Uses Google's interstitial sample in test mode and returns only a real unit in production. */
 	FString ResolveInterstitialAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
@@ -195,6 +206,7 @@ public:
 		return FString();
 	}
 
+	/** Supports rewarded interstitials only through Google's test unit till project configuration exposes one. */
 	FString ResolveRewardedInterstitialAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
@@ -215,6 +227,7 @@ public:
 		return FString();
 	}
 
+	/** Supports App Open only through Google's test unit till project configuration exposes one. */
 	FString ResolveAppOpenAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
@@ -235,6 +248,7 @@ public:
 		return FString();
 	}
 
+	/** Uses Google's banner sample in test mode and returns only a real unit in production. */
 	FString ResolveBannerAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId

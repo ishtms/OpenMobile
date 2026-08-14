@@ -9,6 +9,7 @@
 
 namespace OpenMobileAdsAdMobAndroidBackendPrivate
 {
+	/** Maps an unspecified age treatment to Google's unset value instead of guessing false. */
 	int32 ToNativeAgeTreatment(EOpenMobileAdsAgeTreatment Treatment)
 	{
 		switch (Treatment)
@@ -22,6 +23,7 @@ namespace OpenMobileAdsAdMobAndroidBackendPrivate
 		}
 	}
 
+	/** Converts the provider-neutral rating to Google's request configuration code. */
 	FString ToNativeMaxAdContentRating(EOpenMobileAdsMaxAdContentRating Rating)
 	{
 		switch (Rating)
@@ -39,6 +41,7 @@ namespace OpenMobileAdsAdMobAndroidBackendPrivate
 		}
 	}
 
+	/** Converts consent debug geography to the stable values expected by the Java bridge. */
 	int32 ToBridgeDebugGeography(EOpenMobileAdsDebugGeography Geography)
 	{
 		switch (Geography)
@@ -54,6 +57,7 @@ namespace OpenMobileAdsAdMobAndroidBackendPrivate
 		}
 	}
 
+	/** Copies nullable Java mediation source fields into the normalized revenue source. */
 	FOpenMobileAdsRevenueSource ToRevenueSource(
 		JNIEnv* Env,
 		jstring SourceName,
@@ -1085,6 +1089,7 @@ bool FOpenMobileAdsAdMobAndroidBackend::LaunchRewardedAd(
 	return bScheduled;
 }
 
+/** Routes the legacy Java rewarded load callback through the shared platform identity. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdLoaded(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1094,6 +1099,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	FOpenMobileAdsAdMobPlatform::NativeLoaded(static_cast<int64>(RequestId));
 }
 
+/** Reports modern rewarded load completion without exposing JNI types above the Android backend. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdLoadCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1105,6 +1111,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	);
 }
 
+/** Converts Java rewarded load text and code before platform request matching. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdLoadFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1120,6 +1127,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	);
 }
 
+/** Carries rewarded-interstitial reward metadata with the completed Java load identity. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedInterstitialAdLoadCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1135,6 +1143,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedI
 	);
 }
 
+/** Routes one Java rewarded-interstitial load failure with its native code intact. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedInterstitialAdLoadFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1150,6 +1159,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedI
 	);
 }
 
+/** Reports Java interstitial load completion for the matching native request. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstitialAdLoadCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1161,6 +1171,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstit
 	);
 }
 
+/** Routes one Java interstitial load failure through provider error mapping. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstitialAdLoadFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1176,6 +1187,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileInterstit
 	);
 }
 
+/** Reports Java App Open load completion without starting presentation. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAdLoadCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1187,6 +1199,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAd
 	);
 }
 
+/** Routes one Java App Open load failure to its stored operation. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAdLoadFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1202,6 +1215,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAppOpenAd
 	);
 }
 
+/** Reports Java banner loading before the provider attaches its view. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdLoadCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1213,6 +1227,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdL
 	);
 }
 
+/** Routes Java banner load failure with Google error details preserved. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdLoadFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1228,6 +1243,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdL
 	);
 }
 
+/** Marks the matching banner show visible after Java view attachment. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdShown(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1237,6 +1253,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdS
 	FOpenMobileAdsAdMobPlatform::NativeBannerShown(static_cast<int64>(RequestId));
 }
 
+/** Marks the matching banner hidden while preserving its loaded Java object. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdHidden(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1246,6 +1263,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdH
 	FOpenMobileAdsAdMobPlatform::NativeBannerHidden(static_cast<int64>(RequestId));
 }
 
+/** Routes banner show or hide failure through the operation's active identity. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdOperationFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1259,6 +1277,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdO
 	);
 }
 
+/** Emits one banner impression only after Java reports it for the active show. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdImpression(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1268,6 +1287,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdI
 	FOpenMobileAdsAdMobPlatform::NativeImpression(static_cast<int64>(RequestId));
 }
 
+/** Emits one banner click without ending or hiding the display. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdClicked(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1277,6 +1297,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdC
 	FOpenMobileAdsAdMobPlatform::NativeClicked(static_cast<int64>(RequestId));
 }
 
+/** Copies Java paid-event and mediation source fields into the normalized revenue callback. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdRevenuePaid(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1307,6 +1328,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdR
 	);
 }
 
+/** Completes only the Java initialization generation carrying this native request ID. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitializationCompleted(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1316,6 +1338,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitia
 	FOpenMobileAdsAdMobPlatform::NativeInitializationCompleted(static_cast<int64>(RequestId));
 }
 
+/** Routes Java SDK startup failure without retaining a JNI string past this call. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitializationFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1329,6 +1352,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsInitia
 	);
 }
 
+/** Converts Java UMP information values to the platform-neutral consent callback. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentInfoUpdated(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1346,6 +1370,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsen
 	);
 }
 
+/** Carries the final Java UMP form state back to the active consent operation. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentFormDismissed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1363,6 +1388,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsen
 	);
 }
 
+/** Converts Java UMP failure values before the platform layer maps them. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsentFailed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1378,6 +1404,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileUMPConsen
 	);
 }
 
+/** Adds one Java mediation adapter status row to the active provider startup generation. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsAdapterInitializationStatus(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1397,6 +1424,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileAdsAdapte
 	);
 }
 
+/** Reports Java rewarded presentation only after Google's fullscreen callback arrives. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdShown(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1406,6 +1434,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	FOpenMobileAdsAdMobPlatform::NativeShown(static_cast<int64>(RequestId));
 }
 
+/** Emits the rewarded impression for the matching active show identity. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdImpression(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1415,6 +1444,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	FOpenMobileAdsAdMobPlatform::NativeImpression(static_cast<int64>(RequestId));
 }
 
+/** Emits a rewarded click without treating it as dismissal or reward. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdClicked(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1424,6 +1454,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	FOpenMobileAdsAdMobPlatform::NativeClicked(static_cast<int64>(RequestId));
 }
 
+/** Normalizes Java rewarded paid-event data and mediation source identity. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdRevenuePaid(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1454,6 +1485,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	);
 }
 
+/** Carries Google's local reward callback without claiming backend verification. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdEarned(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1469,6 +1501,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	);
 }
 
+/** Ends the matching fullscreen operation after Java reports dismissal. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdClosed(
 	JNIEnv* Env,
 	jobject Activity,
@@ -1478,6 +1511,7 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedA
 	FOpenMobileAdsAdMobPlatform::NativeClosed(static_cast<int64>(RequestId));
 }
 
+/** Fails the matching rewarded operation and drops stale Java callbacks. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileRewardedAdFailed(
 	JNIEnv* Env,
 	jobject Activity,

@@ -12,6 +12,7 @@ namespace
 		static_cast<int32>(EOpenMobileAdsConsentSignal::UsPrivacy);
 	constexpr int32 SupportedSignals = GdprSignal | UsPrivacySignal;
 
+	/** Applies Liftoff GDPR state only when the normalized snapshot provides a value. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.GdprApplicability
@@ -24,6 +25,7 @@ namespace
 			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
 	}
 
+	/** Leaves Liftoff US privacy untouched when neither choice nor processing mode is known. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
 		return Signals.UsPrivacy.Applicability

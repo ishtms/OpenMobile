@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Applies AdMob identifiers, attribution networks, and delayed measurement settings to the final iOS plist. -->
     <init>
         <log text="OpenMobileAdsAdMob iOS bridge enabled"/>
         <setStringFromProperty

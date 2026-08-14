@@ -15,6 +15,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 	constexpr int32 MaxTotalRecords = 65536;
 	constexpr int32 MaxPlacementBytes = 1024;
 
+	/** Appends fixed-size values to the private format without exposing a platform serializer. */
 	template <typename ValueType>
 	void WriteValue(TArray<uint8>& Data, const ValueType& Value)
 	{
@@ -22,6 +23,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		FMemory::Memcpy(Data.GetData() + Offset, &Value, sizeof(ValueType));
 	}
 
+	/** Reads the private persistence format with explicit bounds at every step. */
 	class FBoundedReader
 	{
 	public:
@@ -30,6 +32,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		{
 		}
 
+		/** Copies one fixed-size value only when the remaining payload can hold it. */
 		template <typename ValueType>
 		bool Read(ValueType& OutValue)
 		{
@@ -42,6 +45,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 			return true;
 		}
 
+		/** Reads one bounded UTF-8 placement name and rejects malformed or empty values. */
 		bool ReadPlacement(FName& OutPlacement)
 		{
 			int32 ByteCount = 0;
@@ -68,6 +72,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 			return !OutPlacement.IsNone();
 		}
 
+		/** Requires exact payload consumption so trailing bytes can't hide incompatible data. */
 		bool IsAtEnd() const
 		{
 			return Offset == Data.Num();
@@ -78,6 +83,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		int32 Offset = 0;
 	};
 
+	/** Writes one placement as bounded UTF-8 so persisted names stay platform independent. */
 	void WritePlacement(TArray<uint8>& Data, FName Placement)
 	{
 		const FString PlacementString = Placement.ToString();
@@ -90,9 +96,11 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		);
 	}
 
+	/** Provides process-local storage for tests and projects that disable persistence. */
 	class FMemoryStore final : public IOpenMobileAdsFrequencyCapStore
 	{
 	public:
+		/** Copies stored bytes so tracker validation can't mutate the backing payload. */
 		virtual bool Load(TArray<uint8>& OutData) override
 		{
 			if (Data.IsEmpty())
@@ -103,6 +111,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 			return true;
 		}
 
+		/** Replaces the process-local payload with the latest serialized history. */
 		virtual bool Save(TConstArrayView<uint8> InData) override
 		{
 			Data.Reset(InData.Num());
@@ -114,9 +123,11 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		TArray<uint8> Data;
 	};
 
+	/** Persists bounded rolling history under the project Saved directory. */
 	class FFileStore final : public IOpenMobileAdsFrequencyCapStore
 	{
 	public:
+		/** Uses one project-local file so different projects don't share impression history. */
 		FFileStore()
 			: Path(FPaths::Combine(
 				FPaths::ProjectSavedDir(),
@@ -126,6 +137,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 		{
 		}
 
+		/** Treats a missing file as empty history while reporting genuine read failures. */
 		virtual bool Load(TArray<uint8>& OutData) override
 		{
 			const int64 Size = IFileManager::Get().FileSize(*Path);
@@ -134,6 +146,7 @@ namespace OpenMobileAdsFrequencyCapPrivate
 				&& FFileHelper::LoadFileToArray(OutData, *Path);
 		}
 
+		/** Saves only a complete bounded payload after creating its project directory. */
 		virtual bool Save(TConstArrayView<uint8> Data) override
 		{
 			if (Data.IsEmpty() || Data.Num() > MaxFileBytes)

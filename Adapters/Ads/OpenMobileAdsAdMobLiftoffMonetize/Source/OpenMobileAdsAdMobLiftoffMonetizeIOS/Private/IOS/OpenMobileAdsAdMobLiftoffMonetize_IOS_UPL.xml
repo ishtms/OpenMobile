@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Includes Liftoff attribution IDs and its privacy bundle when the adapter joins an iOS build. -->
     <registerBuildSettings>
         <insert>OpenMobileAdsAdMobLiftoffMonetizeIOSDependencyContract=2</insert>
         <insertNewline/>

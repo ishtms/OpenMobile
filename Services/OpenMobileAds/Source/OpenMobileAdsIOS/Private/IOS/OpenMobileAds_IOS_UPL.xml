@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+    <!-- Writes tracking usage text only when the shared Ads setting enables the authorization prompt. -->
     <init>
         <setBoolFromProperty
             result="OpenMobileAdsTrackingAuthorizationEnabled"
