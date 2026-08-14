@@ -110,9 +110,12 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticsSettings final :
 	GENERATED_BODY()
 
 public:
+	/** Seeds the built-in channels and defaults so a new project gets usable policy without touching config first. */
 	UOpenMobileHapticsSettings();
 
+	/** Keeps every OpenMobile plugin in the shared Project Settings category. */
 	virtual FName GetCategoryName() const override { return TEXT("OpenMobile"); }
+	/** Gives Haptics its own section, otherwise several plugins would end up with the same visible settings page. */
 	virtual FName GetSectionName() const override
 	{
 		return TEXT("OpenMobile Haptics");
@@ -233,5 +236,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Settings|Platform", meta = (ToolTip = "iOS-specific semantic, Core Haptics, and packaging preferences."))
 	FOpenMobileHapticIOSSettings IOS;
 
+	/** Collects all bad names, ranges, and incompatible policies together so fixing config doesn't become one-error-per-run stuff. */
 	bool Validate(TArray<FString>& OutErrors) const;
 };

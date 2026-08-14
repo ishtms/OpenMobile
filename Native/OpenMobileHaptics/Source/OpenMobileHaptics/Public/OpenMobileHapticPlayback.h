@@ -65,39 +65,47 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Playback", meta = (ToolTip = "Sanitized runtime path selected for this playback."))
 	FName ResolvedQuality;
 
+	/** Check this before issuing controls, because the object can stay referenced after its Game Instance has gone away. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Is Haptic Playback Valid", Keywords = "haptic handle valid active", ToolTip = "Returns true while this object owns a valid playback handle and its Game Instance is alive."))
 	bool IsValid() const;
 
+	/** Treats scheduled and paused requests as active too, since both still own playback state and can receive controls. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Is Haptic Playback Active", Keywords = "haptic playing scheduled", ToolTip = "Returns true while playback is accepted, scheduled, started, resumed, or paused."))
 	bool IsActive() const;
 
+	/** Uses the last reported state only, it won't guess that a failed pause actually took effect. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Is Haptic Playback Paused", Keywords = "haptic paused", ToolTip = "Returns true when the latest reported playback state is paused."))
 	bool IsPaused() const;
 
+	/** Requests a normal early finish, so listeners get Stopped when the resolved path can honour it. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Stop Haptic Playback", ExpandEnumAsExecs = "Outcome", Keywords = "haptic end finish", ToolTip = "Gracefully stops this playback when its resolved path supports stop."))
 	void Stop(
 		EOpenMobileHapticControlBranch& Outcome,
 		FOpenMobileHapticError& Error
 	);
 
+	/** Cancels ownership even before playback starts, which is the path to use when the request itself is no longer wanted. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Cancel Haptic Playback", ExpandEnumAsExecs = "Outcome", Keywords = "haptic abort pending", ToolTip = "Cancels pending or active playback owned by this object."))
 	void Cancel(
 		EOpenMobileHapticControlBranch& Outcome,
 		FOpenMobileHapticError& Error
 	);
 
+	/** Pauses only when the selected native or emulated path can preserve a useful resume position. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Pause Haptic Playback", ExpandEnumAsExecs = "Outcome", Keywords = "haptic hold", ToolTip = "Pauses playback when its resolved path supports pause."))
 	void Pause(
 		EOpenMobileHapticControlBranch& Outcome,
 		FOpenMobileHapticError& Error
 	);
 
+	/** Resumes from the position accepted by Pause, it won't restart a request that has already ended. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Resume Haptic Playback", ExpandEnumAsExecs = "Outcome", Keywords = "haptic continue", ToolTip = "Resumes playback after a successful pause."))
 	void Resume(
 		EOpenMobileHapticControlBranch& Outcome,
 		FOpenMobileHapticError& Error
 	);
 
+	/** Returns the position the backend could actually reach, because native playback may accept only fixed timing steps. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Seek Haptic Playback", ExpandEnumAsExecs = "Outcome", Keywords = "haptic position timeline", ToolTip = "Moves playback to a non-negative timeline position and reports platform quantization."))
 	void Seek(
 		UPARAM(meta = (ClampMin = "0.0", Units = "s", ToolTip = "Requested playback position in seconds."))
@@ -110,6 +118,7 @@ public:
 		FOpenMobileHapticError& Error
 	);
 
+	/** Changes strength without resetting sharpness, and clamps wired Blueprint values before they reach native code. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Set Haptic Intensity", ExpandEnumAsExecs = "Outcome", Keywords = "haptic strength amplitude", ToolTip = "Updates only normalized playback intensity. Literal and wired values are clamped to the safe range."))
 	void SetIntensity(
 		UPARAM(meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized playback intensity from zero to one."))
@@ -118,6 +127,7 @@ public:
 		FOpenMobileHapticError& Error
 	);
 
+	/** Changes sharpness without touching strength, unsupported paths return a typed failure instead of pretending it worked. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Set Haptic Sharpness", ExpandEnumAsExecs = "Outcome", Keywords = "haptic texture crisp soft", ToolTip = "Updates only normalized playback sharpness. Literal and wired values are clamped to the safe range."))
 	void SetSharpness(
 		UPARAM(meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized sharpness. Zero is softer, 0.5 is neutral, and one is sharper."))
@@ -126,6 +136,7 @@ public:
 		FOpenMobileHapticError& Error
 	);
 
+	/** Sends both values in one update so backends don't expose an avoidable half-updated frame. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Control", meta = (DisplayName = "Set Haptic Intensity And Sharpness", ExpandEnumAsExecs = "Outcome", Keywords = "haptic strength texture", ToolTip = "Updates normalized intensity and sharpness together. Literal and wired values are clamped to the safe range."))
 	void SetIntensityAndSharpness(
 		UPARAM(meta = (ClampMin = "0.0", ClampMax = "1.0", ToolTip = "Normalized playback intensity from zero to one."))
@@ -136,6 +147,7 @@ public:
 		FOpenMobileHapticError& Error
 	);
 
+	/** Detaches delegates and preparation ownership when garbage collection reaches a playback nobody retained. */
 	virtual void BeginDestroy() override;
 
 private:
@@ -144,23 +156,32 @@ private:
 	friend class UOpenMobileHapticNamedPlaybackAsyncAction;
 	friend class UOpenMobileHapticsSubsystem;
 
+	/** Copies the accepted request identity before any callback can arrive for this object. */
 	void InitializePlayback(
 		UOpenMobileHapticsSubsystem* InSubsystem,
 		const FOpenMobileHapticPlaybackResult& Result,
 		FName InPatternOrEffect
 	);
+	/** Keeps prepared content alive for exactly as long as playback may still ask the backend to use it. */
 	void AttachPreparationLease(
 		UOpenMobileHapticPreparationLease* InPreparationLease
 	);
+	/** Filters subsystem-wide events by handle so this object reflects its own request only. */
 	void HandlePlaybackEvent(const FOpenMobileHapticPlaybackEvent& Event);
+	/** Finishes safely when the owning Game Instance disappears before a native terminal callback. */
 	void HandleGameInstanceTeardown();
+	/** Delays Accepted till listeners can bind, then guarantees they see it once only. */
 	void BroadcastAcceptedIfNeeded();
+	/** Records one terminal reason before broadcasting and releasing all request ownership. */
 	void Finish(
 		EOpenMobileHapticTerminalReason Reason,
 		const FOpenMobileHapticError& Error
 	);
+	/** Removes subsystem bindings and the preparation lease after this object can no longer receive useful events. */
 	void Cleanup();
+	/** Gives callers a stable stale-handle error instead of sending a control to an unrelated recycled request. */
 	FOpenMobileHapticControlResult MakeStaleControlResult() const;
+	/** Converts the native control result into Blueprint's two execution branches without losing the detailed error. */
 	void ResolveControlResult(
 		const FOpenMobileHapticControlResult& Result,
 		EOpenMobileHapticControlBranch& Outcome,

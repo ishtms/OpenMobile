@@ -124,6 +124,7 @@ struct FOpenMobileHapticsPreviewReceiverState;
 
 struct FOpenMobileHapticsPreviewReceiverStateDeleter
 {
+	/** Keeps socket-heavy receiver state out of the public header while deleting it in the module that knows the full type. */
 	void operator()(FOpenMobileHapticsPreviewReceiverState* State) const;
 };
 
@@ -136,11 +137,16 @@ UOpenMobileHapticsPreviewReceiverSubsystem final
 	GENERATED_BODY()
 
 public:
+	/** Owns an out-of-line destructor because receiver state stays intentionally incomplete in this header. */
 	virtual ~UOpenMobileHapticsPreviewReceiverSubsystem() override;
+	/** Allocates Development-only transport state and binds background cleanup before any editor can discover the receiver. */
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	/** Closes the socket, clears pairing, and removes engine delegates before the Game Instance releases us. */
 	virtual void Deinitialize() override;
+	/** Prevents the receiver from existing in builds where live device preview was compiled out. */
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 
+	/** Starts listening with typed outcome branches, invalid ports and labels come back as Rejected instead of a vague false. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview",
@@ -161,6 +167,7 @@ public:
 		FString& Error
 	);
 
+	/** Ends the session and queued preview work together so an editor can't keep control after the receiver is off. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview",
@@ -176,6 +183,7 @@ public:
 		FString& Error
 	);
 
+	/** Accepts the typed prompt only while its hidden request ID is still current, an old UI button can't approve a newer editor. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview",
@@ -192,6 +200,7 @@ public:
 		FString& Error
 	);
 
+	/** Rejects the exact pending prompt and tells you when it already expired or changed. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview",
@@ -208,6 +217,7 @@ public:
 		FString& Error
 	);
 
+	/** Keeps old bool-based graphs working, new graphs should use the typed node to separate rejection from build availability. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview|Advanced",
@@ -223,6 +233,7 @@ public:
 		FString ReceiverLabel = TEXT("Test Host")
 	);
 
+	/** Keeps old graphs loadable while sharing the same socket and pairing cleanup as the typed node. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview|Advanced",
@@ -235,6 +246,7 @@ public:
 	)
 	void DisableReceiver();
 
+	/** Returns sanitized receiver state for UI, it won't expose socket addresses or session tokens. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "OpenMobile|Haptics|Preview",
@@ -245,6 +257,7 @@ public:
 	)
 	FOpenMobileHapticsPreviewReceiverStatus GetReceiverStatus() const;
 
+	/** Recomputes the prompt lifetime at read time so UI doesn't display the stale value captured on arrival. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "OpenMobile|Haptics|Preview",
@@ -255,6 +268,7 @@ public:
 	)
 	FOpenMobileHapticsPreviewPairingRequest GetPendingPairingRequest() const;
 
+	/** Keeps legacy native and Blueprint callers working, raw IDs get exact-current-request validation only. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview|Advanced",
@@ -267,6 +281,7 @@ public:
 	)
 	bool ApprovePairing(FGuid RequestId);
 
+	/** Rejects by raw ID for old callers without weakening the current pending-request check. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview|Advanced",
@@ -299,14 +314,21 @@ public:
 	)
 	FOpenMobileHapticsPreviewReceiverStatusChanged OnStatusChanged;
 
+	/** Drains non-blocking UDP work and advances pairing or session expiry on the Game Instance tick. */
 	virtual void Tick(float DeltaTime) override;
+	/** Registers receiver work with Unreal's tick stats so Development profiling can account for it. */
 	virtual TStatId GetStatId() const override;
+	/** Ticks only while a real receiver socket exists, templates and disabled builds stay quiet. */
 	virtual bool IsTickable() const override;
+	/** Associates ticking with this Game Instance's world so teardown and pause rules stay in the right context. */
 	virtual UWorld* GetTickableGameObjectWorld() const override;
 
 private:
+	/** Sends both current typed payloads and the old payload-free event from one state transition. */
 	void BroadcastReceiverChanged();
+	/** Stops preview output as soon as the app backgrounds, remote control shouldn't continue while local UI is hidden. */
 	void HandleApplicationBackground();
+	/** Cancels the active preview handle and optionally discards queued revisions when ownership ends. */
 	void StopPreviewPlayback(bool bClearQueue);
 
 	TUniquePtr<

@@ -84,7 +84,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCookedPatternData
 	UPROPERTY(VisibleAnywhere, Category = "OpenMobile|Haptics|Cooked Pattern", meta = (ToolTip = "Deterministic compiled parameter curves submitted to capable backends."))
 	TArray<FOpenMobileHapticCookedParameterCurve> ParameterCurves;
 
+	/** Keeps the cooked format versioned explicitly, so older assets fail or migrate predictably instead of reading random bytes. */
 	bool Serialize(FArchive& Archive);
+	/** Clears derived payload and its hash together, otherwise stale data could still look current after an editor failure. */
 	void Reset();
 };
 
@@ -175,20 +177,26 @@ public:
 	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Platform Overrides", meta = (ToolTip = "Optional iOS AHAP representation preferred when supported and prepared."))
 	TSoftObjectPtr<UOpenMobileHapticIOSPatternAsset> IOSOverride;
 
+	/** Returns a soft path only for the requested platform, which lets preparation stay asynchronous. */
 	FSoftObjectPath GetOverrideForPlatform(
 		EOpenMobileHapticOverridePlatform Platform
 	) const;
+	/** Uses the compiled target to select the override, callers don't need their own platform preprocessor branch. */
 	FSoftObjectPath GetOverrideForCurrentPlatform() const;
 
+	/** Exposes immutable cooked data because runtime submission mustn't rewrite the asset payload. */
 	const FOpenMobileHapticCookedPatternData& GetCookedPattern() const
 	{
 		return CookedPattern;
 	}
 
+	/** Compares the authored input hash and format version, both must match before runtime data is trusted. */
 	bool IsDerivedDataCurrent() const;
+	/** Recompiles deterministic runtime data and returns every authoring error in one pass. */
 	bool RebuildDerivedData(TArray<FString>& Errors);
 
 #if !UE_BUILD_SHIPPING
+	/** Installs already cooked preview data without exposing the editor source in a device preview build. */
 	bool InitializeCookedPreviewData(
 		const FOpenMobileHapticCookedPatternData& InCookedPattern,
 		const FOpenMobileHapticLoopOptions& InLoop,
@@ -202,27 +210,36 @@ public:
 #endif
 
 #if WITH_EDITORONLY_DATA
+	/** Sorts and clamps authored values before hashing, so harmless editor ordering can't create different cooked bytes. */
 	void NormalizeEditorData();
 #endif
 
+	/** Rebuilds stale derived data before Unreal serializes the asset for save or cook. */
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 
 #if WITH_EDITOR
+	/** Gives editor tools a reusable validation entry point without forcing them through a save. */
 	bool ValidateForEditor(TArray<FString>& Errors) const;
+	/** Normalizes edits straight away so details-panel changes and saved data use the same rules. */
 	virtual void PostEditChangeProperty(
 		FPropertyChangedEvent& PropertyChangedEvent
 	) override;
+	/** Reports metadata, source, and platform override problems through Unreal's asset validation UI. */
 	virtual EDataValidationResult IsDataValid(
 		FDataValidationContext& Context
 	) const override;
 #endif
 
 private:
+	/** Hashes every authored value that can change playback, which is how stale cooked data gets detected. */
 	uint32 ComputeSourceHash() const;
+	/** Rejects unsafe or contradictory usage settings before they're copied into runtime data. */
 	bool ValidateMetadata(TArray<FString>& Errors) const;
+	/** Checks soft override types and platform requirements without loading them during ordinary runtime access. */
 	bool ValidatePlatformOverrides(TArray<FString>& Errors) const;
 
 #if WITH_EDITOR
+	/** Applies authoring limits to events, curves, and markers before the compiler touches them. */
 	bool ValidateEditorData(TArray<FString>& Errors) const;
 #endif
 

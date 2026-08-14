@@ -29,6 +29,7 @@ class OPENMOBILEHAPTICS_API UAnimNotify_OpenMobileHaptics final
 	GENERATED_BODY()
 
 public:
+	/** Sets the editor-facing defaults here so a newly placed notify is ready to use without extra setup. */
 	UAnimNotify_OpenMobileHaptics();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify", meta = (ToolTip = "Selects the authored source used when the Animation Notify fires."))
@@ -68,15 +69,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "OpenMobile|Haptics|Notify|Advanced", meta = (ToolTip = "Suppresses this local feedback on dedicated servers. Normal gameplay should leave this enabled."))
 	bool bSuppressOnDedicatedServer = true;
 
+	/** Unreal calls this from animation playback, and we route through the mesh so the right world owns the request. */
 	virtual void Notify(
 		USkeletalMeshComponent* MeshComp,
 		UAnimSequenceBase* Animation,
 		const FAnimNotifyEventReference& EventReference
 	) override;
 
+	/** Keeps the animation timeline label tied to the selected source, which saves opening each notify just to identify it. */
 	virtual FString GetNotifyName_Implementation() const override;
 
 #if WITH_EDITOR
+	/** Catches incomplete source choices while the animation is being authored, before a silent notify reaches gameplay. */
 	virtual EDataValidationResult IsDataValid(
 		FDataValidationContext& Context
 	) const override;
@@ -85,5 +89,6 @@ public:
 private:
 	friend class FOpenMobileHapticsAnimNotifyTest;
 
+	/** Keeps every source mode on the same submission path so dedicated-server and intensity rules can't drift apart. */
 	bool Dispatch(USkeletalMeshComponent* MeshComp) const;
 };

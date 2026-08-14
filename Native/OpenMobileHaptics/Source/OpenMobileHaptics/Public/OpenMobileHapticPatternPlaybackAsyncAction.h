@@ -69,6 +69,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Play", meta = (ToolTip = "Request-scoped playback object when accepted playback exposes a useful handle."))
 	TObjectPtr<UOpenMobileHapticPlayback> Playback = nullptr;
 
+	/** Creates one task for this asset, which keeps async override loading attached to the caller that requested it. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", AutoCreateRefTerm = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Haptic Pattern Asset", Keywords = "haptic pattern asset vibrate rumble tactile feedback prepared", ToolTip = "Plays a selected Haptic Pattern asset without a raw name. Unloaded platform overrides wait asynchronously when Prepare If Needed is enabled; playback never loads synchronously.", WorldContext = "WorldContextObject"))
 	static UOpenMobileHapticPatternPlaybackAsyncAction* PlayHapticPatternAsset(
 		const UObject* WorldContextObject,
@@ -80,19 +81,32 @@ public:
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
 
+	/** Starts work after Blueprint has connected every outcome delegate, otherwise fast failures could be missed. */
 	virtual void Activate() override;
+
+	/** Stops waiting and releases this task's async load without disturbing an asset another caller already owns. */
 	virtual void Cancel() override;
 
 private:
+	/** Uses the asset only after its current-platform override is loaded, so gameplay never falls into a sync load. */
 	void SubmitPreparedPattern();
+
+	/** Resumes the exact request that initiated the streamable handle and ignores any unrelated preparation work. */
 	void HandlePreparationFinished();
+
+	/** Cancels the task while its world is still valid enough to remove delegates and release held assets. */
 	void HandleWorldCleanup(
 		UWorld* World,
 		bool bSessionEnded,
 		bool bCleanupResources
 	);
+	/** Sends one useful rejection and seals the task before late streaming callbacks arrive. */
 	void FinishRejected(FOpenMobileHapticError Error);
+
+	/** Clears world hooks and asset ownership after any final outcome. */
 	void Cleanup();
+
+	/** Allows only the first completion path through, since cancellation and loading can finish in the same frame. */
 	bool TryFinish();
 
 	UPROPERTY(Transient)

@@ -115,19 +115,23 @@ class OPENMOBILEHAPTICSPREVIEW_API
 FOpenMobileHapticsCapabilityTesterSnapshotBuilder final
 {
 public:
+	/** Captures the related runtime values together so a changing subsystem can't leave you with a mixed snapshot. */
 	static FOpenMobileHapticsCapabilityTesterSnapshot Capture(
 		const UOpenMobileHapticsSubsystem& Haptics
 	);
+	/** Reduces raw runtime diagnostics to the fixed allowlist used by device reports, unknown values remain honest also. */
 	static FOpenMobileHapticsCapabilityTesterSnapshot Build(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		const FOpenMobileHapticUserPolicy& Policy,
 		const FOpenMobileHapticsDiagnostics& Diagnostics
 	);
+	/** Produces stable JSON for saving or comparing device reports without exposing names outside the allowlist. */
 	static bool Serialize(
 		const FOpenMobileHapticsCapabilityTesterSnapshot& Snapshot,
 		FString& OutJson,
 		FString& OutError
 	);
+	/** Formats the same sanitized values for an in-game screen, so it won't suddenly reveal extra runtime details. */
 	static FString ToDisplayText(
 		const FOpenMobileHapticsCapabilityTesterSnapshot& Snapshot
 	);
@@ -141,6 +145,7 @@ UOpenMobileHapticsCapabilityTesterLibrary final
 	GENERATED_BODY()
 
 public:
+	/** Use this in a Development build when you need a shareable device report, Shipping returns Unavailable on purpose. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview",
@@ -161,6 +166,7 @@ public:
 		UPARAM(DisplayName = "Error") FString& OutError
 	);
 
+	/** Keeps old bool-based graphs loading, new graphs should take the typed branches so Unavailable isn't mixed with failure. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "OpenMobile|Haptics|Preview|Advanced",

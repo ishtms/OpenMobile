@@ -42,7 +42,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidPrimitiveStep
 {
 	GENERATED_BODY()
 
+	/** Unreal needs an empty step while it restores reflected primitive arrays from an asset. */
 	FOpenMobileHapticAndroidPrimitiveStep() = default;
+	/** Keeps the primitive, strength, and delay together when platform data is assembled in code. */
 	FOpenMobileHapticAndroidPrimitiveStep(
 		EOpenMobileHapticAndroidPrimitive InPrimitive,
 		float InScale,
@@ -70,7 +72,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticAndroidWaveformStep
 {
 	GENERATED_BODY()
 
+	/** Unreal needs the empty form when it reconstructs saved waveform rows. */
 	FOpenMobileHapticAndroidWaveformStep() = default;
+	/** Builds a complete row in code, so duration and amplitude can't land in separate legacy arrays. */
 	FOpenMobileHapticAndroidWaveformStep(
 		int32 InDurationMilliseconds,
 		int32 InAmplitude
@@ -140,15 +144,18 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticPlatformPatternAsset
 	GENERATED_BODY()
 
 public:
+	/** Identifies which runtime can consume the asset, preventing an override from being cooked or submitted on the wrong platform. */
 	virtual EOpenMobileHapticOverridePlatform GetOverridePlatform() const
 		PURE_VIRTUAL(
 			UOpenMobileHapticPlatformPatternAsset::GetOverridePlatform,
 			return EOpenMobileHapticOverridePlatform::None;
 		);
+	/** Gives cooking and capability checks one conservative OS floor for the authored representation. */
 	virtual int32 GetMinimumOSVersion() const PURE_VIRTUAL(
 		UOpenMobileHapticPlatformPatternAsset::GetMinimumOSVersion,
 		return MAX_int32;
 	);
+	/** Checks the actual device capabilities as well as OS version, version alone can't prove the feature exists. */
 	virtual bool Supports(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		int32 OSVersion
@@ -156,18 +163,23 @@ public:
 		UOpenMobileHapticPlatformPatternAsset::Supports,
 		return false;
 	);
+	/** Collects authoring errors before the platform backend receives data it can't submit. */
 	virtual bool Validate(TArray<FString>& Errors) const PURE_VIRTUAL(
 		UOpenMobileHapticPlatformPatternAsset::Validate,
 		return false;
 	);
 
+	/** Keeps platform-only content out of unrelated packages, which also avoids loading native formats where they're meaningless. */
 	bool ShouldCookForPlatform(FName PlatformName) const;
+	/** Validates the native representation before save so bad source can't quietly reach a cook. */
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
+	/** Gives Unreal's cooker the same platform decision used by explicit cook checks. */
 	virtual bool NeedsLoadForTargetPlatform(
 		const ITargetPlatform* TargetPlatform
 	) const override;
 
 #if WITH_EDITOR
+	/** Surfaces platform-format errors in the Content Browser without needing a device build. */
 	virtual EDataValidationResult IsDataValid(
 		FDataValidationContext& Context
 	) const override;
@@ -181,10 +193,13 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticAndroidPatternAsset final
 	GENERATED_BODY()
 
 public:
+	/** Refreshes the derived Android API floor for brand-new assets before the details panel shows it. */
 	virtual void PostInitProperties() override;
+	/** Migrates old split waveform arrays and recomputes requirements when existing assets load. */
 	virtual void PostLoad() override;
 
 #if WITH_EDITOR
+	/** Recomputes the API floor as soon as format data changes, so authors see the real requirement. */
 	virtual void PostEditChangeProperty(
 		FPropertyChangedEvent& PropertyChangedEvent
 	) override;
@@ -281,19 +296,25 @@ public:
 	)
 	TArray<FOpenMobileHapticAndroidEnvelopePoint> EnvelopePoints;
 
+	/** Pins this asset to Android for cook filtering and runtime selection. */
 	virtual EOpenMobileHapticOverridePlatform GetOverridePlatform() const override
 	{
 		return EOpenMobileHapticOverridePlatform::Android;
 	}
+	/** Returns the resolved floor after format requirements and the author floor have both been applied. */
 	virtual int32 GetMinimumOSVersion() const override;
+	/** Requires the selected Android feature to be explicitly reported, Unknown isn't enough to submit native data. */
 	virtual bool Supports(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		int32 OSVersion
 	) const override;
+	/** Checks step counts, ranges, repeat indices, and format-specific Android requirements together. */
 	virtual bool Validate(TArray<FString>& Errors) const override;
 
 private:
+	/** Converts the old parallel timing and amplitude arrays once, otherwise their indices can drift during future edits. */
 	void MigrateLegacyWaveform();
+	/** Raises the visible API floor when the selected Android format needs a newer platform feature. */
 	void RefreshResolvedMinimumAndroidAPI();
 };
 
@@ -304,74 +325,90 @@ class OPENMOBILEHAPTICS_API UOpenMobileHapticIOSPatternAsset final
 	GENERATED_BODY()
 
 public:
+	/** Creates import metadata for new editor assets, cooked builds don't carry that editor-only object. */
 	virtual void PostInitProperties() override;
 
 	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|iOS", meta = (ClampMin = "13", ToolTip = "Optional iOS major-version floor for this AHAP asset. Core Haptics requires iOS 13 or newer."))
 	int32 MinimumIOSMajorVersion = 13;
 
+	/** Validates and normalizes AHAP text before storing it, raw import text never goes straight to native playback. */
 	bool SetAHAPSource(const FString& Source, TArray<FString>& Errors);
+	/** Installs AHAP and its resolved custom audio in one operation so references can't point at missing bytes. */
 	bool SetAHAPSourceWithAudioResources(
 		const FString& Source,
 		const TArray<FOpenMobileHapticIOSAudioResource>& InAudioResources,
 		TArray<FString>& Errors
 	);
 
+	/** Returns the validated normalized document that iOS playback and cooking both consume. */
 	const FString& GetNormalizedAHAPJson() const
 	{
 		return AHAPJson;
 	}
 
+	/** Uses the duration found during validation, so callers don't need to parse the JSON again. */
 	double GetAHAPDurationSeconds() const
 	{
 		return AHAPDurationSeconds;
 	}
 
+	/** Tells the backend when simple one-shot playback can't represent this AHAP's controls or events. */
 	bool RequiresAdvancedPlayer() const
 	{
 		return bRequiresAdvancedPlayer;
 	}
 
+	/** Lets policy reject audio-bearing AHAP content where the current playback path is haptics-only. */
 	bool ContainsAudioEvents() const
 	{
 		return bContainsAudioEvents;
 	}
 
+	/** Confirms the document produces haptic output, since an audio-only AHAP isn't a valid haptic override. */
 	bool ContainsHapticEvents() const;
 
+	/** Separates embedded custom audio from ordinary AHAP audio events because it needs packaged resource files. */
 	bool ContainsCustomAudioEvents() const
 	{
 		return bContainsCustomAudioEvents;
 	}
 
+	/** Exposes validated imported bytes without copying them before the iOS backend registers resources. */
 	const TArray<FOpenMobileHapticIOSAudioResource>& GetAudioResources() const
 	{
 		return AudioResources;
 	}
 
 #if WITH_EDITOR
+	/** Gives import and reimport tools mutable access to the source record they own. */
 	UAssetImportData* GetAssetImportData()
 	{
 		return AssetImportData;
 	}
 
+	/** Lets read-only editor tooling inspect import provenance without changing the asset. */
 	const UAssetImportData* GetAssetImportData() const
 	{
 		return AssetImportData;
 	}
 #endif
 
+	/** Pins this asset to iOS for cook filtering and runtime override selection. */
 	virtual EOpenMobileHapticOverridePlatform GetOverridePlatform() const override
 	{
 		return EOpenMobileHapticOverridePlatform::IOS;
 	}
+	/** Never reports below Core Haptics' iOS 13 floor, even if old serialized data contains a smaller value. */
 	virtual int32 GetMinimumOSVersion() const override
 	{
 		return FMath::Max(13, MinimumIOSMajorVersion);
 	}
+	/** Requires both a suitable iOS version and the exact capabilities used by this AHAP. */
 	virtual bool Supports(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		int32 OSVersion
 	) const override;
+	/** Rechecks normalized JSON and audio references before save or cook, imported data can still become stale. */
 	virtual bool Validate(TArray<FString>& Errors) const override;
 
 private:

@@ -444,6 +444,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPatternIdentifier
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Identifiers", meta = (ToolTip = "Configured stable pattern alias. Use pattern assets for ordinary literal gameplay references."))
 	FName Name;
 
+	/** Rejects an empty picker value before configured pattern lookup starts. */
 	bool IsValid() const { return !Name.IsNone(); }
 };
 
@@ -455,6 +456,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryIdentifier
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Identifiers", meta = (ToolTip = "Typed configured Haptics library. It cannot connect to pattern, channel, category, or effect identifier pins."))
 	FName Name;
 
+	/** Rejects an empty library choice before preparation claims any shared resources. */
 	bool IsValid() const { return !Name.IsNone(); }
 };
 
@@ -466,6 +468,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticChannelIdentifier
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Identifiers", meta = (ToolTip = "Typed project Haptics channel. It cannot connect to category or effect identifier pins."))
 	FName Name;
 
+	/** Rejects an empty channel before overlap and rate policy try to resolve it. */
 	bool IsValid() const { return !Name.IsNone(); }
 };
 
@@ -477,6 +480,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticCategoryIdentifier
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Identifiers", meta = (ToolTip = "Typed player-policy category. It cannot connect to channel or effect identifier pins."))
 	FName Name;
 
+	/** Rejects an empty category when a caller explicitly asked for a policy override. */
 	bool IsValid() const { return !Name.IsNone(); }
 };
 
@@ -488,6 +492,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticEffectIdentifier
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Identifiers", meta = (ToolTip = "Typed effect-scale key. It cannot connect to channel or category identifier pins."))
 	FName Name;
 
+	/** Rejects an empty effect key before player scaling looks it up. */
 	bool IsValid() const { return !Name.IsNone(); }
 };
 
@@ -499,22 +504,26 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackHandle
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Opaque raw request identifier. Prefer a Haptic Playback object in common graphs."))
 	FGuid Id;
 
+	/** Checks the opaque ID only, the subsystem still decides whether this handle is current or stale. */
 	bool IsValid() const
 	{
 		return Id.IsValid();
 	}
 
+	/** Compares request identity without exposing the GUID fields to callers. */
 	bool operator==(const FOpenMobileHapticPlaybackHandle& Other) const
 	{
 		return Id == Other.Id;
 	}
 
+	/** Keeps inequality tied to the identity rule above, so both operators can't drift. */
 	bool operator!=(const FOpenMobileHapticPlaybackHandle& Other) const
 	{
 		return !(*this == Other);
 	}
 };
 
+/** Hashes the opaque ID so handles work as keys without weakening their typed wrapper. */
 FORCEINLINE uint32 GetTypeHash(const FOpenMobileHapticPlaybackHandle& Handle)
 {
 	return GetTypeHash(Handle.Id);
@@ -583,11 +592,13 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticError
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "True when accepted playback was interrupted after native submission."))
 	bool bInterruptedAfterAcceptance = false;
 
+	/** Uses the stable code as the source of truth, an empty message can still describe a real failure. */
 	bool IsSet() const
 	{
 		return Code != EOpenMobileHapticErrorCode::None;
 	}
 
+	/** Builds the paired Haptics and common codes together so cross-plugin handling can't lose the plugin-specific reason. */
 	static FOpenMobileHapticError Make(
 		EOpenMobileHapticErrorCode HapticCode,
 		EOpenMobileErrorCode InCommonCode,
@@ -603,6 +614,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticError
 		return Error;
 	}
 
+	/** Converts a provider-neutral failure to the nearest stable Haptics code for callers that need both views. */
 	static FOpenMobileHapticError FromCommon(
 		EOpenMobileErrorCode InCommonCode,
 		FString InMessage,
@@ -651,7 +663,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticNamedSupport
 {
 	GENERATED_BODY()
 
+	/** Unreal needs the empty form while it rebuilds reflected support arrays. */
 	FOpenMobileHapticNamedSupport() = default;
+	/** Keeps a backend-reported name and its tri-state answer in one capability row. */
 	FOpenMobileHapticNamedSupport(
 		FName InName,
 		EOpenMobileHapticSupportState InSupport
@@ -674,7 +688,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticIntegerLimit
 {
 	GENERATED_BODY()
 
+	/** Leaves the value unknown by default, zero itself mustn't be mistaken for a reported limit. */
 	FOpenMobileHapticIntegerLimit() = default;
+	/** Stores the known flag beside the integer because some devices genuinely report zero. */
 	FOpenMobileHapticIntegerLimit(bool bInKnown, int32 InValue)
 		: bKnown(bInKnown)
 		, Value(InValue)
@@ -693,7 +709,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticDurationLimit
 {
 	GENERATED_BODY()
 
+	/** Leaves duration unknown till the backend reports one, zero isn't used as a fake answer. */
 	FOpenMobileHapticDurationLimit() = default;
+	/** Keeps availability and seconds together so callers can't infer knowledge from the numeric value. */
 	FOpenMobileHapticDurationLimit(bool bInKnown, double InSeconds)
 		: bKnown(bInKnown)
 		, Seconds(InSeconds)
@@ -712,7 +730,9 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticFrequencyRange
 {
 	GENERATED_BODY()
 
+	/** Leaves frequency support unknown for backends that can't query it. */
 	FOpenMobileHapticFrequencyRange() = default;
+	/** Stores both endpoints with the known flag, a partial range isn't exposed as device support. */
 	FOpenMobileHapticFrequencyRange(
 		bool bInKnown,
 		float InMinimumHertz,
@@ -969,6 +989,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticTimingAnchor
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Application lifecycle generation in which this anchor was captured."))
 	int64 LifecycleGeneration = 0;
 
+	/** Requires a real external clock, finite samples, positive precision, and a current lifecycle generation. */
 	bool IsValid() const
 	{
 		return Clock != EOpenMobileHapticTimingClock::None
@@ -1139,8 +1160,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryPreloadHandle
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Opaque raw preparation identifier. Prefer an owned preparation task in common graphs."))
 	FGuid Id;
 
+	/** Checks only that the preload has an identity, completion and ownership are separate questions. */
 	bool IsValid() const { return Id.IsValid(); }
 
+	/** Compares the request ID so legacy listeners can filter a shared preload result safely. */
 	friend bool operator==(
 		const FOpenMobileHapticLibraryPreloadHandle& Left,
 		const FOpenMobileHapticLibraryPreloadHandle& Right
@@ -1299,12 +1322,14 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Timing resolution, calibration, precision, and lateness diagnostics."))
 	FOpenMobileHapticSynchronizationDiagnostics Synchronization;
 
+	/** Counts allowed fallback as accepted output while suppressed and rejected requests stay false. */
 	bool IsAccepted() const
 	{
 		return Outcome == EOpenMobileHapticPlaybackOutcome::Accepted
 			|| Outcome == EOpenMobileHapticPlaybackOutcome::Fallback;
 	}
 
+	/** Builds a rejection from a common code when no richer Haptics error is available. */
 	static FOpenMobileHapticPlaybackResult MakeRejected(
 		EOpenMobileErrorCode ErrorCode,
 		FString Message
@@ -1319,6 +1344,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticPlaybackResult
 		return Result;
 	}
 
+	/** Preserves an already detailed Haptics error while setting the result to a failed state. */
 	static FOpenMobileHapticPlaybackResult MakeRejected(
 		FOpenMobileHapticError Error
 	)
@@ -1368,6 +1394,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Advanced", meta = (ToolTip = "Typed validation, stale-handle, or backend control error."))
 	FOpenMobileHapticError Error;
 
+	/** Builds a control rejection from a common error without pretending any playback state changed. */
 	static FOpenMobileHapticControlResult MakeRejected(
 		EOpenMobileErrorCode ErrorCode,
 		FString Message
@@ -1381,6 +1408,7 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticControlResult
 		return Result;
 	}
 
+	/** Carries a detailed Haptics error into a rejected control result unchanged. */
 	static FOpenMobileHapticControlResult MakeRejected(
 		FOpenMobileHapticError Error
 	)

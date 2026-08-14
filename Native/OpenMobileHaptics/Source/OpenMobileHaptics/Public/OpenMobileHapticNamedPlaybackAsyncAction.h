@@ -68,6 +68,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Haptics|Play", meta = (ToolTip = "Request-scoped playback object for accepted controllable playback."))
 	TObjectPtr<UOpenMobileHapticPlayback> Playback = nullptr;
 
+	/** Creates one caller-owned task, so waiting for preparation and the eventual playback result can't get mixed with another request. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Haptics|Play", meta = (AdvancedDisplay = "Options", AutoCreateRefTerm = "Options", BlueprintInternalUseOnly = "true", CPP_Default_Intensity = "1.0", CPP_Default_PrepareIfNeeded = "true", DisplayName = "Play Named Haptic", Keywords = "haptic typed configured pattern prepare library vibrate rumble tactile", ToolTip = "Plays one typed configured pattern. When Prepare If Needed is enabled, the task owns preparation and never requires global delegate filtering.", WorldContext = "WorldContextObject"))
 	static UOpenMobileHapticNamedPlaybackAsyncAction* PlayNamedHaptic(
 		const UObject* WorldContextObject,
@@ -79,28 +80,44 @@ public:
 		const FOpenMobileHapticPlaybackOptions& Options
 	);
 
+	/** Starts lookup or preparation only after Unreal has bound the Blueprint delegates. */
 	virtual void Activate() override;
+
+	/** Ends this caller's wait and releases its preparation claim without cancelling somebody else's claim also. */
 	virtual void Cancel() override;
 
 private:
 	friend class FOpenMobileHapticsNamedPlaybackAsyncContractTest;
 	friend class UOpenMobileHapticsSubsystem;
 
+	/** Continues only the preload started for this task, so a global preparation event can't submit the wrong pattern. */
 	UFUNCTION()
 	void HandlePreparationFinished(
 		const FOpenMobileHapticLibraryPreloadResult& Result
 	);
 
+	/** Submits after the named content is ready and hands its preparation lease to controllable playback when needed. */
 	void SubmitPreparedPattern();
+
+	/** Cancels world-scoped work before Unreal tears down the objects the request points at. */
 	void HandleWorldCleanup(
 		UWorld* World,
 		bool bSessionEnded,
 		bool bCleanupResources
 	);
+	/** Treats Game Instance shutdown as cancellation because this task can't safely outlive its subsystem. */
 	void HandleGameInstanceTeardown();
+
+	/** Publishes one rejected branch and keeps every later callback from finishing the task again. */
 	void FinishRejected(FOpenMobileHapticError Error);
+
+	/** Drops this task's ownership only, shared prepared content can stay alive for other callers. */
 	void ReleasePreparationLease();
+
+	/** Removes engine delegates and held objects once the task has reached any final branch. */
 	void Cleanup();
+
+	/** Claims the final transition atomically on the game thread so cleanup races still produce one result only. */
 	bool TryFinish();
 
 	UPROPERTY(Transient)

@@ -12,7 +12,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticLibraryEntry
 {
 	GENERATED_BODY()
 
+	/** Unreal needs the empty form when it builds reflected arrays and loads saved library entries. */
 	FOpenMobileHapticLibraryEntry() = default;
+
+	/** Use this when you're building an entry in code and want the alias and soft asset reference kept together. */
 	FOpenMobileHapticLibraryEntry(
 		FName InName,
 		TSoftObjectPtr<UOpenMobileHapticPatternAsset> InPattern
@@ -34,7 +37,10 @@ struct OPENMOBILEHAPTICS_API FOpenMobileHapticGamePresetOverride
 {
 	GENERATED_BODY()
 
+	/** Unreal needs this empty form while it reconstructs reflected override arrays from an asset. */
 	FOpenMobileHapticGamePresetOverride() = default;
+
+	/** Use this for code-built overrides so a preset can't be added without its configured pattern name. */
 	FOpenMobileHapticGamePresetOverride(
 		EOpenMobileHapticGamePreset InPreset,
 		FName InPatternName
@@ -67,17 +73,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = "OpenMobile|Haptics|Game Presets", meta = (TitleProperty = "Preset", ToolTip = "Optional prepared-pattern overrides for stable game preset nodes."))
 	TArray<FOpenMobileHapticGamePresetOverride> GamePresetOverrides;
 
+	/** Builds the runtime alias table and reports bad or repeated names together, so preparation can fail before playback starts. */
 	bool BuildPatternLookup(
 		TMap<FName, FSoftObjectPath>& OutPatterns,
 		TArray<FString>& Errors
 	) const;
 
 #if WITH_EDITOR
+	/** Runs the same library checks in the editor, which gives authors the errors before this asset gets cooked. */
 	virtual EDataValidationResult IsDataValid(
 		FDataValidationContext& Context
 	) const override;
 #endif
 
+	/** Resolves only usable overrides and leaves the output alone when this library has no answer for the preset. */
 	bool FindGamePresetOverride(
 		EOpenMobileHapticGamePreset Preset,
 		FName& OutPatternName

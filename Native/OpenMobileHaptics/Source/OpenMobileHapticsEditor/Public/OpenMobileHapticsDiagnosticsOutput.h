@@ -108,6 +108,7 @@ FOpenMobileHapticsDiagnosticsOutputResult
 		EOpenMobileHapticsDiagnosticsOutputCode::Success;
 	FString Message;
 
+	/** Lets callers branch on the stable result code, message text is only there for a person to read. */
 	bool IsSuccess() const
 	{
 		return Code == EOpenMobileHapticsDiagnosticsOutputCode::Success;
@@ -117,30 +118,38 @@ FOpenMobileHapticsDiagnosticsOutputResult
 class OPENMOBILEHAPTICSEDITOR_API FOpenMobileHapticsDiagnosticsOutput final
 {
 public:
+	/** Takes one bounded snapshot across settings, backends, and live Game Instances so the exported values belong to the same capture. */
 	static FOpenMobileHapticsDiagnosticSnapshot Capture();
+	/** Applies the opt-in disclosure flags while producing deterministic JSON, paths and project names stay hidden by default. */
 	static FOpenMobileHapticsDiagnosticsOutputResult Serialize(
 		const FOpenMobileHapticsDiagnosticSnapshot& Snapshot,
 		const FOpenMobileHapticsDiagnosticExportOptions& Options,
 		FString& OutJson
 	);
+	/** Runs the same redaction and size checks before text reaches the system clipboard. */
 	static FOpenMobileHapticsDiagnosticsOutputResult CopyToClipboard(
 		const FOpenMobileHapticsDiagnosticSnapshot& Snapshot,
 		const FOpenMobileHapticsDiagnosticExportOptions& Options = {}
 	);
+	/** Writes only serialized diagnostics to the path the user picked, it won't choose or create an export location for you. */
 	static FOpenMobileHapticsDiagnosticsOutputResult ExportToFile(
 		const FOpenMobileHapticsDiagnosticSnapshot& Snapshot,
 		const FString& FilePath,
 		const FOpenMobileHapticsDiagnosticExportOptions& Options = {}
 	);
+	/** Gives editor UI the exact byte cap used by serialization so it can explain an oversized export properly. */
 	static int32 GetMaximumOutputBytes();
 
 #if WITH_DEV_AUTOMATION_TESTS
+	/** Replaces clipboard access during tests, nobody wants a test quietly overwriting real clipboard stuff. */
 	static void SetClipboardWriterForTests(
 		TFunction<bool(const FString&)>&& Writer
 	);
+	/** Replaces disk output during tests so failure paths don't depend on a developer's filesystem. */
 	static void SetFileWriterForTests(
 		TFunction<bool(const FString&, const FString&)>&& Writer
 	);
+	/** Restores the real writers after a test override, otherwise the next test inherits somebody else's callback. */
 	static void ResetWritersForTests();
 #endif
 };
