@@ -5,6 +5,7 @@
 
 namespace OpenMobileHapticsAndroidPlaybackControlPolicyTests
 {
+	/** Gives control tests one valid finite repeat plan so each case can change only its playhead input. */
 	FOpenMobileHapticsRepeatPlan FinitePlan()
 	{
 		FOpenMobileHapticsRepeatPlan Plan;

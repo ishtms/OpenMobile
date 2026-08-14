@@ -4,6 +4,7 @@
 
 namespace OpenMobileHapticsPlatformOverridePolicyPrivate
 {
+	/** Converts a rejected exact override into portable, no-effect, or terminal outcome using both request and asset policy. */
 	FOpenMobileHapticsPlatformOverrideResolution Fallback(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		EOpenMobileHapticFallbackPolicy Policy,

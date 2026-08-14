@@ -10,6 +10,7 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 {
 	constexpr TCHAR ClipboardHeader[] = TEXT("OpenMobileHapticsTimeline\t1");
 
+	/** Builds deterministic simulated capabilities for offline preview without consulting the editor machine's hardware. */
 	FOpenMobileHapticCapabilities MakeCapabilities(
 		EOpenMobileHapticEditorCapabilityTier Tier
 	)
@@ -62,6 +63,7 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 		return Capabilities;
 	}
 
+	/** Applies the asset fallback floor when preview considers a lower capability tier. */
 	bool AllowsFallback(
 		const UOpenMobileHapticPatternAsset& Asset,
 		EOpenMobileHapticFallbackFloor Step
@@ -71,6 +73,7 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 			<= static_cast<uint8>(Asset.LowestAllowedFallback);
 	}
 
+	/** Escapes names into the clipboard payload so separators inside user marker names don't corrupt parsing. */
 	FString EncodeName(FName Name)
 	{
 		FTCHARToUTF8 Utf8(*Name.ToString());
@@ -80,6 +83,7 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 		);
 	}
 
+	/** Decodes one clipboard name and rejects malformed escaping before asset mutation starts. */
 	bool DecodeName(const FString& Encoded, FName& OutName)
 	{
 		TArray<uint8> Bytes;
@@ -94,18 +98,21 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 		return !OutName.IsNone();
 	}
 
+	/** Parses finite timeline numbers only, clipboard NaN and infinity shouldn't enter editor assets. */
 	bool ParseDouble(const FString& Value, double& OutValue)
 	{
 		return LexTryParseString(OutValue, *Value)
 			&& FMath::IsFinite(OutValue);
 	}
 
+	/** Parses finite normalized property values before pasted events are created. */
 	bool ParseFloat(const FString& Value, float& OutValue)
 	{
 		return LexTryParseString(OutValue, *Value)
 			&& FMath::IsFinite(OutValue);
 	}
 
+	/** Compares every editable event field so multi-selection controls can detect a shared value honestly. */
 	bool SameEvent(
 		const FOpenMobileHapticPatternEvent& Left,
 		const FOpenMobileHapticPatternEvent& Right
@@ -119,6 +126,7 @@ namespace OpenMobileHapticTimelineEditorModelPrivate
 			&& Left.FrequencyIntent == Right.FrequencyIntent;
 	}
 
+	/** Compares marker identity and time when clipboard and selection logic need exact equality. */
 	bool SameMarker(
 		const FOpenMobileHapticPatternMarker& Left,
 		const FOpenMobileHapticPatternMarker& Right

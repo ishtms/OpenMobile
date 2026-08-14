@@ -9,6 +9,7 @@ namespace OpenMobileHapticsRateLimiterPrivate
 	constexpr double SafeMinimumIntervalSeconds = 0.02;
 	constexpr double SafeDebounceSeconds = 0.04;
 
+	/** Normalizes non-finite and out-of-range timing settings before they influence admission history. */
 	double SanitizeInterval(
 		double Value,
 		double Maximum,
@@ -22,6 +23,7 @@ namespace OpenMobileHapticsRateLimiterPrivate
 		return FMath::Min(Value, Maximum);
 	}
 
+	/** Checks elapsed time only when both clocks are ordered, rollback is handled by the caller's reset path. */
 	bool IsInsideInterval(
 		double TimeSeconds,
 		double PreviousTimeSeconds,
@@ -32,6 +34,7 @@ namespace OpenMobileHapticsRateLimiterPrivate
 			< IntervalSeconds;
 	}
 
+	/** Removes timestamps older than one second before a rate window count is compared. */
 	void PruneWindow(TArray<double>& Times, double TimeSeconds)
 	{
 		const double Cutoff = TimeSeconds - WindowSeconds;

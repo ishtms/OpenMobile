@@ -4,6 +4,7 @@ namespace OpenMobileHapticsPlaybackControlPolicyPrivate
 {
 	constexpr double PositionToleranceSeconds = 1.0e-9;
 
+	/** Treats every public terminal state alike so pause, resume, and seek reject them consistently. */
 	bool IsTerminalState(EOpenMobileHapticPlaybackState State)
 	{
 		switch (State)
@@ -19,6 +20,7 @@ namespace OpenMobileHapticsPlaybackControlPolicyPrivate
 		}
 	}
 
+	/** Allows control tracking to start only after acceptance or scheduling, never from an invalid or completed state. */
 	bool IsInitialState(EOpenMobileHapticPlaybackState State)
 	{
 		return State == EOpenMobileHapticPlaybackState::Accepted

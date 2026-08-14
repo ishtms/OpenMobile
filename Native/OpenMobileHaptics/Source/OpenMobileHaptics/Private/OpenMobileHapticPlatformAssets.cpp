@@ -18,6 +18,7 @@
 
 namespace OpenMobileHapticPlatformAssetsPrivate
 {
+	/** Converts primitive enum values to the same names used by capability details and validation messages. */
 	FName PrimitiveName(EOpenMobileHapticAndroidPrimitive Primitive)
 	{
 		switch (Primitive)
@@ -43,6 +44,7 @@ namespace OpenMobileHapticPlatformAssetsPrivate
 		}
 	}
 
+	/** Checks both overall composition support and the per-primitive list when Android reports detailed capabilities. */
 	bool SupportsPrimitive(
 		EOpenMobileHapticAndroidPrimitive Primitive,
 		const FOpenMobileHapticCapabilities& Capabilities

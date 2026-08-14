@@ -32,10 +32,12 @@ struct FOpenMobileHapticsAppleAHAPResolution
 class FOpenMobileHapticsAppleAHAPPlaybackPolicy final
 {
 public:
+	/** Copies the safety caps from project settings into a plain value the policy can use without holding a UObject. */
 	static FOpenMobileHapticsAppleAHAPLimits MakeLimits(
 		const UOpenMobileHapticsSettings& Settings
 	);
 
+	/** Accepts, repeats, or rejects cooked AHAP using the capabilities seen right now, not the device used during import. */
 	static FOpenMobileHapticsAppleAHAPResolution Resolve(
 		const UOpenMobileHapticIOSPatternAsset& Asset,
 		const FOpenMobileHapticLoopOptions& Loop,
@@ -43,6 +45,7 @@ public:
 		const FOpenMobileHapticsAppleAHAPLimits& Limits
 	);
 
+	/** Folds the request's static intensity into a live update so Core Haptics receives one consistent value. */
 	static FOpenMobileHapticDynamicParameterUpdate ComposeDynamicUpdate(
 		const FOpenMobileHapticDynamicParameterUpdate& Update,
 		float StaticIntensityScale

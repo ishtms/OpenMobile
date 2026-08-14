@@ -20,11 +20,13 @@ namespace OpenMobileHapticPatternAssetPrivate
 	constexpr int32 MaximumSerializedCurveCount = 128;
 	constexpr int32 MaximumSerializedCurvePointCount = 4096;
 
+	/** Converts editor seconds to the compact cooked clock with rounding, not truncation, so repeated saves stay stable. */
 	uint32 ToMicroseconds(double Seconds)
 	{
 		return static_cast<uint32>(FMath::RoundToDouble(Seconds * 1000000.0));
 	}
 
+	/** Packs normalized editor values into deterministic cooked integers for hashing and serialization. */
 	uint16 ToNormalizedUInt16(float Value)
 	{
 		return static_cast<uint16>(FMath::RoundToInt(
@@ -32,6 +34,7 @@ namespace OpenMobileHapticPatternAssetPrivate
 		));
 	}
 
+	/** Points validation at the exact event, curve, or control point that stopped compilation. */
 	FString DescribeCompileError(
 		EOpenMobileHapticsPatternCompileError Error,
 		int32 EventIndex,
@@ -203,11 +206,13 @@ namespace OpenMobileHapticPatternAssetPrivate
 	}
 
 	template <typename ValueType>
+	/** Hashes raw cooked values only after normalization has removed editor ordering differences. */
 	void HashValue(uint32& Hash, const ValueType& Value)
 	{
 		Hash = FCrc::TypeCrc32(Value, Hash);
 	}
 
+	/** Orders events by playback time and stable value fields so equal source data cooks identically. */
 	bool LessEvent(
 		const FOpenMobileHapticPatternEvent& Left,
 		const FOpenMobileHapticPatternEvent& Right
@@ -237,6 +242,7 @@ namespace OpenMobileHapticPatternAssetPrivate
 		return Left.FrequencyIntent < Right.FrequencyIntent;
 	}
 
+	/** Orders curve points by relative time before their cooked hash and payload are written. */
 	bool LessCurvePoint(
 		const FOpenMobileHapticCurvePoint& Left,
 		const FOpenMobileHapticCurvePoint& Right
@@ -249,6 +255,7 @@ namespace OpenMobileHapticPatternAssetPrivate
 		return Left.Value < Right.Value;
 	}
 
+	/** Orders parameter curves deterministically when editor insertion order carries no runtime meaning. */
 	bool LessCurve(
 		const FOpenMobileHapticParameterCurve& Left,
 		const FOpenMobileHapticParameterCurve& Right
@@ -287,6 +294,7 @@ namespace OpenMobileHapticPatternAssetPrivate
 		return false;
 	}
 
+	/** Orders markers by time and name so metadata doesn't churn between saves. */
 	bool LessMarker(
 		const FOpenMobileHapticPatternMarker& Left,
 		const FOpenMobileHapticPatternMarker& Right

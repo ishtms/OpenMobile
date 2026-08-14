@@ -26,6 +26,7 @@ public:
 	static constexpr int32 MaximumStepDelayMilliseconds = 10000;
 	static constexpr int64 MaximumTotalDelayMilliseconds = 30000;
 
+	/** Validates primitive composition against Android version and device support before the bridge allocates native arrays. */
 	static FOpenMobileHapticsPrimitiveCompositionResolution Resolve(
 		const UOpenMobileHapticAndroidPatternAsset& Asset,
 		const FOpenMobileHapticCapabilities& Capabilities,

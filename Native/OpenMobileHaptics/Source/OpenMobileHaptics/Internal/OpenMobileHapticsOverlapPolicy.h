@@ -55,16 +55,19 @@ struct FOpenMobileHapticsOverlapQueueEntry
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsOverlapPolicy final
 {
 public:
+	/** Resolves replace, suppress, queue, or mix against the exact conflicts already owning the channel. */
 	static FOpenMobileHapticsOverlapResolution Resolve(
 		const FOpenMobileHapticsOverlapRequest& Request,
 		const TArray<FOpenMobileHapticsOverlapConflict>& Conflicts
 	);
 
+	/** Picks the oldest highest-priority queued request for one channel, keeping admission order deterministic. */
 	static uint64 SelectNext(
 		FName Channel,
 		const TArray<FOpenMobileHapticsOverlapQueueEntry>& Queue
 	);
 
+	/** Expires invalid clocks and over-age entries before they can block newer queued work. */
 	static bool IsExpired(
 		double EnqueuedAtSeconds,
 		double NowSeconds,

@@ -67,13 +67,17 @@ struct FOpenMobileHapticsLifecycleRequestContext
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsLifecyclePolicy final
 {
 public:
+	/** Applies one application event and records whether playback or native services need action, duplicate events stay harmless. */
 	FOpenMobileHapticsLifecycleTransition Apply(
 		EOpenMobileHapticsLifecycleEvent Event
 	);
+	/** Returns lifecycle tracking to active when the subsystem is recreated or deliberately refreshed. */
 	void Reset();
 
+	/** Exposes the last accepted application state used for request decisions. */
 	EOpenMobileHapticsApplicationState GetState() const { return State; }
 
+	/** Decides whether a request may run outside the foreground, including the narrow background-alert exception. */
 	static EOpenMobileHapticsLifecycleRequestOutcome Evaluate(
 		const FOpenMobileHapticsLifecycleRequestContext& Request,
 		EOpenMobileHapticsApplicationState ApplicationState

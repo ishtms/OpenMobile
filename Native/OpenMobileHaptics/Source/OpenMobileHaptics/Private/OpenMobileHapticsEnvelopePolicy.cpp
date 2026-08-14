@@ -5,6 +5,7 @@
 
 namespace OpenMobileHapticsEnvelopePolicyPrivate
 {
+	/** Converts unavailable envelope support into fallback or rejection according to request policy. */
 	FOpenMobileHapticsEnvelopeResolution Unavailable(
 		EOpenMobileHapticFallbackPolicy Policy,
 		FName Reason
@@ -19,6 +20,7 @@ namespace OpenMobileHapticsEnvelopePolicyPrivate
 		return Resolution;
 	}
 
+	/** Returns an empty rejected envelope for malformed asset data. */
 	FOpenMobileHapticsEnvelopeResolution Invalid(FName Reason)
 	{
 		FOpenMobileHapticsEnvelopeResolution Resolution;
@@ -27,6 +29,7 @@ namespace OpenMobileHapticsEnvelopePolicyPrivate
 		return Resolution;
 	}
 
+	/** Requires all Android envelope point and duration limits before sending a format the device might reject. */
 	bool HasUsableEnvelopeLimits(
 		const FOpenMobileHapticCapabilities& Capabilities
 	)
@@ -49,6 +52,7 @@ namespace OpenMobileHapticsEnvelopePolicyPrivate
 				>= Capabilities.MinimumTimingGranularitySeconds.Seconds;
 	}
 
+	/** Requires a known finite positive frequency range before frequency-control envelopes are accepted. */
 	bool HasUsableFrequencyRange(
 		const FOpenMobileHapticCapabilities& Capabilities
 	)

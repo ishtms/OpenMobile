@@ -40,6 +40,7 @@ struct FOpenMobileHapticsRateLimitDecision
 		EOpenMobileHapticsRateLimitOutcome::Allowed;
 	bool bClockReset = false;
 
+	/** Makes callers inspect the resolved outcome instead of assuming a default decision means success. */
 	bool IsAllowed() const
 	{
 		return Outcome == EOpenMobileHapticsRateLimitOutcome::Allowed;
@@ -60,15 +61,20 @@ public:
 		MaximumTrackedEquivalentRequests = 256
 	};
 
+	/** Uses the platform clock for runtime admission decisions. */
 	FOpenMobileHapticsRateLimiter();
+	/** Accepts a caller clock so timing behavior can be deterministic outside the live game loop. */
 	explicit FOpenMobileHapticsRateLimiter(FClock InClock);
 
+	/** Applies debounce, per-effect, per-channel, and global windows while holding one state lock. */
 	FOpenMobileHapticsRateLimitDecision Evaluate(
 		const FOpenMobileHapticsRateLimitRequest& Request,
 		const FOpenMobileHapticsRateLimitPolicy& Policy
 	);
+	/** Clears observed time and request history when the subsystem lifecycle restarts. */
 	void Reset();
 
+	/** Supports the older selection-rate contract through the same bounded tracking state. */
 	bool ShouldSuppress(
 		FName Channel,
 		bool bSelection,
@@ -102,6 +108,7 @@ private:
 			EOpenMobileHapticChannelPriority::Normal;
 		uint32 Signature = 0;
 
+		/** Compares every field that affects coalescing, including priority and caller signature. */
 		friend bool operator==(
 			const FEquivalentRequestKey& Left,
 			const FEquivalentRequestKey& Right
@@ -114,6 +121,7 @@ private:
 				&& Left.Signature == Right.Signature;
 		}
 
+		/** Hashes the same fields as equality so equivalent requests land in the right entry. */
 		friend uint32 GetTypeHash(const FEquivalentRequestKey& Key)
 		{
 			uint32 Hash = HashCombineFast(
@@ -135,16 +143,21 @@ private:
 		uint64 AccessSequence = 0;
 	};
 
+	/** Evaluates one already-sampled time while the mutex is held, clock rollback resets history before admission. */
 	FOpenMobileHapticsRateLimitDecision EvaluateAtLocked(
 		const FOpenMobileHapticsRateLimitRequest& Request,
 		const FOpenMobileHapticsRateLimitPolicy& Policy,
 		double TimeSeconds
 	);
+	/** Adds a channel with bounded least-recently-used eviction when tracking is full. */
 	FChannelState& FindOrAddChannel(FName Channel);
+	/** Adds effect timing state without allowing the map to grow past its hard cap. */
 	FEffectState& FindOrAddEffect(FName Effect);
+	/** Adds a coalescing key and evicts the oldest observed key when necessary. */
 	FEquivalentRequestState& FindOrAddEquivalentRequest(
 		const FEquivalentRequestKey& Key
 	);
+	/** Clears timing state while the caller already owns the mutex. */
 	void ResetLocked();
 
 	FClock Clock;

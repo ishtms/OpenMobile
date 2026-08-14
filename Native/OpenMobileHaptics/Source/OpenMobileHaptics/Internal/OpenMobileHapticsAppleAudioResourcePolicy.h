@@ -37,18 +37,21 @@ struct FOpenMobileHapticsAppleAudioResourceValidation
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsAppleAudioResourcePolicy final
 {
 public:
+	/** Cleans an AHAP audio path without allowing absolute paths or traversal outside the cooked resource set. */
 	static bool NormalizeRelativePath(
 		const FString& Path,
 		FString& OutNormalizedPath,
 		const FOpenMobileHapticsAppleAudioResourceLimits& Limits = {}
 	);
 
+	/** Confirms every referenced audio file is present exactly once and stays inside the configured size caps. */
 	static FOpenMobileHapticsAppleAudioResourceValidation Validate(
 		const TArray<FString>& ExpectedRelativePaths,
 		const TArray<FOpenMobileHapticIOSAudioResource>& Resources,
 		const FOpenMobileHapticsAppleAudioResourceLimits& Limits = {}
 	);
 
+	/** Gives importers the failed resource or rule, otherwise all validation failures would look identical. */
 	static FString DescribeError(
 		const FOpenMobileHapticsAppleAudioResourceValidation& Result
 	);

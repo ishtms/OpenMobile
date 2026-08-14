@@ -2,6 +2,7 @@ using UnrealBuildTool;
 
 public class OpenMobileHapticsEditor : ModuleRules
 {
+	/** Keeps asset editing, Blueprint checks, diagnostics, Slate, and preview transport out of packaged runtime modules. */
 	public OpenMobileHapticsEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

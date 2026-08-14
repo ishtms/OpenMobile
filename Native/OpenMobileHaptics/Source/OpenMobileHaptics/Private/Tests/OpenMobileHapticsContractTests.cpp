@@ -58,9 +58,11 @@
 
 namespace OpenMobileHapticsTests
 {
+	/** Exposes controllable backend results and captured callbacks so contract tests can drive lifecycle, ordering, and control races directly. */
 	class FMockBackend final : public IOpenMobileHapticsBackend
 	{
 	public:
+		/** Sets stable backend identity and priority while leaving every other behavior mutable. */
 		explicit FMockBackend(FName InName, int32 InPriority = 0)
 			: Name(InName)
 			, Priority(InPriority)
@@ -68,17 +70,23 @@ namespace OpenMobileHapticsTests
 			Capabilities.BackendName = Name;
 		}
 
+		/** Returns identity captured by tokens and registry selection checks. */
 		virtual FName GetBackendName() const override { return Name; }
+		/** Lets tests reorder registry selection without creating another backend type. */
 		virtual int32 GetPriority() const override { return Priority; }
+		/** Lets registration tests keep an unavailable backend present but unselected. */
 		virtual bool IsAvailable() const override { return bAvailable; }
+		/** Returns the mutable snapshot used to test capability refresh broadcasts. */
 		virtual FOpenMobileHapticCapabilities GetCapabilities() const override
 		{
 			return Capabilities;
 		}
+		/** Separates project setup failure from hardware capability in submission tests. */
 		virtual bool IsCustomPlaybackConfigured() const override
 		{
 			return bCustomPlaybackConfigured;
 		}
+		/** Counts the compatibility lifecycle hook and optionally swaps capability state. */
 		virtual void HandleLifecycleChange() override
 		{
 			++LifecycleChangeCount;
@@ -87,6 +95,7 @@ namespace OpenMobileHapticsTests
 				Capabilities = CapabilitiesAfterLifecycle;
 			}
 		}
+		/** Captures resolved application transition before simulating resource release or service refresh. */
 		virtual void HandleApplicationLifecycle(
 			const FOpenMobileHapticsLifecycleTransition& Transition
 		) override
@@ -107,6 +116,7 @@ namespace OpenMobileHapticsTests
 				Capabilities = CapabilitiesAfterLifecycle;
 			}
 		}
+		/** Captures interruption reason and releases mock preparation just as platform backends do. */
 		virtual void HandleInterruption(
 			EOpenMobileHapticsInterruptionReason Reason
 		) override
@@ -119,17 +129,20 @@ namespace OpenMobileHapticsTests
 			}
 			ReleasePreparedResources();
 		}
+		/** Returns the configured recovery outcome while counting registry retry attempts. */
 		virtual EOpenMobileHapticsRecoveryResult
 		RecoverFromInterruption() override
 		{
 			++RecoveryAttemptCount;
 			return RecoveryResult;
 		}
+		/** Exposes mutable preparation state for library and lifecycle contract tests. */
 		virtual EOpenMobileHapticPreparationState
 		GetPreparationState() const override
 		{
 			return PreparationState;
 		}
+		/** Captures the full preparation batch and publishes the configured result state. */
 		virtual FOpenMobileHapticsBackendPreparationResult PrepareResources(
 			const FOpenMobileHapticsBackendPreparationRequest& Request
 		) override
@@ -139,17 +152,20 @@ namespace OpenMobileHapticsTests
 			PreparationState = PreparationResult.State;
 			return PreparationResult;
 		}
+		/** Counts release and resets state so stale prepared data can't pass later assertions. */
 		virtual void ReleasePreparedResources() override
 		{
 			++ReleasePreparedResourcesCount;
 			PreparationState = EOpenMobileHapticPreparationState::Unprepared;
 		}
+		/** Returns backend-wide control flags selected by the current contract case. */
 		virtual FOpenMobileHapticsBackendControlSupport
 		GetControlSupport() const override
 		{
 			return ControlSupport;
 		}
 
+		/** Captures semantic resolution and timing, with optional native-policy suppression. */
 		virtual FOpenMobileHapticsBackendSubmission SubmitSemantic(
 			const FOpenMobileHapticSemanticRequest& Request,
 			const FOpenMobileHapticsSemanticResolution& Resolution,
@@ -177,6 +193,7 @@ namespace OpenMobileHapticsTests
 			return MakeSubmission(bScheduled, bScheduled, MoveTemp(Callback));
 		}
 
+		/** Captures one-shot routing and can inject busy admission before callback ownership exists. */
 		virtual FOpenMobileHapticsBackendSubmission SubmitOneShot(
 			const FOpenMobileHapticOneShotRequest& Request,
 			const FOpenMobileHapticsOneShotResolution& Resolution,
@@ -207,6 +224,7 @@ namespace OpenMobileHapticsTests
 			);
 		}
 
+		/** Captures named pattern payload and can reject it before a callback is retained. */
 		virtual FOpenMobileHapticsBackendSubmission SubmitNamedPattern(
 			const FOpenMobileHapticNamedPatternRequest& Request,
 			const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
@@ -231,6 +249,7 @@ namespace OpenMobileHapticsTests
 			return MakeSubmission(true, true, MoveTemp(Callback));
 		}
 
+		/** Records every stopped token so global and per-handle fallback can be asserted. */
 		virtual FOpenMobileHapticControlResult StopPlayback(
 			const FOpenMobileHapticsBackendRequestToken& Token
 		) override
@@ -245,6 +264,7 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		/** Captures pause token and revisioned command before returning configured implementation. */
 		virtual FOpenMobileHapticControlResult PausePlayback(
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			const FOpenMobileHapticsBackendControlCommand& Command
@@ -258,6 +278,7 @@ namespace OpenMobileHapticsTests
 			);
 		}
 
+		/** Captures resume command through the same result injection used by pause. */
 		virtual FOpenMobileHapticControlResult ResumePlayback(
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			const FOpenMobileHapticsBackendControlCommand& Command
@@ -271,6 +292,7 @@ namespace OpenMobileHapticsTests
 			);
 		}
 
+		/** Captures resolved seek position and revision without changing mock playback state. */
 		virtual FOpenMobileHapticControlResult SeekPlayback(
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			const FOpenMobileHapticsBackendControlCommand& Command
@@ -284,6 +306,7 @@ namespace OpenMobileHapticsTests
 			);
 		}
 
+		/** Captures live parameters and can inject unsupported or native-failure outcomes. */
 		virtual FOpenMobileHapticControlResult UpdatePlaybackParameters(
 			const FOpenMobileHapticsBackendRequestToken& Token,
 			const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -311,6 +334,7 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		/** Records channel stop and returns support from backend-wide control flags. */
 		virtual FOpenMobileHapticControlResult StopChannel(FName Channel) override
 		{
 			LastStoppedChannel = Channel;
@@ -322,6 +346,7 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		/** Counts global stop so subsystem fallback behavior can be compared with per-token stops. */
 		virtual FOpenMobileHapticControlResult StopAll() override
 		{
 			++StopAllCount;
@@ -332,11 +357,13 @@ namespace OpenMobileHapticsTests
 			return Result;
 		}
 
+		/** Records registry shutdown without destroying fixture state needed by assertions. */
 		virtual void BeginShutdown() override
 		{
 			++ShutdownCount;
 		}
 
+		/** Emits a simple playback state through one captured request stream. */
 		void Emit(
 			int32 PendingIndex,
 			EOpenMobileHapticPlaybackState State,
@@ -352,6 +379,7 @@ namespace OpenMobileHapticsTests
 			EmitEvent(PendingIndex, Sequence, MoveTemp(Event));
 		}
 
+		/** Emits a supplied event when a test needs exact evidence, timing, or error fields. */
 		void EmitEvent(
 			int32 PendingIndex,
 			uint64 Sequence,
@@ -369,6 +397,7 @@ namespace OpenMobileHapticsTests
 			PendingCallbacks[PendingIndex].Callback(Callback);
 		}
 
+		/** Reports retained backend callbacks so tests can prove cleanup released ownership. */
 		int32 GetPendingCallbackCount() const
 		{
 			return PendingCallbacks.Num();
@@ -451,6 +480,7 @@ namespace OpenMobileHapticsTests
 			FOpenMobileHapticsBackendEventCallback Callback;
 		};
 
+		/** Captures callback ownership and returns support flags selected by the current test setup. */
 		FOpenMobileHapticsBackendSubmission MakeSubmission(
 			bool bControllable,
 			bool bExpectsCallbacks,
@@ -487,6 +517,7 @@ namespace OpenMobileHapticsTests
 			return Submission;
 		}
 
+		/** Returns accepted control with the requested implementation while recording commands separately. */
 		FOpenMobileHapticControlResult MakePlaybackControlResult(
 			EOpenMobileHapticControlImplementation Implementation
 		) const

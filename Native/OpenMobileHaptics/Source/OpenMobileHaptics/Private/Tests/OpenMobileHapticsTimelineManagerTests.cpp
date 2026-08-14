@@ -6,6 +6,7 @@
 
 namespace OpenMobileHapticsTimelineManagerTests
 {
+	/** Builds one valid transient asset with adjustable intensity so cache-key tests can change source identity. */
 	UOpenMobileHapticPatternAsset* MakePattern(
 		float FirstIntensity = 0.4f
 	)
@@ -35,6 +36,7 @@ namespace OpenMobileHapticsTimelineManagerTests
 		return Pattern;
 	}
 
+	/** Returns enough Android waveform support for timeline translation and cache tests. */
 	FOpenMobileHapticCapabilities AndroidCapabilities()
 	{
 		FOpenMobileHapticCapabilities Capabilities;
@@ -46,6 +48,7 @@ namespace OpenMobileHapticsTimelineManagerTests
 		return Capabilities;
 	}
 
+	/** Returns enough Apple rich support for the same cache tests on the other translation path. */
 	FOpenMobileHapticCapabilities AppleCapabilities()
 	{
 		FOpenMobileHapticCapabilities Capabilities;

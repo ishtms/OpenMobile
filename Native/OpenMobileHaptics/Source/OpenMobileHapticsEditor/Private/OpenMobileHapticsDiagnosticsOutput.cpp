@@ -36,6 +36,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 #endif
 
 	template <typename EnumType>
+	/** Uses reflected enum names in exports so numeric storage changes don't alter diagnostic meaning. */
 	FString EnumName(EnumType Value)
 	{
 		const UEnum* Enum = StaticEnum<EnumType>();
@@ -44,6 +45,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 			: TEXT("Unknown");
 	}
 
+	/** Keeps human-readable severity labels stable across text and JSON output. */
 	FString SeverityName(EOpenMobileHapticsDiagnosticSeverity Severity)
 	{
 		switch (Severity)
@@ -60,6 +62,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return TEXT("Unknown");
 	}
 
+	/** Promotes failures that prevent playback while leaving policy and availability issues as warnings. */
 	EOpenMobileHapticsDiagnosticSeverity ErrorSeverity(
 		EOpenMobileHapticErrorCode Code
 	)
@@ -77,6 +80,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Builds one failed export result without leaving stale text or file state from a prior attempt. */
 	FOpenMobileHapticsDiagnosticsOutputResult MakeFailure(
 		EOpenMobileHapticsDiagnosticsOutputCode Code,
 		const TCHAR* Message
@@ -88,6 +92,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return Result;
 	}
 
+	/** Adds signed diagnostic counts without allowing overflow to turn them negative. */
 	void AddSaturated(int32& Target, int32 Value)
 	{
 		Target = static_cast<int32>(FMath::Min<int64>(
@@ -96,6 +101,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		));
 	}
 
+	/** Adds large counters with saturation for combined runtime and editor snapshots. */
 	void AddSaturated(int64& Target, int64 Value)
 	{
 		Target = Value > 0 && Target > MAX_int64 - Value
@@ -103,6 +109,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 			: Target + FMath::Max<int64>(0, Value);
 	}
 
+	/** Converts internal lifecycle state to a stable exported name. */
 	FName ApplicationStateName(EOpenMobileHapticsApplicationState State)
 	{
 		switch (State)
@@ -119,6 +126,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return TEXT("Unknown");
 	}
 
+	/** Removes file paths when requested and bounds exported text before it leaves the editor. */
 	FString SafeString(
 		const FString& Value,
 		bool bIncludeFilePaths,
@@ -153,6 +161,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return Result;
 	}
 
+	/** Replaces project identifiers with stable aliases unless the caller explicitly includes names. */
 	FString NameForExport(
 		FName Name,
 		const TCHAR* Prefix,
@@ -216,6 +225,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		Issue.bSubjectIsImportedMetadata = bSubjectIsImportedMetadata;
 	}
 
+	/** Extracts a leading package or OS version while tolerating ordinary suffix text. */
 	int32 ParseVersionNumber(const FString& Value)
 	{
 		FString Digits;
@@ -235,6 +245,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return Digits.IsEmpty() ? 0 : FCString::Atoi(*Digits);
 	}
 
+	/** Finds invalid or risky project settings using the same ranges enforced by runtime policies. */
 	void CheckSettings(
 		const UOpenMobileHapticsSettings& Settings,
 		FOpenMobileHapticsDiagnosticSnapshot& Snapshot
@@ -284,6 +295,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Verifies Android plugin files and configuration needed for the selected custom vibration features. */
 	void CheckAndroidPackaging(
 		const UOpenMobileHapticsSettings& Settings,
 		const FString& PluginDirectory,
@@ -359,6 +371,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Verifies Apple framework and project configuration needed by Core Haptics and AHAP playback. */
 	void CheckApplePackaging(
 		const UOpenMobileHapticsSettings& Settings,
 		const FString& PluginDirectory,
@@ -413,6 +426,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Scans Haptics assets for validation failures and override problems without loading unrelated content. */
 	void CheckAssets(
 		const UOpenMobileHapticsSettings& Settings,
 		FOpenMobileHapticsDiagnosticSnapshot& Snapshot
@@ -523,6 +537,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Adds receiver configuration warnings only when device preview support is present in the project. */
 	void CheckPreviewReceivers(
 		FOpenMobileHapticsDiagnosticSnapshot& Snapshot
 	)
@@ -562,6 +577,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Merges live subsystem counters, errors, history, and channels into one bounded editor snapshot. */
 	void MergeDiagnostics(
 		const FOpenMobileHapticsDiagnostics& Source,
 		FOpenMobileHapticsDiagnosticSnapshot& Snapshot,
@@ -714,6 +730,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		}
 	}
 
+	/** Writes diagnostics through the platform clipboard only after successful export formatting. */
 	bool WriteClipboard(const FString& Text)
 	{
 #if WITH_DEV_AUTOMATION_TESTS
@@ -726,6 +743,7 @@ namespace OpenMobileHapticsDiagnosticsOutputPrivate
 		return true;
 	}
 
+	/** Creates parent directories and writes UTF-8 diagnostics only to the caller's explicit path. */
 	bool WriteFile(const FString& FilePath, const FString& Text)
 	{
 #if WITH_DEV_AUTOMATION_TESTS

@@ -4,6 +4,7 @@
 
 namespace OpenMobileHapticsFallbackPolicyPrivate
 {
+	/** Returns stable route names used in fallback traces and public playback results. */
 	FName PathName(EOpenMobileHapticsFallbackPath Path)
 	{
 		switch (Path)
@@ -25,6 +26,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 		}
 	}
 
+	/** Appends one attempted route and marks selected state in the same record. */
 	void AddAttempt(
 		FOpenMobileHapticsFallbackResolution& Resolution,
 		EOpenMobileHapticsFallbackPath Path,
@@ -41,6 +43,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 		}
 	}
 
+	/** Checks a named support entry when backend capability probing supplied per-feature detail. */
 	bool IsDetailedSupportAvailable(
 		FName Name,
 		const TArray<FOpenMobileHapticNamedSupport>& Support
@@ -57,6 +60,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 		return false;
 	}
 
+	/** Separates an explicit unsupported entry from a backend that didn't report this feature at all. */
 	bool HasDetailedSupportEntry(
 		FName Name,
 		const TArray<FOpenMobileHapticNamedSupport>& Support
@@ -70,6 +74,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 		);
 	}
 
+	/** Uses detailed support when present and falls back to overall capability only when the name wasn't reported. */
 	bool SupportsNamedFallback(
 		FName Name,
 		const FOpenMobileHapticCapabilities& Capabilities
@@ -96,6 +101,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 				== EOpenMobileHapticSupportState::Supported;
 	}
 
+	/** Requires cooked rich events and the platform features needed to translate them faithfully. */
 	bool SupportsPortableRich(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticCapabilities& Capabilities
@@ -130,6 +136,7 @@ namespace OpenMobileHapticsFallbackPolicyPrivate
 		return true;
 	}
 
+	/** Applies request policy and asset fallback floor before a lower route is even attempted. */
 	bool AllowsStep(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		EOpenMobileHapticsFallbackPath Path,

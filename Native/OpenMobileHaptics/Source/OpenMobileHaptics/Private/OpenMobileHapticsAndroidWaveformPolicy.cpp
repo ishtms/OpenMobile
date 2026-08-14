@@ -17,6 +17,7 @@ namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
 		int32 Delta = 0;
 	};
 
+	/** Converts an unavailable rich waveform to fallback or rejection according to the request policy. */
 	FOpenMobileHapticsAndroidWaveformResolution Unavailable(
 		EOpenMobileHapticFallbackPolicy FallbackPolicy,
 		FName Reason
@@ -31,6 +32,7 @@ namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
 		return Resolution;
 	}
 
+	/** Builds a terminal waveform rejection with no leftover segment data. */
 	FOpenMobileHapticsAndroidWaveformResolution Rejected(FName Reason)
 	{
 		FOpenMobileHapticsAndroidWaveformResolution Resolution;
@@ -38,6 +40,7 @@ namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
 		return Resolution;
 	}
 
+	/** Scales cooked amplitude for the request and uses Android's default sentinel when hardware can't control amplitude. */
 	int32 ScaleNormalizedAmplitude(
 		float SourceAmplitude,
 		float RequestIntensity,
@@ -61,11 +64,13 @@ namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
 		);
 	}
 
+	/** Rounds positive cooked timing up to one millisecond so a short event doesn't vanish on Android. */
 	int64 MillisecondsFromMicroseconds(uint32 Microseconds)
 	{
 		return static_cast<int64>(Microseconds + 500U) / 1000LL;
 	}
 
+	/** Coalesces adjacent segments with equal amplitude unless a caller needs a repeat or event split retained. */
 	void AppendSegment(
 		FOpenMobileHapticsAndroidWaveformResolution& Resolution,
 		int64 DurationMilliseconds,
@@ -87,6 +92,7 @@ namespace OpenMobileHapticsAndroidWaveformPolicyPrivate
 		Resolution.Amplitudes.Add(Amplitude);
 	}
 
+	/** Selects the highest active amplitude while overlapping portable events are flattened into one vibrator waveform. */
 	int32 FindActiveAmplitude(const TArray<int32>& ActiveCounts)
 	{
 		for (int32 Amplitude = ActiveCounts.Num() - 1;

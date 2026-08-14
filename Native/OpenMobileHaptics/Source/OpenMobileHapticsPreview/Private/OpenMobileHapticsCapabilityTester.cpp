@@ -14,6 +14,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 	constexpr int32 MaximumOutputBytes = 64 * 1024;
 
 	template <typename EnumType>
+	/** Uses reflected enum names so captured snapshots remain readable when numeric values aren't known to the tool. */
 	FString EnumName(EnumType Value)
 	{
 		const UEnum* Enum = StaticEnum<EnumType>();
@@ -22,6 +23,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 			: TEXT("Unknown");
 	}
 
+	/** Removes control characters and bounds device-provided names before snapshots display or serialize them. */
 	FString SafeName(const FString& Value, bool& bTruncated)
 	{
 		FString Result;
@@ -48,6 +50,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		return Result;
 	}
 
+	/** Allows only the fixed preset and primitive names the public capability contract defines. */
 	bool IsKnownNativeSupportName(FName Name)
 	{
 		static const TSet<FName> Names = {
@@ -65,6 +68,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		return Names.Contains(Name);
 	}
 
+	/** Adds one support entry with a stable name and reflected state label. */
 	void AddFeature(
 		FOpenMobileHapticsCapabilityTesterSnapshot& Snapshot,
 		const TCHAR* Name,
@@ -74,6 +78,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		Snapshot.FeatureSupport.Add({Name, State});
 	}
 
+	/** Adds a limit only when backend probing marked it known, unknown values shouldn't look like zero support. */
 	void AddIntegerLimit(
 		FOpenMobileHapticsCapabilityTesterSnapshot& Snapshot,
 		const TCHAR* Name,
@@ -88,6 +93,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		});
 	}
 
+	/** Formats known duration limits in milliseconds while retaining their original support knowledge. */
 	void AddDurationLimit(
 		FOpenMobileHapticsCapabilityTesterSnapshot& Snapshot,
 		const TCHAR* Name,
@@ -102,6 +108,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		});
 	}
 
+	/** Reduces the full capability set to a sanitised native tier useful in device comparison reports. */
 	FString NativeTier(const FOpenMobileHapticCapabilities& Capabilities)
 	{
 		const FString Backend = Capabilities.BackendName.ToString();
@@ -146,6 +153,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		return Backend.IsEmpty() ? TEXT("Unavailable") : TEXT("ProviderDefined");
 	}
 
+	/** Separates ready, unavailable, disabled, and recovering runtime states without exposing backend error text. */
 	FString EngineState(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		const FOpenMobileHapticsDiagnostics& Diagnostics
@@ -180,6 +188,7 @@ namespace OpenMobileHapticsCapabilityTesterPrivate
 		}
 	}
 
+	/** Serializes one support item with only its stable name and state. */
 	TSharedPtr<FJsonValue> SupportJson(
 		const FOpenMobileHapticsCapabilityTesterSupport& Support
 	)

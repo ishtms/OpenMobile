@@ -39,11 +39,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 
 	struct FRetainedHapticPattern
 	{
+		/** Retains a prepared native pattern across Objective-C autorelease pools owned by later playback calls. */
 		explicit FRetainedHapticPattern(CHHapticPattern* InPattern)
 			: Pattern([InPattern retain])
 		{
 		}
 
+		/** Balances the explicit retain when prepared cache state is replaced or evicted. */
 		~FRetainedHapticPattern()
 		{
 			[Pattern release];
@@ -52,6 +54,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		CHHapticPattern* Pattern = nil;
 	};
 
+	/** Rechecks cooked AHAP audio paths before writing temporary files, native file APIs mustn't trust imported relative paths. */
 	bool IsSafeAudioResourcePath(const FString& RelativePath)
 	{
 		if (RelativePath.IsEmpty()
@@ -84,6 +87,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			|| Extension == TEXT("aiff");
 	}
 
+	/** Enforces per-file, total-byte, count, path, and duplicate limits before disk preparation starts. */
 	bool ValidateAudioResources(
 		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
 		int64& OutTotalBytes
@@ -116,6 +120,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return true;
 	}
 
+	/** Writes normalized AHAP and audio bytes to one private temporary directory, cleaning partial output on any failure. */
 	void PrepareAHAPFiles(
 		const FOpenMobileHapticsAppleAHAPPattern& Pattern,
 		FPreparedAHAPFiles& Result
@@ -191,6 +196,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		}
 	}
 
+	/** Keeps finite inclusive range validation shared by patterns, curves, schedules, and live parameters. */
 	bool IsFiniteInRange(double Value, double Minimum, double Maximum)
 	{
 		return FMath::IsFinite(Value)
@@ -198,6 +204,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			&& Value <= Maximum;
 	}
 
+	/** Requires at least one finite live parameter before Core Haptics receives an update. */
 	bool ValidateDynamicParameters(
 		const FOpenMobileHapticDynamicParameterUpdate& Update
 	)
@@ -215,6 +222,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			|| IsFiniteInRange(Update.Sharpness, 0.0, 1.0);
 	}
 
+	/** Builds and sends Core Haptics dynamic parameters immediately, including sharpness conversion to Apple's signed range. */
 	bool SendDynamicParameters(
 		id<CHHapticPatternPlayer> Player,
 		const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -257,6 +265,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return bSent;
 	}
 
+	/** Returns advanced player support only after Objective-C protocol conformance is confirmed. */
 	id<CHHapticAdvancedPatternPlayer> AsAdvancedPlayer(
 		id<CHHapticPatternPlayer> Player
 	)
@@ -267,6 +276,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 				: nil;
 	}
 
+	/** Replaces completion delivery before a player is stopped or released so stale blocks can't complete playback twice. */
 	void ClearCompletionHandler(id<CHHapticPatternPlayer> Player)
 	{
 		id<CHHapticAdvancedPatternPlayer> Advanced = AsAdvancedPlayer(Player);
@@ -279,6 +289,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		}
 	}
 
+	/** Revalidates translated continuous events and curves before Objective-C objects are allocated. */
 	bool ValidateContinuousPattern(
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern
 	)
@@ -429,6 +440,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return bHasContinuousEvent;
 	}
 
+	/** Creates a Core Haptics transient pattern only after paired arrays and normalized values pass native checks. */
 	CHHapticPattern* CreateTransientPattern(
 		const FOpenMobileHapticsAppleTransientPattern& Pattern
 	)
@@ -498,6 +510,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		return NativePattern;
 	}
 
+	/** Creates Core Haptics events and curves from the already validated continuous translation. */
 	CHHapticPattern* CreateContinuousPattern(
 		const FOpenMobileHapticsAppleContinuousPattern& Pattern
 	)
@@ -659,46 +672,62 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	> EventCallback;
 }
 
+/** Uses UIKit's semantic generators for immediate feedback when Core Haptics player control isn't needed. */
 - (void)playBehavior:(EOpenMobileHapticsSemanticBehavior)Behavior
 	intensity:(CGFloat)Intensity;
+/** Warms UIKit generators and records their idle release deadline. */
 - (EOpenMobileHapticsAppleSubmissionResult)prepareSemanticGenerators:
 	(double)IdleLifetimeSeconds;
+/** Caches a validated transient native pattern under the shared count and byte limits. */
 - (EOpenMobileHapticsAppleSubmissionResult)prepareTransientPattern:
 	(uint64)ResourceId
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
 	estimatedBytes:(int64)EstimatedBytes
 	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+/** Caches a validated continuous native pattern using the same prepared-resource budget. */
 - (EOpenMobileHapticsAppleSubmissionResult)prepareContinuousPattern:
 	(uint64)ResourceId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
 	estimatedBytes:(int64)EstimatedBytes
 	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+/** Releases cached native patterns while leaving active players and engine state intact. */
 - (void)releasePreparedResources;
+/** Evicts prepared players that exceeded idle lifetime before count or byte pressure is considered. */
 - (void)prunePreparedPatterns:(double)CurrentTimeSeconds;
+/** Replaces or inserts a prepared pattern and evicts least-recently-used entries till limits fit. */
 - (void)storePreparedPattern:(CHHapticPattern*)Pattern
 	resourceId:(uint64)ResourceId
 	estimatedBytes:(int64)EstimatedBytes
 	limits:(const FOpenMobileHapticsPreparedResourceLimits&)Limits;
+/** Returns and touches one prepared pattern so recent playback protects it from early eviction. */
 - (CHHapticPattern*)preparedPattern:(uint64)ResourceId;
+/** Uses the ordinary system vibration route for devices or policies that selected basic feedback. */
 - (void)playSystemVibration;
+/** Registers one guarded timer and retains its action only till start, cancellation, or expiry. */
 - (EOpenMobileHapticsAppleSubmissionResult)scheduleRequest:
 	(uint64)RequestId
 	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
 	action:(OpenMobileHapticsIOSBridgePrivate::FScheduledStartAction)Action
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Rechecks lifecycle and lateness at timer fire before moving the retained start action. */
 - (void)handleScheduledStartTimer:(NSTimer*)Timer;
+/** Cancels one timer and completes its retained callback as interrupted. */
 - (bool)cancelScheduledStart:(uint64)RequestId;
+/** Wraps UIKit semantic playback in the common guarded scheduling path. */
 - (EOpenMobileHapticsAppleSubmissionResult)playScheduledBehavior:
 	(uint64)RequestId
 	behavior:(EOpenMobileHapticsSemanticBehavior)Behavior
 	intensity:(CGFloat)Intensity
 	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Wraps system vibration in scheduling even though the underlying API has no completion callback. */
 - (EOpenMobileHapticsAppleSubmissionResult)playScheduledSystemVibration:
 	(uint64)RequestId
 	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Creates and starts Core Haptics engine with interruption, reset, and audio-session handlers connected. */
 - (EOpenMobileHapticsAppleEngineResult)createEngine;
+/** Starts transient playback from prepared or newly created pattern and binds one terminal callback. */
 - (EOpenMobileHapticsAppleSubmissionResult)playTransientPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
@@ -706,6 +735,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Starts continuous playback with looping, initial parameters, and safety timing applied before start. */
 - (EOpenMobileHapticsAppleSubmissionResult)playContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
@@ -713,6 +743,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Defers transient player creation through the guarded scheduling record. */
 - (EOpenMobileHapticsAppleSubmissionResult)playScheduledTransientPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleTransientPattern&)Pattern
@@ -721,6 +752,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Defers continuous player creation while preserving its prepared resource and initial parameters. */
 - (EOpenMobileHapticsAppleSubmissionResult)playScheduledContinuousPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleContinuousPattern&)Pattern
@@ -729,53 +761,75 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		(const FOpenMobileHapticDynamicParameterUpdate*)InitialParameters
 	preparedResourceId:(uint64)PreparedResourceId
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Starts AHAP immediately after resource validation and temporary-file preparation. */
 - (EOpenMobileHapticsAppleSubmissionResult)playAHAPPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Prepares AHAP resources now but delays native player start through a guarded schedule. */
 - (EOpenMobileHapticsAppleSubmissionResult)playScheduledAHAPPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
 	schedule:(const FOpenMobileHapticsApplePlaybackSchedule&)Schedule
 	callback:(FOpenMobileHapticsApplePlaybackEventCallback)Callback;
+/** Creates, registers, and starts the AHAP player after its native pattern is ready. */
 - (EOpenMobileHapticsAppleSubmissionResult)startAHAPPattern:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
 	nativePattern:(CHHapticPattern*)NativePattern;
+/** Completes background AHAP file loading only when request and preparation generations are still current. */
 - (void)finishAHAPPreparation:
 	(uint64)RequestId
 	pattern:(const FOpenMobileHapticsAppleAHAPPattern&)Pattern
 	files:(const OpenMobileHapticsIOSBridgePrivate::FPreparedAHAPFiles&)Files
 	generation:(NSUInteger)Generation;
+/** Removes temporary files and byte accounting owned by one finished AHAP request. */
 - (void)releaseAudioResourcesForRequest:(uint64)RequestId;
+/** Completes playback when its safety deadline fires and native completion never arrived. */
 - (void)handleSafetyTimer:(NSTimer*)Timer;
+/** Invalidates one safety timer and removes its deadline state together. */
 - (void)cancelSafetyTimerForKey:(NSNumber*)Key;
+/** Stores remaining safety duration before pausing a controllable player. */
 - (void)pauseSafetyTimerForKey:(NSNumber*)Key;
+/** Restarts a paused safety timer from its retained remaining duration. */
 - (bool)resumeSafetyTimerForKey:(NSNumber*)Key;
+/** Stops one player, scheduled request, or pending AHAP preparation by request id. */
 - (EOpenMobileHapticsAppleSubmissionResult)stopPattern:(uint64)RequestId;
+/** Pauses an advanced player and its safety timer together. */
 - (EOpenMobileHapticsAppleSubmissionResult)pausePattern:(uint64)RequestId;
+/** Resumes an advanced player only after its safety timer can be restored. */
 - (EOpenMobileHapticsAppleSubmissionResult)resumePattern:(uint64)RequestId;
+/** Seeks an advanced player to a finite accepted position and retains playback ownership. */
 - (EOpenMobileHapticsAppleSubmissionResult)seekPattern:
 	(uint64)RequestId
 	positionSeconds:(double)PositionSeconds;
+/** Sends validated live parameters to the player owned by one request id. */
 - (EOpenMobileHapticsAppleSubmissionResult)updatePattern:
 	(uint64)RequestId
 	parameters:(const FOpenMobileHapticDynamicParameterUpdate&)Update;
+/** Removes one player's native and timer state before invoking its terminal callback. */
 - (void)completePattern:(uint64)RequestId
 	event:(EOpenMobileHapticsApplePlaybackEvent)Event;
+/** Moves every callback out before broadcasting one shared terminal event, callbacks may re-enter service code. */
 - (void)completeAllPatternsWithEvent:
 	(EOpenMobileHapticsApplePlaybackEvent)Event;
+/** Completes every active request as failed after an engine error. */
 - (void)failAllPatterns;
+/** Completes every active request as interrupted after lifecycle or audio-session loss. */
 - (void)interruptAllPatterns;
+/** Invalidates engine and prepared state when the active audio route changes. */
 - (void)handleAudioSessionChange:(NSNotification*)Notification;
+/** Replaces the thread-safe engine callback and allows shutdown to clear it. */
 - (void)setEventCallback:
 	(FOpenMobileHapticsAppleBridgeEventCallback)Callback;
+/** Seals generations, stops players, removes observers, clears files, and releases native objects exactly once. */
 - (void)releaseObjects;
 
 @end
 
 @implementation OpenMobileHapticsAppleNativeService
 
+/** Initializes bounded cache and callback containers before any engine or generator is created. */
 - (instancetype)init
 {
 	self = [super init];
@@ -806,6 +860,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	return self;
 }
 
+/** Copies the engine callback under its mutex, then invokes outside the lock because receiver code may re-enter. */
 - (void)emitEvent:(EOpenMobileHapticsAppleBridgeEvent)Event
 {
 	TSharedPtr<
@@ -2635,6 +2690,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		: EOpenMobileHapticsAppleSubmissionResult::NativeFailure;
 }
 
+/** Releases UIKit generators separately so idle pruning doesn't disturb Core Haptics players. */
 - (void)releaseGenerators
 {
 	[SelectionGenerator release];
@@ -2721,6 +2777,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 	}
 }
 
+/** Runs the idempotent release path before Objective-C object memory is reclaimed. */
 - (void)dealloc
 {
 	[self releaseObjects];
@@ -2732,6 +2789,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 namespace OpenMobileHapticsIOSBridgePrivate
 {
 	template <typename CallableType>
+	/** Executes Core Haptics work synchronously on main queue because UIKit and engine state are owned there. */
 	void RunOnMainQueue(CallableType&& Callable)
 	{
 		if ([NSThread isMainThread])
@@ -2748,6 +2806,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		: public IOpenMobileHapticsAppleBridge
 	{
 	public:
+		/** Owns one Objective-C native service and keeps all calls behind the C++ bridge interface. */
 		FOpenMobileHapticsIOSBridge()
 			: NativeService(
 				[[OpenMobileHapticsAppleNativeService alloc] init]
@@ -2755,11 +2814,13 @@ namespace OpenMobileHapticsIOSBridgePrivate
 		{
 		}
 
+		/** Reuses idempotent shutdown so native service can't outlive the C++ bridge. */
 		virtual ~FOpenMobileHapticsIOSBridge() override
 		{
 			Shutdown();
 		}
 
+		/** Queries hardware inside autorelease pool and reports simulator as explicitly unsupported. */
 		virtual FOpenMobileHapticsAppleHardwareProbe
 		QueryHardware() override
 		{
@@ -2799,6 +2860,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Probe;
 		}
 
+		/** Marshals engine creation synchronously to main queue and returns its actual native result. */
 		virtual EOpenMobileHapticsAppleEngineResult CreateEngine() override
 		{
 			if (!NativeService)
@@ -2815,6 +2877,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Marshals semantic generator preparation to the native service's main-thread state. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareSemanticGenerators(double IdleLifetimeSeconds) override
 		{
@@ -2833,6 +2896,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Keeps transient pattern references valid during synchronous main-queue preparation. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareTransientPattern(
 			uint64 ResourceId,
@@ -2862,6 +2926,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Keeps continuous pattern and cache limits borrowed only for the synchronous bridge call. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareContinuousPattern(
 			uint64 ResourceId,
@@ -2891,6 +2956,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Retains native service across async main-queue semantic playback, then releases it inside the block. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 			EOpenMobileHapticsSemanticBehavior Behavior,
 			float Intensity
@@ -2909,6 +2975,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Retains native service across async system vibration for the same shutdown safety. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlaySystemVibration() override
 		{
@@ -2925,6 +2992,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Moves scheduled semantic callback only inside the synchronous main-thread service call. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
 			uint64 RequestId,
 			EOpenMobileHapticsSemanticBehavior Behavior,
@@ -2953,6 +3021,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards guarded system vibration scheduling and returns before callback can escape unowned. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledSystemVibration(
 			uint64 RequestId,
@@ -2977,6 +3046,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Borrows transient payload during synchronous service submission and moves callback exactly once. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -3007,6 +3077,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards scheduled transient with schedule, initial parameters, and prepared id in one main-queue call. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledTransientPattern(
 			uint64 RequestId,
@@ -3040,6 +3111,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards scheduled continuous playback without retaining caller references after the synchronous block. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledContinuousPattern(
 			uint64 RequestId,
@@ -3073,6 +3145,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards immediate continuous playback and callback ownership through the main-thread service. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
@@ -3103,6 +3176,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards immediate AHAP and moves terminal callback only after service lifetime is checked. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -3128,6 +3202,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Forwards scheduled AHAP through the same synchronous main-queue ownership handoff. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -3155,6 +3230,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Marshals stop to main queue so player dictionaries and timers stay single-thread owned. */
 		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 			uint64 RequestId
 		) override
@@ -3173,6 +3249,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Marshals pause to the native service and returns its exact player support result. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PausePattern(
 			uint64 RequestId
 		) override
@@ -3191,6 +3268,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Marshals resume to the native service without recreating a missing player. */
 		virtual EOpenMobileHapticsAppleSubmissionResult ResumePattern(
 			uint64 RequestId
 		) override
@@ -3209,6 +3287,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Marshals the validated seek position to the service's main-thread player map. */
 		virtual EOpenMobileHapticsAppleSubmissionResult SeekPattern(
 			uint64 RequestId,
 			double PositionSeconds
@@ -3232,6 +3311,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Borrows live parameter data only for the synchronous main-thread update call. */
 		virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
 			uint64 RequestId,
 			const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -3253,6 +3333,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			return Result;
 		}
 
+		/** Replaces engine callback directly, the service owns its own thread-safe callback storage. */
 		virtual void SetEventCallback(
 			FOpenMobileHapticsAppleBridgeEventCallback Callback
 		) override
@@ -3263,6 +3344,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			}
 		}
 
+		/** Clears prepared players on main queue while keeping service and engine alive. */
 		virtual void ReleasePreparedResources() override
 		{
 			if (!NativeService)
@@ -3276,6 +3358,7 @@ namespace OpenMobileHapticsIOSBridgePrivate
 			});
 		}
 
+		/** Swaps service pointer to nil first, then releases native objects on main queue exactly once. */
 		virtual void Shutdown() override
 		{
 			OpenMobileHapticsAppleNativeService* Service = NativeService;

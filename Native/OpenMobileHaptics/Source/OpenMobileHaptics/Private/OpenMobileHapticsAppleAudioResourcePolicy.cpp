@@ -4,6 +4,7 @@
 
 namespace OpenMobileHapticsAppleAudioResourcePolicyPrivate
 {
+	/** Accepts only audio containers Core Haptics can register from cooked bytes. */
 	bool IsSupportedFormat(const FString& Path)
 	{
 		const FString Extension = FPaths::GetExtension(Path).ToLower();
@@ -13,6 +14,7 @@ namespace OpenMobileHapticsAppleAudioResourcePolicyPrivate
 			|| Extension == TEXT("aiff");
 	}
 
+	/** Normalizes separators and rejects traversal, absolute roots, empty segments, and oversized relative paths. */
 	bool NormalizePathStructure(
 		const FString& Path,
 		FString& OutNormalizedPath,
@@ -47,6 +49,7 @@ namespace OpenMobileHapticsAppleAudioResourcePolicyPrivate
 		return true;
 	}
 
+	/** Preserves failed path and accumulated bytes so import feedback can point to the actual resource. */
 	FOpenMobileHapticsAppleAudioResourceValidation Fail(
 		EOpenMobileHapticsAppleAudioResourceError Error,
 		FString RelativePath,
@@ -60,6 +63,7 @@ namespace OpenMobileHapticsAppleAudioResourcePolicyPrivate
 		return Result;
 	}
 
+	/** Checks container magic without reading past short imported data. */
 	bool HasBytes(
 		const TArray<uint8>& Data,
 		int32 Offset,
@@ -81,6 +85,7 @@ namespace OpenMobileHapticsAppleAudioResourcePolicyPrivate
 		return true;
 	}
 
+	/** Matches extension and file signature together, renamed arbitrary files shouldn't reach native audio registration. */
 	bool IsValidContainer(const FString& Path, const TArray<uint8>& Data)
 	{
 		const FString Extension = FPaths::GetExtension(Path).ToLower();

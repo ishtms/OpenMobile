@@ -60,28 +60,34 @@ public final class OpenMobileHapticsBridgeV1 {
     private static boolean activityCallbacksRegistered;
     private static final Application.ActivityLifecycleCallbacks
         ACTIVITY_CALLBACKS = new Application.ActivityLifecycleCallbacks() {
+            /** Captures the first activity identity early, some games submit feedback before resume arrives. */
             @Override
             public void onActivityCreated(Activity activity, Bundle state) {
                 trackActivity(activity);
             }
 
+            /** Needs no action here, creation and resume are the points that can replace activity identity. */
             @Override
             public void onActivityStarted(Activity activity) {
             }
 
+            /** Refreshes weak activity ownership when Android brings a new or recreated activity to foreground. */
             @Override
             public void onActivityResumed(Activity activity) {
                 trackActivity(activity);
             }
 
+            /** Leaves active requests alone during temporary pause, background policy is handled on native side. */
             @Override
             public void onActivityPaused(Activity activity) {
             }
 
+            /** Doesn't clear identity on stop because Android may resume the same activity instance. */
             @Override
             public void onActivityStopped(Activity activity) {
             }
 
+            /** Stores no Java-side state, all playback state has its own bounded records. */
             @Override
             public void onActivitySaveInstanceState(
                 Activity activity,
@@ -89,6 +95,7 @@ public final class OpenMobileHapticsBridgeV1 {
             ) {
             }
 
+            /** Keeps only weak activity ownership, so destruction itself needs no reference cleanup here. */
             @Override
             public void onActivityDestroyed(Activity activity) {
             }
@@ -107,6 +114,7 @@ public final class OpenMobileHapticsBridgeV1 {
     private static long preparedWaveformIdleMillis = 30000L;
 
     private interface ScheduledPlayback {
+        /** Runs the accepted vibrator call only after delayed-start lifecycle checks pass. */
         int play(Activity activity);
     }
 
@@ -116,6 +124,7 @@ public final class OpenMobileHapticsBridgeV1 {
         final long estimatedBytes;
         long lastAccessMillis;
 
+        /** Retains one immutable effect with its byte estimate and least-recently-used clock. */
         PreparedWaveform(
             VibrationEffect effect,
             boolean usedDefaultAmplitude,
@@ -139,6 +148,7 @@ public final class OpenMobileHapticsBridgeV1 {
         boolean started;
         boolean paused;
 
+        /** Binds controlled output to one weak activity and request id before callbacks are scheduled. */
         ControlledWaveform(Activity owner, long id) {
             requestId = id;
             activity = new WeakReference<Activity>(owner);
@@ -164,6 +174,7 @@ public final class OpenMobileHapticsBridgeV1 {
         final Method waveformAddControlPoint;
         final Method waveformBuild;
 
+        /** Resolves API 36 envelope classes by reflection so older Android runtimes can still load this bridge class. */
         EnvelopeApi36() throws ReflectiveOperationException {
             areEnvelopeEffectsSupported = Vibrator.class.getMethod(
                 "areEnvelopeEffectsSupported"
@@ -229,9 +240,11 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Prevents instances, all bridge ownership is process-wide and reached through JNI static methods. */
     private OpenMobileHapticsBridgeV1() {
     }
 
+    /** Posts one delayed start on main looper and rechecks native lifecycle before invoking its vibrator route. */
     private static int schedulePlayback(
         Activity activity,
         final long requestId,
@@ -247,6 +260,7 @@ public final class OpenMobileHapticsBridgeV1 {
         final WeakReference<Activity> weakActivity =
             new WeakReference<Activity>(activity);
         final Runnable request = new Runnable() {
+            /** Removes its own request before start so cancellation and duplicate handler delivery stay harmless. */
             @Override
             public void run() {
                 if (SCHEDULED_REQUESTS.remove(requestId) != this) {
@@ -280,6 +294,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return RESULT_PENDING;
     }
 
+    /** Removes a delayed runnable by request id before it can ask native code for start permission. */
     static boolean cancelScheduledRequest(long requestId) {
         Runnable request = SCHEDULED_REQUESTS.remove(requestId);
         if (request == null) {
@@ -289,6 +304,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return true;
     }
 
+    /** Removes every delayed runnable during interruption or shutdown without firing completion from Java. */
     private static void cancelScheduledRequests() {
         for (Map.Entry<Long, Runnable> entry : SCHEDULED_REQUESTS.entrySet()) {
             SCHEDULED_HANDLER.removeCallbacks(entry.getValue());
@@ -296,6 +312,7 @@ public final class OpenMobileHapticsBridgeV1 {
         SCHEDULED_REQUESTS.clear();
     }
 
+    /** Posts revisioned control state back to native in sequence order on the main handler. */
     private static void emitControlledWaveformEvent(
         ControlledWaveform state,
         int event
@@ -305,6 +322,7 @@ public final class OpenMobileHapticsBridgeV1 {
         final long eventSequence = ++state.eventSequence;
         final int controlledEvent = event;
         SCHEDULED_HANDLER.post(new Runnable() {
+            /** Forwards one captured revision and sequence without reading mutable control state again. */
             @Override
             public void run() {
                 incrementBounded(callbackCount);
@@ -321,6 +339,7 @@ public final class OpenMobileHapticsBridgeV1 {
         });
     }
 
+    /** Detaches start and completion runnables together so an old state can't finish after replacement. */
     private static void removeControlledCallbacks(ControlledWaveform state) {
         if (state.startRunnable != null) {
             SCHEDULED_HANDLER.removeCallbacks(state.startRunnable);
@@ -332,6 +351,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Cancels the vibrator tied to controlled state while tolerating activity loss and permission failures. */
     private static void cancelControlledOutput(ControlledWaveform state) {
         Activity activity = state.activity.get();
         try {
@@ -344,6 +364,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Clears the current control owner and optionally cancels output or emits one terminal event while its lock is held. */
     private static void finishControlledWaveformLocked(
         ControlledWaveform state,
         int event,
@@ -363,6 +384,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Ends the active controlled waveform when activity or native service ownership changes. */
     private static void interruptControlledWaveform() {
         synchronized (CONTROLLED_WAVEFORM_LOCK) {
             if (controlledWaveform != null) {
@@ -376,6 +398,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Starts prepared or inline waveform output and installs one bounded completion runnable under the control lock. */
     private static int startControlledOutputLocked(
         final ControlledWaveform state,
         long preparedResourceId,
@@ -430,6 +453,7 @@ public final class OpenMobileHapticsBridgeV1 {
             state.paused = false;
             final long expectedRevision = state.controlRevision;
             state.completionRunnable = new Runnable() {
+                /** Completes only the same active revision, a pause or later control command makes this runnable stale. */
                 @Override
                 public void run() {
                     synchronized (CONTROLLED_WAVEFORM_LOCK) {
@@ -460,6 +484,7 @@ public final class OpenMobileHapticsBridgeV1 {
             if (emitStarted) {
                 final long startedRevision = state.controlRevision;
                 SCHEDULED_HANDLER.post(new Runnable() {
+                    /** Emits started only if control ownership and revision survived the handler hop. */
                     @Override
                     public void run() {
                         synchronized (CONTROLLED_WAVEFORM_LOCK) {
@@ -484,6 +509,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Creates a new control owner, applies optional delay, and rejects replacement races before vibrator start. */
     static int playControlledWaveform(
         Activity activity,
         final long requestId,
@@ -515,6 +541,7 @@ public final class OpenMobileHapticsBridgeV1 {
             controlledWaveform = state;
             if (startDelayMillis > 0L) {
                 state.startRunnable = new Runnable() {
+                    /** Rechecks native start guard and current control owner before delayed waveform creation. */
                     @Override
                     public void run() {
                         synchronized (CONTROLLED_WAVEFORM_LOCK) {
@@ -593,6 +620,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Accepts only a newer revision and cancels current vibrator output while retaining request ownership. */
     static int pauseControlledWaveform(
         Activity activity,
         long requestId,
@@ -625,6 +653,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Rebuilds output for a paused owner and commits the new revision only after start succeeds. */
     static int resumeControlledWaveform(
         Activity activity,
         long requestId,
@@ -676,6 +705,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Replaces active or paused output from the native-resolved position using a strictly newer revision. */
     static int seekControlledWaveform(
         Activity activity,
         long requestId,
@@ -754,6 +784,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Stops only the matching controlled owner and emits interruption once. */
     static boolean stopControlledWaveform(long requestId) {
         synchronized (CONTROLLED_WAVEFORM_LOCK) {
             ControlledWaveform state = controlledWaveform;
@@ -770,6 +801,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Clears any control owner during global stop or activity replacement. */
     private static void clearControlledWaveform() {
         synchronized (CONTROLLED_WAVEFORM_LOCK) {
             if (controlledWaveform != null) {
@@ -783,6 +815,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Resolves API 36 reflection once and caches failure as unavailable for this process. */
     private static EnvelopeApi36 envelopeApi36()
         throws ReflectiveOperationException {
         EnvelopeApi36 api = envelopeApi36;
@@ -799,6 +832,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return api;
     }
 
+    /** Removes idle prepared waveforms before count and byte eviction runs, caller already owns cache lock. */
     private static void prunePreparedWaveformsLocked(long nowMillis) {
         Iterator<Map.Entry<Long, PreparedWaveform>> iterator =
             PREPARED_WAVEFORMS.entrySet().iterator();
@@ -827,6 +861,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Validates waveform arrays and creates the appropriate amplitude or default-amplitude effect for this vibrator. */
     private static PreparedWaveform createPreparedWaveform(
         Vibrator vibrator,
         long[] timingsMilliseconds,
@@ -885,6 +920,7 @@ public final class OpenMobileHapticsBridgeV1 {
         );
     }
 
+    /** Inserts one validated effect into the bounded least-recently-used cache and replaces old accounting atomically. */
     static int prepareWaveform(
         Activity activity,
         long resourceId,
@@ -944,6 +980,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Clears prepared waveform objects and byte accounting when native resource generation changes. */
     static void releasePreparedResources() {
         synchronized (PREPARED_WAVEFORMS) {
             PREPARED_WAVEFORMS.clear();
@@ -951,6 +988,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Returns one fixed-layout capability array so JNI receives device support and native limits in a single call. */
     static long[] queryCapabilities(Activity activity) {
         try {
             Vibrator vibrator = vibrator(activity);
@@ -1074,6 +1112,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Plays a resolved system semantic, predefined, or basic route immediately or through guarded scheduling. */
     static int playSemantic(
         Activity activity,
         long requestId,
@@ -1094,6 +1133,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Reuses immediate semantic validation after the common delayed guard has accepted start. */
                     @Override
                     public int play(Activity current) {
                         return playSemantic(
@@ -1122,6 +1162,7 @@ public final class OpenMobileHapticsBridgeV1 {
         final WeakReference<Activity> weakActivity =
             new WeakReference<Activity>(activity);
         activity.runOnUiThread(new Runnable() {
+            /** Resolves the weak activity on UI thread and reports the actual View feedback result to native. */
             @Override
             public void run() {
                 Activity current = weakActivity.get();
@@ -1138,6 +1179,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return RESULT_PENDING;
     }
 
+    /** Creates a bounded one-shot effect with amplitude fallback and optional delayed start. */
     static int playOneShot(
         Activity activity,
         long requestId,
@@ -1158,6 +1200,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Reuses immediate one-shot construction after delayed start is still current. */
                     @Override
                     public int play(Activity current) {
                         return playOneShot(
@@ -1228,6 +1271,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Uses prepared waveform when available, otherwise validates inline arrays before immediate or delayed vibration. */
     static int playWaveform(
         Activity activity,
         long requestId,
@@ -1249,6 +1293,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Reuses prepared or inline waveform submission once delayed start is accepted. */
                     @Override
                     public int play(Activity current) {
                         return playWaveform(
@@ -1310,6 +1355,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Plays one policy-approved Android predefined effect without assuming every API constant works on every device. */
     static int playPredefined(
         Activity activity,
         long requestId,
@@ -1326,6 +1372,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Rechecks predefined support at actual start time in case the activity or service changed. */
                     @Override
                     public int play(Activity current) {
                         return playPredefined(
@@ -1372,6 +1419,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Builds a primitive composition from paired ids, scales, and delays after checking API and vibrator support. */
     static int playPrimitives(
         Activity activity,
         long requestId,
@@ -1392,6 +1440,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Builds primitive composition only after the delayed request retains lifecycle permission. */
                     @Override
                     public int play(Activity current) {
                         return playPrimitives(
@@ -1476,6 +1525,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Routes validated basic or frequency envelope data through API 36 reflection only. */
     static int playEnvelope(
         Activity activity,
         long requestId,
@@ -1498,6 +1548,7 @@ public final class OpenMobileHapticsBridgeV1 {
                 requestId,
                 startDelayMillis,
                 new ScheduledPlayback() {
+                    /** Builds the reflected envelope at actual start time after lifecycle validation. */
                     @Override
                     public int play(Activity current) {
                         return playEnvelope(
@@ -1540,6 +1591,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Reflects the selected envelope builder and adds each paired control point before vibrator submission. */
     private static int playEnvelopeApi36(
         Activity activity,
         int format,
@@ -1663,6 +1715,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return RESULT_ACCEPTED;
     }
 
+    /** Cancels scheduled, controlled, and ordinary vibrator work during global stop or lifecycle loss. */
     static boolean stopAll(Activity activity) {
         cancelScheduledRequests();
         clearControlledWaveform();
@@ -1681,6 +1734,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Returns saturated bridge counters for diagnostics without exposing mutable atomics. */
     static long[] snapshotInstrumentation() {
         return new long[] {
             BRIDGE_VERSION,
@@ -1690,6 +1744,7 @@ public final class OpenMobileHapticsBridgeV1 {
         };
     }
 
+    /** Runs a vibration immediately or wraps it in the shared scheduled-start path. */
     private static int playVibration(
         Activity activity,
         int behavior,
@@ -1740,6 +1795,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Asks the decor view for system semantic feedback while respecting Android's global feedback setting. */
     private static int performSemantic(Activity activity, int behavior) {
         if (!isUsable(activity)) {
             return RESULT_SUPPRESSED;
@@ -1756,12 +1812,14 @@ public final class OpenMobileHapticsBridgeV1 {
             : RESULT_SUPPRESSED;
     }
 
+    /** Requires a live activity that hasn't entered destruction before any UI or vibrator lookup. */
     private static boolean isUsable(Activity activity) {
         return trackActivity(activity)
             && !activity.isFinishing()
             && (Build.VERSION.SDK_INT < 17 || !activity.isDestroyed());
     }
 
+    /** Prefers application context for services and settings so playback doesn't retain an activity. */
     private static Context applicationContext(Activity activity) {
         if (!trackActivity(activity)) {
             return null;
@@ -1770,6 +1828,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return context != null ? context : activity;
     }
 
+    /** Resolves the default vibrator through manager on newer Android and legacy service on older versions. */
     private static Vibrator vibrator(Activity activity) {
         Context context = applicationContext(activity);
         if (context == null) {
@@ -1796,6 +1855,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return result;
     }
 
+    /** Detects activity replacement by identity and interrupts work still owned by the previous instance. */
     private static boolean trackActivity(Activity activity) {
         if (activity == null) {
             return false;
@@ -1817,6 +1877,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return !replaced;
     }
 
+    /** Registers process lifecycle callbacks once using the application reached from the current activity. */
     private static void registerActivityCallbacks(Activity activity) {
         Application application = activity.getApplication();
         if (application == null) {
@@ -1831,6 +1892,7 @@ public final class OpenMobileHapticsBridgeV1 {
         application.registerActivityLifecycleCallbacks(ACTIVITY_CALLBACKS);
     }
 
+    /** Reads Android's user setting before custom vibration, a valid vibrator can still be intentionally disabled. */
     private static boolean systemHapticsEnabled(Context context) {
         return context != null && Settings.System.getInt(
             context.getContentResolver(),
@@ -1839,6 +1901,7 @@ public final class OpenMobileHapticsBridgeV1 {
         ) != 0;
     }
 
+    /** Chooses vibration attributes suitable for ordinary untracked playback. */
     private static void vibrate(
         Vibrator vibrator,
         VibrationEffect effect,
@@ -1849,6 +1912,7 @@ public final class OpenMobileHapticsBridgeV1 {
         vibrateNative(vibrator, effect, durationMillis, purpose);
     }
 
+    /** Uses control-aware attributes so resumable waveform output doesn't share the ordinary submission path. */
     private static void vibrateControlled(
         Vibrator vibrator,
         VibrationEffect effect,
@@ -1857,6 +1921,7 @@ public final class OpenMobileHapticsBridgeV1 {
         vibrateNative(vibrator, effect, 0L, purpose);
     }
 
+    /** Calls the API-appropriate vibrator overload and contains permission or vendor failures at the bridge. */
     private static void vibrateNative(
         Vibrator vibrator,
         VibrationEffect effect,
@@ -1882,6 +1947,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Maps portable request purpose to Android vibration usage without relying on matching numeric enums. */
     private static int vibrationUsage(int purpose) {
         if (purpose == 1) {
             return VibrationAttributes.USAGE_MEDIA;
@@ -1892,6 +1958,7 @@ public final class OpenMobileHapticsBridgeV1 {
         return VibrationAttributes.USAGE_TOUCH;
     }
 
+    /** Builds legacy audio attributes for Android versions before vibration attributes were available. */
     private static AudioAttributes audioAttributes(int purpose) {
         int usage = AudioAttributes.USAGE_ASSISTANCE_SONIFICATION;
         if (purpose == 1) {
@@ -1905,6 +1972,7 @@ public final class OpenMobileHapticsBridgeV1 {
             .build();
     }
 
+    /** Maps portable semantic behavior to the nearest View feedback constant supported by the current API. */
     private static int feedbackConstant(int behavior) {
         switch (behavior) {
             case 0:
@@ -1940,6 +2008,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Maps semantic behavior to a predefined vibration constant for fallback outside the View route. */
     private static int semanticPredefinedEffect(int behavior) {
         switch (behavior) {
             case 0:
@@ -1955,6 +2024,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Accepts only predefined intent values sent by native policy and returns no effect for unknown input. */
     private static int predefinedEffectFromIntent(int effect) {
         switch (effect) {
             case 0:
@@ -1970,6 +2040,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Maps portable primitive ids explicitly so Java and native enum ordering can change independently. */
     private static int primitiveId(int primitive) {
         switch (primitive) {
             case 0:
@@ -1993,6 +2064,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Supplies a short basic-vibration duration for semantic fallback when named effects aren't available. */
     private static long durationMillis(int behavior) {
         switch (behavior) {
             case 0:
@@ -2011,6 +2083,7 @@ public final class OpenMobileHapticsBridgeV1 {
         }
     }
 
+    /** Updates bounded instrumentation after an actual vibrator submission and retains latest request id. */
     private static void recordSubmission(long requestId) {
         if (requestId == 0L) {
             return;
@@ -2019,6 +2092,7 @@ public final class OpenMobileHapticsBridgeV1 {
         incrementBounded(submissionCount);
     }
 
+    /** Saturates process counters instead of letting long-running sessions wrap them negative. */
     private static void incrementBounded(AtomicLong value) {
         long current;
         do {
@@ -2029,9 +2103,13 @@ public final class OpenMobileHapticsBridgeV1 {
         } while (!value.compareAndSet(current, current + 1));
     }
 
+    /** Checks native lifecycle guard at the last possible point before delayed playback. */
     private static native boolean nativeCanStart(long requestId);
+    /** Reports terminal delayed-playback result to its native callback stream. */
     private static native void nativeOnBridgeResult(long requestId, int result);
+    /** Reports Java service or activity ownership loss to backend recovery policy. */
     private static native void nativeOnInterruption(int reason);
+    /** Reports ordered revisioned state for pause, resume, seek, and completion. */
     private static native void nativeOnControlledWaveformEvent(
         long requestId,
         long controlRevision,

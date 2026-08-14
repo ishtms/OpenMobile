@@ -57,12 +57,14 @@ struct FOpenMobileHapticsAHAPNormalizationResult
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsAHAPPolicy final
 {
 public:
+	/** Parses and normalizes AHAP before it reaches Apple code, so malformed or oversized input can't slip into the native engine. */
 	static FOpenMobileHapticsAHAPNormalizationResult Normalize(
 		const FString& Source,
 		const FOpenMobileHapticsAHAPLimits& Limits = {},
 		bool bAllowExternalAudioResources = false
 	);
 
+	/** Turns the exact failed field into something an importer or caller can act on without knowing the parser internals. */
 	static FString DescribeError(
 		const FOpenMobileHapticsAHAPNormalizationResult& Result
 	);

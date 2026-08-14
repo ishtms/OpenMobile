@@ -43,12 +43,15 @@ struct FOpenMobileHapticsSemanticResolution
 class FOpenMobileHapticsSemanticPolicy final
 {
 public:
+	/** Converts the public semantic enum into stable behavior, name, and category used by every platform policy. */
 	static FOpenMobileHapticsSemanticDescriptor Describe(
 		EOpenMobileHapticSemanticEffect Effect
 	);
+	/** Selects system semantic, predefined, basic, or suppression based on capability and fallback policy. */
 	static FOpenMobileHapticsSemanticResolution Resolve(
 		const FOpenMobileHapticCapabilities& Capabilities,
 		EOpenMobileHapticFallbackPolicy FallbackPolicy
 	);
+	/** Keeps diagnostic path names stable even if the internal enum order changes later. */
 	static FName PathName(EOpenMobileHapticsSemanticPath Path);
 };

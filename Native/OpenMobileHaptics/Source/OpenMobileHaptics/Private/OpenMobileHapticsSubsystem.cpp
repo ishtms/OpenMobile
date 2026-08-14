@@ -139,6 +139,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 	constexpr int32 MaximumDiagnosticChannelCount = 64;
 	constexpr int32 MaximumDiagnosticHandleCount = 64;
 
+	/** Returns stable lifecycle names for diagnostics without exposing the internal enum. */
 	FName ApplicationStateName(EOpenMobileHapticsApplicationState State)
 	{
 		switch (State)
@@ -157,6 +158,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 	}
 
 #if !UE_BUILD_SHIPPING
+	/** Rejects platform override paths during simulated capability tests so editor checks never load or play device assets. */
 	bool IsCapabilityTestPlatformOverrideSafe(
 		const FSoftObjectPath& OverridePath
 	)
@@ -224,6 +226,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 	}
 #endif
 
+	/** Saturates unsigned internal counters before exposing them through Blueprint's signed integer type. */
 	int64 ToPublicCounter(uint64 Value)
 	{
 		return static_cast<int64>(FMath::Min<uint64>(
@@ -232,6 +235,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		));
 	}
 
+	/** Builds the shared no-backend rejection used before a request owns any channel or token state. */
 	FOpenMobileHapticPlaybackResult MakeUnsupportedPlaybackResult()
 	{
 		FOpenMobileHapticsErrorContext Context;
@@ -243,6 +247,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		);
 	}
 
+	/** Suppresses new work during interruption recovery and tells callers retry can make sense later. */
 	FOpenMobileHapticPlaybackResult MakeRecoveryPendingPlaybackResult(
 		FName Effect,
 		FName Channel
@@ -263,6 +268,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Result;
 	}
 
+	/** Maps one internal rejection with stage, effect, and channel context into the public playback result. */
 	FOpenMobileHapticPlaybackResult MakeRejectedPlaybackResult(
 		EOpenMobileHapticsFailureReason Reason,
 		EOpenMobileHapticFailureStage Stage,
@@ -280,6 +286,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		);
 	}
 
+	/** Records intentional suppression separately from failure, callers shouldn't retry policy-muted feedback blindly. */
 	FOpenMobileHapticPlaybackResult MakeSuppressedPlaybackResult(
 		FName Channel,
 		FName Reason
@@ -328,6 +335,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Result;
 	}
 
+	/** Converts the exact rate-limit rule into a suppressed result and actionable public error. */
 	FOpenMobileHapticPlaybackResult MakeRateLimitedPlaybackResult(
 		FName Channel,
 		EOpenMobileHapticsRateLimitOutcome Outcome
@@ -373,6 +381,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Result;
 	}
 
+	/** Combines global, channel, and effect timing settings into one policy for this request only. */
 	FOpenMobileHapticsRateLimitPolicy ResolveRateLimitPolicy(
 		const UOpenMobileHapticsSettings& Settings,
 		FName ChannelName,
@@ -414,6 +423,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Policy;
 	}
 
+	/** Captures the fields that define admission and equivalence without retaining the full public request. */
 	FOpenMobileHapticsRateLimitRequest MakeRateLimitRequest(
 		const FOpenMobileHapticPlaybackOptions& Options,
 		FName Effect,
@@ -431,6 +441,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Request;
 	}
 
+	/** Hashes semantic payload and override identity so coalescing doesn't merge requests that would play differently. */
 	uint32 MakeSemanticEquivalenceHash(
 		const FOpenMobileHapticSemanticRequest& Request,
 		FName PatternOverride
@@ -452,6 +463,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 	return HashCombineFast(Hash, GetTypeHash(PatternOverride));
 }
 
+	/** Builds lifecycle context from request and asset intent before asking policy about foreground or background admission. */
 	EOpenMobileHapticsLifecycleRequestOutcome EvaluateLifecycle(
 		const FOpenMobileHapticPlaybackOptions& Options,
 		EOpenMobileHapticsLifecycleRequestKind Kind,
@@ -478,6 +490,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		);
 	}
 
+	/** Keeps the lifecycle suppression reason stable across every request type and diagnostic event. */
 	FName LifecycleSuppressionReason()
 	{
 		switch (FOpenMobileHapticsBackendRegistry::GetApplicationState())
@@ -491,6 +504,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Converts schedule validation failure into the right public code without creating a backend token. */
 	FOpenMobileHapticPlaybackResult MakeTimingRejectedPlaybackResult(
 		EOpenMobileHapticsTimingOutcome Outcome,
 		FName Effect,
@@ -539,6 +553,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Result;
 	}
 
+	/** Resolves the request clock against current lifecycle and stores synchronization diagnostics even when scheduling fails. */
 	bool ResolvePlaybackTiming(
 		FOpenMobileHapticsSubsystemState& State,
 		const FOpenMobileHapticCapabilities& Capabilities,
@@ -586,6 +601,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return false;
 	}
 
+	/** Copies accepted timing diagnostics into the playback result so callers can inspect actual start delay. */
 	void ApplyResolvedTiming(
 		FOpenMobileHapticPlaybackResult& Result,
 		const FOpenMobileHapticsTimingResolution& Timing
@@ -607,6 +623,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Creates a lifecycle guard only for delayed work, immediate playback doesn't need shared scheduling state. */
 	TSharedPtr<
 		FOpenMobileHapticsScheduledStartGuard,
 		ESPMode::ThreadSafe
@@ -624,6 +641,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		>(FOpenMobileHapticsBackendRegistry::GetLifecycleGeneration());
 	}
 
+	/** Invalidates delayed guards before clearing them, scheduled backend tasks may already hold shared copies. */
 	void InvalidateScheduledStarts(
 		FOpenMobileHapticsSubsystemState& State,
 		bool bPreparedAssetsOnly = false
@@ -641,12 +659,14 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Returns configured scale or neutral one, a missing entry shouldn't mute feedback. */
 	float FindScale(const TMap<FName, float>& Scales, FName Name)
 	{
 		const float* Scale = Scales.Find(Name);
 		return Scale ? *Scale : 1.0f;
 	}
 
+	/** Compares policy maps explicitly so user-policy updates broadcast only after a real value change. */
 	bool ScaleMapsEqual(
 		const TMap<FName, float>& Left,
 		const TMap<FName, float>& Right
@@ -667,6 +687,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return true;
 	}
 
+	/** Compares every user-policy field that can alter admission or intensity before replacing active state. */
 	bool PoliciesEqual(
 		const FOpenMobileHapticUserPolicy& Left,
 		const FOpenMobileHapticUserPolicy& Right
@@ -680,6 +701,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 			&& ScaleMapsEqual(Left.EffectScales, Right.EffectScales);
 	}
 
+	/** Chooses request, asset, then project category in that order, empty names fall through only. */
 	FName ResolveCategory(
 		FName RequestCategory,
 		FName AssetOrEffectCategory,
@@ -695,6 +717,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 			: AssetOrEffectCategory;
 	}
 
+	/** Applies enable, priority, and muted-category checks before intensity work or backend submission. */
 	bool IsAllowedByUserPolicy(
 		const FOpenMobileHapticUserPolicy& Policy,
 		EOpenMobileHapticChannelPriority Priority,
@@ -711,6 +734,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 				|| Category == TEXT("Accessibility"));
 	}
 
+	/** Multiplies user master, category, and effect scales after resolving request identity. */
 	float UserPolicyScale(
 		const FOpenMobileHapticUserPolicy& Policy,
 		EOpenMobileHapticChannelPriority Priority,
@@ -732,6 +756,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		);
 	}
 
+	/** Recomputes the live user scale from retained request state when policy changes during playback. */
 	float ActivePolicyScale(
 		const FOpenMobileHapticsSubsystemRequestState& Request
 	)
@@ -739,6 +764,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Request.ResolvedUserPolicyScale;
 	}
 
+	/** Converts configured update rate to a finite minimum interval for parameter coalescing. */
 	double DynamicParameterInterval(
 		const UOpenMobileHapticsSettings& Settings
 	)
@@ -750,6 +776,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		));
 	}
 
+	/** Resolves cache counts, bytes, and idle time through hard budget caps before preparation begins. */
 	FOpenMobileHapticsPreparedResourceLimits PreparedResourceLimits(
 		const UOpenMobileHapticsSettings& Settings
 	)
@@ -773,6 +800,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Limits;
 	}
 
+	/** Maps game presets to their default semantic when no loaded pattern override is configured. */
 	EOpenMobileHapticSemanticEffect GamePresetEffect(
 		EOpenMobileHapticGamePreset Preset
 	)
@@ -800,6 +828,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Returns a preset override only when its named pattern is already prepared and ready for immediate lookup. */
 	FName FindLoadedGamePresetOverride(
 		const UOpenMobileHapticsSettings& Settings,
 		EOpenMobileHapticGamePreset Preset
@@ -822,6 +851,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return NAME_None;
 	}
 
+	/** Builds one unsupported control result with the public implementation field set consistently. */
 	FOpenMobileHapticControlResult MakeUnsupportedControlResult()
 	{
 		FOpenMobileHapticsErrorContext Context;
@@ -836,6 +866,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Result;
 	}
 
+	/** Rejects empty keys and non-normalized values before user scale maps replace live policy. */
 	bool IsValidScaleMap(const TMap<FName, float>& Scales)
 	{
 		for (const TPair<FName, float>& Scale : Scales)
@@ -851,6 +882,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return true;
 	}
 
+	/** Keeps terminal event handling consistent across completion, interruption, failure, stop, and cancellation. */
 	bool IsTerminalState(EOpenMobileHapticPlaybackState State)
 	{
 		switch (State)
@@ -866,6 +898,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Allows only forward public state transitions and blocks late callbacks from reviving terminal playback. */
 	bool CanPublishState(
 		EOpenMobileHapticPlaybackState CurrentState,
 		EOpenMobileHapticPlaybackState NextState
@@ -902,6 +935,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		}
 	}
 
+	/** Rejects unknown evidence values before native callbacks enter public history. */
 	bool IsValidEvidence(EOpenMobileHapticEventEvidence Evidence)
 	{
 		return Evidence == EOpenMobileHapticEventEvidence::Estimated
@@ -910,6 +944,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 			|| Evidence == EOpenMobileHapticEventEvidence::NativeConfirmed;
 	}
 
+	/** Bounds diagnostic names while preserving empty optional fields. */
 	FName SanitizeHistoryName(FName Value)
 	{
 		if (Value.IsNone())
@@ -928,6 +963,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Value;
 	}
 
+	/** Bounds free-form diagnostic text before the in-memory history retains it. */
 	FString SanitizeHistoryText(const FString& Value)
 	{
 		if (Value.IsEmpty())
@@ -944,6 +980,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Value.Left(256);
 	}
 
+	/** Copies only bounded public fields into history so backend payload size can't grow diagnostics. */
 	FOpenMobileHapticPlaybackEvent SanitizeHistoryEvent(
 		const FOpenMobileHapticPlaybackEvent& Event
 	)
@@ -969,6 +1006,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		return Sanitized;
 	}
 
+	/** Adds one sanitized event and evicts oldest history once the configured cap is reached. */
 	void AppendEventHistory(
 		FOpenMobileHapticsSubsystemState& State,
 		const FOpenMobileHapticPlaybackEvent& Event
@@ -991,6 +1029,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		State.RecentPlaybackEvents.Add(SanitizeHistoryEvent(Event));
 	}
 
+	/** Releases token, control, channel, queue, parameter, and guard ownership for one terminal request. */
 	void RemoveRequest(
 		FOpenMobileHapticsSubsystemState& State,
 		uint64 RequestId
@@ -1035,6 +1074,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		State.Requests.Remove(RequestId);
 	}
 
+	/** Retains queue timing when overlap policy reevaluates a waiting request, otherwise its age would restart unfairly. */
 	void PreserveOverlapQueueLifecycle(
 		FOpenMobileHapticsSubsystemState& State,
 		uint64 RequestId,
@@ -1063,6 +1103,7 @@ namespace OpenMobileHapticsSubsystemPrivate
 		RequestState.bPromotedFromOverlapQueue = true;
 	}
 
+	/** Commits backend acceptance into subsystem state or unwinds every reservation when submission didn't start. */
 	FOpenMobileHapticPlaybackResult FinalizeSubmission(
 		FOpenMobileHapticsSubsystemState& State,
 		const FOpenMobileHapticsBackendRequestToken& Token,

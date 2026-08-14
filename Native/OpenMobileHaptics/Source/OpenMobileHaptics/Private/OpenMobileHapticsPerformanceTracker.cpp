@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsPerformanceTrackerPrivate
 {
+	/** Rejects negative and non-finite samples before converting them into public latency counters. */
 	bool ToMilliseconds(double Seconds, double& OutMilliseconds)
 	{
 		if (!FMath::IsFinite(Seconds) || Seconds < 0.0)
@@ -14,6 +15,7 @@ namespace OpenMobileHapticsPerformanceTrackerPrivate
 		return true;
 	}
 
+	/** Saturates counters at their maximum so long sessions can't wrap diagnostics back to zero. */
 	void Increment(uint64& Value)
 	{
 		if (Value < MAX_uint64)

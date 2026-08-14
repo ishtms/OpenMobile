@@ -7,6 +7,7 @@
 
 namespace OpenMobileHapticsAppleAHAPPlaybackPolicyPrivate
 {
+	/** Builds one AHAP policy result and keeps rejected paths free of half-populated pattern state. */
 	FOpenMobileHapticsAppleAHAPResolution Result(
 		EOpenMobileHapticsAppleAHAPOutcome Outcome,
 		FName Reason

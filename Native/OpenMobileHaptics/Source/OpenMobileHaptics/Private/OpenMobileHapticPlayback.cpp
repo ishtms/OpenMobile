@@ -6,6 +6,7 @@
 
 namespace OpenMobileHapticPlaybackPrivate
 {
+	/** Treats queued, playing, and paused handles as live so Blueprint objects don't finish before admission or resume. */
 	bool IsActiveState(EOpenMobileHapticPlaybackState State)
 	{
 		switch (State)
@@ -21,6 +22,7 @@ namespace OpenMobileHapticPlaybackPrivate
 		}
 	}
 
+	/** Maps subsystem control outcomes to the compact Blueprint branch enum without losing rejection versus unsupported. */
 	EOpenMobileHapticControlBranch ToBranch(
 		EOpenMobileHapticControlOutcome Outcome
 	)

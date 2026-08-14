@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsAndroidPlaybackControlPolicyPrivate
 {
+	/** Builds a control failure without leaving partial waveform arrays for callers to mistake as usable. */
 	FOpenMobileHapticsAndroidPlaybackControlResolution Failure(
 		EOpenMobileHapticsAndroidPlaybackControlError Error
 	)
@@ -11,6 +12,7 @@ namespace OpenMobileHapticsAndroidPlaybackControlPolicyPrivate
 		return Result;
 	}
 
+	/** Adds one validated timing and amplitude pair while enforcing the total segment cap before allocation grows. */
 	bool AppendSegment(
 		FOpenMobileHapticsAndroidPlaybackControlResolution& Result,
 		int64 TimingMilliseconds,

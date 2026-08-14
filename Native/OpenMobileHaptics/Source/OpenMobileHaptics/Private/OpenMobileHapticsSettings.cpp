@@ -6,11 +6,13 @@
 
 namespace OpenMobileHapticsSettingsPrivate
 {
+	/** Validates finite zero-to-one scales used across project, category, effect, and request intensity. */
 	bool IsNormalized(float Value)
 	{
 		return FMath::IsFinite(Value) && Value >= 0.0f && Value <= 1.0f;
 	}
 
+	/** Keeps settings validation from accepting NaN even when ordinary comparisons would both return false. */
 	bool IsFiniteRange(float Value, float Minimum, float Maximum)
 	{
 		return FMath::IsFinite(Value) && Value >= Minimum && Value <= Maximum;

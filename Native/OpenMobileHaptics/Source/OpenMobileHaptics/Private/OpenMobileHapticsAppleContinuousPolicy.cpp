@@ -8,6 +8,7 @@ namespace OpenMobileHapticsAppleContinuousPolicyPrivate
 {
 	constexpr double MaximumCoreHapticsEventDurationSeconds = 30.0;
 
+	/** Builds a continuous policy result without retaining pattern data on rejected paths. */
 	FOpenMobileHapticsAppleContinuousResolution MakeResolution(
 		EOpenMobileHapticsAppleContinuousOutcome Outcome,
 		FName Reason
@@ -19,16 +20,19 @@ namespace OpenMobileHapticsAppleContinuousPolicyPrivate
 		return Resolution;
 	}
 
+	/** Restores cooked normalized values using the same integer range written by the asset cooker. */
 	float DecodeNormalized(uint16 Value)
 	{
 		return static_cast<float>(Value) / static_cast<float>(MAX_uint16);
 	}
 
+	/** Converts cooked microseconds back to the seconds expected by Core Haptics. */
 	double Seconds(uint32 Microseconds)
 	{
 		return static_cast<double>(Microseconds) / 1000000.0;
 	}
 
+	/** Samples one ordered parameter curve at pattern time with endpoint clamping and linear interpolation. */
 	float EvaluateCurve(
 		const FOpenMobileHapticsAppleParameterCurve& Curve,
 		double PatternTimeSeconds
@@ -57,6 +61,7 @@ namespace OpenMobileHapticsAppleContinuousPolicyPrivate
 		return Curve.Values.Last();
 	}
 
+	/** Applies the matching curve only, leaving the caller's default value untouched when no curve exists. */
 	float EvaluateParameter(
 		const TArray<FOpenMobileHapticsAppleParameterCurve>& Curves,
 		EOpenMobileHapticCurveParameter Parameter,

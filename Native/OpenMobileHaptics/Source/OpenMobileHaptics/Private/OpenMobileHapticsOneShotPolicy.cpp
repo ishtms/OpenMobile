@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsOneShotPolicyPrivate
 {
+	/** Checks named click support first because overall semantic support can hide per-effect gaps. */
 	bool SupportsClick(const FOpenMobileHapticCapabilities& Capabilities)
 	{
 		for (const FOpenMobileHapticNamedSupport& Entry :

@@ -8,6 +8,7 @@
 
 namespace OpenMobileHapticsAppleTransientPolicyTests
 {
+	/** Builds one cooked transient with explicit timing and normalized values for focused policy cases. */
 	FOpenMobileHapticCookedPatternEvent Transient(
 		uint32 StartMicroseconds,
 		uint16 Intensity,
@@ -22,6 +23,7 @@ namespace OpenMobileHapticsAppleTransientPolicyTests
 		return Event;
 	}
 
+	/** Returns only the Apple features needed by transient translation. */
 	FOpenMobileHapticCapabilities SupportedCapabilities()
 	{
 		FOpenMobileHapticCapabilities Capabilities;

@@ -30,12 +30,14 @@ namespace OpenMobileHapticTimelineEditorPrivate
 	constexpr float MarkerHeight = 24.0f;
 	constexpr float CurveLaneHeight = 42.0f;
 
+	/** Uses the enum's fixed editor order so hit testing and painting agree on lane position. */
 	float EventLaneY(EOpenMobileHapticPatternEventType Type)
 	{
 		return RulerHeight + MarkerHeight
 			+ static_cast<uint8>(Type) * EventLaneHeight;
 	}
 
+	/** Keeps lane labels localised while handling malformed enum values without crashing Slate. */
 	FText EventTypeText(EOpenMobileHapticPatternEventType Type)
 	{
 		switch (Type)
@@ -51,6 +53,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 		}
 	}
 
+	/** Gives each event type a stable editor colour shared by selected and unselected rendering. */
 	FLinearColor EventColor(EOpenMobileHapticPatternEventType Type)
 	{
 		switch (Type)
@@ -76,6 +79,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			)
 		SLATE_END_ARGS()
 
+		/** Removes the model delegate before the leaf widget can receive another invalidation. */
 		~SOpenMobileHapticTimelineCanvas() override
 		{
 			if (Model)
@@ -84,6 +88,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			}
 		}
 
+		/** Retains the shared model and refreshes this canvas from the model's single change signal. */
 		void Construct(const FArguments& InArgs)
 		{
 			Model = InArgs._Model;
@@ -96,6 +101,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			}
 		}
 
+		/** Sizes the scrollable canvas from latest event, marker, curve, and current zoom with some editing room after the end. */
 		FVector2D ComputeDesiredSize(float LayoutScaleMultiplier) const override
 		{
 			static_cast<void>(LayoutScaleMultiplier);
@@ -137,11 +143,13 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			);
 		}
 
+		/** Takes focus so delete, copy, paste, selection, and nudge commands stay local to the timeline. */
 		bool SupportsKeyboardFocus() const override
 		{
 			return true;
 		}
 
+		/** Paints ruler, lanes, events, markers, curves, drag preview, and cursor from one model snapshot. */
 		int32 OnPaint(
 			const FPaintArgs& Args,
 			const FGeometry& AllottedGeometry,
@@ -392,6 +400,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			return LayerId + 5;
 		}
 
+		/** Hit-tests markers before events, then starts event drag or moves the cursor when empty space was clicked. */
 		FReply OnMouseButtonDown(
 			const FGeometry& MyGeometry,
 			const FPointerEvent& MouseEvent
@@ -470,6 +479,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			);
 		}
 
+		/** Updates snapped drag preview only while this canvas owns mouse capture. */
 		FReply OnMouseMove(
 			const FGeometry& MyGeometry,
 			const FPointerEvent& MouseEvent
@@ -494,6 +504,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			return FReply::Handled();
 		}
 
+		/** Commits one grouped move at release so dragging creates a single undo transaction. */
 		FReply OnMouseButtonUp(
 			const FGeometry& MyGeometry,
 			const FPointerEvent& MouseEvent
@@ -515,6 +526,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			return FReply::Handled().ReleaseMouseCapture();
 		}
 
+		/** Changes model zoom around bounded scale values and leaves scroll handling to the parent when no model exists. */
 		FReply OnMouseWheel(
 			const FGeometry& MyGeometry,
 			const FPointerEvent& MouseEvent
@@ -532,6 +544,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 			return FReply::Handled();
 		}
 
+		/** Routes timeline editing shortcuts through model commands so keyboard and toolbar keep identical validation. */
 		FReply OnKeyDown(
 			const FGeometry& MyGeometry,
 			const FKeyEvent& KeyEvent
@@ -576,6 +589,7 @@ namespace OpenMobileHapticTimelineEditorPrivate
 		}
 
 	private:
+		/** Invalidates layout and paint because edits can alter both timeline length and visual content. */
 		void HandleModelChanged()
 		{
 			Invalidate(EInvalidateWidgetReason::LayoutAndVolatility);

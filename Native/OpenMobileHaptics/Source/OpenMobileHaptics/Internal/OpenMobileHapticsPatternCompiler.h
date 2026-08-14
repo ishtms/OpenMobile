@@ -66,22 +66,26 @@ struct FOpenMobileHapticsCompiledParameterCurve
 class FOpenMobileHapticsCompiledPattern final
 {
 public:
+	/** Exposes immutable events from a pattern that already passed every compile check. */
 	const TArray<FOpenMobileHapticsCompiledPatternEvent>& GetEvents() const
 	{
 		return Events;
 	}
 
+	/** Exposes immutable curves with their point ordering already validated. */
 	const TArray<FOpenMobileHapticsCompiledParameterCurve>&
 	GetParameterCurves() const
 	{
 		return ParameterCurves;
 	}
 
+	/** Returns the compiled end time used by repeat and native duration policies. */
 	double GetDurationSeconds() const
 	{
 		return DurationSeconds;
 	}
 
+	/** Returns the accepted timing step so later seek and quantization use the same precision. */
 	double GetGranularitySeconds() const
 	{
 		return GranularitySeconds;
@@ -90,6 +94,7 @@ public:
 private:
 	friend class FOpenMobileHapticsPatternCompiler;
 
+	/** Can be built only by the compiler, which prevents unvalidated arrays from masquerading as compiled data. */
 	FOpenMobileHapticsCompiledPattern(
 		TArray<FOpenMobileHapticsCompiledPatternEvent>&& InEvents,
 		TArray<FOpenMobileHapticsCompiledParameterCurve>&& InParameterCurves,
@@ -119,6 +124,7 @@ struct FOpenMobileHapticsPatternCompileResult
 	int32 CurveIndex = INDEX_NONE;
 	int32 ControlPointIndex = INDEX_NONE;
 
+	/** Requires both an immutable pattern and no recorded error before callers can consume output. */
 	bool IsSuccess() const
 	{
 		return Pattern.IsValid()
@@ -129,10 +135,12 @@ struct FOpenMobileHapticsPatternCompileResult
 class FOpenMobileHapticsPatternCompiler final
 {
 public:
+	/** Resolves compile caps from project settings and platform capability, always taking the tighter limit. */
 	static FOpenMobileHapticsPatternCompileLimits MakeLimits(
 		const UOpenMobileHapticsSettings& Settings,
 		const FOpenMobileHapticCapabilities& Capabilities
 	);
+	/** Validates ordering, ranges, overlap, duration, and curves before producing immutable portable data. */
 	static FOpenMobileHapticsPatternCompileResult Compile(
 		const FOpenMobileHapticPattern& Pattern,
 		const FOpenMobileHapticsPatternCompileLimits& Limits

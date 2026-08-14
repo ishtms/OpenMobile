@@ -6,6 +6,7 @@
 class FOpenMobileHapticsModule final : public IModuleInterface
 {
 public:
+	/** Registers the fallback backend and lifecycle hooks after runtime modules are ready. */
 	virtual void StartupModule() override
 	{
 		FOpenMobileHapticsBackendRegistry::Start();
@@ -56,6 +57,7 @@ public:
 			);
 	}
 
+	/** Disconnects lifecycle hooks and seals backend registry before module-owned objects unload. */
 	virtual void ShutdownModule() override
 	{
 		if (DeactivatedHandle.IsValid())

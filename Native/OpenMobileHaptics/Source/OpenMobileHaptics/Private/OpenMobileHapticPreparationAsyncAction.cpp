@@ -27,6 +27,7 @@ namespace OpenMobileHapticPreparationAsyncActionPrivate
 		return Error;
 	}
 
+	/** Builds one failed preparation result with the public state and supplied error kept in sync. */
 	FOpenMobileHapticPreparationResult MakeFailure(
 		FOpenMobileHapticError Error
 	)
@@ -38,6 +39,7 @@ namespace OpenMobileHapticPreparationAsyncActionPrivate
 		return Result;
 	}
 
+	/** Converts batch string failures into public errors without discarding earlier items from the same preparation. */
 	void AddStringErrors(
 		const TArray<FString>& Messages,
 		FOpenMobileHapticPreparationResult& Result

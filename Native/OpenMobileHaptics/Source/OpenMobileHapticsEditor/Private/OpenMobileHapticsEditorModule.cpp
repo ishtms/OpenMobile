@@ -6,6 +6,7 @@
 class FOpenMobileHapticsEditorModule final : public IModuleInterface
 {
 public:
+	/** Registers asset tools, factories, compiler checks, and editor commands only after their owning modules are loaded. */
 	virtual void StartupModule() override
 	{
 		CompilerExtension.Reset(

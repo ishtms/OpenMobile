@@ -24,6 +24,7 @@ struct FOpenMobileHapticsIntensityResolution
 class FOpenMobileHapticsIntensityPolicy final
 {
 public:
+	/** Multiplies every intensity layer in one place, then clamps once so callers don't produce different answers from the same settings. */
 	static float Scale(
 		float BaseIntensity,
 		float MasterScale,
@@ -32,6 +33,7 @@ public:
 		float RequestScale,
 		float ProjectScale
 	);
+	/** Decides whether a basic vibration can honour amplitude, should use the device default, or must follow fallback policy. */
 	static FOpenMobileHapticsIntensityResolution ResolveBasicVibration(
 		float Intensity,
 		EOpenMobileHapticSupportState AmplitudeControl,

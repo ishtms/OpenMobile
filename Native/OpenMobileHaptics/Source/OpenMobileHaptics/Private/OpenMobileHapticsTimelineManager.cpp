@@ -12,6 +12,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 	constexpr uint64 FNVOffset = 14695981039346656037ULL;
 	constexpr uint64 FNVPrime = 1099511628211ULL;
 
+	/** Saturates cache counters so long editor sessions can't wrap hit or eviction statistics. */
 	void IncrementCounter(uint64& Counter)
 	{
 		if (Counter < MAX_uint64)
@@ -20,6 +21,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		}
 	}
 
+	/** Adds a batch count with saturation for pruning and limit-change evictions. */
 	void AddCounter(uint64& Counter, uint64 Amount)
 	{
 		Counter = Counter > MAX_uint64 - Amount
@@ -28,6 +30,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 	}
 
 	template<typename ValueType>
+	/** Folds normalized request and capability values into cache identity without retaining their source objects. */
 	void HashValue(uint64& Hash, const ValueType& Value)
 	{
 		const uint8* Bytes = reinterpret_cast<const uint8*>(&Value);
@@ -38,6 +41,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		}
 	}
 
+	/** Hashes known state and value together, unknown and known-zero limits aren't interchangeable. */
 	void HashIntegerLimit(
 		uint64& Hash,
 		const FOpenMobileHapticIntegerLimit& Limit
@@ -47,6 +51,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		HashValue(Hash, Limit.Value);
 	}
 
+	/** Hashes duration support and value using the same distinction as integer capability limits. */
 	void HashDurationLimit(
 		uint64& Hash,
 		const FOpenMobileHapticDurationLimit& Limit
@@ -56,6 +61,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		HashValue(Hash, Limit.Seconds);
 	}
 
+	/** Uses cooked source identity and override metadata so cache entries change when playable asset content changes. */
 	uint64 AssetSignature(const UOpenMobileHapticPatternAsset& Pattern)
 	{
 		uint64 Hash = FNVOffset;
@@ -78,6 +84,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return Hash;
 	}
 
+	/** Hashes loop, intensity, and fallback choices that alter compiled native timeline output. */
 	uint64 RequestSignature(
 		const FOpenMobileHapticLoopOptions& Loop,
 		float RequestIntensity,
@@ -94,6 +101,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return Hash;
 	}
 
+	/** Hashes backend name and every capability that can change timeline translation. */
 	uint64 CapabilitySignature(
 		FName BackendName,
 		const FOpenMobileHapticCapabilities& Capabilities
@@ -134,6 +142,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return Hash;
 	}
 
+	/** Derives a non-zero native cache id from asset, request, capability, backend, and lifecycle identity. */
 	uint64 NativeResourceId(
 		FName BackendName,
 		uint64 AssetHash,
@@ -151,6 +160,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return Hash == 0 ? 1 : Hash;
 	}
 
+	/** Estimates retained native payload bytes from actual translated arrays for budget enforcement. */
 	int64 EstimateBytes(const FOpenMobileHapticsPortableTimeline& Timeline)
 	{
 		int64 Bytes = sizeof(FOpenMobileHapticsPortableTimeline);
@@ -186,6 +196,7 @@ namespace OpenMobileHapticsTimelineManagerPrivate
 		return FMath::Max<int64>(1, Bytes);
 	}
 
+	/** Chooses continuous Apple translation whenever duration, curves, or looping can't be represented as transients only. */
 	bool UsesContinuousAppleTranslation(
 		const FOpenMobileHapticCookedPatternData& Pattern,
 		const FOpenMobileHapticLoopOptions& Loop
@@ -224,6 +235,7 @@ struct FOpenMobileHapticsTimelineManager::FState
 		> Timeline;
 	};
 
+	/** Normalizes cache limits at construction so insertion and eviction code never handles invalid configuration. */
 	explicit FState(
 		int32 InMaximumCacheEntries,
 		int64 InMaximumCacheBytes,

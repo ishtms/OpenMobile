@@ -31,6 +31,7 @@ struct FOpenMobileHapticsRepeatPlanResult
 	FOpenMobileHapticsRepeatPlan Plan;
 	EOpenMobileHapticsRepeatError Error = EOpenMobileHapticsRepeatError::None;
 
+	/** Requires the plan and its validation result to be read together, a default-looking plan can still represent failure. */
 	bool IsSuccess() const
 	{
 		return Error == EOpenMobileHapticsRepeatError::None;
@@ -47,6 +48,7 @@ struct FOpenMobileHapticsRepeatAdvance
 class FOpenMobileHapticsRepeatPolicy final
 {
 public:
+	/** Resolves finite and until-stopped loops into one bounded schedule before any backend work begins. */
 	static FOpenMobileHapticsRepeatPlanResult Resolve(
 		const FOpenMobileHapticLoopOptions& Options,
 		double PatternDurationSeconds,
@@ -58,14 +60,18 @@ public:
 class FOpenMobileHapticsRepeatCursor final
 {
 public:
+	/** Captures the accepted owner and start clock so later advances can't be redirected to another playback. */
 	FOpenMobileHapticsRepeatCursor(
 		const FOpenMobileHapticsRepeatPlan& InPlan,
 		FOpenMobileHapticPlaybackHandle InHandle,
 		double InStartTimeSeconds
 	);
 
+	/** Emits at most the next due iteration, which prevents a late tick from flooding native submissions. */
 	FOpenMobileHapticsRepeatAdvance Advance(double CurrentTimeSeconds);
+	/** Stops only for the owning handle, stale handles shouldn't cancel a newer cursor. */
 	bool Stop(FOpenMobileHapticPlaybackHandle Handle);
+	/** Cancels future advances without requiring a handle during subsystem teardown. */
 	void Cancel();
 
 private:

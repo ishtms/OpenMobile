@@ -22,6 +22,7 @@ struct FOpenMobileHapticsAndroidPlaybackControlResolution
 	EOpenMobileHapticsAndroidPlaybackControlError Error =
 		EOpenMobileHapticsAndroidPlaybackControlError::InvalidWaveform;
 
+	/** Keeps callers from treating a partly filled waveform as playable after validation stopped early. */
 	bool IsSuccess() const
 	{
 		return Error == EOpenMobileHapticsAndroidPlaybackControlError::None;
@@ -31,6 +32,7 @@ struct FOpenMobileHapticsAndroidPlaybackControlResolution
 class FOpenMobileHapticsAndroidPlaybackControlPolicy final
 {
 public:
+	/** Rebuilds an Android waveform from the accepted playhead and repeat state, while keeping segment growth within the device limit. */
 	static FOpenMobileHapticsAndroidPlaybackControlResolution Resolve(
 		const TArray<int64>& BaseTimingsMilliseconds,
 		const TArray<int32>& BaseAmplitudes,

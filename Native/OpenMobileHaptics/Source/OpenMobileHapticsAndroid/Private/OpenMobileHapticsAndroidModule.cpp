@@ -6,6 +6,7 @@
 class FOpenMobileHapticsAndroidModule final : public IModuleInterface
 {
 public:
+	/** Registers the Android backend and its active JNI bridge after the Java activity is available. */
 	virtual void StartupModule() override
 	{
 		Backend = MakeUnique<FOpenMobileHapticsAndroidBackend>();
@@ -15,6 +16,7 @@ public:
 		}
 	}
 
+	/** Seals JNI callbacks before unregistering and releasing the Android backend. */
 	virtual void ShutdownModule() override
 	{
 		if (Backend)

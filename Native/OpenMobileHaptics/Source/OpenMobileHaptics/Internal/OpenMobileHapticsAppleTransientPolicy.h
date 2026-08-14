@@ -19,6 +19,7 @@ struct FOpenMobileHapticsAppleTransientPattern
 	bool bHasInitialDynamicParameters = false;
 	FOpenMobileHapticDynamicParameterUpdate InitialDynamicParameters;
 
+	/** Requires each transient to carry time, intensity, and sharpness together before Core Haptics gets the arrays. */
 	bool IsValid() const
 	{
 		return !StartTimesSeconds.IsEmpty()
@@ -38,6 +39,7 @@ struct FOpenMobileHapticsAppleTransientResolution
 class FOpenMobileHapticsAppleTransientPolicy final
 {
 public:
+	/** Converts portable events into Core Haptics transients, or asks for fallback when the device can't honour them. */
 	static FOpenMobileHapticsAppleTransientResolution Resolve(
 		const FOpenMobileHapticCookedPatternData& Pattern,
 		const FOpenMobileHapticCapabilities& Capabilities,

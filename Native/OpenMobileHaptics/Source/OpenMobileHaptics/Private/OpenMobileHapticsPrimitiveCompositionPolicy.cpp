@@ -5,6 +5,7 @@
 
 namespace OpenMobileHapticsPrimitiveCompositionPolicyPrivate
 {
+	/** Returns names paired with Android's detailed primitive support report. */
 	FName PrimitiveName(EOpenMobileHapticAndroidPrimitive Primitive)
 	{
 		switch (Primitive)
@@ -30,6 +31,7 @@ namespace OpenMobileHapticsPrimitiveCompositionPolicyPrivate
 		}
 	}
 
+	/** Uses the per-primitive support entry and returns unknown when Android didn't report one. */
 	EOpenMobileHapticSupportState DetailedSupport(
 		FName Primitive,
 		const FOpenMobileHapticCapabilities& Capabilities
@@ -46,6 +48,7 @@ namespace OpenMobileHapticsPrimitiveCompositionPolicyPrivate
 		return EOpenMobileHapticSupportState::Unknown;
 	}
 
+	/** Converts missing primitive support into fallback or rejection according to request policy. */
 	FOpenMobileHapticsPrimitiveCompositionResolution Unavailable(
 		EOpenMobileHapticFallbackPolicy Policy,
 		FName Reason
@@ -60,6 +63,7 @@ namespace OpenMobileHapticsPrimitiveCompositionPolicyPrivate
 		return Resolution;
 	}
 
+	/** Builds an empty terminal result for malformed primitive arrays or timing. */
 	FOpenMobileHapticsPrimitiveCompositionResolution Invalid(FName Reason)
 	{
 		FOpenMobileHapticsPrimitiveCompositionResolution Resolution;

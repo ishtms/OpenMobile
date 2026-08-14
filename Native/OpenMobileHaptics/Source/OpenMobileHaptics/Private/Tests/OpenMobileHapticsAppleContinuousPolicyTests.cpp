@@ -6,6 +6,7 @@
 
 namespace OpenMobileHapticsAppleContinuousPolicyTests
 {
+	/** Builds compact cooked events so policy tests don't depend on editor asset compilation. */
 	FOpenMobileHapticCookedPatternEvent Event(
 		EOpenMobileHapticPatternEventType Type,
 		uint32 StartMicroseconds,
@@ -23,6 +24,7 @@ namespace OpenMobileHapticsAppleContinuousPolicyTests
 		return Result;
 	}
 
+	/** Builds one cooked curve from explicit points while keeping setup readable in each case. */
 	FOpenMobileHapticCookedParameterCurve Curve(
 		EOpenMobileHapticCurveParameter Parameter,
 		uint32 StartMicroseconds,
@@ -36,6 +38,7 @@ namespace OpenMobileHapticsAppleContinuousPolicyTests
 		return Result;
 	}
 
+	/** Returns the smallest Apple capability set needed for continuous translation to run. */
 	FOpenMobileHapticCapabilities SupportedCapabilities()
 	{
 		FOpenMobileHapticCapabilities Capabilities;

@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsAppleTransientPolicyPrivate
 {
+	/** Builds a transient resolution and keeps failure output empty for safe caller checks. */
 	FOpenMobileHapticsAppleTransientResolution MakeResolution(
 		EOpenMobileHapticsAppleTransientOutcome Outcome,
 		FName Reason
@@ -13,6 +14,7 @@ namespace OpenMobileHapticsAppleTransientPolicyPrivate
 		return Resolution;
 	}
 
+	/** Restores cooked intensity and sharpness using the asset's normalized integer encoding. */
 	float DecodeNormalized(uint16 Value)
 	{
 		return static_cast<float>(Value) / static_cast<float>(MAX_uint16);

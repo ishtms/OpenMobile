@@ -36,12 +36,14 @@ struct FOpenMobileHapticsFallbackResolution
 class FOpenMobileHapticsFallbackPolicy final
 {
 public:
+	/** Selects the first allowed playback route and preserves rejected attempts, which makes device-specific fallback explainable. */
 	static FOpenMobileHapticsFallbackResolution Resolve(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticsPlatformOverrideResolution& Override,
 		const FOpenMobileHapticCapabilities& Capabilities,
 		EOpenMobileHapticFallbackPolicy RequestPolicy
 	);
+	/** Reduces the attempt records to stable names that can cross logs and Blueprint diagnostics without exposing internal enums. */
 	static TArray<FName> MakeDiagnosticTrace(
 		const FOpenMobileHapticsFallbackResolution& Resolution
 	);

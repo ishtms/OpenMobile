@@ -25,6 +25,7 @@ struct FOpenMobileHapticsEnvelopeResolution
 class FOpenMobileHapticsEnvelopePolicy final
 {
 public:
+	/** Validates Android envelope data and picks the format the current API can really play, with fallback left to the caller. */
 	static FOpenMobileHapticsEnvelopeResolution Resolve(
 		const UOpenMobileHapticAndroidPatternAsset& Asset,
 		const FOpenMobileHapticCapabilities& Capabilities,

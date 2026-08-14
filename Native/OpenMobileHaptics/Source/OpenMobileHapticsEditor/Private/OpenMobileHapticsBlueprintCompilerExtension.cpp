@@ -13,11 +13,13 @@
 
 namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
 {
+	/** Restricts static validation to unlinked pins, connected values aren't known during Blueprint compilation. */
 	bool IsLiteral(const UEdGraphPin* Pin)
 	{
 		return Pin && Pin->LinkedTo.IsEmpty();
 	}
 
+	/** Routes validation through compiler results so warnings attach to the actual Blueprint node. */
 	void Warn(
 		const FKismetCompilerContext& Context,
 		UEdGraphNode* Node,
@@ -30,6 +32,7 @@ namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
 		);
 	}
 
+	/** Checks a literal identifier against configured names while leaving dynamic pins for runtime validation. */
 	void ValidateLiteralName(
 		const FKismetCompilerContext& Context,
 		UK2Node_CallFunction* Node,
@@ -69,6 +72,7 @@ namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
 		}
 	}
 
+	/** Applies function-specific checks only to Haptics library calls recognised by reflection identity. */
 	void ValidateCall(
 		const FKismetCompilerContext& Context,
 		UK2Node_CallFunction* Node
@@ -143,6 +147,7 @@ namespace OpenMobileHapticsBlueprintCompilerExtensionPrivate
 		}
 	}
 
+	/** Applies the same literal checks to async action nodes whose factory functions bypass ordinary call-node handling. */
 	void ValidateAsync(
 		const FKismetCompilerContext& Context,
 		UK2Node_AsyncAction* Node

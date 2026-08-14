@@ -2,11 +2,13 @@
 
 namespace OpenMobileHapticsOverlapPolicyPrivate
 {
+	/** Converts priority to explicit ordering instead of relying on public enum ordinal values. */
 	int32 PriorityValue(EOpenMobileHapticChannelPriority Priority)
 	{
 		return static_cast<int32>(Priority);
 	}
 
+	/** Collects conflicts on the requested channel only, unrelated channel owners must survive replacement. */
 	void GatherSameChannelRequestIds(
 		FName Channel,
 		const TArray<FOpenMobileHapticsOverlapConflict>& Conflicts,

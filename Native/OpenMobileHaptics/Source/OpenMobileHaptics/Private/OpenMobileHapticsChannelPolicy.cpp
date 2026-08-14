@@ -4,6 +4,7 @@
 
 namespace OpenMobileHapticsChannelPolicyPrivate
 {
+	/** Converts public priority to an ordered number without depending on enum storage order. */
 	int32 PriorityValue(EOpenMobileHapticChannelPriority Priority)
 	{
 		return static_cast<int32>(Priority);

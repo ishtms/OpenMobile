@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsRepeatPolicyPrivate
 {
+	/** Returns the exact repeat error with a default plan callers won't submit accidentally. */
 	FOpenMobileHapticsRepeatPlanResult Failure(
 		EOpenMobileHapticsRepeatError Error
 	)

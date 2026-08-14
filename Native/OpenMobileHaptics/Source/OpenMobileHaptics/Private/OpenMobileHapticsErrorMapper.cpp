@@ -10,6 +10,7 @@ namespace OpenMobileHapticsErrorMapperPrivate
 		const TCHAR* Correction;
 	};
 
+	/** Bounds and strips native identifiers before they enter public errors or diagnostics output. */
 	FString SanitizeNativeIdentifier(const FString& Value)
 	{
 		if (Value.IsEmpty())
@@ -29,6 +30,7 @@ namespace OpenMobileHapticsErrorMapperPrivate
 		return Value.Left(64);
 	}
 
+	/** Keeps public code, retry hint, and user action paired for every internal failure reason. */
 	FMapping GetMapping(EOpenMobileHapticsFailureReason Reason)
 	{
 		switch (Reason)
@@ -135,6 +137,7 @@ namespace OpenMobileHapticsErrorMapperPrivate
 		}
 	}
 
+	/** Recovers an internal reason from public code only when richer backend context wasn't supplied. */
 	EOpenMobileHapticsFailureReason GetReason(
 		EOpenMobileHapticErrorCode Code,
 		EOpenMobileHapticsFailureReason Fallback

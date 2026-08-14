@@ -30,12 +30,14 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 	FOpenMobileHapticsApplicationLifecycleDelegate LifecycleDelegate;
 	FOpenMobileHapticsCapabilitiesChangedDelegate CapabilitiesChangedDelegate;
 
+	/** Constructs the shared timeline manager on first use after settings and modules are available. */
 	FOpenMobileHapticsTimelineManager& TimelineManager()
 	{
 		static FOpenMobileHapticsTimelineManager Manager;
 		return Manager;
 	}
 
+	/** Changes backend generation without ever publishing zero, tokens use zero as invalid. */
 	void AdvanceGeneration()
 	{
 		Generation++;
@@ -45,6 +47,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		}
 	}
 
+	/** Invalidates delayed starts and prepared resources while keeping zero reserved for unset guards. */
 	void AdvanceLifecycleGeneration()
 	{
 		LifecycleGeneration++;
@@ -54,6 +57,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		}
 	}
 
+	/** Allocates a non-zero request id and safely skips zero after integer wrap. */
 	uint64 AllocateRequestId()
 	{
 		const uint64 RequestId = NextRequestId++;
@@ -64,6 +68,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		return RequestId;
 	}
 
+	/** Copies registered modular features before selection so registry callbacks don't run while their list lock is held. */
 	TArray<IOpenMobileHapticsBackend*> GetBackends()
 	{
 		return IModularFeatures::Get()
@@ -72,6 +77,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 			);
 	}
 
+	/** Picks the available backend with lowest priority value and stable name ordering for ties. */
 	IOpenMobileHapticsBackend* SelectBackend()
 	{
 		if (bShuttingDown.Load())
@@ -102,6 +108,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		return Best;
 	}
 
+	/** Resolves a token's backend by current registration and exact name, unavailable stale modules are ignored. */
 	IOpenMobileHapticsBackend* FindBackendByName(FName BackendName)
 	{
 		for (IOpenMobileHapticsBackend* Backend : GetBackends())
@@ -114,6 +121,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		return nullptr;
 	}
 
+	/** Re-queries selected backend capabilities and broadcasts only after releasing registry state locks. */
 	void PublishCapabilities()
 	{
 		FOpenMobileHapticCapabilities Capabilities;
@@ -160,6 +168,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		}
 	}
 
+	/** Begins backend shutdown before unregistering so native callbacks can't race registry removal. */
 	void StopBackend(IOpenMobileHapticsBackend& Backend)
 	{
 		if (!ShutdownBackends.Contains(&Backend))
@@ -169,6 +178,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		}
 	}
 
+	/** Forwards a terminal interruption and advances lifecycle without opening the retry window. */
 	void InterruptBackendWithoutRecovery(
 		IOpenMobileHapticsBackend& Backend,
 		EOpenMobileHapticsInterruptionReason Reason
@@ -185,6 +195,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		Backend.HandleInterruption(Reason);
 	}
 
+	/** Removes the one scheduled retry ticker when recovery ends or registry teardown starts. */
 	void CancelRecoveryTicker()
 	{
 		if (RecoveryTickerHandle.IsValid())
@@ -196,6 +207,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 
 	void RunRecoveryAttempt(double NowSeconds);
 
+	/** Schedules the next retry at policy time and avoids stacking more than one ticker. */
 	void ScheduleRecoveryAttempt()
 	{
 		if (RecoveryTickerHandle.IsValid()
@@ -223,6 +235,7 @@ namespace OpenMobileHapticsBackendRegistryPrivate
 		);
 	}
 
+	/** Revalidates active backend, application state, and generation before asking native code to recover. */
 	void RunRecoveryAttempt(double NowSeconds)
 	{
 		const FOpenMobileHapticsRecoveryAttempt Attempt =

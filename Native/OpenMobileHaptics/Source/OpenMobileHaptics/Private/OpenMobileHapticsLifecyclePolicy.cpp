@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsLifecyclePolicyPrivate
 {
+	/** Restricts background-alert exceptions to notification semantics, selection and impact should remain suppressed. */
 	bool IsNotificationEffect(EOpenMobileHapticSemanticEffect Effect)
 	{
 		return Effect == EOpenMobileHapticSemanticEffect::NotificationSuccess

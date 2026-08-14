@@ -6,6 +6,7 @@
 class FOpenMobileHapticsIOSModule final : public IModuleInterface
 {
 public:
+	/** Creates and registers the iOS backend after Core Haptics bridge code is loaded. */
 	virtual void StartupModule() override
 	{
 		Backend = MakeUnique<FOpenMobileHapticsIOSBackend>();
@@ -15,6 +16,7 @@ public:
 		}
 	}
 
+	/** Shuts native callbacks down before unregistering and releasing the iOS backend. */
 	virtual void ShutdownModule() override
 	{
 		if (Backend)

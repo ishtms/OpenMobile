@@ -21,6 +21,7 @@ namespace OpenMobileHapticsPreviewReceiverPrivate
 		FIPv4Endpoint Endpoint;
 	};
 
+	/** Generates a short random code for human confirmation without deriving it from receiver or editor identity. */
 	FString MakePairingCode()
 	{
 		return FString::Printf(
@@ -61,6 +62,7 @@ void FOpenMobileHapticsPreviewReceiverStateDeleter::operator()(
 
 namespace OpenMobileHapticsPreviewReceiverPrivate
 {
+	/** Uses test overrides only when enabled, otherwise captures the receiver's live runtime capability snapshot. */
 	FOpenMobileHapticsPreviewCapabilities ResolveCapabilities(
 		const UOpenMobileHapticsPreviewReceiverSubsystem& Receiver
 	)
@@ -75,6 +77,7 @@ namespace OpenMobileHapticsPreviewReceiverPrivate
 		);
 	}
 
+	/** Encodes and sends one reply to the exact sender endpoint, protocol failure never emits a partial datagram. */
 	bool SendMessage(
 		FOpenMobileHapticsPreviewReceiverState& State,
 		const FIPv4Endpoint& Endpoint,
@@ -106,6 +109,7 @@ namespace OpenMobileHapticsPreviewReceiverPrivate
 		) && SentBytes == Packet.Num();
 	}
 
+	/** Returns one bounded rejection tied to the pairing request that caused it. */
 	void SendRejection(
 		FOpenMobileHapticsPreviewReceiverState& State,
 		const FIPv4Endpoint& Endpoint,
@@ -122,6 +126,7 @@ namespace OpenMobileHapticsPreviewReceiverPrivate
 		SendMessage(State, Endpoint, MoveTemp(Response));
 	}
 
+	/** Returns preview outcome with session and revision so editor can discard stale replies. */
 	void SendResult(
 		FOpenMobileHapticsPreviewReceiverState& State,
 		const FIPv4Endpoint& Endpoint,

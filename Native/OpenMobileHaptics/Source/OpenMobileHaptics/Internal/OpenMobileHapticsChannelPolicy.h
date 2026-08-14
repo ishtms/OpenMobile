@@ -17,6 +17,7 @@ struct FOpenMobileHapticsResolvedChannel
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsChannelPolicy final
 {
 public:
+	/** Combines request priority with per-channel settings and hard limits, so admission sees one resolved rule set. */
 	static FOpenMobileHapticsResolvedChannel Resolve(
 		FName Channel,
 		EOpenMobileHapticChannelPriority RequestPriority,
@@ -66,15 +67,22 @@ struct FOpenMobileHapticsChannelAdmissionResult
 class OPENMOBILEHAPTICS_API FOpenMobileHapticsChannelArbiter final
 {
 public:
+	/** Replaces admission limits only after clamping them to values the counters can enforce. */
 	void Configure(const FOpenMobileHapticsChannelLimits& InLimits);
+	/** Reserves active or queued capacity atomically and names the lower-priority owner when preemption is allowed. */
 	FOpenMobileHapticsChannelAdmissionResult TryReserve(
 		const FOpenMobileHapticsChannelAdmissionRequest& Request
 	);
+	/** Releases every counter tied to one request, regardless of whether it was active or queued. */
 	void Release(uint64 RequestId);
+	/** Clears reservations during backend reset so old counts can't block the new generation. */
 	void Reset();
 
+	/** Reports global active usage without exposing the reservation table. */
 	int32 GetActiveCount() const { return ActiveCount; }
+	/** Reports global queued usage for diagnostics and back-pressure decisions. */
 	int32 GetQueuedCount() const { return QueuedCount; }
+	/** Builds bounded per-channel diagnostics, returning false when the caller's output cap can't hold them all. */
 	bool BuildDiagnostics(
 		TArray<FOpenMobileHapticChannelDiagnostics>& OutDiagnostics,
 		int32 MaximumEntries

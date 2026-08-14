@@ -24,6 +24,7 @@
 
 namespace OpenMobileHapticsBlueprintFixtureTests
 {
+	/** Creates a transient Blueprint package so compiler fixtures don't dirty project content. */
 	UBlueprint* CreateBlueprint()
 	{
 		return FKismetEditorUtilities::CreateBlueprint(
@@ -40,6 +41,7 @@ namespace OpenMobileHapticsBlueprintFixtureTests
 		);
 	}
 
+	/** Adds one function graph owned by the fixture Blueprint for node-level compiler checks. */
 	UEdGraph* CreateGraph(UBlueprint* Blueprint)
 	{
 		UEdGraph* Graph = FBlueprintEditorUtils::CreateNewGraph(
@@ -52,6 +54,7 @@ namespace OpenMobileHapticsBlueprintFixtureTests
 		return Graph;
 	}
 
+	/** Adds an entry event with a stable name so fixture graphs compile without editor interaction. */
 	UK2Node_CustomEvent* AddEvent(UEdGraph* Graph, FName Name)
 	{
 		UK2Node_CustomEvent* Event = NewObject<UK2Node_CustomEvent>(Graph);
@@ -62,6 +65,7 @@ namespace OpenMobileHapticsBlueprintFixtureTests
 		return Event;
 	}
 
+	/** Adds a plain call node bound to the exact reflected Haptics function under test. */
 	UK2Node_CallFunction* AddCall(UEdGraph* Graph, UFunction* Function)
 	{
 		UK2Node_CallFunction* Node = NewObject<UK2Node_CallFunction>(Graph);
@@ -72,6 +76,7 @@ namespace OpenMobileHapticsBlueprintFixtureTests
 		return Node;
 	}
 
+	/** Adds an async action node for factory functions that use a different compiler path from ordinary calls. */
 	UK2Node_AsyncAction* AddAsync(UEdGraph* Graph, UFunction* Function)
 	{
 		UK2Node_AsyncAction* Node = NewObject<UK2Node_AsyncAction>(Graph);

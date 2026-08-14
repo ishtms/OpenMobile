@@ -10,6 +10,7 @@
 
 namespace OpenMobileHapticsBlueprintLibraryPrivate
 {
+	/** Resolves through Game Instance and returns a public error for editor utilities or stale world contexts. */
 	UOpenMobileHapticsSubsystem* ResolveSubsystem(
 		const UObject* WorldContextObject,
 		FOpenMobileHapticError& OutError
@@ -38,6 +39,7 @@ namespace OpenMobileHapticsBlueprintLibraryPrivate
 		return Subsystem;
 	}
 
+	/** Packages world-context failure as an immediate rejected playback result for every Blueprint node. */
 	FOpenMobileHapticPlaybackResult NoGameInstanceResult(
 		const FOpenMobileHapticError& Error
 	)
@@ -45,11 +47,13 @@ namespace OpenMobileHapticsBlueprintLibraryPrivate
 		return FOpenMobileHapticPlaybackResult::MakeRejected(Error);
 	}
 
+	/** Returns stable enum value names for diagnostics and rejects missing reflection data cleanly. */
 	FName EnumValueName(const UEnum* Enum, int64 Value)
 	{
 		return Enum ? FName(*Enum->GetNameStringByValue(Value)) : NAME_None;
 	}
 
+	/** Collapses runtime availability into the simpler Blueprint capability tier contract. */
 	EOpenMobileHapticCapabilityTier ToCapabilityTier(
 		EOpenMobileHapticAvailability Availability
 	)
@@ -67,6 +71,7 @@ namespace OpenMobileHapticsBlueprintLibraryPrivate
 		}
 	}
 
+	/** Maps public control outcomes to exec branches while retaining stale and unsupported cases. */
 	EOpenMobileHapticControlBranch ToControlBranch(
 		EOpenMobileHapticControlOutcome Outcome
 	)
@@ -84,6 +89,7 @@ namespace OpenMobileHapticsBlueprintLibraryPrivate
 		}
 	}
 
+	/** Converts standard channel enum values to the same configurable names used by subsystem policy. */
 	FName StandardChannelName(EOpenMobileHapticStandardChannel Channel)
 	{
 		switch (Channel)
@@ -105,6 +111,7 @@ namespace OpenMobileHapticsBlueprintLibraryPrivate
 		}
 	}
 
+	/** Builds one concise invalid-name error shared by channel, category, effect, and marker nodes. */
 	FOpenMobileHapticError InvalidIdentifierError(const TCHAR* Kind)
 	{
 		FOpenMobileHapticError Error = FOpenMobileHapticError::FromCommon(

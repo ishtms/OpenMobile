@@ -2,6 +2,7 @@
 
 namespace OpenMobileHapticsAndroidFallbackPolicyPrivate
 {
+	/** Accepts only stable primitive names from asset metadata and maps them to Android enum values. */
 	bool ResolvePrimitive(
 		FName Name,
 		EOpenMobileHapticAndroidPrimitive& Primitive
@@ -46,6 +47,7 @@ namespace OpenMobileHapticsAndroidFallbackPolicyPrivate
 		return true;
 	}
 
+	/** Accepts known predefined effect names without relying on enum ordinal values. */
 	bool ResolvePredefined(
 		FName Name,
 		EOpenMobileHapticAndroidPredefinedEffect& Effect
@@ -74,6 +76,7 @@ namespace OpenMobileHapticsAndroidFallbackPolicyPrivate
 		return true;
 	}
 
+	/** Returns the diagnostic name paired with predefined support entries. */
 	FName PredefinedName(EOpenMobileHapticAndroidPredefinedEffect Effect)
 	{
 		switch (Effect)
@@ -90,6 +93,7 @@ namespace OpenMobileHapticsAndroidFallbackPolicyPrivate
 		}
 	}
 
+	/** Prefers per-effect capability evidence and falls back to the overall support state only when detail is absent. */
 	bool HasSupport(
 		FName Name,
 		EOpenMobileHapticSupportState OverallSupport,
@@ -112,6 +116,7 @@ namespace OpenMobileHapticsAndroidFallbackPolicyPrivate
 		return false;
 	}
 
+	/** Checks the asset's fallback floor before attempting a lower-fidelity Android route. */
 	bool Allows(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		EOpenMobileHapticFallbackFloor Floor

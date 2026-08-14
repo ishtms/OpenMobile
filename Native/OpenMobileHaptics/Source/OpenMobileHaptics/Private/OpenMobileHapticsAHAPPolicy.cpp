@@ -63,6 +63,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		FCurve Curve;
 	};
 
+	/** Builds a failed parse result with field location preserved for importer feedback. */
 	FOpenMobileHapticsAHAPNormalizationResult Fail(
 		EOpenMobileHapticsAHAPError Error,
 		FString FieldPath
@@ -74,6 +75,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return Result;
 	}
 
+	/** Rejects unknown JSON keys instead of silently accepting AHAP data this version can't preserve. */
 	bool HasOnlyKeys(
 		const FJsonObject& Object,
 		std::initializer_list<const TCHAR*> Keys,
@@ -100,6 +102,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return true;
 	}
 
+	/** Reads a required finite number and records whether the field was missing or had the wrong JSON type. */
 	bool ReadNumber(
 		const FJsonObject& Object,
 		const TCHAR* Field,
@@ -125,6 +128,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return true;
 	}
 
+	/** Reads a required non-empty string with the same error split used by numeric fields. */
 	bool ReadString(
 		const FJsonObject& Object,
 		const TCHAR* Field,
@@ -146,11 +150,13 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return true;
 	}
 
+	/** Keeps inclusive numeric range checks identical across event, parameter, and curve parsing. */
 	bool IsInRange(double Value, double Minimum, double Maximum)
 	{
 		return Value >= Minimum && Value <= Maximum;
 	}
 
+	/** Returns the AHAP-defined value range for one event parameter and rejects ids from the wrong audio or haptic family. */
 	bool EventParameterRange(
 		const FString& Id,
 		bool bAudio,
@@ -191,6 +197,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return false;
 	}
 
+	/** Returns the AHAP-defined range for global dynamic controls before their values are normalized. */
 	bool DynamicParameterRange(
 		const FString& Id,
 		double& OutMinimum,
@@ -222,6 +229,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return false;
 	}
 
+	/** Parses one event with exact key, count, duration, audio-path, and parameter validation. */
 	FOpenMobileHapticsAHAPNormalizationResult ParseEvent(
 		const FJsonObject& Object,
 		int32 EntryIndex,
@@ -450,6 +458,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return {};
 	}
 
+	/** Parses one dynamic parameter while enforcing supported ids, time range, and total parameter cap. */
 	FOpenMobileHapticsAHAPNormalizationResult ParseParameter(
 		const FJsonObject& Object,
 		int32 EntryIndex,
@@ -507,6 +516,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return {};
 	}
 
+	/** Parses one parameter curve and requires ordered control points that remain inside duration and count limits. */
 	FOpenMobileHapticsAHAPNormalizationResult ParseCurve(
 		const FJsonObject& Object,
 		int32 EntryIndex,
@@ -619,6 +629,7 @@ namespace OpenMobileHapticsAHAPPolicyPrivate
 		return {};
 	}
 
+	/** Writes parsed entries back in one canonical JSON form so cook hashes don't depend on source whitespace or key order. */
 	FString WriteNormalized(const TArray<FEntry>& Entries)
 	{
 		FString Output;

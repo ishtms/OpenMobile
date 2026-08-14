@@ -72,6 +72,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 	constexpr int64 HasFrequencyKnowledge = 1LL << 13;
 	constexpr int32 MaximumControlledWaveformSegmentCount = 4096;
 
+	/** Separates unsupported from unknown when Android reports a feature value without saying whether that value is reliable. */
 	EOpenMobileHapticSupportState SupportFromFlag(
 		int64 Flags,
 		int64 SupportedFlag,
@@ -87,6 +88,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			: EOpenMobileHapticSupportState::Unsupported;
 	}
 
+	/** Converts Java's compact support result into the cross-platform three-state contract. */
 	EOpenMobileHapticSupportState SupportFromAndroidResult(uint64 Result)
 	{
 		switch (Result)
@@ -100,6 +102,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		}
 	}
 
+	/** Expands Java bitsets into named preset and primitive support entries used by fallback policy. */
 	void AddDetailedSupport(
 		FOpenMobileHapticCapabilities& Capabilities,
 		const FOpenMobileHapticsAndroidHardwareProbe& Probe
@@ -162,6 +165,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		}
 	}
 
+	/** Maps request category to Android vibration attributes without passing Unreal names through JNI. */
 	int32 PurposeFor(FName Category)
 	{
 		return Category == TEXT("Alerts")
@@ -169,6 +173,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 			: Category == TEXT("Gameplay") ? 1 : 0;
 	}
 
+	/** Recognises every terminal control event before Android playback state is removed. */
 	bool IsTerminalPlaybackState(EOpenMobileHapticPlaybackState State)
 	{
 		switch (State)
@@ -184,6 +189,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		}
 	}
 
+	/** Converts Java control codes into the public emulated-control result and supplied failure message. */
 	FOpenMobileHapticControlResult MakeEmulatedControlResult(
 		int32 NativeResult,
 		const TCHAR* FailureMessage
@@ -227,6 +233,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return Result;
 	}
 
+	/** Rebuilds remaining waveform data from retained timeline and revisioned subsystem playhead. */
 	FOpenMobileHapticsAndroidPlaybackControlResolution ResolveControlledWaveform(
 		const FOpenMobileHapticsAndroidControlledPlayback& Playback,
 		const FOpenMobileHapticsBackendControlCommand& Command
@@ -250,6 +257,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		);
 	}
 
+	/** Maps Java submission codes to acceptance, fallback, unsupported, or failure with one resolved path. */
 	FOpenMobileHapticsBackendSubmission MakeNativeSubmission(
 		int32 NativeResult,
 		FName ResolvedPath,
@@ -295,6 +303,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return Submission;
 	}
 
+	/** Reports project-disabled custom vibration separately from unsupported hardware. */
 	FOpenMobileHapticsBackendSubmission MakeNotConfiguredSubmission()
 	{
 		FOpenMobileHapticsBackendSubmission Submission;
@@ -305,6 +314,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return Submission;
 	}
 
+	/** Adds fallback attempts to the public error trace without replacing the selected resolved path. */
 	void AppendAttempts(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const TArray<FName>& Attempts
@@ -313,6 +323,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		Submission.Result.FallbackAttempts.Append(Attempts);
 	}
 
+	/** Combines route and reason into a compact stable diagnostic entry. */
 	FName Attempt(FName Path, FName Reason)
 	{
 		return *FString::Printf(
@@ -322,6 +333,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		);
 	}
 
+	/** Captures semantic callback and identity only when timing policy requested a delayed Java start. */
 	FOpenMobileHapticsAndroidScheduledPlayback MakeScheduledPlayback(
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		FName PatternOrEffect,
@@ -358,6 +370,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		return Scheduled;
 	}
 
+	/** Captures named pattern callback and identity for a delayed start without retaining the whole request. */
 	FOpenMobileHapticsAndroidScheduledPlayback MakeScheduledPlayback(
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
 		const FOpenMobileHapticNamedPatternRequest& Request,
@@ -374,6 +387,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		);
 	}
 
+	/** Marks semantic scheduling diagnostics when Android had to approximate timing rather than reject the request. */
 	void ApplyBestEffortTiming(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
@@ -395,6 +409,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		);
 	}
 
+	/** Applies the same approximation evidence to named pattern submission results. */
 	void ApplyBestEffortTiming(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters,
@@ -404,6 +419,7 @@ namespace OpenMobileHapticsAndroidBackendPrivate
 		ApplyBestEffortTiming(Submission, Parameters, Request.Options);
 	}
 
+	/** Tries translated waveform, platform override, primitive, predefined, semantic, and basic routes in policy order. */
 	FOpenMobileHapticsBackendSubmission SubmitPortableAndFallback(
 		FOpenMobileHapticsAndroidBridge& Bridge,
 		FOpenMobileHapticsAndroidPlaybackControlStore& PlaybackControlStore,

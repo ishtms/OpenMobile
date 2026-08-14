@@ -23,6 +23,7 @@ namespace OpenMobileHapticsAndroidBridgePrivate
 	FOpenMobileHapticsAndroidBridge* ActiveBridge = nullptr;
 }
 
+/** Lets a delayed Java runnable verify request and lifecycle ownership immediately before touching the vibrator. */
 JNI_METHOD jboolean Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeCanStart(
 	JNIEnv* Env,
 	jclass Class,
@@ -42,6 +43,7 @@ JNI_METHOD jboolean Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_native
 			: JNI_FALSE;
 }
 
+/** Forwards terminal scheduled-playback result to the currently registered Android bridge only. */
 JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnBridgeResult(
 	JNIEnv* Env,
 	jclass Class,
@@ -63,6 +65,7 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnBr
 	}
 }
 
+/** Converts Java service loss or activity replacement into backend registry interruption. */
 JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnInterruption(
 	JNIEnv* Env,
 	jclass Class,
@@ -83,6 +86,7 @@ JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnIn
 	});
 }
 
+/** Returns revisioned controlled-waveform state with its native sequence so stale callbacks can be filtered. */
 JNI_METHOD void Java_com_openmobile_haptics_OpenMobileHapticsBridgeV1_nativeOnControlledWaveformEvent(
 	JNIEnv* Env,
 	jclass Class,

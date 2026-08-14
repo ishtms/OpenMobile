@@ -13,11 +13,13 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 	constexpr int32 MaximumErrorCharacters = 96;
 
 	template<typename ValueType>
+	/** Folds protocol-visible pattern values into a capability-independent source hash. */
 	void HashValue(uint32& Hash, const ValueType& Value)
 	{
 		Hash = FCrc::TypeCrc32(Value, Hash);
 	}
 
+	/** Reads or writes a length-prefixed string while enforcing its field-specific character cap before allocation. */
 	bool SerializeString(
 		FArchive& Archive,
 		FString& Value,
@@ -74,6 +76,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return !Archive.IsError();
 	}
 
+	/** Accepts bounded printable identifiers only, network packets shouldn't carry paths or control text into names. */
 	bool IsSafeIdentifier(const FString& Value, bool bAllowEmpty)
 	{
 		if (Value.IsEmpty())
@@ -92,6 +95,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return true;
 	}
 
+	/** Combines bounded string serialization with identifier validation on both encode and decode. */
 	bool SerializeIdentifier(
 		FArchive& Archive,
 		FString& Value,
@@ -116,6 +120,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return true;
 	}
 
+	/** Serializes the preview capability subset and validates every enum and limit before accepting a packet. */
 	bool SerializeCapabilities(
 		FArchive& Archive,
 		FOpenMobileHapticsPreviewCapabilities& Capabilities,
@@ -182,6 +187,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return true;
 	}
 
+	/** Serializes cooked events, curves, and points with hard count caps before arrays are resized. */
 	bool SerializeCookedPattern(
 		FArchive& Archive,
 		FOpenMobileHapticCookedPatternData& Pattern,
@@ -273,6 +279,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return !Archive.IsError();
 	}
 
+	/** Serializes portable pattern and playback options without allowing device preview to reference project assets. */
 	bool SerializePreviewPattern(
 		FArchive& Archive,
 		FOpenMobileHapticsPreviewPattern& Pattern,
@@ -340,6 +347,7 @@ namespace OpenMobileHapticsPreviewProtocolPrivate
 		return true;
 	}
 
+	/** Dispatches each message type to its exact bounded payload contract and rejects fields that don't belong. */
 	bool SerializeMessageBody(
 		FArchive& Archive,
 		FOpenMobileHapticsPreviewMessage& Message,

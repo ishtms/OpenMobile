@@ -3,6 +3,7 @@ using UnrealBuildTool;
 
 public class OpenMobileHapticsAndroid : ModuleRules
 {
+	/** Adds JNI and the Android plugin receipt only to this platform module, the portable runtime doesn't need Launch. */
 	public OpenMobileHapticsAndroid(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

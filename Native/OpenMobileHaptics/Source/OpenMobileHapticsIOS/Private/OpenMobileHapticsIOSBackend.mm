@@ -23,6 +23,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		Invalid
 	};
 
+	/** Converts Apple bridge rejection, stale state, shutdown, or native failure into the public submission contract. */
 	FOpenMobileHapticsBackendSubmission MakeBridgeFailure(
 		EOpenMobileHapticsAppleSubmissionResult Result
 	)
@@ -41,6 +42,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		return Submission;
 	}
 
+	/** Copies fallback trace into the public error without replacing the selected route. */
 	void AppendAttempts(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const TArray<FName>& Attempts
@@ -49,6 +51,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		Submission.Result.FallbackAttempts.Append(Attempts);
 	}
 
+	/** Combines Apple translation route and rejection reason into one stable trace entry. */
 	FName TranslationAttempt(FName Translation, FName Reason)
 	{
 		return *FString::Printf(
@@ -58,6 +61,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		);
 	}
 
+	/** Converts resolved platform timing into Apple absolute schedule and preserves the lifecycle start guard. */
 	FOpenMobileHapticsApplePlaybackSchedule MakeAppleSchedule(
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
 	)
@@ -71,6 +75,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		return Schedule;
 	}
 
+	/** Treats only accepted non-zero delayed timing as scheduled Apple playback. */
 	bool IsScheduled(
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
 	)
@@ -79,6 +84,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 			&& Parameters.Timing.StartDelaySeconds > 0.0;
 	}
 
+	/** Advertises per-playback Apple controls only when repeat plan and native player type can honour them. */
 	FOpenMobileHapticsBackendPlaybackControlSupport
 	MakeNativePlaybackControlSupport(
 		const FOpenMobileHapticLoopOptions& Loop,
@@ -115,6 +121,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		return Support;
 	}
 
+	/** Maps Apple bridge control result to public outcome and native implementation fields. */
 	FOpenMobileHapticControlResult MakePlaybackControlResult(
 		EOpenMobileHapticsAppleSubmissionResult NativeResult,
 		const TCHAR* FailureMessage
@@ -158,6 +165,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		);
 	}
 
+	/** Records exact or approximate Apple scheduling evidence without changing backend acceptance. */
 	void ApplyAppleTimingDiagnostics(
 		FOpenMobileHapticsBackendSubmission& Submission,
 		const FOpenMobileHapticsBackendPlaybackParameters& Parameters
@@ -178,6 +186,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		);
 	}
 
+	/** Wraps Apple terminal events with request token, identity, and ordered backend callback payload. */
 	FOpenMobileHapticsApplePlaybackEventCallback MakePlaybackCallback(
 		const FOpenMobileHapticsBackendRequestToken& Token,
 		FName PatternName,
@@ -253,6 +262,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		};
 	}
 
+	/** Plays the selected semantic or basic Apple fallback after rich translation couldn't be used. */
 	FOpenMobileHapticsBackendSubmission SubmitFallbackResolution(
 		FOpenMobileHapticsAppleBridgeService& Service,
 		const FOpenMobileHapticNamedPatternRequest& Request,
@@ -369,6 +379,7 @@ namespace OpenMobileHapticsIOSBackendPrivate
 		return Submission;
 	}
 
+	/** Masks rich capability before fallback resolution so policy can't select the route that just failed. */
 	FOpenMobileHapticsFallbackResolution ResolveWithoutRichPlayback(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		FOpenMobileHapticCapabilities Capabilities,

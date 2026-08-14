@@ -31,6 +31,7 @@ struct FOpenMobileHapticsAppleParameterCurve
 	TArray<double> RelativeTimesSeconds;
 	TArray<float> Values;
 
+	/** Requires at least two paired points before Core Haptics receives a parameter curve. */
 	bool IsValid() const
 	{
 		return RelativeTimesSeconds.Num() >= 2
@@ -49,6 +50,7 @@ struct FOpenMobileHapticsAppleContinuousPattern
 	double LoopEndSeconds = 0.0;
 	double SafetyDurationSeconds = 0.0;
 
+	/** Requires real events and a finite positive duration, the remaining fields are meaningful only after this passes. */
 	bool IsValid() const
 	{
 		return !Events.IsEmpty()
@@ -78,10 +80,12 @@ struct FOpenMobileHapticsAppleContinuousResolution
 class FOpenMobileHapticsAppleContinuousPolicy final
 {
 public:
+	/** Combines project caps with native capability limits so compilation uses the tighter value only. */
 	static FOpenMobileHapticsAppleContinuousLimits MakeLimits(
 		const UOpenMobileHapticsSettings& Settings,
 		const FOpenMobileHapticCapabilities& Capabilities
 	);
+	/** Converts cooked portable events and curves into one Core Haptics timeline, including repeat safety duration. */
 	static FOpenMobileHapticsAppleContinuousResolution Resolve(
 		const FOpenMobileHapticCookedPatternData& Pattern,
 		const FOpenMobileHapticLoopOptions& Loop,

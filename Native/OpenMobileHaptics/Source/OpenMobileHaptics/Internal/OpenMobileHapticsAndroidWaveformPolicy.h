@@ -27,6 +27,7 @@ struct FOpenMobileHapticsAndroidWaveformResolution
 class FOpenMobileHapticsAndroidWaveformPolicy final
 {
 public:
+	/** Validates an Android override against the current API and amplitude support before native playback sees it. */
 	static FOpenMobileHapticsAndroidWaveformResolution ResolveOverride(
 		const UOpenMobileHapticAndroidPatternAsset& Asset,
 		const FOpenMobileHapticCapabilities& Capabilities,
@@ -34,12 +35,14 @@ public:
 		float RequestIntensity,
 		EOpenMobileHapticFallbackPolicy FallbackPolicy
 	);
+	/** Compiles the portable pattern once with its own loop data, handy for ordinary playback requests. */
 	static FOpenMobileHapticsAndroidWaveformResolution ResolvePortable(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticCapabilities& Capabilities,
 		float RequestIntensity,
 		EOpenMobileHapticFallbackPolicy FallbackPolicy
 	);
+	/** Compiles with caller-supplied looping so pause, resume, and request overrides all agree on the same waveform. */
 	static FOpenMobileHapticsAndroidWaveformResolution ResolvePortable(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		const FOpenMobileHapticLoopOptions& Loop,

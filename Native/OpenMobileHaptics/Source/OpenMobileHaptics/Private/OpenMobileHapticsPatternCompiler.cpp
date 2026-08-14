@@ -5,6 +5,7 @@
 
 namespace OpenMobileHapticsPatternCompilerPrivate
 {
+	/** Quantizes source timing once before ordering and overlap checks so tiny floating differences don't change acceptance. */
 	double Quantize(double Value, double Granularity)
 	{
 		const double Quantized = FMath::RoundToDouble(Value / Granularity)
@@ -14,6 +15,7 @@ namespace OpenMobileHapticsPatternCompilerPrivate
 			: Quantized;
 	}
 
+	/** Preserves the exact failed source index while returning no compiled pattern. */
 	FOpenMobileHapticsPatternCompileResult Failure(
 		EOpenMobileHapticsPatternCompileError Error,
 		int32 EventIndex = INDEX_NONE,
@@ -29,6 +31,7 @@ namespace OpenMobileHapticsPatternCompilerPrivate
 		return Result;
 	}
 
+	/** Requires finite zero-to-one values before they're packed into cooked integers. */
 	bool IsNormalized(float Value)
 	{
 		return FMath::IsFinite(Value) && Value >= 0.0f && Value <= 1.0f;

@@ -7,21 +7,25 @@
 
 namespace OpenMobileHapticsAppleBridgeServiceTests
 {
+	/** Keeps every bridge result and captured callback mutable, each service test can force one native path without platform code. */
 	class FMockAppleBridge final : public IOpenMobileHapticsAppleBridge
 	{
 	public:
+		/** Returns configured probe and counts service cache misses. */
 		virtual FOpenMobileHapticsAppleHardwareProbe QueryHardware() override
 		{
 			++QueryCount;
 			return Probe;
 		}
 
+		/** Returns configured engine result and records recreation attempts. */
 		virtual EOpenMobileHapticsAppleEngineResult CreateEngine() override
 		{
 			++CreateEngineCount;
 			return CreateEngineResult;
 		}
 
+		/** Captures generator idle lifetime so service forwarding can be asserted. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareSemanticGenerators(double IdleLifetimeSeconds) override
 		{
@@ -30,6 +34,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return PrepareSemanticResult;
 		}
 
+		/** Captures transient preparation payload and limits without native allocation. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareTransientPattern(
 			uint64 ResourceId,
@@ -46,6 +51,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return PreparePatternResult;
 		}
 
+		/** Captures continuous preparation through the same configurable result path. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PrepareContinuousPattern(
 			uint64 ResourceId,
@@ -62,6 +68,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return PreparePatternResult;
 		}
 
+		/** Accepts immediate semantic playback because these tests focus on service ownership. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlaySemantic(
 			EOpenMobileHapticsSemanticBehavior Behavior,
 			float Intensity
@@ -72,12 +79,14 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Accepts the basic vibration route without retaining extra mock state. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlaySystemVibration() override
 		{
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Captures scheduled semantic identity, timing, and terminal callback. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledSemantic(
 			uint64 RequestId,
 			EOpenMobileHapticsSemanticBehavior Behavior,
@@ -94,6 +103,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Captures scheduled system vibration timing through the shared playback callback slot. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledSystemVibration(
 			uint64 RequestId,
@@ -107,6 +117,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return EOpenMobileHapticsAppleSubmissionResult::Accepted;
 		}
 
+		/** Captures transient playback, prepared id, initial parameters, and configurable native result. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayTransientPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleTransientPattern& Pattern,
@@ -128,6 +139,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return TransientSubmissionResult;
 		}
 
+		/** Captures continuous playback independently so tests can distinguish translation routes. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayContinuousPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleContinuousPattern& Pattern,
@@ -149,6 +161,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return ContinuousSubmissionResult;
 		}
 
+		/** Retains schedule then reuses immediate transient capture, avoiding duplicate mock rules. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledTransientPattern(
 			uint64 RequestId,
@@ -169,6 +182,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			);
 		}
 
+		/** Retains schedule then reuses continuous capture for the rest of the payload. */
 		virtual EOpenMobileHapticsAppleSubmissionResult
 		PlayScheduledContinuousPattern(
 			uint64 RequestId,
@@ -189,6 +203,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			);
 		}
 
+		/** Captures normalized AHAP and callback with a separately configurable result. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayAHAPPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -202,6 +217,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return AHAPSubmissionResult;
 		}
 
+		/** Retains schedule and reuses AHAP payload capture. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PlayScheduledAHAPPattern(
 			uint64 RequestId,
 			const FOpenMobileHapticsAppleAHAPPattern& Pattern,
@@ -217,6 +233,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			);
 		}
 
+		/** Records stop target and returns the result selected by the test. */
 		virtual EOpenMobileHapticsAppleSubmissionResult StopPattern(
 			uint64 RequestId
 		) override
@@ -226,6 +243,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return StopResult;
 		}
 
+		/** Records pause target without changing mock playback automatically. */
 		virtual EOpenMobileHapticsAppleSubmissionResult PausePattern(
 			uint64 RequestId
 		) override
@@ -235,6 +253,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return PauseResult;
 		}
 
+		/** Records resume target so service routing can be checked separately from callback state. */
 		virtual EOpenMobileHapticsAppleSubmissionResult ResumePattern(
 			uint64 RequestId
 		) override
@@ -244,6 +263,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return ResumeResult;
 		}
 
+		/** Captures request and resolved seek position for control forwarding checks. */
 		virtual EOpenMobileHapticsAppleSubmissionResult SeekPattern(
 			uint64 RequestId,
 			double PositionSeconds
@@ -255,6 +275,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return SeekResult;
 		}
 
+		/** Captures dynamic update exactly as service forwarded it. */
 		virtual EOpenMobileHapticsAppleSubmissionResult UpdatePattern(
 			uint64 RequestId,
 			const FOpenMobileHapticDynamicParameterUpdate& Update
@@ -266,6 +287,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			return UpdateResult;
 		}
 
+		/** Stores the latest engine callback so tests can fire it after invalidation. */
 		virtual void SetEventCallback(
 			FOpenMobileHapticsAppleBridgeEventCallback Callback
 		) override
@@ -273,17 +295,20 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			EventCallback = MoveTemp(Callback);
 		}
 
+		/** Clears callback ownership and counts idempotent service shutdown. */
 		virtual void Shutdown() override
 		{
 			++ShutdownCount;
 			EventCallback = {};
 		}
 
+		/** Counts prepared-cache release without disturbing playback callback fixtures. */
 		virtual void ReleasePreparedResources() override
 		{
 			++ReleasePreparedCount;
 		}
 
+		/** Drives a retained engine callback after service state has changed, including late-event cases. */
 		void Emit(EOpenMobileHapticsAppleBridgeEvent Event)
 		{
 			if (EventCallback)
@@ -292,6 +317,7 @@ namespace OpenMobileHapticsAppleBridgeServiceTests
 			}
 		}
 
+		/** Drives whichever playback callback the latest mock submission captured. */
 		void EmitPlayback(EOpenMobileHapticsApplePlaybackEvent Event)
 		{
 			if (PlaybackCallback)

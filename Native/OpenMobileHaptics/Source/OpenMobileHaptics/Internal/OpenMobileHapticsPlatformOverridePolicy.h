@@ -24,6 +24,7 @@ struct FOpenMobileHapticsPlatformOverrideResolution
 class FOpenMobileHapticsPlatformOverridePolicy final
 {
 public:
+	/** Accepts a platform override only when its OS range and required features match the current device, then applies the requested fallback rule. */
 	static FOpenMobileHapticsPlatformOverrideResolution Resolve(
 		const UOpenMobileHapticPatternAsset& Pattern,
 		EOpenMobileHapticOverridePlatform Platform,
