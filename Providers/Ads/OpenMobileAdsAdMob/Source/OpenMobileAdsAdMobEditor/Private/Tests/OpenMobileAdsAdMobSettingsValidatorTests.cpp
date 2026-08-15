@@ -36,6 +36,27 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		Settings->GetClass()->GetMetaData(TEXT("DisplayName")),
 		FString(TEXT("OpenMobile - AdMob"))
 	);
+	TestNull(
+		TEXT("Interstitial production IDs belong to placements"),
+		Settings->GetClass()->FindPropertyByName(
+			TEXT("AndroidInterstitialAdUnitId")
+		)
+	);
+	TestNull(
+		TEXT("Banner production IDs belong to placements"),
+		Settings->GetClass()->FindPropertyByName(TEXT("AndroidBannerAdUnitId"))
+	);
+#if WITH_METADATA
+	if (const FProperty* RewardedId = Settings->GetClass()->FindPropertyByName(
+		TEXT("AndroidRewardedAdUnitId")
+	))
+	{
+		TestTrue(
+			TEXT("The retained rewarded ID is clearly legacy"),
+			RewardedId->GetMetaData(TEXT("DisplayName")).Contains(TEXT("Legacy"))
+		);
+	}
+#endif
 	TestEqual(
 		TEXT("Default test identifiers are valid"),
 		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings).Num(),

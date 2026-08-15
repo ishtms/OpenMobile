@@ -450,39 +450,23 @@ namespace OpenMobileAdsAdMobTestAdTests
 			Settings = GetMutableDefault<UOpenMobileAdsAdMobSettings>();
 			AndroidAppId = Settings->AndroidAppId;
 			AndroidRewardedAdUnitId = Settings->AndroidRewardedAdUnitId;
-			AndroidInterstitialAdUnitId = Settings->AndroidInterstitialAdUnitId;
-			AndroidBannerAdUnitId = Settings->AndroidBannerAdUnitId;
 			IOSAppId = Settings->IOSAppId;
 			IOSRewardedAdUnitId = Settings->IOSRewardedAdUnitId;
-			IOSInterstitialAdUnitId = Settings->IOSInterstitialAdUnitId;
-			IOSBannerAdUnitId = Settings->IOSBannerAdUnitId;
 			TestDeviceIdentifiers = Settings->TestDeviceIdentifiers;
 			Settings->AndroidAppId = TEXT("ca-app-pub-3940256099942544~3347511713");
 			Settings->AndroidRewardedAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/5224354917");
-			Settings->AndroidInterstitialAdUnitId =
-				TEXT("ca-app-pub-3940256099942544/1033173712");
-			Settings->AndroidBannerAdUnitId =
-				TEXT("ca-app-pub-3940256099942544/6300978111");
 			Settings->IOSAppId = TEXT("ca-app-pub-3940256099942544~1458002511");
 			Settings->IOSRewardedAdUnitId =
 				TEXT("ca-app-pub-3940256099942544/1712485313");
-			Settings->IOSInterstitialAdUnitId =
-				TEXT("ca-app-pub-3940256099942544/4411468910");
-			Settings->IOSBannerAdUnitId =
-				TEXT("ca-app-pub-3940256099942544/2435281174");
 		}
 
 		~FScopedSettings()
 		{
 			Settings->AndroidAppId = MoveTemp(AndroidAppId);
 			Settings->AndroidRewardedAdUnitId = MoveTemp(AndroidRewardedAdUnitId);
-			Settings->AndroidInterstitialAdUnitId = MoveTemp(AndroidInterstitialAdUnitId);
-			Settings->AndroidBannerAdUnitId = MoveTemp(AndroidBannerAdUnitId);
 			Settings->IOSAppId = MoveTemp(IOSAppId);
 			Settings->IOSRewardedAdUnitId = MoveTemp(IOSRewardedAdUnitId);
-			Settings->IOSInterstitialAdUnitId = MoveTemp(IOSInterstitialAdUnitId);
-			Settings->IOSBannerAdUnitId = MoveTemp(IOSBannerAdUnitId);
 			Settings->TestDeviceIdentifiers = MoveTemp(TestDeviceIdentifiers);
 		}
 
@@ -491,12 +475,8 @@ namespace OpenMobileAdsAdMobTestAdTests
 	private:
 		FString AndroidAppId;
 		FString AndroidRewardedAdUnitId;
-		FString AndroidInterstitialAdUnitId;
-		FString AndroidBannerAdUnitId;
 		FString IOSAppId;
 		FString IOSRewardedAdUnitId;
-		FString IOSInterstitialAdUnitId;
-		FString IOSBannerAdUnitId;
 		TArray<FString> TestDeviceIdentifiers;
 	};
 
@@ -3159,10 +3139,6 @@ bool FOpenMobileAdsAdMobConfiguredMediationInitializationTest::RunTest(
 		TEXT("ca-app-pub-1234567890123456~1234567890");
 	PlacementOnlySettings->AndroidRewardedAdUnitId =
 		TEXT("ca-app-pub-3940256099942544/5224354917");
-	PlacementOnlySettings->AndroidInterstitialAdUnitId =
-		TEXT("ca-app-pub-3940256099942544/1033173712");
-	PlacementOnlySettings->AndroidBannerAdUnitId =
-		TEXT("ca-app-pub-3940256099942544/6300978111");
 	FString ConfigurationError;
 	TestTrue(
 		TEXT("Production compatibility ignores unused legacy ad-unit IDs"),

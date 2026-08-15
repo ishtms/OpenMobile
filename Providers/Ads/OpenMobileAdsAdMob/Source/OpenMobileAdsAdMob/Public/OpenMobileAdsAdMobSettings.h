@@ -5,7 +5,7 @@
 #include "OpenMobileAdsOperations.h"
 #include "OpenMobileAdsAdMobSettings.generated.h"
 
-/** Keeps AdMob app IDs, ad units, and provider test devices separate from the core Ads service. */
+/** Keeps AdMob app IDs, legacy rewarded IDs, and provider test devices separate from placements. */
 UCLASS(Config = Engine, DefaultConfig, meta = (DisplayName = "OpenMobile - AdMob"))
 class OPENMOBILEADSADMOB_API UOpenMobileAdsAdMobSettings : public UDeveloperSettings
 {
@@ -20,14 +20,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Android")
 	FString AndroidAppId = TEXT("ca-app-pub-3940256099942544~3347511713");
 
-	UPROPERTY(Config, EditAnywhere, Category = "Android")
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		Category = "Legacy",
+		meta = (
+			DisplayName = "Legacy Convenience Rewarded Ad Unit ID (Android)",
+			ToolTip = "Used only by the deprecated convenience rewarded flow. Named placements own every production ad-unit ID."
+		)
+	)
 	FString AndroidRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/5224354917");
-
-	UPROPERTY(Config, EditAnywhere, Category = "Android")
-	FString AndroidInterstitialAdUnitId = TEXT("ca-app-pub-3940256099942544/1033173712");
-
-	UPROPERTY(Config, EditAnywhere, Category = "Android")
-	FString AndroidBannerAdUnitId = TEXT("ca-app-pub-3940256099942544/6300978111");
 
 	UPROPERTY(
 		Config,
@@ -37,14 +39,16 @@ public:
 	)
 	FString IOSAppId = TEXT("ca-app-pub-3940256099942544~1458002511");
 
-	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Rewarded Ad Unit ID"))
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		Category = "Legacy",
+		meta = (
+			DisplayName = "Legacy Convenience Rewarded Ad Unit ID (iOS)",
+			ToolTip = "Used only by the deprecated convenience rewarded flow. Named placements own every production ad-unit ID."
+		)
+	)
 	FString IOSRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/1712485313");
-
-	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Interstitial Ad Unit ID"))
-	FString IOSInterstitialAdUnitId = TEXT("ca-app-pub-3940256099942544/4411468910");
-
-	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Banner Ad Unit ID"))
-	FString IOSBannerAdUnitId = TEXT("ca-app-pub-3940256099942544/2435281174");
 
 	UPROPERTY(
 		Config,
@@ -100,34 +104,6 @@ public:
 		if (Platform == EOpenMobileAdsPlatform::IOS)
 		{
 			return IOSRewardedAdUnitId;
-		}
-		return FString();
-	}
-
-	/** Returns the configured interstitial unit without applying test-mode policy. */
-	FString GetInterstitialAdUnitId(EOpenMobileAdsPlatform Platform) const
-	{
-		if (Platform == EOpenMobileAdsPlatform::Android)
-		{
-			return AndroidInterstitialAdUnitId;
-		}
-		if (Platform == EOpenMobileAdsPlatform::IOS)
-		{
-			return IOSInterstitialAdUnitId;
-		}
-		return FString();
-	}
-
-	/** Returns the configured banner unit before format-specific test resolution. */
-	FString GetBannerAdUnitId(EOpenMobileAdsPlatform Platform) const
-	{
-		if (Platform == EOpenMobileAdsPlatform::Android)
-		{
-			return AndroidBannerAdUnitId;
-		}
-		if (Platform == EOpenMobileAdsPlatform::IOS)
-		{
-			return IOSBannerAdUnitId;
 		}
 		return FString();
 	}
@@ -193,27 +169,23 @@ public:
 		return FString();
 	}
 
-	/** Uses Google's interstitial sample in test mode and returns only a real unit in production. */
+	/** Returns Google's interstitial sample only when official test IDs are active. */
 	FString ResolveInterstitialAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
 	) const
 	{
+		if (!bUseTestAdUnitId)
+		{
+			return FString();
+		}
 		if (Platform == EOpenMobileAdsPlatform::Android)
 		{
-			return bUseTestAdUnitId
-				? TEXT("ca-app-pub-3940256099942544/1033173712")
-				: IsGoogleSampleIdentifier(AndroidInterstitialAdUnitId)
-					? FString()
-					: AndroidInterstitialAdUnitId;
+			return TEXT("ca-app-pub-3940256099942544/1033173712");
 		}
 		if (Platform == EOpenMobileAdsPlatform::IOS)
 		{
-			return bUseTestAdUnitId
-				? TEXT("ca-app-pub-3940256099942544/4411468910")
-				: IsGoogleSampleIdentifier(IOSInterstitialAdUnitId)
-					? FString()
-					: IOSInterstitialAdUnitId;
+			return TEXT("ca-app-pub-3940256099942544/4411468910");
 		}
 		return FString();
 	}
@@ -260,27 +232,23 @@ public:
 		return FString();
 	}
 
-	/** Uses Google's banner sample in test mode and returns only a real unit in production. */
+	/** Returns Google's banner sample only when official test IDs are active. */
 	FString ResolveBannerAdUnitId(
 		EOpenMobileAdsPlatform Platform,
 		bool bUseTestAdUnitId
 	) const
 	{
+		if (!bUseTestAdUnitId)
+		{
+			return FString();
+		}
 		if (Platform == EOpenMobileAdsPlatform::Android)
 		{
-			return bUseTestAdUnitId
-				? TEXT("ca-app-pub-3940256099942544/6300978111")
-				: IsGoogleSampleIdentifier(AndroidBannerAdUnitId)
-					? FString()
-					: AndroidBannerAdUnitId;
+			return TEXT("ca-app-pub-3940256099942544/6300978111");
 		}
 		if (Platform == EOpenMobileAdsPlatform::IOS)
 		{
-			return bUseTestAdUnitId
-				? TEXT("ca-app-pub-3940256099942544/2435281174")
-				: IsGoogleSampleIdentifier(IOSBannerAdUnitId)
-					? FString()
-					: IOSBannerAdUnitId;
+			return TEXT("ca-app-pub-3940256099942544/2435281174");
 		}
 		return FString();
 	}
