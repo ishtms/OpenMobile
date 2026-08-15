@@ -988,6 +988,7 @@ namespace OpenMobileAdsProviderContractTests
 			Settings->RetryPolicy.MaxRetryAttempts = 0;
 			Settings->NoFillRetryPolicy.MaxRetryAttempts = 0;
 			SavedPrivacy = Settings->Privacy;
+			Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
 			SavedRequestConfiguration = Settings->RequestConfiguration;
 			SavedPlacements = Settings->Placements;
 			SavedConvenienceRewardedPlacement =
@@ -1781,7 +1782,7 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 	using namespace OpenMobileAdsProviderContractTests;
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
-	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = true;
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
 	ScopedSettings.Settings->Placements.Reset();
 	FOpenMobileAdsPlacementSettings& Placement =
 		ScopedSettings.Settings->Placements.Emplace_GetRef();
@@ -1803,6 +1804,12 @@ bool FOpenMobileAdsLoadPolicyContractTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("The provider initializes before placement operations"),
 		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::Unknown,
+			TEXT("MockConsent")
+		)
 	);
 
 	const FOpenMobileAdsOperationResult PrivacyBlocked =
@@ -7089,7 +7096,7 @@ bool FOpenMobileAdsGdprRequestGateContractTest::RunTest(
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
 	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
-		true;
+		false;
 	FMockProvider Provider(TEXT("MockAds"));
 	FScopedProviderRegistration Registration(Provider);
 	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
@@ -8788,6 +8795,76 @@ bool FOpenMobileAdsConsentSignalPropagationContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsInitializationConsentGateContractTest,
+	"OpenMobile.Ads.Privacy.Initialization.ConsentGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsInitializationConsentGateContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent =
+		true;
+
+	FMockProvider Provider(TEXT("MockAds"));
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(
+		NewObject<UGameInstance>()
+	);
+
+	const FOpenMobileAdsOperationResult Blocked = Subsystem->InitializeAds();
+	TestFalse(
+		TEXT("Initialization waits for a fresh consent result"),
+		Blocked.bAccepted
+	);
+	TestEqual(
+		TEXT("The consent gate returns a privacy error"),
+		Blocked.Error.Code,
+		EOpenMobileAdsErrorCode::PrivacyBlocked
+	);
+	TestEqual(
+		TEXT("The consent gate reports the initialization stage"),
+		Blocked.Error.Stage,
+		EOpenMobileAdsFailureStage::Initialization
+	);
+	TestTrue(TEXT("The consent gate is retryable"), Blocked.Error.bRetryable);
+	TestEqual(
+		TEXT("The blocked call leaves the service uninitialized"),
+		Subsystem->GetServiceState(),
+		EOpenMobileAdsServiceState::Uninitialized
+	);
+	TestEqual(
+		TEXT("The blocked call does not initialize the provider"),
+		Provider.InitializationCalls,
+		0
+	);
+
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::NotRequired,
+			TEXT("MockConsent")
+		)
+	);
+	const FOpenMobileAdsOperationResult Started = Subsystem->InitializeAds();
+	TestTrue(
+		TEXT("Initialization starts after a fresh consent result"),
+		Started.bAccepted
+	);
+	TestEqual(
+		TEXT("The provider initializes after the consent gate clears"),
+		Provider.InitializationCalls,
+		1
+	);
+
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsInitializationIdempotencyContractTest,
 	"OpenMobile.Ads.ProviderContract.Initialization.IdempotencyAndConfiguration",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -9790,7 +9867,7 @@ bool FOpenMobileAdsCanRequestAdsSubsystemTest::RunTest(
 	using namespace OpenMobileAdsProviderContractTests;
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
-	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = true;
+	ScopedSettings.Settings->Privacy.bDelayProviderInitializationUntilConsent = false;
 	ScopedSettings.Settings->Privacy.ChildDirectedTreatment =
 		EOpenMobileAdsAgeTreatment::Yes;
 	ScopedSettings.Settings->Privacy.UnderAgeOfConsent =
@@ -9810,6 +9887,12 @@ bool FOpenMobileAdsCanRequestAdsSubsystemTest::RunTest(
 	TestTrue(
 		TEXT("The provider initializes before policy evaluation"),
 		InitializeSuccessfully(*Subsystem, Provider, false)
+	);
+	Subsystem->ApplyConsentStatusUpdate(
+		FOpenMobileAdsConsentStatusUpdate::Complete(
+			EOpenMobileAdsConsentStatus::Unknown,
+			TEXT("MockConsent")
+		)
 	);
 	TestNotNull(
 		TEXT("Blueprints can evaluate ad-request policy"),

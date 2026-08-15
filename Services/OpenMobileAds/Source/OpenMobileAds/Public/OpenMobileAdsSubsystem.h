@@ -70,7 +70,7 @@ public:
 	/** Seals callback sinks and releases provider-owned work before the Game Instance goes away. */
 	virtual void Deinitialize() override;
 
-	/** Starts consent and provider setup once, repeated calls return the current initialization request. */
+	/** Starts provider setup after configured privacy gates pass; repeated calls return the current request. */
 	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Initialize Ads"))
 	FOpenMobileAdsOperationResult InitializeAds();
 

@@ -1858,6 +1858,21 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::InitializeAds()
 		return FOpenMobileAdsOperationResult::Rejected(InitializationError);
 	}
 	if (
+		Settings->Privacy.bDelayProviderInitializationUntilConsent
+		&& !PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
+	)
+	{
+		return FOpenMobileAdsOperationResult::Rejected(FOpenMobileAdsError::Make(
+			EOpenMobileAdsErrorCode::PrivacyBlocked,
+			EOpenMobileAdsFailureStage::Initialization,
+			NAME_None,
+			TEXT("Ads initialization is waiting for a fresh consent result."),
+			PrivacySnapshot.Source,
+			TEXT("Refresh consent, wait for the operation to finish, then retry ads initialization."),
+			true
+		));
+	}
+	if (
 		Settings->bEnableTrackingAuthorization
 		&& Settings->bDelayAdsInitializationUntilTrackingAuthorization
 		&& TrackingAuthorizationStatus
