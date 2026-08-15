@@ -1074,24 +1074,28 @@ class AdsPluginBoundaryTests(unittest.TestCase):
 				self.assertIn("if (strictVersion)", validation)
 				self.assertNotIn("strictVersion ?: requested.version", validation)
 
-	def test_admob_shipping_build_checks_banner_identifiers(self) -> None:
+	def test_admob_shipping_build_checks_only_platform_app_ids(self) -> None:
 		build_rules = (
 			ADMOB_PLUGIN
 			/ "Source"
 			/ "OpenMobileAdsAdMob"
 			/ "OpenMobileAdsAdMob.Build.cs"
 		).read_text(encoding="utf-8")
-		shipping_start = build_rules.index("string[] Identifiers")
-		shipping_identifiers = build_rules[
-			shipping_start:
-			build_rules.index("foreach (string Identifier", shipping_start)
-		]
-		for identifier in ("AndroidBannerAdUnitId", "IOSBannerAdUnitId"):
-			self.assertIn(
-				f"string {identifier} =",
-				build_rules,
-			)
-			self.assertIn(identifier, shipping_identifiers)
+		shipping_start = build_rules.index(
+			"if (Target.Configuration == UnrealTargetConfiguration.Shipping)"
+		)
+		shipping_rules = build_rules[shipping_start:]
+		self.assertIn("AndroidAppId", shipping_rules)
+		self.assertIn("IOSAppId", shipping_rules)
+		for legacy_identifier in (
+			"AndroidRewardedAdUnitId",
+			"AndroidInterstitialAdUnitId",
+			"AndroidBannerAdUnitId",
+			"IOSRewardedAdUnitId",
+			"IOSInterstitialAdUnitId",
+			"IOSBannerAdUnitId",
+		):
+			self.assertNotIn(legacy_identifier, shipping_rules)
 
 	def test_admob_paid_events_include_winning_source_metadata(self) -> None:
 		android_root = (

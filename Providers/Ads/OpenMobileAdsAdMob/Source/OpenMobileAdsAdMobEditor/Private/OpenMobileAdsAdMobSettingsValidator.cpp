@@ -64,45 +64,9 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 		Errors
 	);
 	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("Android rewarded ad-unit ID"),
-		Settings.AndroidRewardedAdUnitId,
-		TEXT('/'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("Android interstitial ad-unit ID"),
-		Settings.AndroidInterstitialAdUnitId,
-		TEXT('/'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("Android banner ad-unit ID"),
-		Settings.AndroidBannerAdUnitId,
-		TEXT('/'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
 		TEXT("iOS app ID"),
 		Settings.IOSAppId,
 		TEXT('~'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("iOS rewarded ad-unit ID"),
-		Settings.IOSRewardedAdUnitId,
-		TEXT('/'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("iOS interstitial ad-unit ID"),
-		Settings.IOSInterstitialAdUnitId,
-		TEXT('/'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("iOS banner ad-unit ID"),
-		Settings.IOSBannerAdUnitId,
-		TEXT('/'),
 		Errors
 	);
 	TSet<FString> SeenTestDeviceIdentifiers;
@@ -130,25 +94,7 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 		bForShipping
 		&& (
 			UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.AndroidAppId)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.AndroidRewardedAdUnitId
-			)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.AndroidInterstitialAdUnitId
-			)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.AndroidBannerAdUnitId
-			)
 			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.IOSAppId)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.IOSRewardedAdUnitId
-			)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.IOSInterstitialAdUnitId
-			)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
-				Settings.IOSBannerAdUnitId
-			)
 		)
 	)
 	{

@@ -371,7 +371,7 @@ namespace OpenMobileAdsAdMobPrivate
 					NAME_None,
 					MoveTemp(ConfigurationError),
 					GetProviderName(),
-					TEXT("Enable Development/Test Mode or replace every Google sample identifier with a production identifier.")
+					TEXT("Enable Development/Test Mode or set a production AdMob app ID for the current platform.")
 				);
 				return false;
 			}
@@ -419,6 +419,7 @@ namespace OpenMobileAdsAdMobPrivate
 			}
 			else
 			{
+				bDevelopmentTestMode = Request.Development.bEnabled;
 				bUseTestAdUnitIds = Request.Development.bUseTestAdUnitIds;
 				InitializedPlatform = Request.Platform;
 			}
@@ -502,6 +503,23 @@ namespace OpenMobileAdsAdMobPrivate
 							? TEXT("No AdMob interstitial ad-unit ID is configured for this placement.")
 							: TEXT("No AdMob rewarded ad-unit ID is configured for this placement."),
 					GetProviderName()
+				);
+				return false;
+			}
+			if (
+				!bDevelopmentTestMode
+				&& UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+					ProviderRequest.Placement.AdUnitId
+				)
+			)
+			{
+				OutError = FOpenMobileAdsError::Make(
+					EOpenMobileAdsErrorCode::NotConfigured,
+					EOpenMobileAdsFailureStage::Load,
+					Request.Placement.Placement,
+					TEXT("The placement uses Google's sample ad-unit ID in production mode."),
+					GetProviderName(),
+					TEXT("Enable Development/Test Mode or configure a production ad-unit ID on this placement.")
 				);
 				return false;
 			}
@@ -679,6 +697,7 @@ namespace OpenMobileAdsAdMobPrivate
 		virtual void Shutdown() override
 		{
 			FOpenMobileAdsAdMobPlatform::Shutdown();
+			bDevelopmentTestMode = false;
 			bUseTestAdUnitIds = false;
 			InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
 		}
@@ -741,6 +760,7 @@ namespace OpenMobileAdsAdMobPrivate
 		}
 
 	private:
+		bool bDevelopmentTestMode = false;
 		bool bUseTestAdUnitIds = false;
 		EOpenMobileAdsPlatform InitializedPlatform = EOpenMobileAdsPlatform::Unsupported;
 		FOpenMobileAdsConsentSignals LastConsentSignals;

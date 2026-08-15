@@ -3153,6 +3153,26 @@ bool FOpenMobileAdsAdMobConfiguredMediationInitializationTest::RunTest(
 )
 {
 	using namespace OpenMobileAdsAdMobTestAdTests;
+	UOpenMobileAdsAdMobSettings* PlacementOnlySettings =
+		NewObject<UOpenMobileAdsAdMobSettings>();
+	PlacementOnlySettings->AndroidAppId =
+		TEXT("ca-app-pub-1234567890123456~1234567890");
+	PlacementOnlySettings->AndroidRewardedAdUnitId =
+		TEXT("ca-app-pub-3940256099942544/5224354917");
+	PlacementOnlySettings->AndroidInterstitialAdUnitId =
+		TEXT("ca-app-pub-3940256099942544/1033173712");
+	PlacementOnlySettings->AndroidBannerAdUnitId =
+		TEXT("ca-app-pub-3940256099942544/6300978111");
+	FString ConfigurationError;
+	TestTrue(
+		TEXT("Production compatibility ignores unused legacy ad-unit IDs"),
+		PlacementOnlySettings->IsConfigurationCompatibleWithMode(
+			EOpenMobileAdsPlatform::Android,
+			false,
+			ConfigurationError
+		)
+	);
+
 	FScopedSettings ScopedSettings;
 	ScopedSettings.Settings->AndroidAppId =
 		TEXT("ca-app-pub-1234567890123456~1234567890");
@@ -3167,18 +3187,13 @@ bool FOpenMobileAdsAdMobConfiguredMediationInitializationTest::RunTest(
 
 	FOpenMobileAdsInitializationRequest Request;
 	Request.Platform = EOpenMobileAdsPlatform::Android;
-	Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(
-		true,
-		{},
-		EOpenMobileAdsDebugGeography::Disabled,
-		false
-	);
+	Request.Development = FOpenMobileAdsDevelopmentConfiguration::FromMode(false);
 	const TSharedRef<FInitializationSink, ESPMode::ThreadSafe> Sink =
 		MakeShared<FInitializationSink, ESPMode::ThreadSafe>();
 	FOpenMobileAdsError Error;
 	const bool bStarted = Provider->Initialize(Request, Sink, Error);
 	TestTrue(
-		TEXT("Development mediation mode accepts configured ad-unit IDs while legacy sample defaults remain unused"),
+		TEXT("Production placement mode ignores unused legacy sample ad-unit IDs"),
 		bStarted
 	);
 	TestEqual(
@@ -3192,6 +3207,25 @@ bool FOpenMobileAdsAdMobConfiguredMediationInitializationTest::RunTest(
 			Backend.InitializationRequestId
 		);
 		TestEqual(TEXT("Initialization completes once"), Sink->CompletionCalls, 1);
+
+		FOpenMobileAdsLoadRequest SamplePlacementRequest;
+		SamplePlacementRequest.RequestId = FGuid::NewGuid();
+		SamplePlacementRequest.Placement.Placement = TEXT("ProductionReward");
+		SamplePlacementRequest.Placement.Format = EOpenMobileAdFormat::Rewarded;
+		SamplePlacementRequest.Placement.AdUnitId =
+			TEXT("ca-app-pub-3940256099942544/5224354917");
+		const TSharedRef<FEventSink, ESPMode::ThreadSafe> EventSink =
+			MakeShared<FEventSink, ESPMode::ThreadSafe>();
+		FOpenMobileAdsError LoadError;
+		TestFalse(
+			TEXT("Production loads reject a sample placement ad-unit ID"),
+			Provider->Load(SamplePlacementRequest, EventSink, LoadError)
+		);
+		TestEqual(
+			TEXT("A sample placement uses a configuration error"),
+			LoadError.Code,
+			EOpenMobileAdsErrorCode::NotConfigured
+		);
 		Provider->Shutdown();
 	}
 	return true;

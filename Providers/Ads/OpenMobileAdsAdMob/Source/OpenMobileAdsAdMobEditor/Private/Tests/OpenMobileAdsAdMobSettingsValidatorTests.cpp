@@ -155,10 +155,12 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 			TEXT("Google sample IDs are not allowed in shipping builds.")
 		)
 	);
-	Settings->AndroidBannerAdUnitId =
-		TEXT("ca-app-pub-3940256099942544/6300978111");
-	TestTrue(
-		TEXT("Shipping validation rejects sample IDs for other ad formats"),
+	Settings->AndroidAppId =
+		TEXT("ca-app-pub-1234567890123456~1234567890");
+	Settings->IOSAppId =
+		TEXT("ca-app-pub-1234567890123456~0987654321");
+	TestFalse(
+		TEXT("Unused legacy sample ad-unit IDs do not block shipping"),
 		FOpenMobileAdsAdMobSettingsValidator::Validate(*Settings, true).Contains(
 			TEXT("Google sample IDs are not allowed in shipping builds.")
 		)

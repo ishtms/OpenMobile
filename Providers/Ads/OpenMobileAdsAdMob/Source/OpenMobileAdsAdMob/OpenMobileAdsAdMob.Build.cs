@@ -236,25 +236,7 @@ public class OpenMobileAdsAdMob : ModuleRules
 	string AndroidAppId = "ca-app-pub-3940256099942544~3347511713";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string AndroidRewardedAdUnitId = "ca-app-pub-3940256099942544/5224354917";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string AndroidInterstitialAdUnitId = "ca-app-pub-3940256099942544/1033173712";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string AndroidBannerAdUnitId = "ca-app-pub-3940256099942544/6300978111";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	string IOSAppId = "ca-app-pub-3940256099942544~1458002511";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string IOSRewardedAdUnitId = "ca-app-pub-3940256099942544/1712485313";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string IOSInterstitialAdUnitId = "ca-app-pub-3940256099942544/4411468910";
-
-	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
-	string IOSBannerAdUnitId = "ca-app-pub-3940256099942544/2435281174";
 
 	[ConfigFile(ConfigHierarchyType.Engine, "/Script/OpenMobileAdsAdMob.OpenMobileAdsAdMobSettings")]
 	List<string> TestDeviceIdentifiers = new List<string>();
@@ -320,28 +302,21 @@ public class OpenMobileAdsAdMob : ModuleRules
 					"OpenMobile Ads AdMob test-device identifiers must be removed before making a Shipping build."
 				);
 			}
-			string[] Identifiers =
-			{
-				AndroidAppId,
-				AndroidRewardedAdUnitId,
-				AndroidInterstitialAdUnitId,
-				AndroidBannerAdUnitId,
-				IOSAppId,
-				IOSRewardedAdUnitId,
-				IOSInterstitialAdUnitId,
-				IOSBannerAdUnitId
-			};
-			foreach (string Identifier in Identifiers)
-			{
-				if (Identifier.Trim().StartsWith(
+			string AppId = Target.Platform == UnrealTargetPlatform.Android
+				? AndroidAppId
+				: Target.Platform == UnrealTargetPlatform.IOS
+					? IOSAppId
+					: "";
+			if (
+				AppId.Trim().StartsWith(
 					"ca-app-pub-3940256099942544",
 					StringComparison.Ordinal
-				))
-				{
-					throw new BuildException(
-						"OpenMobile Ads AdMob sample IDs must be replaced before making a Shipping build."
-					);
-				}
+				)
+			)
+			{
+				throw new BuildException(
+					"OpenMobile Ads AdMob app ID must be replaced before making a Shipping build."
+				);
 			}
 		}
 	}

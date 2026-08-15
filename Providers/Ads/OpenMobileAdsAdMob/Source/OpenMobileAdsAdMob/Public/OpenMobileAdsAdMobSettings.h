@@ -132,25 +132,37 @@ public:
 		return FString();
 	}
 
-	/** Rejects every Google sample identifier once the service has selected production mode. */
+	/** Validates only the current platform app ID before provider initialization. */
 	bool IsConfigurationCompatibleWithMode(
 		EOpenMobileAdsPlatform Platform,
 		bool bDevelopmentTestMode,
 		FString& OutError
 	) const
 	{
-		if (bDevelopmentTestMode)
+		FString AppId = GetAppId(Platform);
+		AppId.TrimStartAndEndInline();
+		bool bContainsWhitespace = false;
+		for (const TCHAR Character : AppId)
 		{
-			return true;
+			if (FChar::IsWhitespace(Character))
+			{
+				bContainsWhitespace = true;
+				break;
+			}
 		}
 		if (
-			IsGoogleSampleIdentifier(GetAppId(Platform))
-			|| IsGoogleSampleIdentifier(GetRewardedAdUnitId(Platform))
-			|| IsGoogleSampleIdentifier(GetInterstitialAdUnitId(Platform))
-			|| IsGoogleSampleIdentifier(GetBannerAdUnitId(Platform))
+			AppId.IsEmpty()
+			|| bContainsWhitespace
+			|| !AppId.StartsWith(TEXT("ca-app-pub-"))
+			|| !AppId.Contains(TEXT("~"))
 		)
 		{
-			OutError = TEXT("AdMob production mode cannot use Google sample identifiers.");
+			OutError = TEXT("AdMob requires a valid app ID for the current platform.");
+			return false;
+		}
+		if (!bDevelopmentTestMode && IsGoogleSampleIdentifier(AppId))
+		{
+			OutError = TEXT("AdMob production mode cannot use Google's sample app ID.");
 			return false;
 		}
 		return true;
