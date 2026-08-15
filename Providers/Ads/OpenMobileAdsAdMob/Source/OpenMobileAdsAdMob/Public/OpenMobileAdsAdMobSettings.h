@@ -33,17 +33,17 @@ public:
 		Config,
 		EditAnywhere,
 		Category = "iOS",
-		meta = (ToolTip = "AdMob iOS app ID. UE 5.8 direct Xcode builds must also keep iOS Additional Plist Data in sync; packaged builds use this value through the provider UPL.")
+		meta = (DisplayName = "iOS App ID", ToolTip = "AdMob iOS app ID. UE 5.8 direct Xcode builds must also keep iOS Additional Plist Data in sync; packaged builds use this value through the provider UPL.")
 	)
 	FString IOSAppId = TEXT("ca-app-pub-3940256099942544~1458002511");
 
-	UPROPERTY(Config, EditAnywhere, Category = "iOS")
+	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Rewarded Ad Unit ID"))
 	FString IOSRewardedAdUnitId = TEXT("ca-app-pub-3940256099942544/1712485313");
 
-	UPROPERTY(Config, EditAnywhere, Category = "iOS")
+	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Interstitial Ad Unit ID"))
 	FString IOSInterstitialAdUnitId = TEXT("ca-app-pub-3940256099942544/4411468910");
 
-	UPROPERTY(Config, EditAnywhere, Category = "iOS")
+	UPROPERTY(Config, EditAnywhere, Category = "iOS", meta = (DisplayName = "iOS Banner Ad Unit ID"))
 	FString IOSBannerAdUnitId = TEXT("ca-app-pub-3940256099942544/2435281174");
 
 	UPROPERTY(

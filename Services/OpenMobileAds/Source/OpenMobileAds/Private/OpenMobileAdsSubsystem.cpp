@@ -1430,6 +1430,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::RefreshConsent()
 		ActiveConsentRequest.Development.bEnableConsentDebug = false;
 	}
 	ActiveConsentRequestId = ActiveConsentRequest.RequestId;
+	PrivacySnapshot.RequestId = ActiveConsentRequestId;
 	ActiveConsentAdsProviderName = Provider->GetProviderName();
 	ActiveConsentProviderName = ConsentProviderName;
 	ApplyConsentStatusUpdateOnGameThread(
@@ -1602,6 +1603,7 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::ResetConsentForTesting()
 
 	const FGuid RequestId = FGuid::NewGuid();
 	ActiveConsentRequestId = RequestId;
+	PrivacySnapshot.RequestId = ActiveConsentRequestId;
 	ActiveConsentAdsProviderName = AdsProviderName;
 	ActiveConsentProviderName = ConsentProviderName;
 	ApplyConsentStatusUpdateOnGameThread(
@@ -1807,6 +1809,7 @@ UOpenMobileAdsSubsystem::PresentPrivacyOptionsForm()
 		ActiveConsentRequest.Development.bEnableConsentDebug = false;
 	}
 	ActiveConsentRequestId = ActiveConsentRequest.RequestId;
+	PrivacySnapshot.RequestId = ActiveConsentRequestId;
 	ActiveConsentAdsProviderName = Provider->GetProviderName();
 	ActiveConsentProviderName = ConsentProviderName;
 	bPrivacyOptionsPresentationActive = true;
@@ -2858,6 +2861,7 @@ void UOpenMobileAdsSubsystem::HandleTrackingAuthorizationCompleted(
 		);
 	}
 	ApplyTrackingAuthorizationStatus(Status);
+	NativeTrackingAuthorizationRequestCompleted.Broadcast(RequestId, Status);
 }
 
 FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::UpdatePrivacySnapshot(
@@ -5081,11 +5085,120 @@ FOpenMobileAdsProviderCapabilities UOpenMobileAdsSubsystem::GetProviderCapabilit
 	return FOpenMobileAdsProviderCapabilities();
 }
 
+bool UOpenMobileAdsSubsystem::GetAdsFormatCapabilities(
+	EOpenMobileAdFormat Format,
+	FOpenMobileAdFormatCapabilities& Capabilities
+) const
+{
+	const FOpenMobileAdsProviderCapabilities ProviderCapabilities =
+		GetProviderCapabilities();
+	const FOpenMobileAdFormatCapabilities* Found =
+		ProviderCapabilities.FindFormat(Format);
+	Capabilities = Found ? *Found : FOpenMobileAdFormatCapabilities();
+	return Found != nullptr;
+}
+
+bool UOpenMobileAdsSubsystem::GetAdsInitializationComponent(
+	EOpenMobileAdsInitializationComponentType Type,
+	FName Name,
+	FName Parent,
+	FOpenMobileAdsInitializationComponentStatus& Component
+) const
+{
+	const FOpenMobileAdsInitializationComponentStatus* Found =
+		InitializationStatus.FindComponent(Type, Name, Parent);
+	Component = Found
+		? *Found
+		: FOpenMobileAdsInitializationComponentStatus();
+	return Found != nullptr;
+}
+
+bool UOpenMobileAdsSubsystem::GetAdsConsentSignalConsumerStatus(
+	EOpenMobileAdsConsentSignalConsumerType Type,
+	FName Name,
+	FName Parent,
+	FOpenMobileAdsConsentSignalDeliveryStatus& Status
+) const
+{
+	const FOpenMobileAdsConsentSignalDeliveryStatus* Found =
+		ConsentSignalDeliveryStatus.Find(Type, Name, Parent);
+	Status = Found ? *Found : FOpenMobileAdsConsentSignalDeliveryStatus();
+	return Found != nullptr;
+}
+
+double UOpenMobileAdsSubsystem::AdsRevenueMicrosToMajorUnits(int64 ValueMicros)
+{
+	return static_cast<double>(ValueMicros)
+		/ static_cast<double>(FOpenMobileAdsRevenue::MicrosPerMajorUnit);
+}
+
+TArray<FName> UOpenMobileAdsSubsystem::GetConfiguredAdsPlacementNames()
+{
+	TArray<FName> Names;
+	for (const FOpenMobileAdsPlacementSettings& Placement :
+		GetDefault<UOpenMobileAdsSettings>()->Placements)
+	{
+		if (!Placement.Placement.IsNone())
+		{
+			Names.AddUnique(Placement.Placement);
+		}
+	}
+	Names.Sort([](FName A, FName B) { return A.LexicalLess(B); });
+	return Names;
+}
+
+TArray<FName> UOpenMobileAdsSubsystem::GetRegisteredAdsProviderNames()
+{
+	TArray<FName> Names;
+	for (IOpenMobileAdsProvider* Provider :
+		IModularFeatures::Get().GetModularFeatureImplementations<
+			IOpenMobileAdsProvider
+		>(IOpenMobileAdsProvider::GetModularFeatureName()))
+	{
+		if (Provider && !Provider->GetProviderName().IsNone())
+		{
+			Names.AddUnique(Provider->GetProviderName());
+		}
+	}
+	Names.Sort([](FName A, FName B) { return A.LexicalLess(B); });
+	return Names;
+}
+
 void UOpenMobileAdsSubsystem::SubmitServiceEvent(FOpenMobileAdsEvent Event)
 {
 	if (EventDispatcher)
 	{
 		EventDispatcher->Submit(MoveTemp(Event));
+	}
+}
+
+void UOpenMobileAdsSubsystem::BroadcastFocusedPlacementEvent(
+	const FOpenMobileAdsEvent& Event
+)
+{
+	switch (Event.Type)
+	{
+	case EOpenMobileAdsEventType::Loaded:
+		OnPlacementLoaded.Broadcast(Event);
+		break;
+	case EOpenMobileAdsEventType::Shown:
+		OnPlacementShown.Broadcast(Event);
+		break;
+	case EOpenMobileAdsEventType::RewardEarned:
+		OnPlacementRewardEarned.Broadcast(Event);
+		break;
+	case EOpenMobileAdsEventType::Dismissed:
+		OnPlacementDismissed.Broadcast(Event);
+		break;
+	case EOpenMobileAdsEventType::RevenuePaid:
+		OnPlacementRevenuePaid.Broadcast(Event);
+		break;
+	case EOpenMobileAdsEventType::LoadFailed:
+	case EOpenMobileAdsEventType::Failed:
+		OnPlacementFailed.Broadcast(Event);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -5988,6 +6101,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		return;
 	}
 
@@ -6000,6 +6114,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		HandleConvenienceRewardedEvent(Event);
 		return;
 	}
@@ -6013,6 +6128,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		return;
 	}
 
@@ -6047,6 +6163,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		return;
 	}
 
@@ -6110,6 +6227,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		return;
 	}
 
@@ -6468,6 +6586,7 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		OpenMobileAdsPrivate::LogEvent(Event);
 		NativeAdsEvent.Broadcast(Event);
 		OnAdsEvent.Broadcast(Event);
+		BroadcastFocusedPlacementEvent(Event);
 		HandleConvenienceRewardedEvent(Event);
 		if (
 			Event.Type == EOpenMobileAdsEventType::Loaded

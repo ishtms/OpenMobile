@@ -547,7 +547,7 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlacementSettings
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FOpenMobileAdsPlatformPlacementOverride Android;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (DisplayName = "iOS"))
 	FOpenMobileAdsPlatformPlacementOverride IOS;
 
 	/** Applies only the current platform's explicit overrides and leaves unsupported platforms unresolved. */
@@ -650,7 +650,16 @@ public:
 	/** Gives Ads its own section instead of mixing provider-specific settings into the service. */
 	virtual FName GetSectionName() const override { return TEXT("OpenMobile Ads"); }
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Providers")
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Providers",
+		meta = (
+			GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetRegisteredAdsProviderNames",
+			ToolTip = "Selects one registered Ads provider. Leave empty only when exactly one provider is enabled."
+		)
+	)
 	FName PreferredProvider;
 
 	UPROPERTY(
@@ -782,7 +791,10 @@ public:
 		EditAnywhere,
 		BlueprintReadOnly,
 		Category = "Placements",
-		meta = (ToolTip = "Rewarded placement used by RequestAndShowRewardedAd. Leave empty only when exactly one enabled rewarded placement exists.")
+		meta = (
+			GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames",
+			ToolTip = "Legacy rewarded placement used by RequestAndShowRewardedAd. Leave empty only when exactly one enabled rewarded placement exists."
+		)
 	)
 	FName ConvenienceRewardedPlacement;
 

@@ -9,6 +9,7 @@
 #include "OpenMobileAdsPrivacy.h"
 #include "OpenMobileAdsResults.h"
 #include "OpenMobileAdsRevenue.h"
+#include "OpenMobileAdsSubsystem.h"
 
 #include <limits>
 
@@ -330,6 +331,322 @@ bool FOpenMobileAdsPublicContractsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsBlueprintMetadataContractTest,
+	"OpenMobile.Ads.Contracts.Blueprint.Metadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsBlueprintMetadataContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	UClass* SubsystemClass = UOpenMobileAdsSubsystem::StaticClass();
+	auto RequireFunction = [this, SubsystemClass](
+		FName Name,
+		const TCHAR* Category,
+		const TCHAR* DisplayName
+	)
+	{
+		const UFunction* Function = SubsystemClass->FindFunctionByName(Name);
+		TestNotNull(*FString::Printf(TEXT("%s is reflected"), *Name.ToString()), Function);
+		if (!Function)
+		{
+			return;
+		}
+#if WITH_METADATA
+		TestEqual(
+			*FString::Printf(TEXT("%s uses its task category"), *Name.ToString()),
+			Function->GetMetaData(TEXT("Category")),
+			FString(Category)
+		);
+		if (DisplayName && *DisplayName)
+		{
+			TestEqual(
+				*FString::Printf(TEXT("%s has a scoped Blueprint name"), *Name.ToString()),
+				Function->GetMetaData(TEXT("DisplayName")),
+				FString(DisplayName)
+			);
+		}
+#endif
+	};
+
+	RequireFunction(TEXT("InitializeAds"), TEXT("OpenMobile|Ads|Setup"), TEXT("Initialize Ads"));
+	RequireFunction(TEXT("RefreshConsent"), TEXT("OpenMobile|Ads|Consent"), TEXT("Refresh Ads Consent"));
+	RequireFunction(
+		TEXT("PresentPrivacyOptionsForm"),
+		TEXT("OpenMobile|Ads|Consent"),
+		TEXT("Present Ads Privacy Options Form")
+	);
+	RequireFunction(
+		TEXT("RequestTrackingAuthorization"),
+		TEXT("OpenMobile|Ads|Consent"),
+		TEXT("Request iOS Tracking Authorization")
+	);
+	RequireFunction(
+		TEXT("GetConsentStatus"),
+		TEXT("OpenMobile|Ads|Consent"),
+		TEXT("Get Ads Privacy Snapshot")
+	);
+	RequireFunction(
+		TEXT("CanRequestAds"),
+		TEXT("OpenMobile|Ads|Setup"),
+		TEXT("Get Ads Request Eligibility")
+	);
+	RequireFunction(TEXT("LoadAd"), TEXT("OpenMobile|Ads|Placements"), TEXT("Load Ad"));
+	RequireFunction(TEXT("ReloadAd"), TEXT("OpenMobile|Ads|Placements"), TEXT("Reload Ad"));
+	RequireFunction(TEXT("ShowAd"), TEXT("OpenMobile|Ads|Placements"), TEXT("Show Ad"));
+	RequireFunction(
+		TEXT("CanShow"),
+		TEXT("OpenMobile|Ads|Placements"),
+		TEXT("Can Show Placement")
+	);
+	RequireFunction(
+		TEXT("GetActiveProviderName"),
+		TEXT("OpenMobile|Ads|Setup"),
+		TEXT("Get Active Ads Provider")
+	);
+#if WITH_METADATA
+	if (const UFunction* LoadFunction =
+		SubsystemClass->FindFunctionByName(TEXT("LoadAd")))
+	{
+		if (const FProperty* PlacementProperty =
+			LoadFunction->FindPropertyByName(TEXT("Placement")))
+		{
+			TestFalse(
+				TEXT("Placement inputs expose configured choices"),
+				PlacementProperty->GetMetaData(TEXT("GetOptions")).IsEmpty()
+			);
+		}
+	}
+	if (const FProperty* PreferredProvider =
+		UOpenMobileAdsSettings::StaticClass()->FindPropertyByName(
+			TEXT("PreferredProvider")
+		))
+	{
+		TestFalse(
+			TEXT("Preferred provider exposes registered choices"),
+			PreferredProvider->GetMetaData(TEXT("GetOptions")).IsEmpty()
+		);
+	}
+#endif
+	RequireFunction(
+		TEXT("GetAdsFormatCapabilities"),
+		TEXT("OpenMobile|Ads|Advanced"),
+		TEXT("Get Ads Format Capabilities")
+	);
+	RequireFunction(
+		TEXT("GetAdsInitializationComponent"),
+		TEXT("OpenMobile|Ads|Diagnostics"),
+		TEXT("Get Ads Initialization Component")
+	);
+	RequireFunction(
+		TEXT("GetAdsConsentSignalConsumerStatus"),
+		TEXT("OpenMobile|Ads|Diagnostics"),
+		TEXT("Get Ads Consent Signal Consumer Status")
+	);
+	RequireFunction(
+		TEXT("AdsRevenueMicrosToMajorUnits"),
+		TEXT("OpenMobile|Ads|Diagnostics"),
+		TEXT("Ads Revenue Micros to Major Units")
+	);
+
+	const FName LegacyFunctions[] = {
+		TEXT("RequestAndShowRewardedAd"),
+		TEXT("IsSupported"),
+		TEXT("IsBusy"),
+		TEXT("GetState")
+	};
+	for (const FName Name : LegacyFunctions)
+	{
+		const UFunction* Function = SubsystemClass->FindFunctionByName(Name);
+		TestNotNull(*FString::Printf(TEXT("%s remains reflected for migration"), *Name.ToString()), Function);
+		if (Function)
+		{
+#if WITH_METADATA
+			TestEqual(
+				TEXT("Legacy functions are separated from the recommended path"),
+				Function->GetMetaData(TEXT("Category")),
+				FString(TEXT("OpenMobile|Ads|Legacy"))
+			);
+			TestTrue(
+				TEXT("Legacy functions are deprecated in Blueprint"),
+				Function->HasMetaData(TEXT("DeprecatedFunction"))
+			);
+			TestFalse(
+				TEXT("Legacy functions explain their replacement"),
+				Function->GetMetaData(TEXT("DeprecationMessage")).IsEmpty()
+			);
+#endif
+		}
+	}
+
+	const FName LegacyDelegates[] = {
+		TEXT("OnAdLoaded"),
+		TEXT("OnAdShown"),
+		TEXT("OnRewardEarned"),
+		TEXT("OnAdClosed"),
+		TEXT("OnAdFailed")
+	};
+	for (const FName Name : LegacyDelegates)
+	{
+		const FProperty* Property = SubsystemClass->FindPropertyByName(Name);
+		TestNotNull(*FString::Printf(TEXT("%s remains reflected for migration"), *Name.ToString()), Property);
+		if (Property)
+		{
+#if WITH_METADATA
+			TestEqual(
+				TEXT("Legacy delegates use the legacy category"),
+				Property->GetMetaData(TEXT("Category")),
+				FString(TEXT("OpenMobile|Ads|Legacy"))
+			);
+			TestTrue(
+				TEXT("Legacy delegates are deprecated in Blueprint"),
+				Property->HasMetaData(TEXT("DeprecatedProperty"))
+			);
+#endif
+		}
+	}
+
+	const FName FocusedDelegates[] = {
+		TEXT("OnPlacementLoaded"),
+		TEXT("OnPlacementShown"),
+		TEXT("OnPlacementRewardEarned"),
+		TEXT("OnPlacementDismissed"),
+		TEXT("OnPlacementRevenuePaid"),
+		TEXT("OnPlacementFailed")
+	};
+	for (const FName Name : FocusedDelegates)
+	{
+		const FProperty* Property = SubsystemClass->FindPropertyByName(Name);
+		TestNotNull(*FString::Printf(TEXT("%s focused delegate is reflected"), *Name.ToString()), Property);
+		if (Property)
+		{
+#if WITH_METADATA
+			TestEqual(
+				TEXT("Focused events stay beside normal placement nodes"),
+				Property->GetMetaData(TEXT("Category")),
+				FString(TEXT("OpenMobile|Ads|Placements"))
+			);
+#endif
+		}
+	}
+#if WITH_METADATA
+	if (const FProperty* EventStream =
+		SubsystemClass->FindPropertyByName(TEXT("OnAdsEvent")))
+	{
+		TestEqual(
+			TEXT("The union event stream is an advanced API"),
+			EventStream->GetMetaData(TEXT("Category")),
+			FString(TEXT("OpenMobile|Ads|Advanced"))
+		);
+	}
+#endif
+
+	UClass* AsyncClass = UOpenMobileAdsAsyncAction::StaticClass();
+	const FName AsyncFactories[] = {
+		TEXT("LoadAd"),
+		TEXT("ReloadAd"),
+		TEXT("ShowAd"),
+		TEXT("HideAd"),
+		TEXT("DestroyAd"),
+		TEXT("DestroyAllAds")
+	};
+	for (const FName Name : AsyncFactories)
+	{
+		const UFunction* Function = AsyncClass->FindFunctionByName(Name);
+		TestNotNull(*FString::Printf(TEXT("%s async factory is reflected"), *Name.ToString()), Function);
+		if (Function)
+		{
+#if WITH_METADATA
+			TestEqual(
+				TEXT("Generic async placement nodes use the advanced category"),
+				Function->GetMetaData(TEXT("Category")),
+				FString(TEXT("OpenMobile|Ads|Advanced"))
+			);
+#endif
+		}
+	}
+
+	UClass* SetupAsyncClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileAds.OpenMobileAdsSetupAsyncAction")
+	);
+	TestNotNull(
+		TEXT("Setup operations have a request-local async action"),
+		SetupAsyncClass
+	);
+	if (SetupAsyncClass)
+	{
+		for (const FName Name : {
+			FName(TEXT("RefreshAdsConsent")),
+			FName(TEXT("PresentAdsPrivacyOptions")),
+			FName(TEXT("RequestTrackingAuthorization")),
+			FName(TEXT("InitializeAds"))
+		})
+		{
+			TestNotNull(
+				TEXT("Every caller-controlled setup operation has an async factory"),
+				SetupAsyncClass->FindFunctionByName(Name)
+			);
+		}
+		for (const FName Name : {
+			FName(TEXT("OnCompleted")),
+			FName(TEXT("OnFailed")),
+			FName(TEXT("OnCancelled"))
+		})
+		{
+			TestNotNull(
+				TEXT("Setup async exposes every terminal path"),
+				SetupAsyncClass->FindPropertyByName(Name)
+			);
+		}
+	}
+	UClass* RewardedAsyncClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileAds.OpenMobileAdsRewardedAsyncAction")
+	);
+	TestNotNull(
+		TEXT("Rewarded presentation has a focused async action"),
+		RewardedAsyncClass
+	);
+	if (RewardedAsyncClass)
+	{
+		for (const FName Name : {
+			FName(TEXT("OnShown")),
+			FName(TEXT("OnRewardEarned")),
+			FName(TEXT("OnDismissed")),
+			FName(TEXT("OnFailed")),
+			FName(TEXT("OnCancelled"))
+		})
+		{
+			TestNotNull(
+				TEXT("Rewarded async exposes each gameplay milestone"),
+				RewardedAsyncClass->FindPropertyByName(Name)
+			);
+		}
+	}
+	const UOpenMobileAdsSettings* Settings = GetDefault<UOpenMobileAdsSettings>();
+	TestEqual(
+		TEXT("Ads settings use the shared OpenMobile category"),
+		Settings->GetCategoryName(),
+		FName(TEXT("OpenMobile"))
+	);
+	TestEqual(
+		TEXT("Ads settings use their own section"),
+		Settings->GetSectionName(),
+		FName(TEXT("OpenMobile Ads"))
+	);
+#if WITH_METADATA
+	TestEqual(
+		TEXT("Ads settings display name matches its section"),
+		UOpenMobileAdsSettings::StaticClass()->GetMetaData(TEXT("DisplayName")),
+		Settings->GetSectionName().ToString()
+	);
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsRevenueAmountContractTest,
 	"OpenMobile.Ads.Contracts.Revenue.Amount",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -341,6 +658,11 @@ bool FOpenMobileAdsRevenueAmountContractTest::RunTest(const FString& Parameters)
 		TEXT("One major currency unit contains one million micros"),
 		FOpenMobileAdsRevenue::MicrosPerMajorUnit,
 		static_cast<int64>(1000000)
+	);
+	TestEqual(
+		TEXT("Blueprint display conversion uses one million micros per unit"),
+		UOpenMobileAdsSubsystem::AdsRevenueMicrosToMajorUnits(1234567),
+		1.234567
 	);
 
 	int64 ValueMicros = -1;

@@ -9,6 +9,7 @@
 class UOpenMobileAdsSubsystem;
 class UWorld;
 #if WITH_DEV_AUTOMATION_TESTS
+class FOpenMobileAdsAsyncShowCompletionContractTest;
 class FOpenMobileAdsAsyncWorldCleanupTest;
 #endif
 
@@ -35,21 +36,21 @@ class OPENMOBILEADS_API UOpenMobileAdsAsyncAction : public UBlueprintAsyncAction
 
 public:
 	/** Fires once the requested Ads operation reaches its matching success event. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Advanced")
 	FOpenMobileAdsAsyncCompleted OnCompleted;
 
 	/** Fires when the service or provider rejects the operation before completion. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Advanced")
 	FOpenMobileAdsAsyncFailed OnFailed;
 
 	/** Fires when the caller, world cleanup, or subsystem teardown cancels the owned request. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Advanced")
 	FOpenMobileAdsAsyncCancelled OnCancelled;
 
 	/** Loads one configured placement and keeps the proxy alive till that request finishes. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Advanced",
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
@@ -58,14 +59,30 @@ public:
 	)
 	static UOpenMobileAdsAsyncAction* LoadAd(
 		const UObject* WorldContextObject,
+		UPARAM(meta = (GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames"))
 		FName Placement,
 		FOpenMobileAdsLoadOptions Options
 	);
 
-	/** Presents one ready placement and waits for its terminal provider event. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Advanced",
+		meta = (
+			BlueprintInternalUseOnly = "true",
+			WorldContext = "WorldContextObject",
+			DisplayName = "Reload Ad Async"
+		)
+	)
+	static UOpenMobileAdsAsyncAction* ReloadAd(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames"))
+		FName Placement
+	);
+
+	/** Shows one ready placement. Persistent views complete when shown, while full-screen ads complete when dismissed. */
+	UFUNCTION(
+		BlueprintCallable,
+		Category = "OpenMobile|Ads|Advanced",
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
@@ -74,6 +91,7 @@ public:
 	)
 	static UOpenMobileAdsAsyncAction* ShowAd(
 		const UObject* WorldContextObject,
+		UPARAM(meta = (GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames"))
 		FName Placement,
 		FOpenMobileAdsShowOptions Options
 	);
@@ -81,7 +99,7 @@ public:
 	/** Hides a visible banner through the provider and reports whether its cache survived. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Advanced",
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
@@ -90,13 +108,14 @@ public:
 	)
 	static UOpenMobileAdsAsyncAction* HideAd(
 		const UObject* WorldContextObject,
+		UPARAM(meta = (GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames"))
 		FName Placement
 	);
 
 	/** Releases one placement and any provider-owned ad cached for it. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Advanced",
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
@@ -105,13 +124,14 @@ public:
 	)
 	static UOpenMobileAdsAsyncAction* DestroyAd(
 		const UObject* WorldContextObject,
+		UPARAM(meta = (GetOptions = "OpenMobileAds.OpenMobileAdsSubsystem.GetConfiguredAdsPlacementNames"))
 		FName Placement
 	);
 
 	/** Releases every placement owned by this Game Instance and waits for the shared destroy event. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Advanced",
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
@@ -121,7 +141,7 @@ public:
 	static UOpenMobileAdsAsyncAction* DestroyAllAds(const UObject* WorldContextObject);
 
 	/** Cancels only this proxy's accepted request and leaves unrelated Ads work alone. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Advanced")
 	void Cancel();
 
 	/** Resolves the target world and submits the stored operation after Blueprint has bound its delegates. */
@@ -129,12 +149,14 @@ public:
 
 private:
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FOpenMobileAdsAsyncShowCompletionContractTest;
 	friend class FOpenMobileAdsAsyncWorldCleanupTest;
 #endif
 
 	enum class EOperation : uint8
 	{
 		Load,
+		Reload,
 		Show,
 		Hide,
 		Destroy,

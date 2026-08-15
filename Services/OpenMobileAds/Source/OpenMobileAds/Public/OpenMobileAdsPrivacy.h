@@ -19,6 +19,12 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
 	EOpenMobileAdsTrackingAuthorizationStatus
 );
 
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOpenMobileAdsTrackingAuthorizationRequestNativeEvent,
+	FGuid,
+	EOpenMobileAdsTrackingAuthorizationStatus
+);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAdsTrackingAuthorizationStatusDynamicEvent,
 	EOpenMobileAdsTrackingAuthorizationStatus,
@@ -30,10 +36,10 @@ enum class EOpenMobileAdsConsentStatus : uint8
 {
 	Unknown,
 	Required,
-	Granted,
+	Granted UMETA(ToolTip = "The consent provider reports an explicit granted decision."),
 	Denied,
 	NotRequired,
-	Obtained
+	Obtained UMETA(ToolTip = "The consent provider reports a completed result without classifying it as a personalized-consent grant. Check request eligibility separately.")
 };
 
 UENUM(BlueprintType)
@@ -426,6 +432,9 @@ USTRUCT(BlueprintType)
 struct OPENMOBILEADS_API FOpenMobileAdsPrivacySnapshot
 {
 	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Ads|Consent")
+	FGuid RequestId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	EOpenMobileAdsConsentStatus ConsentStatus = EOpenMobileAdsConsentStatus::Unknown;

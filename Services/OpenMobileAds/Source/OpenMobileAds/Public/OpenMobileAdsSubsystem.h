@@ -71,15 +71,15 @@ public:
 	virtual void Deinitialize() override;
 
 	/** Starts provider setup after configured privacy gates pass; repeated calls return the current request. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Initialize Ads"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Setup", meta = (DisplayName = "Initialize Ads"))
 	FOpenMobileAdsOperationResult InitializeAds();
 
 	/** Returns the service lifecycle state without treating partial provider readiness as success. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Service State"))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Setup", meta = (DisplayName = "Get Ads Service State"))
 	EOpenMobileAdsServiceState GetServiceState() const { return ServiceState; }
 
 	/** Copies provider and adapter initialization rows for Blueprint callers. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Initialization Status"))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Setup", meta = (DisplayName = "Get Ads Initialization Status"))
 	FOpenMobileAdsInitializationStatusSnapshot GetInitializationStatus() const
 	{
 		return InitializationStatus;
@@ -97,7 +97,7 @@ public:
 	}
 
 	/** Copies the latest normalized consent and US privacy state for Blueprint callers. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Consent Status"))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Consent", meta = (DisplayName = "Get Ads Privacy Snapshot"))
 	FOpenMobileAdsPrivacySnapshot GetConsentStatus() const
 	{
 		return PrivacySnapshot;
@@ -118,7 +118,7 @@ public:
 	/** Returns the cached platform authorization answer and never opens the system prompt. */
 	UFUNCTION(
 		BlueprintPure,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Consent",
 		meta = (DisplayName = "Get Tracking Authorization Status")
 	)
 	EOpenMobileAdsTrackingAuthorizationStatus
@@ -134,10 +134,16 @@ public:
 		return NativeTrackingAuthorizationStatusChanged;
 	}
 
+	FOpenMobileAdsTrackingAuthorizationRequestNativeEvent&
+	OnNativeTrackingAuthorizationRequestCompleted()
+	{
+		return NativeTrackingAuthorizationRequestCompleted;
+	}
+
 	/** Reports availability only when platform authorization and identifier access both allow it. */
 	UFUNCTION(
 		BlueprintPure,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Consent",
 		meta = (DisplayName = "Is Advertising Identifier Available")
 	)
 	bool IsAdvertisingIdentifierAvailable() const;
@@ -145,13 +151,13 @@ public:
 	/** Opens the platform tracking prompt when configured, otherwise returns the current typed refusal. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
-		meta = (DisplayName = "Request Tracking Authorization")
+		Category = "OpenMobile|Ads|Consent",
+		meta = (DisplayName = "Request iOS Tracking Authorization")
 	)
 	FOpenMobileAdsOperationResult RequestTrackingAuthorization();
 
 	/** Shows how every provider and mediation consumer handled the latest configured privacy signals. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Diagnostics")
 	FOpenMobileAdsConsentSignalDeliverySnapshot
 	GetConsentSignalDeliveryStatus() const
 	{
@@ -166,7 +172,7 @@ public:
 	}
 
 	/** Evaluates initialization, consent, tracking, and provider policy without starting an ad request. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Setup", meta = (DisplayName = "Get Ads Request Eligibility"))
 	FOpenMobileAdsCanRequestAdsResult CanRequestAds() const;
 
 	/** Lets native callers react when the service-wide request decision changes. */
@@ -176,19 +182,19 @@ public:
 	}
 
 	/** Refreshes provider consent state and presents a required form when the provider asks for one. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Refresh Consent"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Consent", meta = (DisplayName = "Refresh Ads Consent"))
 	FOpenMobileAdsOperationResult RefreshConsent();
 
 	/** Clears provider consent only in development test mode, production state stays protected. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
+		Category = "OpenMobile|Ads|Consent",
 		meta = (DisplayName = "Reset Consent for Testing", DevelopmentOnly)
 	)
 	FOpenMobileAdsOperationResult ResetConsentForTesting();
 
 	/** Requires a fresh provider snapshot before claiming the privacy options form is required. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Consent")
 	bool IsPrivacyOptionsFormRequired() const
 	{
 		return PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
@@ -197,7 +203,7 @@ public:
 	}
 
 	/** Requires a fresh provider snapshot before claiming the privacy options form can be shown. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Consent")
 	bool IsPrivacyOptionsFormAvailable() const
 	{
 		return PrivacySnapshot.IsConsentStatusFreshAt(FDateTime::UtcNow())
@@ -207,8 +213,8 @@ public:
 	/** Presents the provider's privacy options form without starting a normal consent refresh. */
 	UFUNCTION(
 		BlueprintCallable,
-		Category = "Open Mobile|Ads",
-		meta = (DisplayName = "Present Privacy Options Form")
+		Category = "OpenMobile|Ads|Consent",
+		meta = (DisplayName = "Present Ads Privacy Options Form")
 	)
 	FOpenMobileAdsOperationResult PresentPrivacyOptionsForm();
 
@@ -220,8 +226,9 @@ public:
 	void ApplyConsentStatusUpdate(FOpenMobileAdsConsentStatusUpdate Update);
 
 	/** Loads one configured placement after provider, privacy, retry, and cache policy agree. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Load Ad"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Load Ad"))
 	FOpenMobileAdsOperationResult LoadAd(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
 		FName Placement,
 		FOpenMobileAdsLoadOptions Options
 	);
@@ -233,12 +240,16 @@ public:
 	}
 
 	/** Replaces any reusable cached ad for the placement before starting a fresh provider load. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Reload Ad"))
-	FOpenMobileAdsOperationResult ReloadAd(FName Placement);
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Reload Ad"))
+	FOpenMobileAdsOperationResult ReloadAd(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	);
 
 	/** Presents one ready ad only after format, privacy, cooldown, cap, and lifecycle checks pass. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Show Ad"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Show Ad"))
 	FOpenMobileAdsOperationResult ShowAd(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
 		FName Placement,
 		FOpenMobileAdsShowOptions Options
 	);
@@ -250,117 +261,181 @@ public:
 	}
 
 	/** Hides a provider-supported visible placement and follows its configured cache policy. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Hide Ad"))
-	FOpenMobileAdsOperationResult HideAd(FName Placement);
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Hide Ad"))
+	FOpenMobileAdsOperationResult HideAd(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	);
 
 	/** Releases the placement's provider object, cached identity, and pending automatic work. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Destroy Ad"))
-	FOpenMobileAdsOperationResult DestroyAd(FName Placement);
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Destroy Ad"))
+	FOpenMobileAdsOperationResult DestroyAd(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	);
 
 	/** Releases every provider-owned placement while preserving the selected provider itself. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Destroy All Ads"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Destroy All Ads"))
 	FOpenMobileAdsOperationResult DestroyAllAds();
 
 	/** Cancels one accepted load or show request and rejects stale request IDs. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads", meta = (DisplayName = "Cancel Ads Request"))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Advanced", meta = (DisplayName = "Cancel Ads Request"))
 	FOpenMobileAdsOperationResult CancelRequest(FGuid RequestId);
 
 	/** Checks current cache state and expiry without asking the provider to load anything. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Is Ad Ready"))
-	bool IsReady(FName Placement) const;
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Is Ad Ready"))
+	bool IsReady(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	) const;
 
 	/** Explains the first policy reason a placement can't be presented right now. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Can Show Ad"))
-	FOpenMobileAdsCanShowResult CanShow(FName Placement) const;
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Can Show Placement"))
+	FOpenMobileAdsCanShowResult CanShow(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	) const;
 
 	/** Copies service-tracked placement state without making a native SDK query. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ad Placement Status"))
-	FOpenMobileAdsPlacementStatus GetPlacementStatus(FName Placement) const;
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Get Ad Placement Status"))
+	FOpenMobileAdsPlacementStatus GetPlacementStatus(
+		UPARAM(meta = (GetOptions = "GetConfiguredAdsPlacementNames"))
+		FName Placement
+	) const;
 
 	/** Tells automatic App Open policy whether the game's own startup presentation is ready. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|App Open", meta = (DisplayName = "Set App Open Readiness"))
 	void SetAppOpenPresentationState(
 		FOpenMobileAdsAppOpenPresentationState PresentationState
 	);
 
 	/** Returns the latest game-supplied App Open presentation gates. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|App Open", meta = (DisplayName = "Get App Open Readiness"))
 	FOpenMobileAdsAppOpenPresentationState GetAppOpenPresentationState() const
 	{
 		return AppOpenPresentationState;
 	}
 
 	/** Returns selected-provider support without assuming every format shares the same limits. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads", meta = (DisplayName = "Get Ads Provider Capabilities"))
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Advanced", meta = (DisplayName = "Get Ads Provider Capabilities"))
 	FOpenMobileAdsProviderCapabilities GetProviderCapabilities() const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Advanced", meta = (DisplayName = "Get Ads Format Capabilities"))
+	bool GetAdsFormatCapabilities(
+		EOpenMobileAdFormat Format,
+		FOpenMobileAdFormatCapabilities& Capabilities
+	) const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Diagnostics", meta = (DisplayName = "Get Ads Initialization Component"))
+	bool GetAdsInitializationComponent(
+		EOpenMobileAdsInitializationComponentType Type,
+		FName Name,
+		FName Parent,
+		FOpenMobileAdsInitializationComponentStatus& Component
+	) const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Diagnostics", meta = (DisplayName = "Get Ads Consent Signal Consumer Status"))
+	bool GetAdsConsentSignalConsumerStatus(
+		EOpenMobileAdsConsentSignalConsumerType Type,
+		FName Name,
+		FName Parent,
+		FOpenMobileAdsConsentSignalDeliveryStatus& Status
+	) const;
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Diagnostics", meta = (DisplayName = "Ads Revenue Micros to Major Units", ToolTip = "Converts authoritative revenue micros to a display value. Floating-point output can lose accounting precision."))
+	static double AdsRevenueMicrosToMajorUnits(int64 ValueMicros);
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Advanced", meta = (BlueprintInternalUseOnly = "true"))
+	static TArray<FName> GetConfiguredAdsPlacementNames();
+
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Advanced", meta = (BlueprintInternalUseOnly = "true"))
+	static TArray<FName> GetRegisteredAdsProviderNames();
 
 	/** Exposes the ordered provider-neutral event stream to native consumers. */
 	FOpenMobileAdsNativeEvent& OnNativeAdsEvent() { return NativeAdsEvent; }
 
 	/** Loads and presents the configured convenience rewarded placement as one legacy operation. */
-	UFUNCTION(BlueprintCallable, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedFunction, DeprecationMessage = "Use named placement load and rewarded show async nodes.", DisplayName = "Request and Show Convenience Rewarded Ad"))
 	bool RequestAndShowRewardedAd();
 
 	/** Reports whether the selected provider can serve the convenience rewarded placement. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedFunction, DeprecationMessage = "Use Get Ads Provider Capabilities and named placements.", DisplayName = "Is Convenience Rewarded Supported"))
 	bool IsSupported() const;
 
 	/** Tracks only the convenience rewarded operation, other placements can still be active. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedFunction, DeprecationMessage = "Use request-local async action state.", DisplayName = "Is Convenience Rewarded Busy"))
 	bool IsBusy() const { return State != EOpenMobileRewardedAdState::Idle; }
 
 	/** Returns the legacy rewarded flow state without collapsing loading and presentation together. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedFunction, DeprecationMessage = "Use named placement status and request-local async actions.", DisplayName = "Get Convenience Rewarded State"))
 	EOpenMobileRewardedAdState GetState() const { return State; }
 
 	/** Returns the provider selected for this Game Instance after configuration resolution. */
-	UFUNCTION(BlueprintPure, Category = "Open Mobile|Ads")
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Ads|Setup", meta = (DisplayName = "Get Active Ads Provider"))
 	FName GetActiveProviderName() const;
 
 	/** Fires when the legacy convenience rewarded placement finishes loading. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use placement-aware async nodes or focused placement delegates."))
 	FOpenMobileAdSimpleEvent OnAdLoaded;
 
 	/** Fires when the legacy convenience rewarded placement reaches visible presentation. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use placement-aware async nodes or focused placement delegates."))
 	FOpenMobileAdSimpleEvent OnAdShown;
 
 	/** Carries the normalized reward from the legacy convenience flow, local receipt isn't backend verification. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use Show Rewarded Ad Async."))
 	FOpenMobileRewardEarnedEvent OnRewardEarned;
 
 	/** Fires when the legacy convenience rewarded presentation has closed. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use Show Rewarded Ad Async or the placement dismissed delegate."))
 	FOpenMobileAdSimpleEvent OnAdClosed;
 
 	/** Reports a common typed failure from the legacy convenience rewarded flow. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use placement-aware async failure outputs."))
 	FOpenMobileAdFailedEvent OnAdFailed;
 
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementLoaded;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementShown;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementRewardEarned;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementDismissed;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementRevenuePaid;
+
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Placements")
+	FOpenMobileAdsDynamicEvent OnPlacementFailed;
+
 	/** Broadcasts the ordered provider-neutral stream for every configured placement. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Advanced")
 	FOpenMobileAdsDynamicEvent OnAdsEvent;
 
 	/** Broadcasts provider, network, and adapter startup changes during initialization. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Setup")
 	FOpenMobileAdsInitializationStatusDynamicEvent OnInitializationStatusChanged;
 
 	/** Broadcasts normalized consent changes after freshness and provider details are applied. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Consent")
 	FOpenMobileAdsConsentStatusDynamicEvent OnConsentStatusChanged;
 
 	/** Broadcasts platform tracking authorization changes without exposing the native framework. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Consent")
 	FOpenMobileAdsTrackingAuthorizationStatusDynamicEvent
 	OnTrackingAuthorizationStatusChanged;
 
 	/** Broadcasts how each provider or adapter handled the latest privacy signal set. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Diagnostics")
 	FOpenMobileAdsConsentSignalDeliveryDynamicEvent
 	OnConsentSignalDeliveryChanged;
 
 	/** Broadcasts only when the combined service-wide request decision actually changes. */
-	UPROPERTY(BlueprintAssignable, Category = "Open Mobile|Ads")
+	UPROPERTY(BlueprintAssignable, Category = "OpenMobile|Ads|Setup")
 	FOpenMobileAdsCanRequestAdsDynamicEvent OnCanRequestAdsChanged;
 
 private:
@@ -394,6 +469,7 @@ private:
 	) const;
 	/** Assigns service ordering and routes one normalized event through state updates before delegates. */
 	void SubmitServiceEvent(FOpenMobileAdsEvent Event);
+	void BroadcastFocusedPlacementEvent(const FOpenMobileAdsEvent& Event);
 	/** Accepts completion only for the current initialization request and selected provider. */
 	void HandleInitializationCompleted(
 		FGuid RequestId,
@@ -589,6 +665,8 @@ private:
 	FOpenMobileAdsConsentStatusNativeEvent NativeConsentStatusChanged;
 	FOpenMobileAdsTrackingAuthorizationStatusNativeEvent
 		NativeTrackingAuthorizationStatusChanged;
+	FOpenMobileAdsTrackingAuthorizationRequestNativeEvent
+		NativeTrackingAuthorizationRequestCompleted;
 	FOpenMobileAdsConsentSignalDeliveryNativeEvent
 		NativeConsentSignalDeliveryChanged;
 	FOpenMobileAdsCanRequestAdsNativeEvent NativeCanRequestAdsChanged;

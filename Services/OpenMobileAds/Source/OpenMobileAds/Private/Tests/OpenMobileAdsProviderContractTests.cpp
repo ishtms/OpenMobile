@@ -18,6 +18,8 @@
 #include "OpenMobileAdsConnectivityPolicy.h"
 #include "OpenMobileAdsFullscreenLifecycle.h"
 #include "OpenMobileAdsRetry.h"
+#include "OpenMobileAdsRewardedAsyncAction.h"
+#include "OpenMobileAdsSetupAsyncAction.h"
 #include "OpenMobileAdsSubsystem.h"
 #include "OpenMobileAdsTrackingAuthorizationPlatform.h"
 
@@ -9805,6 +9807,125 @@ bool FOpenMobileAdsDestroyAllFailureContractTest::RunTest(const FString& Paramet
 	);
 	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
 	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsAsyncShowCompletionContractTest,
+	"OpenMobile.Ads.Blueprint.AsyncShow.FormatCompletion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsAsyncShowCompletionContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	const FGuid PersistentRequestId = FGuid::NewGuid();
+	UOpenMobileAdsAsyncAction* PersistentAction =
+		NewObject<UOpenMobileAdsAsyncAction>();
+	PersistentAction->Operation = UOpenMobileAdsAsyncAction::EOperation::Show;
+	PersistentAction->RequestId = PersistentRequestId;
+	FOpenMobileAdsEvent BannerShown;
+	BannerShown.Type = EOpenMobileAdsEventType::Shown;
+	BannerShown.Format = EOpenMobileAdFormat::Banner;
+	BannerShown.RequestId = PersistentRequestId;
+	PersistentAction->HandleAdsEvent(BannerShown);
+	TestTrue(
+		TEXT("A persistent show completes when the view is shown"),
+		PersistentAction->bFinished
+	);
+
+	const FGuid FullscreenRequestId = FGuid::NewGuid();
+	UOpenMobileAdsAsyncAction* FullscreenAction =
+		NewObject<UOpenMobileAdsAsyncAction>();
+	FullscreenAction->Operation = UOpenMobileAdsAsyncAction::EOperation::Show;
+	FullscreenAction->RequestId = FullscreenRequestId;
+	FOpenMobileAdsEvent RewardedShown;
+	RewardedShown.Type = EOpenMobileAdsEventType::Shown;
+	RewardedShown.Format = EOpenMobileAdFormat::Rewarded;
+	RewardedShown.RequestId = FullscreenRequestId;
+	FullscreenAction->HandleAdsEvent(RewardedShown);
+	TestFalse(
+		TEXT("A fullscreen show remains active until dismissal"),
+		FullscreenAction->bFinished
+	);
+
+	FOpenMobileAdsEvent RewardedDismissed;
+	RewardedDismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	RewardedDismissed.Format = EOpenMobileAdFormat::Rewarded;
+	RewardedDismissed.RequestId = FullscreenRequestId;
+	FullscreenAction->HandleAdsEvent(RewardedDismissed);
+	TestTrue(
+		TEXT("A fullscreen show completes at dismissal"),
+		FullscreenAction->bFinished
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsRewardedAsyncContractTest,
+	"OpenMobile.Ads.Blueprint.RewardedAsync.Milestones",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsRewardedAsyncContractTest::RunTest(const FString& Parameters)
+{
+	const FGuid RequestId = FGuid::NewGuid();
+	UOpenMobileAdsRewardedAsyncAction* Action =
+		NewObject<UOpenMobileAdsRewardedAsyncAction>();
+	Action->RequestId = RequestId;
+
+	FOpenMobileAdsEvent Dismissed;
+	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Dismissed.Format = EOpenMobileAdFormat::Rewarded;
+	Dismissed.RequestId = RequestId;
+	Action->HandleAdsEvent(Dismissed);
+	TestTrue(TEXT("Rewarded async records dismissal"), Action->bDismissed);
+	TestFalse(
+		TEXT("Rewarded async keeps a short late-reward window"),
+		Action->bFinished
+	);
+
+	FOpenMobileAdsEvent Reward;
+	Reward.Type = EOpenMobileAdsEventType::RewardEarned;
+	Reward.Format = EOpenMobileAdFormat::Rewarded;
+	Reward.RequestId = RequestId;
+	Reward.bHasReward = true;
+	Reward.Reward.Type = TEXT("coin");
+	Reward.Reward.Amount = 1;
+	Action->HandleAdsEvent(Reward);
+	TestTrue(TEXT("A reward after dismissal is accepted"), Action->bRewardReceived);
+	TestTrue(TEXT("Rewarded async finishes after the late reward"), Action->bFinished);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsSetupAsyncContractTest,
+	"OpenMobile.Ads.Blueprint.SetupAsync.RequestCorrelation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsSetupAsyncContractTest::RunTest(const FString& Parameters)
+{
+	const FGuid RequestId = FGuid::NewGuid();
+	UOpenMobileAdsSetupAsyncAction* Action =
+		NewObject<UOpenMobileAdsSetupAsyncAction>();
+	Action->Operation =
+		UOpenMobileAdsSetupAsyncAction::EOperation::RefreshConsent;
+	Action->RequestId = RequestId;
+
+	FOpenMobileAdsPrivacySnapshot Unrelated;
+	Unrelated.RequestId = FGuid::NewGuid();
+	Unrelated.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
+	Action->HandleConsent(Unrelated);
+	TestFalse(TEXT("Setup async ignores another consent request"), Action->bFinished);
+
+	FOpenMobileAdsPrivacySnapshot Matching;
+	Matching.RequestId = RequestId;
+	Matching.ConsentActivity = EOpenMobileAdsConsentActivity::Idle;
+	Matching.ConsentStatus = EOpenMobileAdsConsentStatus::NotRequired;
+	Action->HandleConsent(Matching);
+	TestTrue(TEXT("Setup async completes its matching consent request"), Action->bFinished);
 	return true;
 }
 

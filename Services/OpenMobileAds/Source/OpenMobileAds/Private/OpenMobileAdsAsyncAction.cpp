@@ -5,6 +5,16 @@
 #include "Engine/World.h"
 #include "OpenMobileAdsSubsystem.h"
 
+namespace
+{
+	bool CompletesShowWhenShown(EOpenMobileAdFormat Format)
+	{
+		return Format == EOpenMobileAdFormat::Banner
+			|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+			|| Format == EOpenMobileAdFormat::MediumRectangle;
+	}
+}
+
 UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::Create(
 	const UObject* WorldContextObject,
 	EOperation InOperation,
@@ -46,6 +56,14 @@ UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::ShowAd(
 	);
 	Action->ShowOptions = MoveTemp(Options);
 	return Action;
+}
+
+UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::ReloadAd(
+	const UObject* WorldContextObject,
+	FName Placement
+)
+{
+	return Create(WorldContextObject, EOperation::Reload, Placement);
 }
 
 UOpenMobileAdsAsyncAction* UOpenMobileAdsAsyncAction::HideAd(
@@ -129,6 +147,9 @@ void UOpenMobileAdsAsyncAction::Activate()
 	case EOperation::Load:
 		Result = Subsystem->LoadAd(Placement, MoveTemp(LoadOptions));
 		break;
+	case EOperation::Reload:
+		Result = Subsystem->ReloadAd(Placement);
+		break;
 	case EOperation::Show:
 		Result = Subsystem->ShowAd(Placement, MoveTemp(ShowOptions));
 		break;
@@ -192,8 +213,17 @@ void UOpenMobileAdsAsyncAction::HandleAdsEvent(const FOpenMobileAdsEvent& Event)
 	}
 
 	const bool bCompleted =
-		(Operation == EOperation::Load && Event.Type == EOpenMobileAdsEventType::Loaded)
-		|| (Operation == EOperation::Show && Event.Type == EOpenMobileAdsEventType::Dismissed)
+		((Operation == EOperation::Load || Operation == EOperation::Reload)
+			&& Event.Type == EOpenMobileAdsEventType::Loaded)
+		|| (
+			Operation == EOperation::Show
+			&& (
+				(Event.Type == EOpenMobileAdsEventType::Shown
+					&& CompletesShowWhenShown(Event.Format))
+				|| (Event.Type == EOpenMobileAdsEventType::Dismissed
+					&& !CompletesShowWhenShown(Event.Format))
+			)
+		)
 		|| (Operation == EOperation::Hide && Event.Type == EOpenMobileAdsEventType::Hidden)
 		|| ((Operation == EOperation::Destroy || Operation == EOperation::DestroyAll)
 			&& Event.Type == EOpenMobileAdsEventType::Destroyed);
@@ -283,6 +313,7 @@ EOpenMobileAdsFailureStage UOpenMobileAdsAsyncAction::GetFailureStage() const
 	switch (Operation)
 	{
 	case EOperation::Load:
+	case EOperation::Reload:
 		return EOpenMobileAdsFailureStage::Load;
 	case EOperation::Show:
 		return EOpenMobileAdsFailureStage::Show;
