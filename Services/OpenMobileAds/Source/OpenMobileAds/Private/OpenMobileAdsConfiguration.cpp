@@ -231,6 +231,11 @@ bool FOpenMobileAdsAppOpenPolicy::IsValid() const
 
 UOpenMobileAdsSettings::UOpenMobileAdsSettings()
 {
+	FOpenMobileAdsPlacementSettings Example;
+	Example.Placement = TEXT("ExampleRewarded");
+	Example.Format = EOpenMobileAdFormat::Rewarded;
+	Example.bEnabled = false;
+	Placements.Add(MoveTemp(Example));
 	NoFillRetryPolicy.MaxRetryAttempts = 1;
 	NoFillRetryPolicy.InitialDelaySeconds = 30.0;
 	NoFillRetryPolicy.BackoffMultiplier = 2.0;
@@ -314,7 +319,17 @@ FOpenMobileAdsResolvedPlacement FOpenMobileAdsPlacementSettings::Resolve(
 	}
 
 	Result.AdUnitId = Override->AdUnitId.TrimStartAndEnd();
-	Result.bEnabled = Override->bOverrideEnabled ? Override->bEnabled : Result.bEnabled;
+	switch (Override->State)
+	{
+	case EOpenMobileAdsPlatformPlacementState::Enabled:
+		Result.bEnabled = true;
+		break;
+	case EOpenMobileAdsPlatformPlacementState::Disabled:
+		Result.bEnabled = false;
+		break;
+	default:
+		break;
+	}
 	Result.bPreload = Override->bOverridePreload ? Override->bPreload : Result.bPreload;
 	Result.RefreshIntervalSeconds = Override->bOverrideRefreshInterval
 		? Override->RefreshIntervalSeconds
@@ -342,8 +357,23 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 	const TArray<FOpenMobileAdsPlacementSettings>& Placements
 )
 {
+	return ValidateForPlatforms(
+		Placements,
+		{EOpenMobileAdsPlatform::Android, EOpenMobileAdsPlatform::IOS}
+	);
+}
+
+TArray<FOpenMobileAdsConfigurationIssue>
+FOpenMobileAdsConfigurationValidator::ValidateForPlatforms(
+	const TArray<FOpenMobileAdsPlacementSettings>& Placements,
+	const TArray<EOpenMobileAdsPlatform>& Platforms,
+	bool bRequireAdUnitIds
+)
+{
 	using namespace OpenMobileAdsConfigurationPrivate;
 
+	const bool bValidateAndroid = Platforms.Contains(EOpenMobileAdsPlatform::Android);
+	const bool bValidateIOS = Platforms.Contains(EOpenMobileAdsPlatform::IOS);
 	TArray<FOpenMobileAdsConfigurationIssue> Issues;
 	TMap<FName, FString> PlacementDisplayNames;
 	TMap<FString, FName> AndroidIds;
@@ -389,36 +419,65 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 			PlacementDisplayNames.Add(Placement.Placement, Placement.Placement.ToString());
 		}
 
-		const FOpenMobileAdsResolvedPlacement Android =
-			Placement.Resolve(EOpenMobileAdsPlatform::Android);
-		const FOpenMobileAdsResolvedPlacement IOS =
-			Placement.Resolve(EOpenMobileAdsPlatform::IOS);
-		ValidateResolvedPolicy(Android, Issues);
-		ValidateResolvedPolicy(IOS, Issues);
+		const FOpenMobileAdsResolvedPlacement Android = Placement.Resolve(
+			EOpenMobileAdsPlatform::Android
+		);
+		const FOpenMobileAdsResolvedPlacement IOS = Placement.Resolve(
+			EOpenMobileAdsPlatform::IOS
+		);
+		if (bValidateAndroid)
+		{
+			ValidateResolvedPolicy(Android, Issues);
+		}
+		if (bValidateIOS)
+		{
+			ValidateResolvedPolicy(IOS, Issues);
+		}
 		ValidateProviderOptions(Placement.ProviderOptions, Placement.Placement, Issues);
-		ValidateProviderOptions(Placement.Android.ProviderOptions, Placement.Placement, Issues);
-		ValidateProviderOptions(Placement.IOS.ProviderOptions, Placement.Placement, Issues);
+		if (bValidateAndroid)
+		{
+			ValidateProviderOptions(
+				Placement.Android.ProviderOptions,
+				Placement.Placement,
+				Issues
+			);
+		}
+		if (bValidateIOS)
+		{
+			ValidateProviderOptions(
+				Placement.IOS.ProviderOptions,
+				Placement.Placement,
+				Issues
+			);
+		}
 
-		auto ValidateId = [&Issues, &Placement](
+		auto ValidateId = [&Issues, &Placement, bRequireAdUnitIds](
 			const FOpenMobileAdsResolvedPlacement& Resolved,
 			TMap<FString, FName>& SeenIds,
 			EOpenMobileAdsConfigurationIssueCode MissingCode,
 			EOpenMobileAdsConfigurationIssueCode DuplicateCode,
-			const TCHAR* PlatformName
+			const TCHAR* PlatformName,
+			bool bValidatePlatform
 		)
 		{
-			if (!Resolved.bEnabled)
+			if (!bValidatePlatform || !Resolved.bEnabled)
 			{
 				return;
 			}
 			if (Resolved.AdUnitId.IsEmpty())
 			{
-				AddIssue(
-					Issues,
-					MissingCode,
-					Placement.Placement,
-					FString::Printf(TEXT("%s ad-unit ID is required."), PlatformName)
-				);
+				if (bRequireAdUnitIds)
+				{
+					AddIssue(
+						Issues,
+						MissingCode,
+						Placement.Placement,
+						FString::Printf(
+							TEXT("%s ad-unit ID is required."),
+							PlatformName
+						)
+					);
+				}
 				return;
 			}
 
@@ -443,14 +502,16 @@ TArray<FOpenMobileAdsConfigurationIssue> FOpenMobileAdsConfigurationValidator::V
 			AndroidIds,
 			EOpenMobileAdsConfigurationIssueCode::MissingAndroidAdUnitId,
 			EOpenMobileAdsConfigurationIssueCode::DuplicateAndroidAdUnitId,
-			TEXT("Android")
+			TEXT("Android"),
+			bValidateAndroid
 		);
 		ValidateId(
 			IOS,
 			IOSIds,
 			EOpenMobileAdsConfigurationIssueCode::MissingIOSAdUnitId,
 			EOpenMobileAdsConfigurationIssueCode::DuplicateIOSAdUnitId,
-			TEXT("iOS")
+			TEXT("iOS"),
+			bValidateIOS
 		);
 	}
 
@@ -592,8 +653,34 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 	bool bForShipping
 )
 {
+	return ValidateSettingsForPlatforms(
+		Settings,
+		bForShipping,
+		{EOpenMobileAdsPlatform::Android, EOpenMobileAdsPlatform::IOS}
+	);
+}
+
+TArray<FOpenMobileAdsConfigurationIssue>
+FOpenMobileAdsConfigurationValidator::ValidateSettingsForPlatforms(
+	const UOpenMobileAdsSettings& Settings,
+	bool bForShipping,
+	const TArray<EOpenMobileAdsPlatform>& Platforms
+)
+{
 	using namespace OpenMobileAdsConfigurationPrivate;
-	TArray<FOpenMobileAdsConfigurationIssue> Issues = Validate(Settings.Placements);
+	const bool bValidateAndroid = Platforms.Contains(EOpenMobileAdsPlatform::Android);
+	const bool bValidateIOS = Platforms.Contains(EOpenMobileAdsPlatform::IOS);
+	const bool bUseOfficialTestIds =
+		UOpenMobileAdsSettings::ResolveDevelopmentTestMode(
+			Settings.bDevelopmentTestMode,
+			bForShipping
+		)
+		&& Settings.bUseOfficialTestAdUnitIds;
+	TArray<FOpenMobileAdsConfigurationIssue> Issues = ValidateForPlatforms(
+		Settings.Placements,
+		Platforms,
+		!bUseOfficialTestIds
+	);
 	if (!Settings.ConvenienceRewardedPlacement.IsNone())
 	{
 		const FOpenMobileAdsPlacementSettings* Placement = Settings.FindPlacement(
@@ -601,8 +688,10 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 		);
 		const bool bEnabledOnAnyMobilePlatform = Placement
 			&& (
-				Placement->Resolve(EOpenMobileAdsPlatform::Android).bEnabled
-				|| Placement->Resolve(EOpenMobileAdsPlatform::IOS).bEnabled
+				(bValidateAndroid
+					&& Placement->Resolve(EOpenMobileAdsPlatform::Android).bEnabled)
+				|| (bValidateIOS
+					&& Placement->Resolve(EOpenMobileAdsPlatform::IOS).bEnabled)
 			);
 		if (
 			!Placement
@@ -713,7 +802,8 @@ FOpenMobileAdsConfigurationValidator::ValidateSettings(
 		);
 	}
 	if (
-		Settings.bEnableTrackingAuthorization
+		bValidateIOS
+		&& Settings.bEnableTrackingAuthorization
 		&& !UOpenMobileAdsSettings::IsValidTrackingUsageDescription(
 			Settings.TrackingUsageDescription
 		)

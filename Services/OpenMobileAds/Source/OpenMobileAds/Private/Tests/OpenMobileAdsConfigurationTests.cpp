@@ -37,6 +37,36 @@ namespace OpenMobileAdsConfigurationTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsFirstRunDefaultsTest,
+	"OpenMobile.Ads.Configuration.FirstRunDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsFirstRunDefaultsTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	const UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
+	TestEqual(TEXT("One example placement is visible by default"),
+		Settings->Placements.Num(), 1);
+	if (Settings->Placements.Num() != 1)
+	{
+		return false;
+	}
+	const FOpenMobileAdsPlacementSettings& Example = Settings->Placements[0];
+	TestEqual(TEXT("The example has a discoverable name"),
+		Example.Placement, FName(TEXT("ExampleRewarded")));
+	TestEqual(TEXT("The example teaches rewarded format"),
+		Example.Format, EOpenMobileAdFormat::Rewarded);
+	TestFalse(TEXT("The example cannot request ads until enabled"),
+		Example.bEnabled);
+	TestTrue(TEXT("The example does not contain a production Android ID"),
+		Example.Android.AdUnitId.IsEmpty());
+	TestTrue(TEXT("The example does not contain a production iOS ID"),
+		Example.IOS.AdUnitId.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsPlacementDefaultsTest,
 	"OpenMobile.Ads.Configuration.DefaultsAndOverrides",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -65,8 +95,7 @@ bool FOpenMobileAdsPlacementDefaultsTest::RunTest(const FString& Parameters)
 	Placement.ProviderOptions.Add(TEXT("SharedOption"), TEXT("shared"));
 	Placement.Android.bOverridePreload = true;
 	Placement.Android.bPreload = false;
-	Placement.Android.bOverrideEnabled = true;
-	Placement.Android.bEnabled = true;
+	Placement.Android.State = EOpenMobileAdsPlatformPlacementState::Enabled;
 	Placement.Android.bOverrideCooldown = true;
 	Placement.Android.CooldownSeconds = 10.0;
 	Placement.Android.ProviderOptions.Add(TEXT("SharedOption"), TEXT("android"));
@@ -81,6 +110,33 @@ bool FOpenMobileAdsPlacementDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Android enabled override is applied"), Android.bEnabled);
 	TestFalse(TEXT("Android preload override is applied"), Android.bPreload);
 	TestFalse(TEXT("iOS keeps the shared enabled value"), IOS.bEnabled);
+	FOpenMobileAdsPlacementSettings IOSDisabled = Placement;
+	IOSDisabled.bEnabled = true;
+	IOSDisabled.IOS.State = EOpenMobileAdsPlatformPlacementState::Disabled;
+	TestFalse(
+		TEXT("iOS can be disabled with one explicit state"),
+		IOSDisabled.Resolve(EOpenMobileAdsPlatform::IOS).bEnabled
+	);
+#if WITH_METADATA
+	TestNotNull(
+		TEXT("Platform settings expose one state property"),
+		FOpenMobileAdsPlatformPlacementOverride::StaticStruct()->FindPropertyByName(
+			TEXT("State")
+		)
+	);
+	TestNull(
+		TEXT("The nested override flag is removed"),
+		FOpenMobileAdsPlatformPlacementOverride::StaticStruct()->FindPropertyByName(
+			TEXT("bOverrideEnabled")
+		)
+	);
+	TestNull(
+		TEXT("The nested enabled flag is removed"),
+		FOpenMobileAdsPlatformPlacementOverride::StaticStruct()->FindPropertyByName(
+			TEXT("bEnabled")
+		)
+	);
+#endif
 	TestTrue(TEXT("iOS keeps the shared preload value"), IOS.bPreload);
 	TestEqual(TEXT("Shared cooldown is retained"), IOS.CooldownSeconds, 30.0);
 	TestEqual(TEXT("Android cooldown override is applied"), Android.CooldownSeconds, 10.0);
@@ -726,6 +782,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TEXT(".ini")
 	);
 	UOpenMobileAdsSettings* SavedSettings = NewObject<UOpenMobileAdsSettings>();
+	SavedSettings->Placements.Reset();
 	SavedSettings->PreferredProvider = TEXT("ConfiguredAds");
 	SavedSettings->bDevelopmentTestMode = true;
 	SavedSettings->bUseOfficialTestAdUnitIds = false;
@@ -778,6 +835,7 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 	Placement.FrequencyCap.MaxSessionImpressions = 3;
 	Placement.Android.bOverridePreload = true;
 	Placement.Android.bPreload = false;
+	Placement.Android.State = EOpenMobileAdsPlatformPlacementState::Disabled;
 	Placement.Android.bOverrideAppOpenPolicy = true;
 	Placement.Android.AppOpenPolicy = Placement.AppOpenPolicy;
 	Placement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds = 75.0;
@@ -895,6 +953,11 @@ bool FOpenMobileAdsPlacementConfigLoadingTest::RunTest(const FString& Parameters
 		TestEqual(TEXT("Android ID survives restart"), LoadedPlacement.Android.AdUnitId, FString(TEXT("android-config")));
 		TestTrue(TEXT("Android override flag survives restart"), LoadedPlacement.Android.bOverridePreload);
 		TestFalse(TEXT("Android override value survives restart"), LoadedPlacement.Android.bPreload);
+		TestEqual(
+			TEXT("Android platform state survives restart"),
+			LoadedPlacement.Android.State,
+			EOpenMobileAdsPlatformPlacementState::Disabled
+		);
 		TestTrue(TEXT("Android app-open override flag survives restart"), LoadedPlacement.Android.bOverrideAppOpenPolicy);
 		TestEqual(TEXT("Android app-open exclusion survives restart"), LoadedPlacement.Android.AppOpenPolicy.MinimumBackgroundDurationSeconds, 75.0);
 		TestTrue(TEXT("Android server verification override survives restart"), LoadedPlacement.Android.bOverrideServerVerification);
@@ -914,6 +977,7 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 {
 	using namespace OpenMobileAdsConfigurationTests;
 	UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
+	Settings->Placements.Reset();
 	TestEqual(
 		TEXT("Ads settings use the OpenMobile category"),
 		Settings->GetCategoryName(),
@@ -1171,6 +1235,98 @@ bool FOpenMobileAdsProjectSettingsValidationTest::RunTest(const FString& Paramet
 		TEXT("A configured ATT usage description passes validation"),
 		HasIssue(
 			ValidTrackingTextIssues,
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
+		)
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsTargetPlatformValidationTest,
+	"OpenMobile.Ads.Configuration.TargetPlatforms",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsTargetPlatformValidationTest::RunTest(
+	const FString& Parameters
+)
+{
+	using namespace OpenMobileAdsConfigurationTests;
+	FOpenMobileAdsPlacementSettings AndroidPlacement = MakeRewardedPlacement(
+		TEXT("AndroidReward"),
+		TEXT("android-unit"),
+		TEXT("")
+	);
+	const TArray<FOpenMobileAdsConfigurationIssue> AndroidIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateForPlatforms(
+			{AndroidPlacement},
+			{EOpenMobileAdsPlatform::Android}
+		);
+	TestFalse(
+		TEXT("Android-only validation does not require an iOS ID"),
+		HasIssue(AndroidIssues, EOpenMobileAdsConfigurationIssueCode::MissingIOSAdUnitId)
+	);
+
+	FOpenMobileAdsPlacementSettings IOSPlacement = MakeRewardedPlacement(
+		TEXT("IOSReward"),
+		TEXT(""),
+		TEXT("ios-unit")
+	);
+	const TArray<FOpenMobileAdsConfigurationIssue> IOSIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateForPlatforms(
+			{IOSPlacement},
+			{EOpenMobileAdsPlatform::IOS}
+		);
+	TestFalse(
+		TEXT("iOS-only validation does not require an Android ID"),
+		HasIssue(
+			IOSIssues,
+			EOpenMobileAdsConfigurationIssueCode::MissingAndroidAdUnitId
+		)
+	);
+
+	UOpenMobileAdsSettings* Settings = NewObject<UOpenMobileAdsSettings>();
+	Settings->bDevelopmentTestMode = true;
+	Settings->bUseOfficialTestAdUnitIds = true;
+	Settings->Placements = {MakeRewardedPlacement(
+		TEXT("OfficialTestReward"),
+		TEXT(""),
+		TEXT("")
+	)};
+	const TArray<FOpenMobileAdsConfigurationIssue> OfficialTestIssues =
+		FOpenMobileAdsConfigurationValidator::ValidateSettingsForPlatforms(
+			*Settings,
+			false,
+			{EOpenMobileAdsPlatform::Android}
+		);
+	TestFalse(
+		TEXT("Official test IDs do not require a production Android ID"),
+		HasIssue(
+			OfficialTestIssues,
+			EOpenMobileAdsConfigurationIssueCode::MissingAndroidAdUnitId
+		)
+	);
+	Settings->bEnableTrackingAuthorization = true;
+	Settings->TrackingUsageDescription.Reset();
+	TestFalse(
+		TEXT("Android-only validation ignores iOS tracking text"),
+		HasIssue(
+			FOpenMobileAdsConfigurationValidator::ValidateSettingsForPlatforms(
+				*Settings,
+				false,
+				{EOpenMobileAdsPlatform::Android}
+			),
+			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
+		)
+	);
+	TestTrue(
+		TEXT("iOS validation requires enabled tracking text"),
+		HasIssue(
+			FOpenMobileAdsConfigurationValidator::ValidateSettingsForPlatforms(
+				*Settings,
+				false,
+				{EOpenMobileAdsPlatform::IOS}
+			),
 			EOpenMobileAdsConfigurationIssueCode::InvalidTrackingUsageDescription
 		)
 	);

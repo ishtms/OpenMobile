@@ -37,6 +37,14 @@ enum class EOpenMobileAdsHideCachePolicy : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOpenMobileAdsPlatformPlacementState : uint8
+{
+	Inherit,
+	Enabled,
+	Disabled
+};
+
+UENUM(BlueprintType)
 enum class EOpenMobileAdsBannerAnchor : uint8
 {
 	Top,
@@ -370,11 +378,15 @@ struct OPENMOBILEADS_API FOpenMobileAdsPlatformPlacementOverride
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	FString AdUnitId;
 
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
-	bool bOverrideEnabled = false;
-
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads", meta = (EditCondition = "bOverrideEnabled"))
-	bool bEnabled = true;
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "OpenMobile|Ads",
+		meta = (DisplayName = "Platform State")
+	)
+	EOpenMobileAdsPlatformPlacementState State =
+		EOpenMobileAdsPlatformPlacementState::Inherit;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Open Mobile|Ads")
 	bool bOverridePreload = false;
@@ -622,6 +634,12 @@ public:
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements
 	);
 
+	static TArray<FOpenMobileAdsConfigurationIssue> ValidateForPlatforms(
+		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
+		const TArray<EOpenMobileAdsPlatform>& Platforms,
+		bool bRequireAdUnitIds = true
+	);
+
 	/** Adds selected-provider format and operation checks to the portable placement validation. */
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateProviderCapabilities(
 		const TArray<FOpenMobileAdsPlacementSettings>& Placements,
@@ -633,6 +651,12 @@ public:
 	static TArray<FOpenMobileAdsConfigurationIssue> ValidateSettings(
 		const UOpenMobileAdsSettings& Settings,
 		bool bForShipping
+	);
+
+	static TArray<FOpenMobileAdsConfigurationIssue> ValidateSettingsForPlatforms(
+		const UOpenMobileAdsSettings& Settings,
+		bool bForShipping,
+		const TArray<EOpenMobileAdsPlatform>& Platforms
 	);
 };
 

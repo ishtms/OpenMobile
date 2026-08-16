@@ -3532,7 +3532,12 @@ FOpenMobileAdsError UOpenMobileAdsSubsystem::ValidatePlacementForProvider(
 	}
 
 	const TArray<FOpenMobileAdsConfigurationIssue> Issues =
-		FOpenMobileAdsConfigurationValidator::Validate(Settings->Placements);
+		FOpenMobileAdsConfigurationValidator::ValidateForPlatforms(
+			Settings->Placements,
+			{OpenMobileAdsGetCurrentPlatform()},
+			!(Settings->IsDevelopmentTestModeEnabled()
+				&& Settings->bUseOfficialTestAdUnitIds)
+		);
 	for (const FOpenMobileAdsConfigurationIssue& Issue : Issues)
 	{
 		if (
