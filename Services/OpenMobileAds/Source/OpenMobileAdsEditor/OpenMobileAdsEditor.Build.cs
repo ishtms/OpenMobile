@@ -9,12 +9,17 @@ public class OpenMobileAdsEditor : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"BlueprintGraph",
 			"Core",
 			"CoreUObject",
 			"DeveloperSettings",
+			"Engine",
+			"Kismet",
+			"KismetCompiler",
 			"MessageLog",
 			"OpenMobileAds",
 			"PropertyEditor",
+			"Projects",
 			"Slate",
 			"SlateCore",
 			"UnrealEd"
