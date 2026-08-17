@@ -647,6 +647,79 @@ bool FOpenMobileAdsBlueprintMetadataContractTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsSetupAsyncBlueprintResultContractTest,
+	"OpenMobile.Ads.Contracts.Blueprint.SetupAsyncResult",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsSetupAsyncBlueprintResultContractTest::RunTest(
+	const FString& Parameters
+)
+{
+	static_cast<void>(Parameters);
+	UClass* AsyncClass = FindObject<UClass>(
+		nullptr,
+		TEXT("/Script/OpenMobileAds.OpenMobileAdsSetupAsyncAction")
+	);
+	UScriptStruct* ResultStruct = FindObject<UScriptStruct>(
+		nullptr,
+		TEXT("/Script/OpenMobileAds.OpenMobileAdsSetupResult")
+	);
+	TestNotNull(TEXT("Setup async action is reflected"), AsyncClass);
+	TestNotNull(TEXT("Setup async result is reflected"), ResultStruct);
+	if (!AsyncClass || !ResultStruct)
+	{
+		return false;
+	}
+
+	auto GetDelegateResultStruct = [this, AsyncClass](FName Name)
+		-> const UScriptStruct*
+	{
+		const FMulticastDelegateProperty* Delegate =
+			CastField<FMulticastDelegateProperty>(
+				AsyncClass->FindPropertyByName(Name)
+			);
+		TestNotNull(
+			*FString::Printf(TEXT("%s is a multicast delegate"), *Name.ToString()),
+			Delegate
+		);
+		if (!Delegate || !Delegate->SignatureFunction)
+		{
+			return static_cast<const UScriptStruct*>(nullptr);
+		}
+		for (TFieldIterator<FProperty> It(Delegate->SignatureFunction); It; ++It)
+		{
+			if (const FStructProperty* Parameter = CastField<FStructProperty>(*It))
+			{
+				return Parameter->Struct.Get();
+			}
+		}
+		return static_cast<const UScriptStruct*>(nullptr);
+	};
+
+	TestEqual(
+		TEXT("Completed exposes the setup result"),
+		GetDelegateResultStruct(TEXT("OnCompleted")),
+		static_cast<const UScriptStruct*>(ResultStruct)
+	);
+	TestEqual(
+		TEXT("Failed exposes the same Blueprint result"),
+		GetDelegateResultStruct(TEXT("OnFailed")),
+		static_cast<const UScriptStruct*>(ResultStruct)
+	);
+	TestEqual(
+		TEXT("Cancelled exposes the same Blueprint result"),
+		GetDelegateResultStruct(TEXT("OnCancelled")),
+		static_cast<const UScriptStruct*>(ResultStruct)
+	);
+	TestNotNull(
+		TEXT("Setup result contains a typed error"),
+		ResultStruct->FindPropertyByName(TEXT("Error"))
+	);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsRevenueAmountContractTest,
 	"OpenMobile.Ads.Contracts.Revenue.Amount",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

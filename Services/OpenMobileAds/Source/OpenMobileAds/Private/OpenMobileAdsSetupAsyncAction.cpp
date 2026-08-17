@@ -220,10 +220,13 @@ void UOpenMobileAdsSetupAsyncAction::TryCompleteFromCurrentState()
 	}
 }
 
-FOpenMobileAdsSetupResult UOpenMobileAdsSetupAsyncAction::MakeResult() const
+FOpenMobileAdsSetupResult UOpenMobileAdsSetupAsyncAction::MakeResult(
+	const FOpenMobileAdsError& Error
+) const
 {
 	FOpenMobileAdsSetupResult Result;
 	Result.RequestId = RequestId;
+	Result.Error = Error;
 	if (Subsystem.IsValid())
 	{
 		Result.ServiceState = Subsystem->GetServiceState();
@@ -273,8 +276,9 @@ void UOpenMobileAdsSetupAsyncAction::FinishFailed(
 		return;
 	}
 	bFinished = true;
+	const FOpenMobileAdsSetupResult Result = MakeResult(Error);
 	Cleanup();
-	OnFailed.Broadcast(Error);
+	OnFailed.Broadcast(Result);
 	SetReadyToDestroy();
 }
 
@@ -291,8 +295,9 @@ void UOpenMobileAdsSetupAsyncAction::FinishCancelled()
 		NAME_None,
 		TEXT("The request-local Ads setup listener was cancelled. The platform operation may still finish globally.")
 	);
+	const FOpenMobileAdsSetupResult Result = MakeResult(Error);
 	Cleanup();
-	OnCancelled.Broadcast(Error);
+	OnCancelled.Broadcast(Result);
 	SetReadyToDestroy();
 }
 

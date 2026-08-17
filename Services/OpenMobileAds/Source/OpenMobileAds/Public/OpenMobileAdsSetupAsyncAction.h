@@ -22,6 +22,9 @@ struct OPENMOBILEADS_API FOpenMobileAdsSetupResult
 	FGuid RequestId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Ads|Setup")
+	FOpenMobileAdsError Error;
+
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Ads|Setup")
 	EOpenMobileAdsServiceState ServiceState =
 		EOpenMobileAdsServiceState::Uninitialized;
 
@@ -49,13 +52,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAdsSetupFailed,
-	const FOpenMobileAdsError&,
-	Error
+	const FOpenMobileAdsSetupResult&,
+	Result
 );
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileAdsSetupCancelled,
-	const FOpenMobileAdsError&,
-	Error
+	const FOpenMobileAdsSetupResult&,
+	Result
 );
 
 UCLASS(meta = (ExposedAsyncProxy = "AsyncAction"))
@@ -158,7 +161,9 @@ private:
 	);
 	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
 	void TryCompleteFromCurrentState();
-	FOpenMobileAdsSetupResult MakeResult() const;
+	FOpenMobileAdsSetupResult MakeResult(
+		const FOpenMobileAdsError& Error = {}
+	) const;
 	void FinishCompleted();
 	void FinishFailed(const FOpenMobileAdsError& Error);
 	void FinishCancelled();
