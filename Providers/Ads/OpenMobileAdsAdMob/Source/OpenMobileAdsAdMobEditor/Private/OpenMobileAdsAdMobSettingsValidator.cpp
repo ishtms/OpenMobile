@@ -55,20 +55,41 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 	bool bForShipping
 )
 {
+	return ValidateForPlatforms(
+		Settings,
+		{EOpenMobileAdsPlatform::Android, EOpenMobileAdsPlatform::IOS},
+		bForShipping
+	);
+}
+
+TArray<FString> FOpenMobileAdsAdMobSettingsValidator::ValidateForPlatforms(
+	const UOpenMobileAdsAdMobSettings& Settings,
+	const TArray<EOpenMobileAdsPlatform>& Platforms,
+	bool bForShipping
+)
+{
 	TArray<FString> Errors;
 	Errors.Reserve(8 + Settings.TestDeviceIdentifiers.Num());
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("Android app ID"),
-		Settings.AndroidAppId,
-		TEXT('~'),
-		Errors
-	);
-	OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
-		TEXT("iOS app ID"),
-		Settings.IOSAppId,
-		TEXT('~'),
-		Errors
-	);
+	const bool bValidateAndroid = Platforms.Contains(EOpenMobileAdsPlatform::Android);
+	const bool bValidateIOS = Platforms.Contains(EOpenMobileAdsPlatform::IOS);
+	if (bValidateAndroid)
+	{
+		OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
+			TEXT("Android app ID"),
+			Settings.AndroidAppId,
+			TEXT('~'),
+			Errors
+		);
+	}
+	if (bValidateIOS)
+	{
+		OpenMobileAdsAdMobEditorPrivate::ValidateIdentifier(
+			TEXT("iOS app ID"),
+			Settings.IOSAppId,
+			TEXT('~'),
+			Errors
+		);
+	}
 	TSet<FString> SeenTestDeviceIdentifiers;
 	for (int32 Index = 0; Index < Settings.TestDeviceIdentifiers.Num(); ++Index)
 	{
@@ -93,8 +114,14 @@ TArray<FString> FOpenMobileAdsAdMobSettingsValidator::Validate(
 	if (
 		bForShipping
 		&& (
-			UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.AndroidAppId)
-			|| UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(Settings.IOSAppId)
+			(bValidateAndroid
+				&& UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+					Settings.AndroidAppId
+				))
+			|| (bValidateIOS
+				&& UOpenMobileAdsAdMobSettings::IsGoogleSampleIdentifier(
+					Settings.IOSAppId
+				))
 		)
 	)
 	{

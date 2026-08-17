@@ -66,6 +66,33 @@ bool FOpenMobileAdsAdMobSettingsValidatorTest::RunTest(const FString& Parameters
 		TEXT("AdMob test-device identifiers are empty by default"),
 		Settings->TestDeviceIdentifiers.IsEmpty()
 	);
+	Settings->IOSAppId.Reset();
+	TestFalse(
+		TEXT("Android-only validation does not require an iOS app ID"),
+		FOpenMobileAdsAdMobSettingsValidator::ValidateForPlatforms(
+			*Settings,
+			{EOpenMobileAdsPlatform::Android}
+		).Contains(TEXT("iOS app ID is required."))
+	);
+	Settings->IOSAppId = TEXT("ca-app-pub-3940256099942544~1458002511");
+	Settings->AndroidAppId.Reset();
+	TestFalse(
+		TEXT("iOS-only validation does not require an Android app ID"),
+		FOpenMobileAdsAdMobSettingsValidator::ValidateForPlatforms(
+			*Settings,
+			{EOpenMobileAdsPlatform::IOS}
+		).Contains(TEXT("Android app ID is required."))
+	);
+	Settings->AndroidAppId = TEXT("ca-app-pub-1234567890123456~1234567890");
+	TestFalse(
+		TEXT("Android shipping ignores an unused iOS sample app ID"),
+		FOpenMobileAdsAdMobSettingsValidator::ValidateForPlatforms(
+			*Settings,
+			{EOpenMobileAdsPlatform::Android},
+			true
+		).Contains(TEXT("Google sample IDs are not allowed in shipping builds."))
+	);
+	Settings->AndroidAppId = TEXT("ca-app-pub-3940256099942544~3347511713");
 	Settings->TestDeviceIdentifiers = {
 		TEXT("SHARED-DEVICE"),
 		TEXT("ADMOB-DEVICE")
