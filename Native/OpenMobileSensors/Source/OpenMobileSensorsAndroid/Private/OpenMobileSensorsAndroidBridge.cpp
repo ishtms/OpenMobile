@@ -942,7 +942,7 @@ FOpenMobileSensorsAndroidBridge::QuerySensors(
 		Descriptor.bDynamic = NativeIntegers[IntegerOffset + 9] != 0;
 		Descriptor.MaximumRange = NativeNumbers[NumberOffset];
 		Descriptor.Resolution = NativeNumbers[NumberOffset + 1];
-		Descriptor.PowerMilliwatts = NativeNumbers[NumberOffset + 2];
+		Descriptor.PowerMilliamps = NativeNumbers[NumberOffset + 2];
 		OutSensors.Add(MoveTemp(Descriptor));
 	}
 	return {};

@@ -43,6 +43,14 @@ class SensorsMetadataTests(unittest.TestCase):
 		self.assertNotIn("void*", metadata)
 		self.assertNotIn("NativeSensorType", metadata)
 
+	def test_android_current_is_not_reported_as_known_milliwatts(self):
+		android = COMMON_SOURCE.parent / "OpenMobileSensorsAndroid" / "Private"
+		backend = (android / "OpenMobileSensorsAndroidBackend.cpp").read_text()
+		self.assertNotRegex(backend,
+			r"SetOptional\(\s*Entry.Metadata.EstimatedPowerMilliwatts,\s*Descriptor.Power")
+		bridge = (android / "OpenMobileSensorsAndroidBridge.h").read_text()
+		self.assertIn("PowerMilliamps", bridge)
+
 	def test_backend_metadata_carries_units_and_mutability(self) -> None:
 		backend_types = (
 			COMMON_SOURCE

@@ -43,7 +43,7 @@ struct FOpenMobileSensorsAndroidSensorDescriptor
 	int32 NativeReportingMode = -1;
 	double MaximumRange = 0.0;
 	double Resolution = 0.0;
-	double PowerMilliwatts = 0.0;
+	double PowerMilliamps = 0.0;
 	bool bWakeUp = false;
 	bool bPreferred = false;
 	bool bDynamic = false;

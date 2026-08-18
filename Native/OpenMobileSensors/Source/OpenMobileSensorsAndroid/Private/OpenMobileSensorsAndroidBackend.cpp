@@ -742,12 +742,7 @@ FOpenMobileSensorsAndroidBackend::GetSensorMetadata() const
 			FMath::IsFinite(Descriptor.Resolution)
 				&& Descriptor.Resolution >= 0.0
 		);
-		SetOptional(
-			Entry.Metadata.EstimatedPowerMilliwatts,
-			Descriptor.PowerMilliwatts,
-			FMath::IsFinite(Descriptor.PowerMilliwatts)
-				&& Descriptor.PowerMilliwatts >= 0.0
-		);
+		// Android reports current in mA; power needs a voltage estimate.
 		SetOptional(
 			Entry.Metadata.MinimumIntervalSeconds,
 			static_cast<double>(Descriptor.MinimumDelayMicroseconds),
