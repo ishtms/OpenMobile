@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class OpenMobileSensorsBridgeV1 {
     static final int BRIDGE_VERSION = 1;
@@ -574,6 +575,7 @@ public final class OpenMobileSensorsBridgeV1 {
         ) {
             return RESULT_INVALID_ARGUMENT;
         }
+        AtomicReference<Runnable> rollback = new AtomicReference<>();
         return callOnHandler(() -> {
             if (shuttingDown) {
                 return RESULT_SHUTTING_DOWN;
@@ -600,6 +602,10 @@ public final class OpenMobileSensorsBridgeV1 {
                 maxReportLatencyUs,
                 lowLatency
             );
+            rollback.set(() -> {
+                state.unregister(true);
+                streams.remove(streamId, state);
+            });
             try {
                 if (!state.register()) {
                     return RESULT_REGISTER_FAILED;
@@ -611,7 +617,12 @@ public final class OpenMobileSensorsBridgeV1 {
             }
             streams.put(streamId, state);
             return RESULT_OK;
-        }, RESULT_TIMEOUT);
+        }, RESULT_TIMEOUT, () -> {
+            Runnable cleanup = rollback.getAndSet(null);
+            if (cleanup != null) {
+                cleanup.run();
+            }
+        });
     }
 
     public int reconfigureStream(
@@ -628,6 +639,7 @@ public final class OpenMobileSensorsBridgeV1 {
         ) {
             return RESULT_INVALID_ARGUMENT;
         }
+        AtomicReference<Runnable> rollback = new AtomicReference<>();
         return callOnHandler(() -> {
             if (shuttingDown) {
                 return RESULT_SHUTTING_DOWN;
@@ -645,6 +657,27 @@ public final class OpenMobileSensorsBridgeV1 {
             int previousSamplingPeriodUs = state.samplingPeriodUs;
             int previousMaxReportLatencyUs = state.maxReportLatencyUs;
             int previousBatchDelayMillis = state.batchDelayMillis;
+            rollback.set(() -> {
+                state.unregister(true);
+                state.samplingPeriodUs = previousSamplingPeriodUs;
+                state.maxReportLatencyUs = previousMaxReportLatencyUs;
+                state.batchDelayMillis = previousBatchDelayMillis;
+                int failure = RESULT_REGISTER_FAILED;
+                try {
+                    state.register();
+                } catch (SecurityException exception) {
+                    state.registered = false;
+                    failure = RESULT_PERMISSION_DENIED;
+                } catch (RuntimeException exception) {
+                    state.registered = false;
+                }
+                if (state.registered) {
+                    nativeOnStreamRestarted(state.backendGeneration, state.streamId);
+                } else {
+                    streams.remove(streamId, state);
+                    nativeOnStreamError(state.backendGeneration, state.streamId, failure);
+                }
+            });
             state.unregister(true);
             state.flushRequests.clear();
             state.applyConfiguration(
@@ -667,27 +700,15 @@ public final class OpenMobileSensorsBridgeV1 {
             } catch (RuntimeException exception) {
                 state.registered = false;
             }
-            state.samplingPeriodUs = previousSamplingPeriodUs;
-            state.maxReportLatencyUs = previousMaxReportLatencyUs;
-            state.batchDelayMillis = previousBatchDelayMillis;
-            try {
-                state.register();
-            } catch (SecurityException exception) {
-                state.registered = false;
-                reconfigureFailure = RESULT_PERMISSION_DENIED;
-            } catch (RuntimeException exception) {
-                state.registered = false;
-            }
-            if (!state.registered) {
-                streams.remove(streamId);
-                nativeOnStreamError(
-                    state.backendGeneration,
-                    state.streamId,
-                    reconfigureFailure
-                );
-            }
+            rollback.get().run();
+            rollback.set(null);
             return reconfigureFailure;
-        }, RESULT_TIMEOUT);
+        }, RESULT_TIMEOUT, () -> {
+            Runnable cleanup = rollback.getAndSet(null);
+            if (cleanup != null) {
+                cleanup.run();
+            }
+        });
     }
 
     public int stopStream(String streamId) {
@@ -789,39 +810,73 @@ public final class OpenMobileSensorsBridgeV1 {
     }
 
     private <T> T callOnHandler(HandlerTask<T> task, T fallback) {
+        return callOnHandler(task, fallback, null);
+    }
+
+    private <T> T callOnHandler(HandlerTask<T> task, T fallback, Runnable rollback) {
         if (Looper.myLooper() == handler.getLooper()) {
             try {
                 return task.run();
             } catch (RuntimeException exception) {
+                if (rollback != null) {
+                    rollback.run();
+                }
                 return fallback;
             }
         }
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<T> result = new AtomicReference<>(fallback);
-        boolean posted = handler.post(() -> {
-            try {
-                result.set(task.run());
-            } finally {
-                completed.countDown();
+        AtomicBoolean abandoned = new AtomicBoolean(false);
+        Runnable work = () -> {
+            if (abandoned.get() && rollback != null) {
+                return;
             }
-        });
-        if (!posted) {
+            T value = fallback;
+            try {
+                value = task.run();
+            } catch (RuntimeException exception) {
+                if (rollback != null) {
+                    rollback.run();
+                }
+            }
+            synchronized (result) {
+                if (!abandoned.get() || rollback == null) {
+                    result.set(value);
+                    completed.countDown();
+                    return;
+                }
+            }
+            rollback.run();
+        };
+        if (!handler.post(work)) {
             return fallback;
         }
         try {
-            if (!completed.await(HANDLER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                return fallback;
-            }
+            completed.await(HANDLER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            return fallback;
         }
-        return result.get();
+        synchronized (result) {
+            if (completed.getCount() == 0) {
+                return result.get();
+            }
+            abandoned.set(true);
+        }
+        if (rollback != null) {
+            handler.removeCallbacks(work);
+        }
+        return fallback;
     }
 
     private void rebuildDiscovery() {
         List<SensorRecord> rebuilt = new ArrayList<>();
-        for (Sensor sensor : sensorManager.getSensorList(Sensor.TYPE_ALL)) {
+        List<Sensor> inventory = new ArrayList<>(sensorManager.getSensorList(Sensor.TYPE_ALL));
+        for (Sensor sensor : sensorManager.getDynamicSensorList(Sensor.TYPE_ALL)) {
+            if (!inventory.contains(sensor)) {
+                inventory.add(sensor);
+            }
+        }
+        for (Sensor sensor : inventory) {
             if (!isSupportedNativeType(sensor.getType())) {
                 continue;
             }
@@ -1076,7 +1131,17 @@ public final class OpenMobileSensorsBridgeV1 {
     }
 
     private static String buildNativeIdentifier(Sensor sensor) {
-        return "Android-" + sensor.getType() + "-" + sensor.getId();
+        int id = sensor.getId();
+        String prefix = "Android-" + sensor.getType() + "-";
+        if (id > 0) {
+            return prefix + id;
+        }
+        // Hex preserves case-sensitive Android names in Unreal FName identifiers.
+        StringBuilder identifier = new StringBuilder(prefix + "name-");
+        for (char value : safeText(sensor.getName()).toCharArray()) {
+            identifier.append(Integer.toHexString(0x10000 | value).substring(1));
+        }
+        return identifier.toString();
     }
 
     private static String safeText(String value) {
