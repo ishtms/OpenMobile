@@ -1173,4 +1173,106 @@ bool FOpenMobileSensorsActivityListenerReflectionTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsDiscreteListenerBatchTest,
+	"OpenMobile.Sensors.Blueprint.Listener.DiscreteBatches",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsDiscreteListenerBatchTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileSensorsListenerTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsMockBackend Backend(TEXT("DiscreteBatches"));
+	Backend.SetSensorCapabilities({MakeCapability(EOpenMobileSensorType::StepDetector),
+		MakeCapability(EOpenMobileSensorType::ActivityTransition)});
+	FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+	GameInstance->InitializeStandalone(TEXT("DiscreteBatches"));
+	UWorld* World = GameInstance->GetWorld();
+	FOpenMobileSensorStreamOptions Options;
+	Options.BufferCapacitySamples = 16;
+	auto* Steps = UOpenMobileStepEventListener::ListenForStepEvents(World, Options,
+		EOpenMobileSensorRatePreset::UI, true);
+	auto* Activity = UOpenMobileActivityTransitionListener::ListenForActivityTransitions(
+		World, Options, EOpenMobileSensorRatePreset::UI, true);
+	int64 DeliveredSteps = 0;
+	TArray<EOpenMobileActivityTransition> Transitions;
+	Steps->OnStepsSampleNative().AddLambda([&](const FOpenMobileStepsSensorSample& Sample)
+	{
+		DeliveredSteps += Sample.DetectedStepDelta;
+	});
+	Activity->OnActivitySampleNative().AddLambda([&](const FOpenMobileActivitySensorSample& Sample)
+	{
+		Transitions.Add(Sample.Transition);
+	});
+	Steps->Activate();
+	Activity->Activate();
+	FOpenMobileSensorsSubscriptionService::ProcessPendingBackendOperationsForTests();
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		FOpenMobileStepsSensorSample Sample;
+		Sample.Header.Sensor = MakeCapability(EOpenMobileSensorType::StepDetector).Sensor;
+		Sample.Header.TimestampSeconds = 1.0 + Index * 0.01;
+		Sample.Header.bValid = true;
+		Sample.Count = 1;
+		Sample.DetectedStepDelta = 1;
+		Sample.Header.bUnitsNormalized = true;
+		Sample.DetectionSource = EOpenMobileStepDetectionSource::AndroidStepDetector;
+		Sample.DetectionQuality = EOpenMobileStepDetectionQuality::DirectHardwareEvent;
+		FOpenMobileSensorsSampleService::PublishSteps(Sample);
+	}
+	for (const auto Transition : {EOpenMobileActivityTransition::Stopped,
+		EOpenMobileActivityTransition::Started})
+	{
+		FOpenMobileActivitySensorSample Sample;
+		Sample.Header.Sensor = MakeCapability(EOpenMobileSensorType::ActivityTransition).Sensor;
+		Sample.Header.TimestampSeconds = Transition == EOpenMobileActivityTransition::Stopped ? 1.0 : 1.01;
+		Sample.Header.bValid = true;
+		Sample.Activity = EOpenMobileMotionActivity::Walking;
+		Sample.Confidence = EOpenMobileActivityConfidence::High;
+		Sample.Transition = Transition;
+		Sample.TransitionOrigin = EOpenMobileActivityTransitionOrigin::Native;
+		FOpenMobileSensorsSampleService::PublishActivity(Sample);
+	}
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(2.0);
+	TestEqual(TEXT("Every batched step reaches the listener"), DeliveredSteps, 3ll);
+	TestEqual(TEXT("Both activity transitions reach the listener"), Transitions.Num(), 2);
+	if (Transitions.Num() == 2)
+	{
+		TestEqual(TEXT("Exit precedes enter"), Transitions[0], EOpenMobileActivityTransition::Stopped);
+		TestEqual(TEXT("Enter follows exit"), Transitions[1], EOpenMobileActivityTransition::Started);
+	}
+	Steps->OnStepsSampleNative().Clear();
+	int32 CallbacksBeforeStop = 0;
+	Steps->OnStepsSampleNative().AddLambda([&](const FOpenMobileStepsSensorSample&)
+	{
+		++CallbacksBeforeStop;
+		Steps->Stop();
+	});
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		FOpenMobileStepsSensorSample Sample;
+		Sample.Header.Sensor = MakeCapability(EOpenMobileSensorType::StepDetector).Sensor;
+		Sample.Header.TimestampSeconds = 3.0 + Index * 0.01;
+		Sample.Header.bValid = true;
+		Sample.Count = 1;
+		Sample.DetectedStepDelta = 1;
+		Sample.Header.bUnitsNormalized = true;
+		Sample.DetectionSource = EOpenMobileStepDetectionSource::AndroidStepDetector;
+		Sample.DetectionQuality = EOpenMobileStepDetectionQuality::DirectHardwareEvent;
+		FOpenMobileSensorsSampleService::PublishSteps(Sample);
+	}
+	FOpenMobileSensorsSampleService::DrainPendingEventsForTests(4.0);
+	TestEqual(TEXT("Stopping in a callback ends batch delivery"), CallbacksBeforeStop, 1);
+	Steps->Stop();
+	Activity->Stop();
+	GameInstance->Shutdown();
+	World->DestroyWorld(true);
+	GEngine->DestroyWorldContext(World);
+	FOpenMobileSensorsBackendRegistry::UnregisterBackend(Backend);
+	ResetServices();
+	return true;
+}
+
 #endif

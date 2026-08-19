@@ -669,11 +669,20 @@ void UOpenMobileSensorListener::HandleStepsBatch(
 	FOpenMobileSensorSubscriptionHandle InHandle,
 	const FOpenMobileStepsSensorBatch& Batch)
 {
-	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	if (IsFinished() || InHandle != Handle || Batch.Samples.IsEmpty())
 	{
-		const FOpenMobileStepsSensorSample& Sample = Batch.Samples.Last();
+		return;
+	}
+	const int32 FirstSample = RequestedSensor.Type == EOpenMobileSensorType::StepDetector
+		? 0 : Batch.Samples.Num() - 1;
+	for (int32 Index = FirstSample; Index < Batch.Samples.Num() && !IsFinished(); ++Index)
+	{
+		const FOpenMobileStepsSensorSample& Sample = Batch.Samples[Index];
 		HandleStepsSample(Sample);
-		StepsSampleNative.Broadcast(Sample);
+		if (!IsFinished())
+		{
+			StepsSampleNative.Broadcast(Sample);
+		}
 	}
 }
 
@@ -681,11 +690,20 @@ void UOpenMobileSensorListener::HandleActivityBatch(
 	FOpenMobileSensorSubscriptionHandle InHandle,
 	const FOpenMobileActivitySensorBatch& Batch)
 {
-	if (!IsFinished() && InHandle == Handle && !Batch.Samples.IsEmpty())
+	if (IsFinished() || InHandle != Handle || Batch.Samples.IsEmpty())
 	{
-		const FOpenMobileActivitySensorSample& Sample = Batch.Samples.Last();
+		return;
+	}
+	const int32 FirstSample = RequestedSensor.Type == EOpenMobileSensorType::ActivityTransition
+		? 0 : Batch.Samples.Num() - 1;
+	for (int32 Index = FirstSample; Index < Batch.Samples.Num() && !IsFinished(); ++Index)
+	{
+		const FOpenMobileActivitySensorSample& Sample = Batch.Samples[Index];
 		HandleActivitySample(Sample);
-		ActivitySampleNative.Broadcast(Sample);
+		if (!IsFinished())
+		{
+			ActivitySampleNative.Broadcast(Sample);
+		}
 	}
 }
 
