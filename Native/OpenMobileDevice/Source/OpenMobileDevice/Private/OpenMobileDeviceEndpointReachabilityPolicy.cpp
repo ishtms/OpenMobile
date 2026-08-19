@@ -156,3 +156,10 @@ void FOpenMobileDeviceEndpointRequestLimiter::ResetForTests()
 	check(IsInGameThread());
 	OpenMobileDeviceEndpointReachabilityPolicyPrivate::ActiveRequestCount = 0;
 }
+
+double FOpenMobileDeviceEndpointReachabilityPolicy::GetConnectAttemptDeadline(
+	double NowSeconds, double DeadlineSeconds, int32 RemainingAddresses)
+{
+	return NowSeconds + FMath::Max(0.0, DeadlineSeconds - NowSeconds)
+		/ FMath::Max(1, RemainingAddresses);
+}

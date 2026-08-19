@@ -27,6 +27,7 @@ struct FOpenMobileDeviceEndpointCompletionEvidence
 class FOpenMobileDeviceEndpointReachabilityPolicy final
 {
 public:
+	static double GetConnectAttemptDeadline(double NowSeconds, double DeadlineSeconds, int32 RemainingAddresses);
 	static FOpenMobileEndpointReachabilityOptions NormalizeOptions(
 		FOpenMobileEndpointReachabilityOptions Options
 	);

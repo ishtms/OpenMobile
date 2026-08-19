@@ -133,8 +133,11 @@ void UOpenMobileDeviceEndpointReachabilityAsyncAction::StartDnsResolution()
 			bool bTcpSucceeded = false;
 			if (bDnsSucceeded)
 			{
+				int32 RemainingAddresses = AddressInfo.Results.Num();
 				for (FAddressInfoResultData& Result : AddressInfo.Results)
 				{
+					const double AttemptDeadline = FOpenMobileDeviceEndpointReachabilityPolicy::
+						GetConnectAttemptDeadline(FPlatformTime::Seconds(), DeadlineSeconds, RemainingAddresses--);
 					if (WorkerCancellation->Load()
 						|| FPlatformTime::Seconds() >= DeadlineSeconds)
 					{
@@ -154,7 +157,7 @@ void UOpenMobileDeviceEndpointReachabilityAsyncAction::StartDnsResolution()
 					while (!WorkerCancellation->Load())
 					{
 						const double RemainingSeconds =
-							DeadlineSeconds - FPlatformTime::Seconds();
+							AttemptDeadline - FPlatformTime::Seconds();
 						if (RemainingSeconds <= 0.0)
 						{
 							break;

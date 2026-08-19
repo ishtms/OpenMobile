@@ -8483,4 +8483,28 @@ bool FOpenMobileDeviceNativeConfigurationPolicyTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceEndpointAddressBudgetTest,
+	"OpenMobile.Device.EndpointReachability.AddressBudget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceEndpointAddressBudgetTest::RunTest(const FString& Parameters)
+{
+	const double Deadline = 10.0;
+	double Now = 2.0;
+	const double FirstDeadline = FOpenMobileDeviceEndpointReachabilityPolicy::
+		GetConnectAttemptDeadline(Now, Deadline, 2);
+	TestTrue(TEXT("An unresponsive first address leaves time for the second"),
+		FirstDeadline > Now && FirstDeadline < Deadline);
+	Now = FirstDeadline;
+	const double SecondDeadline = FOpenMobileDeviceEndpointReachabilityPolicy::
+		GetConnectAttemptDeadline(Now, Deadline, 1);
+	TestTrue(TEXT("The reachable second address has a connection budget"), Now < SecondDeadline);
+	TestEqual(TEXT("The last address can use the remaining deadline"), SecondDeadline, Deadline);
+	TestEqual(TEXT("A single address retains its existing timeout"),
+		FOpenMobileDeviceEndpointReachabilityPolicy::GetConnectAttemptDeadline(2.0, Deadline, 1), Deadline);
+	return true;
+}
+
 #endif
