@@ -13,6 +13,7 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(
 class OPENMOBILESENSORS_API FOpenMobileSensorsRecordingService final
 {
 public:
+	static bool IsSensorRecordable(EOpenMobileSensorType Sensor);
 	static void Start();
 	static void BeginShutdown();
 	static FGuid StartRecording(

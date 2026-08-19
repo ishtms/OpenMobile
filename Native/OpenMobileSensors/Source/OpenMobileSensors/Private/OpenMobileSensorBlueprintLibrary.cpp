@@ -2,6 +2,7 @@
 
 #include "OpenMobileSensorListener.h"
 #include "OpenMobileSensorsSettings.h"
+#include "OpenMobileSensorsRecordingService.h"
 
 void UOpenMobileSensorBlueprintLibrary::StopSensorListeners(
 	const TArray<UOpenMobileSensorListener*>& Listeners,
@@ -199,4 +200,9 @@ UOpenMobileSensorBlueprintLibrary::GetDefaultSensorRecordingOptions()
 	Options.LifecyclePolicy =
 		Settings->DefaultStreamOptions.LifecyclePolicy;
 	return Options;
+}
+
+bool UOpenMobileSensorBlueprintLibrary::IsSensorRecordable(EOpenMobileSensorType Sensor)
+{
+	return FOpenMobileSensorsRecordingService::IsSensorRecordable(Sensor);
 }

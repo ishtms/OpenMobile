@@ -63,7 +63,7 @@ public:
 	FOpenMobileSensorRecordingSessionStateDynamic Cancelled;
 
 	/** Use this when the recording needs a custom sensor list or custom limits. Recording Started means capture is active, and Finalized is the point where the complete file is ready. */
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Record Sensors with Options (Advanced)", Keywords = "OpenMobile sensors record session capture file raw options", AdvancedDisplay = "SessionOwner", ToolTip = "Advanced options-based recording path. The sensor list must not be empty and every limit must satisfy Project Settings policy. Recording Started means capture is active, while Finalized means the complete file is ready."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Advanced|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Record Sensors with Options (Advanced)", Keywords = "OpenMobile sensors record session capture file raw options", AdvancedDisplay = "SessionOwner", ToolTip = "Advanced options-based recording for vector motion sensors. Unsupported sensor types fail the whole request and are named in the error. The sensor list must not be empty and every limit must satisfy Project Settings policy. Recording Started means capture is active, while Finalized means the complete file is ready."))
 	static UOpenMobileSensorRecordingSession* RecordSensors(
 		const UObject* WorldContextObject,
 		FOpenMobileSensorRecordingOptions Options,
@@ -71,23 +71,23 @@ public:
 	);
 
 	/** Use this when one preferred sensor should be recorded with the Project Settings limits. The returned session owns finalization and cleanup. */
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Sensor", Keywords = "OpenMobile sensors record one capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for the preferred instance of one sensor using Project Settings limits."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Sensor", Keywords = "OpenMobile sensors record one capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Records the preferred instance of one vector motion sensor using Project Settings limits."))
 	static UOpenMobileSensorRecordingSession* StartRecordingSensor(
 		const UObject* WorldContextObject,
-		EOpenMobileSensorType Sensor,
+		UPARAM(meta = (ValidEnumValues = "Accelerometer,AccelerometerUncalibrated,Gyroscope,GyroscopeUncalibrated,Magnetometer,MagnetometerUncalibrated,Gravity,LinearAcceleration")) EOpenMobileSensorType Sensor,
 		UObject* SessionOwner = nullptr
 	);
 
 	/** Use this when the sensors already belong to typed listeners. Repeated sensor selections are recorded once only, and Project Settings still cap the file. */
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Listeners", Keywords = "OpenMobile sensors record listeners selected capture file", AutoCreateRefTerm = "Listeners", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for the distinct sensors selected by typed listeners, using Project Settings limits."))
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Listeners", Keywords = "OpenMobile sensors record listeners selected capture file", AutoCreateRefTerm = "Listeners", AdvancedDisplay = "SessionOwner", ToolTip = "Records distinct vector motion sensors selected by typed listeners using Project Settings limits. Any unsupported sensor fails the whole request and is named in the error. Use Is Sensor Recordable to check selections."))
 	static UOpenMobileSensorRecordingSession* StartRecordingListeners(
 		const UObject* WorldContextObject,
 		const TArray<UOpenMobileSensorListener*>& Listeners,
 		UObject* SessionOwner = nullptr
 	);
 
-	/** Use this to record every sensor that's starting, active, or paused in this Game Instance. Each sensor is included once and Project Settings still cap the file. */
-	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Active Sensors", Keywords = "OpenMobile sensors record active listeners streams capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Starts an owner-scoped recording for every distinct sensor currently starting, active, or paused in this Game Instance, using Project Settings limits."))
+	/** Records the active selection only when every sensor supports vector recording. */
+	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Sensors|Recording", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Start Recording Active Sensors", Keywords = "OpenMobile sensors record active listeners streams capture file", AdvancedDisplay = "SessionOwner", ToolTip = "Records every distinct starting, active, or paused sensor in this Game Instance using Project Settings limits. Only vector motion sensors are supported. Any unsupported sensor fails the whole request and is named in the error."))
 	static UOpenMobileSensorRecordingSession* StartRecordingActiveSensors(
 		const UObject* WorldContextObject,
 		UObject* SessionOwner = nullptr

@@ -62,7 +62,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorRecordingOptions
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensors for this sensor recording options."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Vector motion sensors to record. Unsupported sensor types reject the whole request. Use Is Sensor Recordable to check selections."))
 	TArray<FOpenMobileSensorIdentifier> Sensors;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OpenMobile|Sensors", meta = (ToolTip = "Maximum duration in seconds for this sensor recording options."))

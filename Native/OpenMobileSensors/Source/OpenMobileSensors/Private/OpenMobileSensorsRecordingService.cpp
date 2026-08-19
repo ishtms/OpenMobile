@@ -271,8 +271,16 @@ namespace OpenMobileSensorsRecordingServicePrivate
 		TSet<FOpenMobileSensorIdentifier> UniqueSensors;
 		for (const FOpenMobileSensorIdentifier& Sensor : Options.Sensors)
 		{
+			if (!IsVectorSensor(Sensor.Type))
+			{
+				OutFailure = MakeFailure(
+					EOpenMobileSensorFailureReason::InvalidRequest,
+					TEXT("UnsupportedRecordingSensor"),
+					FString::Printf(TEXT("%s cannot be recorded. Select only vector motion sensors: accelerometer, gyroscope, magnetometer, gravity, or linear acceleration (including uncalibrated variants)."),
+						*FOpenMobileSensorTypes::GetStableName(Sensor.Type).ToString()));
+				return false;
+			}
 			if (!Sensor.IsValid()
-				|| !IsVectorSensor(Sensor.Type)
 				|| UniqueSensors.Contains(Sensor))
 			{
 				OutFailure = MakeFailure(
@@ -2513,3 +2521,8 @@ void FOpenMobileSensorsRecordingService::ResetForTests()
 	Start();
 }
 #endif
+
+bool FOpenMobileSensorsRecordingService::IsSensorRecordable(EOpenMobileSensorType Sensor)
+{
+	return OpenMobileSensorsRecordingServicePrivate::IsVectorSensor(Sensor);
+}

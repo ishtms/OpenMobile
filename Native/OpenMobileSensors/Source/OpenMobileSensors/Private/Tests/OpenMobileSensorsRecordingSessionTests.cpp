@@ -308,4 +308,40 @@ bool FOpenMobileSensorsRecordingSessionLifecycleTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsRecordingEligibilityTest,
+	"OpenMobile.Sensors.Blueprint.RecordingSession.Eligibility",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsRecordingEligibilityTest::RunTest(const FString& Parameters)
+{
+	using namespace OpenMobileSensorsRecordingSessionTestsPrivate;
+	ResetServices();
+	FOpenMobileSensorsRecordingService::Start();
+	FOpenMobileSensorRecordingOptions Options = MakeOptions(1.0);
+	FOpenMobileSensorIdentifier& Attitude = Options.Sensors.AddDefaulted_GetRef();
+	Attitude.Type = EOpenMobileSensorType::Attitude;
+	Attitude.InstanceId = TEXT("Default");
+	bool bCompleted = false;
+	FOpenMobileSensorRecordingResult Result;
+	FOpenMobileSensorsRecordingService::StartRecording(FGuid::NewGuid(), Options,
+		[&](const FOpenMobileSensorRecordingResult& InResult)
+		{
+			Result = InResult;
+			bCompleted = true;
+		});
+	TestTrue(TEXT("Mixed selection fails before opening any file"), bCompleted);
+	TestFalse(TEXT("Unsupported families are rejected"), Result.Operation.IsSuccess());
+	TestTrue(TEXT("Failure identifies the unsupported sensor"),
+		Result.Operation.Error.Message.Contains(TEXT("Attitude")));
+	TestTrue(TEXT("Failure explains the supported family"),
+		Result.Operation.Error.Message.Contains(TEXT("vector")));
+	const UFunction* Query = UOpenMobileSensorBlueprintLibrary::StaticClass()->
+		FindFunctionByName(TEXT("IsSensorRecordable"));
+	TestNotNull(TEXT("Blueprints can check recording eligibility"), Query);
+	ResetServices();
+	return true;
+}
+
 #endif

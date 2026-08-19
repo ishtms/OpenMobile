@@ -149,6 +149,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors", meta = (DisplayName = "Get Default Sensor Stream Options", Keywords = "OpenMobile sensors default recommended stream options project settings", ToolTip = "Returns the stream defaults configured in Project Settings under OpenMobile Sensors."))
 	static FOpenMobileSensorStreamOptions GetDefaultSensorStreamOptions();
 
+	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Is Sensor Recordable", ToolTip = "Returns whether the recording format supports this sensor type. Recording accepts vector motion sensors, including uncalibrated variants."))
+	static bool IsSensorRecordable(EOpenMobileSensorType Sensor);
+
 	/** You'll get the recording duration, file-size, and lifecycle policy configured in Project Settings. Add sensors directly or use a preferred Start Recording node. */
 	UFUNCTION(BlueprintPure, Category = "OpenMobile|Sensors|Recording", meta = (DisplayName = "Get Default Recording Options", Keywords = "OpenMobile sensors recording defaults project settings policy limits", ToolTip = "Returns the recording duration, file-size, and lifecycle policy configured in Project Settings. Add sensors directly or use a preferred Start Recording node."))
 	static FOpenMobileSensorRecordingOptions
