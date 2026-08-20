@@ -57,7 +57,8 @@ public:
 		meta = (
 			BlueprintInternalUseOnly = "true",
 			WorldContext = "WorldContextObject",
-			DisplayName = "Show Rewarded Ad Async"
+			DisplayName = "Show Rewarded Ad Async",
+			ToolTip = "Shows a rewarded ad. After dismissal, reward delivery stays active until earned, cancelled, world teardown, or eviction from the last 64 dismissed show contexts."
 		)
 	)
 	static UOpenMobileAdsRewardedAsyncAction* ShowRewardedAd(
@@ -79,7 +80,7 @@ private:
 
 	void HandleAdsEvent(const FOpenMobileAdsEvent& Event);
 	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
-	bool HandleDismissalGrace(float DeltaTime);
+	bool HandleRewardSettlement(float DeltaTime);
 	void FinishFailed(const FOpenMobileAdsError& Error);
 	void FinishCancelled(const FOpenMobileAdsError& Error);
 	void FinishListening();
@@ -95,7 +96,7 @@ private:
 	FGuid RequestId;
 	FDelegateHandle AdsEventHandle;
 	FDelegateHandle WorldCleanupHandle;
-	FTSTicker::FDelegateHandle DismissalGraceHandle;
+	FTSTicker::FDelegateHandle RewardSettlementHandle;
 	bool bRewardReceived = false;
 	bool bDismissed = false;
 	bool bFinished = false;

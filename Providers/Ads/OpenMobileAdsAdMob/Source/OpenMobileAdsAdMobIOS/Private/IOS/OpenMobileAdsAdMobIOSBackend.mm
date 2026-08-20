@@ -1992,19 +1992,10 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedInterstitialAd(
 			return;
 		}
 
-		__weak OpenMobileRewardedInterstitialAdDelegate* WeakHandler = Handler;
+		GADAdReward* Reward = RewardedInterstitialAd.adReward;
 		[RewardedInterstitialAd presentFromRootViewController:RootController
 			userDidEarnRewardHandler:^
 		{
-			OpenMobileRewardedInterstitialAdDelegate* StrongHandler = WeakHandler;
-			if (
-				!StrongHandler
-				|| GOpenMobileRewardedInterstitialAdDelegate != StrongHandler
-			)
-			{
-				return;
-			}
-			GADAdReward* Reward = StrongHandler.rewardedInterstitialAd.adReward;
 			FOpenMobileAdsAdMobPlatform::NativeEarned(
 				ShowRequestId,
 				Reward.amount.intValue,
@@ -2108,16 +2099,10 @@ bool FOpenMobileAdsAdMobIOSBackend::ShowRewardedAd(
 			return;
 		}
 
-		__weak OpenMobileRewardedAdDelegate* WeakHandler = Handler;
+		GADAdReward* Reward = RewardedAd.adReward;
 		[RewardedAd presentFromRootViewController:RootController
 						 userDidEarnRewardHandler:^
 		{
-			OpenMobileRewardedAdDelegate* StrongHandler = WeakHandler;
-			if (!StrongHandler || GOpenMobileRewardedAdDelegate != StrongHandler)
-			{
-				return;
-			}
-			GADAdReward* Reward = StrongHandler.rewardedAd.adReward;
 			FOpenMobileAdsAdMobPlatform::NativeEarned(
 				ShowRequestId,
 				Reward.amount.intValue,
@@ -2398,18 +2383,11 @@ bool FOpenMobileAdsAdMobIOSBackend::LaunchRewardedAd(
 				return;
 			}
 
-			__weak OpenMobileRewardedAdDelegate* weakHandler = Handler;
-			[rewardedAd presentFromRootViewController:rootController
+			GADAdReward* reward = rewardedAd.adReward;
+		[rewardedAd presentFromRootViewController:rootController
 							 userDidEarnRewardHandler:^
 			{
-				OpenMobileRewardedAdDelegate* strongHandler = weakHandler;
-				if (!strongHandler || GOpenMobileRewardedAdDelegate != strongHandler)
-				{
-					return;
-				}
-
-				GADAdReward* reward = strongHandler.rewardedAd.adReward;
-				FOpenMobileAdsAdMobPlatform::NativeEarned(
+			FOpenMobileAdsAdMobPlatform::NativeEarned(
 					RequestId,
 					reward.amount.intValue,
 					OpenMobileAdsAdMobIOS::ToFString(reward.type)

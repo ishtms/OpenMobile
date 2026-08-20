@@ -150,18 +150,26 @@ void UOpenMobileAdsRewardedAsyncAction::HandleAdsEvent(
 		}
 		break;
 	case EOpenMobileAdsEventType::Dismissed:
+		if (bDismissed)
+		{
+			return;
+		}
 		bDismissed = true;
 		OnDismissed.Broadcast(Event);
+		if (bFinished)
+		{
+			return;
+		}
 		if (bRewardReceived)
 		{
 			FinishListening();
 		}
 		else
 		{
-			DismissalGraceHandle = FTSTicker::GetCoreTicker().AddTicker(
+			RewardSettlementHandle = FTSTicker::GetCoreTicker().AddTicker(
 				FTickerDelegate::CreateUObject(
 					this,
-					&UOpenMobileAdsRewardedAsyncAction::HandleDismissalGrace
+					&UOpenMobileAdsRewardedAsyncAction::HandleRewardSettlement
 				),
 				1.0f
 			);
@@ -172,10 +180,14 @@ void UOpenMobileAdsRewardedAsyncAction::HandleAdsEvent(
 	}
 }
 
-bool UOpenMobileAdsRewardedAsyncAction::HandleDismissalGrace(float DeltaTime)
+bool UOpenMobileAdsRewardedAsyncAction::HandleRewardSettlement(float DeltaTime)
 {
 	static_cast<void>(DeltaTime);
-	DismissalGraceHandle.Reset();
+	if (Subsystem.IsValid() && Subsystem->DismissedShowCachedAds.Contains(RequestId))
+	{
+		return true;
+	}
+	RewardSettlementHandle.Reset();
 	FinishListening();
 	return false;
 }
@@ -252,13 +264,13 @@ void UOpenMobileAdsRewardedAsyncAction::Cleanup()
 	{
 		FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
 	}
-	if (DismissalGraceHandle.IsValid())
+	if (RewardSettlementHandle.IsValid())
 	{
-		FTSTicker::GetCoreTicker().RemoveTicker(DismissalGraceHandle);
+		FTSTicker::GetCoreTicker().RemoveTicker(RewardSettlementHandle);
 	}
 	AdsEventHandle.Reset();
 	WorldCleanupHandle.Reset();
-	DismissalGraceHandle.Reset();
+	RewardSettlementHandle.Reset();
 	Subsystem.Reset();
 	TargetWorld.Reset();
 	StoredWorldContextObject = nullptr;

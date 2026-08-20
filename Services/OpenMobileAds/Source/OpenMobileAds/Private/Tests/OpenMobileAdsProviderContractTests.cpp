@@ -3018,14 +3018,21 @@ bool FOpenMobileAdsFullscreenLifecycleContractTest::RunTest(
 		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
 	);
 	TestTrue(
-		TEXT("Explicit cancellation recovers a missing dismiss"),
+		TEXT("A presented ad listener can be cancelled"),
 		Subsystem->CancelRequest(MissingDismiss.RequestId).bAccepted
 	);
 	TestTrue(
-		TEXT("Cancellation restores only the ads-owned mute"),
-		FMath::IsNearlyEqual(FApp::GetVolumeMultiplier(), 0.42f)
+		TEXT("Cancellation preserves the mute while native presentation continues"),
+		FMath::IsNearlyZero(FApp::GetVolumeMultiplier())
 	);
 	DrainGameThreadTasks();
+	TestEqual(TEXT("Cancelled presentation retains its placement lock"),
+		Subsystem->GetPlacementStatus(TEXT("LifecycleReward")).State,
+		EOpenMobileAdPlacementState::Showing);
+	Dismiss();
+	DrainGameThreadTasks();
+	TestTrue(TEXT("Native dismissal restores the cancelled presentation once"),
+		FMath::IsNearlyEqual(FApp::GetVolumeMultiplier(), 0.42f));
 
 	Subsystem->OnNativeAdsEvent().Remove(EventHandle);
 	Subsystem->Deinitialize();
@@ -9874,6 +9881,10 @@ bool FOpenMobileAdsRewardedAsyncContractTest::RunTest(const FString& Parameters)
 	UOpenMobileAdsRewardedAsyncAction* Action =
 		NewObject<UOpenMobileAdsRewardedAsyncAction>();
 	Action->RequestId = RequestId;
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(GameInstance);
+	Action->Subsystem = Subsystem;
+	Subsystem->RememberDismissedShow(RequestId, FGuid::NewGuid());
 
 	FOpenMobileAdsEvent Dismissed;
 	Dismissed.Type = EOpenMobileAdsEventType::Dismissed;
@@ -9882,10 +9893,12 @@ bool FOpenMobileAdsRewardedAsyncContractTest::RunTest(const FString& Parameters)
 	Action->HandleAdsEvent(Dismissed);
 	TestTrue(TEXT("Rewarded async records dismissal"), Action->bDismissed);
 	TestFalse(
-		TEXT("Rewarded async keeps a short late-reward window"),
+		TEXT("Rewarded async retains unsettled reward delivery"),
 		Action->bFinished
 	);
 
+	TestTrue(TEXT("Time alone does not settle a mediated reward"), Action->HandleRewardSettlement(2.0f));
+	TestFalse(TEXT("The listener remains alive after the old grace period"), Action->bFinished);
 	FOpenMobileAdsEvent Reward;
 	Reward.Type = EOpenMobileAdsEventType::RewardEarned;
 	Reward.Format = EOpenMobileAdFormat::Rewarded;
@@ -9896,6 +9909,16 @@ bool FOpenMobileAdsRewardedAsyncContractTest::RunTest(const FString& Parameters)
 	Action->HandleAdsEvent(Reward);
 	TestTrue(TEXT("A reward after dismissal is accepted"), Action->bRewardReceived);
 	TestTrue(TEXT("Rewarded async finishes after the late reward"), Action->bFinished);
+	UOpenMobileAdsRewardedAsyncAction* Expired = NewObject<UOpenMobileAdsRewardedAsyncAction>();
+	Expired->RequestId = RequestId;
+	Expired->Subsystem = Subsystem;
+	for (int32 Index = 0; Index < 65; ++Index)
+	{
+		Subsystem->RememberDismissedShow(FGuid::NewGuid(), FGuid::NewGuid());
+	}
+	TestFalse(TEXT("Bounded history eviction ends reward polling"), Expired->HandleRewardSettlement(1.0f));
+	TestTrue(TEXT("Evicted reward listeners finish"), Expired->bFinished);
+
 	return true;
 }
 

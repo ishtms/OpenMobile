@@ -2118,16 +2118,16 @@ bool FOpenMobileAdsAdMobRewardedInterstitialContractTest::RunTest(
 		TEXT("USD"),
 		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Precise)
 	);
-	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
-	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
 	FOpenMobileAdsAdMobPlatform::NativeClosed(ShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
+	FOpenMobileAdsAdMobPlatform::NativeEarned(ShowRequestId, 25, TEXT("coin"));
 	const EOpenMobileAdsEventType ExpectedTypes[] = {
 		EOpenMobileAdsEventType::Shown,
 		EOpenMobileAdsEventType::Impression,
 		EOpenMobileAdsEventType::Clicked,
 		EOpenMobileAdsEventType::RevenuePaid,
-		EOpenMobileAdsEventType::RewardEarned,
-		EOpenMobileAdsEventType::Dismissed
+		EOpenMobileAdsEventType::Dismissed,
+		EOpenMobileAdsEventType::RewardEarned
 	};
 	TestEqual(
 		TEXT("Rewarded interstitial emits one complete callback lifecycle"),

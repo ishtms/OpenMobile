@@ -1106,6 +1106,7 @@ struct FOpenMobileAdsActiveRequestContext
 	bool bWaitingForConnectivity = false;
 	bool bProviderAttemptActive = true;
 	bool bPreserveCachedAdOnHide = false;
+	bool bCancellationRequested = false;
 };
 
 /** Owns one placement's coalesced automatic preload timer and earliest permitted start. */
@@ -4712,64 +4713,75 @@ FOpenMobileAdsOperationResult UOpenMobileAdsSubsystem::CancelRequest(FGuid Reque
 
 	const TSharedRef<FOpenMobileAdsActiveRequestContext, ESPMode::ThreadSafe> Context =
 		FoundContext->ToSharedRef();
-	ForgetShowRewardContext(RequestId);
-	if (Context->Stage == EOpenMobileAdsFailureStage::Show && FullscreenLifecycle)
+	if (Context->bCancellationRequested)
 	{
-		FullscreenLifecycle->End(
-			EOpenMobileAdsFullscreenSurface::Ad,
-			RequestId
-		);
+		return FOpenMobileAdsOperationResult::Accepted(RequestId);
 	}
-	CancelRetrySchedule(*Context);
-	Context->EventSink->Invalidate();
-	if (Context->bProviderAttemptActive)
+	Context->bCancellationRequested = true;
+	const bool bKeepPresentation = Context->Stage == EOpenMobileAdsFailureStage::Show
+		&& Context->bProviderAttemptActive
+		&& OpenMobileAdsPrivate::UsesFullscreenLifecycle(Context->Format);
+	if (!bKeepPresentation)
 	{
-		if (IOpenMobileAdsProvider* Provider =
-			OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+		ForgetShowRewardContext(RequestId);
+		if (Context->Stage == EOpenMobileAdsFailureStage::Show && FullscreenLifecycle)
 		{
-			Provider->Cancel(RequestId);
+			FullscreenLifecycle->End(
+				EOpenMobileAdsFullscreenSurface::Ad,
+				RequestId
+			);
 		}
-	}
+		CancelRetrySchedule(*Context);
+		Context->EventSink->Invalidate();
+		if (Context->bProviderAttemptActive)
+		{
+			if (IOpenMobileAdsProvider* Provider =
+				OpenMobileAdsPrivate::FindRegisteredProvider(Context->Provider))
+			{
+				Provider->Cancel(RequestId);
+			}
+		}
 
-	TArray<FName> StatusesToRemove;
-	for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
-	{
-		if (Pair.Value.ActiveRequestId != RequestId)
+		TArray<FName> StatusesToRemove;
+		for (TPair<FName, FOpenMobileAdsPlacementStatus>& Pair : PlacementStatuses)
 		{
-			continue;
+			if (Pair.Value.ActiveRequestId != RequestId)
+			{
+				continue;
+			}
+			if (Context->Stage == EOpenMobileAdsFailureStage::Teardown)
+			{
+				ReleaseCachedAd(Pair.Value);
+				Pair.Value.State = EOpenMobileAdPlacementState::Idle;
+				Pair.Value.ActiveRequestId.Invalidate();
+				Pair.Value.LastError = FOpenMobileAdsError();
+			}
+			else if (
+				Context->Stage == EOpenMobileAdsFailureStage::Show
+				|| Context->Stage == EOpenMobileAdsFailureStage::Hide
+			)
+			{
+				ReleaseCachedAd(Pair.Value);
+				Pair.Value.State = EOpenMobileAdPlacementState::Idle;
+				Pair.Value.LastError = FOpenMobileAdsError();
+			}
+			else if (const FOpenMobileAdsPlacementStatus* Previous =
+				Context->PreviousStatuses.Find(Pair.Key))
+			{
+				Pair.Value = *Previous;
+			}
+			else
+			{
+				StatusesToRemove.Add(Pair.Key);
+			}
 		}
-		if (Context->Stage == EOpenMobileAdsFailureStage::Teardown)
+		for (FName Placement : StatusesToRemove)
 		{
-			ReleaseCachedAd(Pair.Value);
-			Pair.Value.State = EOpenMobileAdPlacementState::Idle;
-			Pair.Value.ActiveRequestId.Invalidate();
-			Pair.Value.LastError = FOpenMobileAdsError();
+			PlacementStatuses.Remove(Placement);
 		}
-		else if (
-			Context->Stage == EOpenMobileAdsFailureStage::Show
-			|| Context->Stage == EOpenMobileAdsFailureStage::Hide
-		)
-		{
-			ReleaseCachedAd(Pair.Value);
-			Pair.Value.State = EOpenMobileAdPlacementState::Idle;
-			Pair.Value.LastError = FOpenMobileAdsError();
-		}
-		else if (const FOpenMobileAdsPlacementStatus* Previous =
-			Context->PreviousStatuses.Find(Pair.Key))
-		{
-			Pair.Value = *Previous;
-		}
-		else
-		{
-			StatusesToRemove.Add(Pair.Key);
-		}
+		ActiveRequests.Remove(RequestId);
+		ScheduleCacheExpirationCheck();
 	}
-	for (FName Placement : StatusesToRemove)
-	{
-		PlacementStatuses.Remove(Placement);
-	}
-	ActiveRequests.Remove(RequestId);
-	ScheduleCacheExpirationCheck();
 
 	FOpenMobileAdsEvent Cancelled;
 	Cancelled.Type = EOpenMobileAdsEventType::Failed;

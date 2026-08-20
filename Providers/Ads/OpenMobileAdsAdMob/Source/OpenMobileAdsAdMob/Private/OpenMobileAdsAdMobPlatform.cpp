@@ -26,6 +26,7 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 		int64 LoadedRequestId = 0;
 		TSharedPtr<IOpenMobileAdsProviderEventSink, ESPMode::ThreadSafe> EventSink;
 		bool bRewardDispatched = false;
+		FOnOpenMobileAdMobRewardedEarned LegacyEarned;
 	};
 
 	/** Links one banner hide request back to its reusable load and active show. */
@@ -63,6 +64,8 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	FOnOpenMobileAdMobRewardedFailed FailedDelegate;
 	TMap<int64, FAdLoadOperation> LoadOperations;
 	TMap<int64, FShowOperation> ShowOperations;
+	TMap<int64, FShowOperation> DismissedRewardOperations;
+	TArray<int64> DismissedRewardOrder;
 	TMap<int64, FBannerHideOperation> BannerHideOperations;
 	TMap<FGuid, int64> NativeLoadRequestIds;
 	TMap<FGuid, int64> NativeShowRequestIds;
@@ -137,6 +140,8 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 	{
 		LoadOperations.Reset();
 		ShowOperations.Reset();
+		DismissedRewardOperations.Reset();
+		DismissedRewardOrder.Reset();
 		BannerHideOperations.Reset();
 		NativeLoadRequestIds.Reset();
 		NativeShowRequestIds.Reset();
@@ -190,6 +195,22 @@ namespace OpenMobileAdsAdMobPlatformPrivate
 				|| Operation->Format == EOpenMobileAdFormat::MediumRectangle
 			)
 			&& RemoveLoadOperation(NativeRequestId, OutOperation);
+	}
+
+	void RememberDismissedReward(int64 NativeRequestId, const FShowOperation& Operation)
+	{
+		if (Operation.Format != EOpenMobileAdFormat::Rewarded
+			&& Operation.Format != EOpenMobileAdFormat::RewardedInterstitial)
+		{
+			return;
+		}
+		DismissedRewardOperations.Add(NativeRequestId, Operation);
+		DismissedRewardOrder.Add(NativeRequestId);
+		while (DismissedRewardOrder.Num() > 64)
+		{
+			DismissedRewardOperations.Remove(DismissedRewardOrder[0]);
+			DismissedRewardOrder.RemoveAt(0, 1, EAllowShrinking::No);
+		}
 	}
 
 	/** Removes a show and its banner visibility index before any terminal event is forwarded. */
@@ -1736,7 +1757,12 @@ void FOpenMobileAdsAdMobPlatform::NativeEarned(
 		[RequestId, NetworkAmount, NetworkRewardType = MoveTemp(NetworkRewardType)]() mutable
 		{
 			using namespace OpenMobileAdsAdMobPlatformPrivate;
-			if (FShowOperation* Operation = ShowOperations.Find(RequestId))
+			FShowOperation* Operation = ShowOperations.Find(RequestId);
+			if (!Operation)
+			{
+				Operation = DismissedRewardOperations.Find(RequestId);
+			}
+			if (Operation)
 			{
 				if (
 					(
@@ -1755,7 +1781,14 @@ void FOpenMobileAdsAdMobPlatform::NativeEarned(
 				Event.bHasReward = NetworkAmount > 0;
 				Event.Reward.Amount = static_cast<int64>(NetworkAmount);
 				Event.Reward.Type = MoveTemp(NetworkRewardType);
-				Operation->EventSink->Submit(MoveTemp(Event));
+				if (Operation->EventSink)
+				{
+					Operation->EventSink->Submit(MoveTemp(Event));
+				}
+				else
+				{
+					Operation->LegacyEarned.ExecuteIfBound(NetworkAmount, Event.Reward.Type);
+				}
 				return;
 			}
 			if (!bRequestInProgress || ActiveRequestId != RequestId || bRewardDispatched)
@@ -1778,12 +1811,19 @@ void FOpenMobileAdsAdMobPlatform::NativeClosed(int64 RequestId)
 		{
 			FOpenMobileAdsEvent Event;
 			Event.Type = EOpenMobileAdsEventType::Dismissed;
+			RememberDismissedReward(RequestId, ShowOperation);
 			ShowOperation.EventSink->Submit(MoveTemp(Event));
 			return;
 		}
 		if (!bRequestInProgress || ActiveRequestId != RequestId)
 		{
 			return;
+		}
+		if (!bRewardDispatched && EarnedDelegate.IsBound())
+		{
+			FShowOperation RewardOperation;
+			RewardOperation.LegacyEarned = MoveTemp(EarnedDelegate);
+			RememberDismissedReward(RequestId, RewardOperation);
 		}
 		FOnOpenMobileAdMobRewardedClosed Completion = MoveTemp(ClosedDelegate);
 		ResetRequest();

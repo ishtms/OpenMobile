@@ -278,7 +278,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Placements", meta = (DisplayName = "Destroy All Ads"))
 	FOpenMobileAdsOperationResult DestroyAllAds();
 
-	/** Cancels one accepted load or show request and rejects stale request IDs. */
+	/** Cancels request callbacks. A presented fullscreen ad retains gameplay protection until native dismissal. */
 	UFUNCTION(BlueprintCallable, Category = "OpenMobile|Ads|Advanced", meta = (DisplayName = "Cancel Ads Request"))
 	FOpenMobileAdsOperationResult CancelRequest(FGuid RequestId);
 
@@ -440,6 +440,8 @@ public:
 
 private:
 	friend class FOpenMobileAdsEventDispatcher;
+	friend class FOpenMobileAdsRewardedAsyncContractTest;
+	friend class UOpenMobileAdsRewardedAsyncAction;
 	friend struct FOpenMobileAdsClockTestAccess;
 	friend struct FOpenMobileAdsRetryTestAccess;
 
