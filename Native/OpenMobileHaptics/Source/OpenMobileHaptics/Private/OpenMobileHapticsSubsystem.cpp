@@ -5098,6 +5098,16 @@ UOpenMobileHapticsSubsystem::ApplyPlaybackCursorControl(
 	}
 
 	Request->PlaybackControlPolicy = MoveTemp(Candidate);
+	if (Request->TerminalWatchdogTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(Request->TerminalWatchdogTickerHandle);
+		Request->TerminalWatchdogTickerHandle.Reset();
+	}
+	if (Transition.State != EOpenMobileHapticPlaybackState::Paused)
+	{
+		ScheduleTerminalWatchdog(*RequestId,
+			Request->PlaybackControlPolicy->Snapshot(NowSeconds).RemainingDurationSeconds + 1.0);
+	}
 	Result.Implementation = Result.Implementation
 		== EOpenMobileHapticControlImplementation::None
 			? Implementation
@@ -6578,6 +6588,10 @@ void UOpenMobileHapticsSubsystem::PublishTerminalTimeout(uint64 RequestId)
 		return;
 	}
 	Request->TerminalWatchdogTickerHandle.Reset();
+	if (Request->LastPublishedState == EOpenMobileHapticPlaybackState::Paused)
+	{
+		return;
+	}
 	if (Request->LastPublishedState
 		== EOpenMobileHapticPlaybackState::Invalid)
 	{
@@ -6614,6 +6628,28 @@ void UOpenMobileHapticsSubsystem::PublishTerminalTimeout(uint64 RequestId)
 			return;
 		}
 	}
+	if (Request->LastPublishedState == EOpenMobileHapticPlaybackState::Paused)
+	{
+		return;
+	}
+	const FOpenMobileHapticsBackendRequestToken Token = Request->Token;
+	if (State->NativeEventDispatcher)
+	{
+		State->NativeEventDispatcher->UnregisterToken(Token);
+	}
+	if (Request->ScheduledStartGuard)
+	{
+		Request->ScheduledStartGuard->Invalidate();
+	}
+	if (IOpenMobileHapticsBackend* Backend = FOpenMobileHapticsBackendRegistry::FindBackend())
+	{
+		if (Backend->GetBackendName() == Token.BackendName
+			&& FOpenMobileHapticsBackendRegistry::IsCallbackCurrent(Token))
+		{
+			Backend->StopPlayback(Token);
+		}
+	}
+
 	FOpenMobileHapticPlaybackEvent Event;
 	Event.State = EOpenMobileHapticPlaybackState::Failed;
 	Event.Evidence = EOpenMobileHapticEventEvidence::Estimated;

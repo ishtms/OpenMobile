@@ -176,4 +176,43 @@ bool FOpenMobileHapticsPlaybackControlLoopTest::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileHapticsPlaybackRemainingDurationTest,
+	"OpenMobile.Haptics.Playback.Controls.RemainingDuration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileHapticsPlaybackRemainingDurationTest::RunTest(const FString& Parameters)
+{
+	FOpenMobileHapticsRepeatPlan Plan;
+	Plan.PatternDurationSeconds = 2.0;
+	Plan.TotalDurationSeconds = 2.0;
+	Plan.MaximumDurationSeconds = 10.0;
+	FOpenMobileHapticsPlaybackControlPolicy Policy(Plan,
+		EOpenMobileHapticPlaybackState::Started, 0.0);
+	Policy.Pause(1.0);
+	TestEqual(TEXT("Paused wall time consumes no remaining playback"),
+		Policy.Snapshot(20.0).RemainingDurationSeconds, 1.0);
+	Policy.Resume(20.0);
+	Policy.Seek(0.0, 20.0, 0.0);
+	TestEqual(TEXT("Backward seek extends the remaining timeline"),
+		Policy.Snapshot(20.0).RemainingDurationSeconds, 2.0);
+	TestEqual(TEXT("Resumed playback consumes the new duration"),
+		Policy.Snapshot(21.0).RemainingDurationSeconds, 1.0);
+	Plan.bLoop = true;
+	Plan.RepeatCount = 2;
+	Plan.RepeatStartTimeSeconds = 0.5;
+	Plan.RepeatDurationSeconds = 1.5;
+	FOpenMobileHapticsPlaybackControlPolicy Repeating(Plan,
+		EOpenMobileHapticPlaybackState::Started, 0.0);
+	TestEqual(TEXT("Remaining duration includes pending repeats"),
+		Repeating.Snapshot(2.5).RemainingDurationSeconds, 2.5);
+	Plan.bRepeatUntilStopped = true;
+	FOpenMobileHapticsPlaybackControlPolicy BoundedLoop(Plan,
+		EOpenMobileHapticPlaybackState::Started, 0.0);
+	TestEqual(TEXT("Indefinite repeats retain the active-duration cap"),
+		BoundedLoop.Snapshot(7.0).RemainingDurationSeconds, 3.0);
+	return true;
+}
+
 #endif

@@ -7418,6 +7418,7 @@ bool FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest::RunTest(
 	Settings->NamedLibraries.Reset();
 
 	FMockBackend Backend(TEXT("MissingTerminal"));
+	Backend.ControlSupport.bStop = true;
 	FOpenMobileHapticsBackendRegistry::RegisterBackend(Backend);
 	UGameInstance* GameInstance = NewObject<UGameInstance>();
 	UOpenMobileHapticsSubsystem* Subsystem =
@@ -7454,10 +7455,31 @@ bool FOpenMobileHapticsPlaybackLifecycleMissingCallbackTest::RunTest(
 		Subsystem->GetPlaybackState(Playback.Handle),
 		EOpenMobileHapticPlaybackState::Failed);
 
+	TestEqual(TEXT("Timeout stops the native player"), Backend.StopPlaybackCount, 1);
 	Backend.Emit(0, EOpenMobileHapticPlaybackState::Completed, 1);
 	FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
 	TestEqual(TEXT("Late native completion cannot duplicate the timeout"),
 		Events.Num(), 3);
+
+	Subsystem->Deinitialize();
+	Subsystem = NewObject<UOpenMobileHapticsSubsystem>(GameInstance);
+	Backend.ControlSupport.bPause = true;
+	Backend.ControlSupport.bResume = true;
+	Backend.SubmissionControlSupport.PauseImplementation = EOpenMobileHapticControlImplementation::Native;
+	Backend.SubmissionControlSupport.ResumeImplementation = EOpenMobileHapticControlImplementation::Native;
+	Backend.SubmissionControlSupport.bHasRepeatPlan = true;
+	Backend.SubmissionControlSupport.RepeatPlan.PatternDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.TotalDurationSeconds = 2.0;
+	Backend.SubmissionControlSupport.RepeatPlan.MaximumDurationSeconds = 30.0;
+	const auto Pausable = Subsystem->PlayNamedPattern(TEXT("PausedWatchdog"));
+	const uint64 PausableRequestId = Backend.LastToken.RequestId;
+	TestEqual(TEXT("Playback pauses before its deadline"),
+		Subsystem->PausePlayback(Pausable.Handle).Outcome, EOpenMobileHapticControlOutcome::Accepted);
+	Subsystem->PublishTerminalTimeout(PausableRequestId);
+	TestEqual(TEXT("A stale watchdog cannot fail paused playback"),
+		Subsystem->GetPlaybackState(Pausable.Handle), EOpenMobileHapticPlaybackState::Paused);
+	TestEqual(TEXT("Paused playback can still resume"),
+		Subsystem->ResumePlayback(Pausable.Handle).Outcome, EOpenMobileHapticControlOutcome::Accepted);
 
 	Subsystem->Deinitialize();
 	FOpenMobileHapticsBackendRegistry::UnregisterBackend(Backend);

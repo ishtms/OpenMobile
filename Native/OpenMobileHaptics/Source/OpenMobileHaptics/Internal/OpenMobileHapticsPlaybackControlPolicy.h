@@ -13,6 +13,7 @@ enum class EOpenMobileHapticsPlaybackControlTransitionOutcome : uint8
 
 struct FOpenMobileHapticsPlaybackControlSnapshot
 {
+	double RemainingDurationSeconds = 0.0;
 	EOpenMobileHapticPlaybackState State =
 		EOpenMobileHapticPlaybackState::Invalid;
 	double TimelinePositionSeconds = 0.0;

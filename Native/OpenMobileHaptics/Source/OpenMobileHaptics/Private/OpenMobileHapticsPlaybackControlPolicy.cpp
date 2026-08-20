@@ -176,6 +176,18 @@ FOpenMobileHapticsPlaybackControlPolicy::Snapshot(double NowSeconds)
 	Snapshot.CompletedRepeatCount = CompletedRepeatCount;
 	Snapshot.ActiveDurationSeconds = ActiveDurationSeconds;
 	Snapshot.Revision = Revision;
+	if (bValid && !IsTerminal())
+	{
+		const double SafetyRemaining = FMath::Max(0.0,
+			Plan.MaximumDurationSeconds - ActiveDurationSeconds);
+		const double RepeatsRemaining = Plan.bLoop
+			? FMath::Max(0, Plan.RepeatCount - CompletedRepeatCount) * Plan.RepeatDurationSeconds
+			: 0.0;
+		Snapshot.RemainingDurationSeconds = Plan.bRepeatUntilStopped
+			? SafetyRemaining
+			: FMath::Min(SafetyRemaining, FMath::Max(0.0,
+				Plan.PatternDurationSeconds - TimelinePositionSeconds + RepeatsRemaining));
+	}
 	return Snapshot;
 }
 
