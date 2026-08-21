@@ -1,0 +1,38 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "OpenMobile Media",
+	"Description": "Provider-neutral media picking and import APIs with isolated Android and iOS implementations.",
+	"Category": "OpenMobile",
+	"CreatedBy": "OpenMobile",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"EnabledByDefault": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "OpenMobileMedia",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "OpenMobileMediaAndroid",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["Android"]
+		},
+		{
+			"Name": "OpenMobileMediaIOS",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": ["IOS"]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OpenMobileCore",
+			"Enabled": true
+		}
+	]
+}
