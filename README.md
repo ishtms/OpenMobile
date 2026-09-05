@@ -12,12 +12,12 @@ OpenMobile is a collection of mobile plugins I've built up (and use them myself!
 | [Haptics](Native/OpenMobileHaptics) | Create vibration patterns and play feedback from gameplay, UMG, Gameplay Abilities, or Sequencer. |
 | [Sensors](Native/OpenMobileSensors) | Read motion, orientation, and other device sensors, with recording and replay for supported streams. |
 | [Device info](Native/OpenMobileDevice) | Check battery and storage, monitor thermal and network status, and read display information. |
-| [Permissions](Foundation/OpenMobilePermissions) | Check and request permissions from your game. |
+| [Permissions](Foundation/OpenMobilePermissions) | Shared C++ permission handling used by the sensor plugins. |
 | [Photo picker](Native/OpenMobileMedia) | Let players pick a photo through the native system picker and get an Unreal texture back. |
 
 [AdMob mediation adapters](Adapters/Ads) are included for AppLovin, Chartboost, Liftoff Monetize, Meta, and Unity Ads.
 
-Each feature is a separate plugin with Blueprint and C++ APIs. Enable the ones your project needs and add others when you need them.
+The gameplay plugins expose Blueprint and C++ APIs, with Core and Permissions providing shared C++ services. Enable the plugins your project needs and add others when you need them.
 
 ## Getting started
 
@@ -36,7 +36,7 @@ Start with [OpenMobileCore](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobi
 | Haptics | [Haptics](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileHaptics-v0.1.0-UE5.8-Source.zip) |
 | Sensors | [Sensors](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileSensors-v0.1.0-UE5.8-Source.zip) and [Permissions](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobilePermissions-v0.1.0-UE5.8-Source.zip) |
 | Photo picking | [Media](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileMedia-v0.1.0-UE5.8-Source.zip) |
-| Permission requests | [Permissions](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobilePermissions-v0.1.0-UE5.8-Source.zip) |
+| Shared permission services in C++ | [Permissions](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobilePermissions-v0.1.0-UE5.8-Source.zip) |
 | AdMob ads | [Ads](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileAds-v0.1.0-UE5.8-Source.zip) and [AdMob](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileAdsAdMob-v0.1.0-UE5.8-Source.zip) |
 
 For haptics integrations, add [UMG](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileHapticsUMG-v0.1.0-UE5.8-Source.zip), [Gameplay Abilities](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileHapticsGameplayAbilities-v0.1.0-UE5.8-Source.zip), or [Sequencer](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileHapticsSequencer-v0.1.0-UE5.8-Source.zip). Each also needs Haptics and Core. The Gameplay Abilities integration uses Unreal's built-in **Gameplay Abilities** plugin too.
@@ -80,3 +80,9 @@ For AdMob, set your app IDs under **OpenMobile - AdMob**, configure placements u
 If you use OpenMobile in a project, I'd love to hear how it goes. Fixes, examples, and testing on different phones are all welcome.
 
 If something breaks, [open an issue](/ishtms/OpenMobile/issues) with your Unreal version, device, and what happened. If you've worked out a fix, [send a pull request](/ishtms/OpenMobile/pulls).
+
+See the [contributing guidelines](CONTRIBUTING.md) for bug reports, code changes, and device testing.
+
+## License
+
+OpenMobile code is available under the [MIT license](LICENSE). Bundled third-party SDKs keep their own licenses.
