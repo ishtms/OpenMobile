@@ -10,16 +10,16 @@ OpenMobile is a collection of mobile plugins I've built up (and use them myself!
 
 | Feature | What you can do |
 | --- | --- |
-| [Ads](Services/OpenMobileAds) | Show ads through AdMob, handle consent, and add mediation networks. |
+| [Ads](Services/OpenMobileAds) | Rewarded, interstitial, app-open, and banner ads through AdMob, with consent and mediation. |
 | [Haptics](Native/OpenMobileHaptics) | Create vibration patterns and play feedback from gameplay, UMG, Gameplay Abilities, or Sequencer. |
-| [Sensors](Native/OpenMobileSensors) | Read motion, orientation, and other device sensors, with recording and replay for supported streams. |
+| [Sensors](Native/OpenMobileSensors) | Read motion, orientation, and other device sensors. Record and replay vector motion data. |
 | [Device info](Native/OpenMobileDevice) | Check battery and storage, monitor thermal and network status, and read display information. |
 | [Permissions](Foundation/OpenMobilePermissions) | Shared C++ permission handling used by the sensor plugins. |
 | [Photo picker](Native/OpenMobileMedia) | Let players pick a photo through the native system picker and get an Unreal texture back. |
 
 [AdMob mediation adapters](Adapters/Ads) are included for AppLovin, Chartboost, Liftoff Monetize, Meta, and Unity Ads.
 
-The gameplay plugins expose Blueprint and C++ APIs, with Core and Permissions providing shared C++ services. Enable the plugins your project needs and add others when you need them.
+The gameplay plugins have Blueprint nodes and C++ APIs. Core and Permissions provide the shared C++ services they use. You only need to install the features you want and their dependencies.
 
 ## Getting started
 
@@ -28,7 +28,7 @@ The gameplay plugins expose Blueprint and C++ APIs, with Core and Permissions pr
 
 ### What to download
 
-Open [v0.1.0](/ishtms/OpenMobile/releases/tag/v0.1.0) for the separate plugin downloads. These are **source plugins for Unreal Engine 5.8** and need to be compiled for your project.
+Download the plugins from [v0.1.0](/ishtms/OpenMobile/releases/tag/v0.1.0). Each has its own ZIP. These are **source plugins for Unreal Engine 5.8**, so you'll need to compile them for your project.
 
 Start with [OpenMobileCore](/ishtms/OpenMobile/releases/download/v0.1.0/OpenMobileCore-v0.1.0-UE5.8-Source.zip), which is required by every feature. Then pick what you want to use.
 
@@ -79,11 +79,11 @@ For AdMob, set your app IDs under **OpenMobile - AdMob**, configure placements u
 
 ## Help make it better
 
-If you use OpenMobile in a project, I'd love to hear how it goes. Fixes, examples, and testing on different phones are all welcome.
+If you use OpenMobile in a project, I'd love to hear how it goes. Bug fixes, example projects, and reports from different phones all help.
 
 If something breaks, [open an issue](/ishtms/OpenMobile/issues) with your Unreal version, device, and what happened. If you've worked out a fix, [send a pull request](/ishtms/OpenMobile/pulls).
 
-See the [contributing guidelines](CONTRIBUTING.md) for bug reports, code changes, and device testing.
+The [contributing guide](CONTRIBUTING.md) covers what to include in a bug report or pull request.
 
 ## License
 

@@ -1,7 +1,8 @@
 'use client';
 
 import { ArrowDown, ArrowDownRight, ArrowUpRight, BatteryMedium, CodeXml, Image as ImageIcon, MoveUpRight, Radio, ShieldCheck, Vibrate, Zap } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useEffect, useRef, useState } from 'react';
+import { activeFeatureIndex } from '@/lib/active-feature';
 
 const github = 'https://github.com/ishtms/OpenMobile';
 const release = `${github}/releases/tag/v0.1.0`;
@@ -9,95 +10,95 @@ const release = `${github}/releases/tag/v0.1.0`;
 const features = [
   {
     id: 'ads', name: 'Ads', Icon: Zap, path: 'Services/OpenMobileAds',
-    line: 'From rewarded ads to app-open.',
-    text: 'Run AdMob through named placements in Unreal. Choose a format, preload it, and react to ad, reward and revenue events from your game.',
+    line: 'AdMob ads in Unreal.',
+    text: 'Load and show ads from named placements. Receive ad, reward and revenue events in your Unreal project.',
     coverageLabel: 'Seven AdMob formats',
     coverage: ['Rewarded', 'Rewarded interstitial', 'Interstitial', 'App-open', 'Banner', 'Anchored adaptive banner', 'Medium rectangle (MREC)'],
     details: [
-      { title: 'Rewards your game can act on', text: 'Receive the earned reward amount and reward type. For rewarded interstitials, your game presents the reward message and a skip option before showing the ad.' },
-      { title: 'Server verification fields', text: 'Attach a user ID and custom data to rewarded ads for AdMob server-side verification. Connect those callbacks to your own reward backend.' },
-      { title: 'Placement controls', text: 'Load, reload and show placements. Hide reusable banners, check readiness, and configure automatic preloading, retries, cooldowns and frequency caps.' },
-      { title: 'Consent and tracking', text: 'Use Google UMP consent forms and privacy options. Check request eligibility and handle iOS tracking authorization from the same ads flow.' },
+      { title: 'Reward events', text: 'Receive the earned reward amount and type. Rewarded interstitials require your game to show the reward message and a skip option before the ad.' },
+      { title: 'Server-side verification', text: 'Pass a user ID and custom data for AdMob server-side verification. Handle the verification callbacks on your own reward backend.' },
+      { title: 'Placement controls', text: 'Load, reload and show placements, or hide reusable banners. Check readiness and configure preloading, retries, cooldowns and frequency caps.' },
+      { title: 'Consent and tracking', text: 'Use Google UMP consent forms and privacy options. Check whether ads can be requested and handle iOS tracking authorization.' },
       { title: 'Revenue and ad events', text: 'Listen for impressions, clicks, dismissals and paid events. Revenue includes value, currency, precision and the reported winning ad source.' },
-      { title: 'Mediation when you need it', text: 'Add AppLovin, Chartboost, Liftoff Monetize, Meta or Unity Ads. AdMob handles bidding and waterfalls configured in your account.' },
+      { title: 'AdMob mediation', text: 'Add AppLovin, Chartboost, Liftoff Monetize, Meta or Unity Ads. AdMob handles bidding and waterfalls configured in your account.' },
     ],
-    note: 'These seven AdMob formats are implemented on Android and iOS. Each mediation network has its own format support and setup requirements.',
+    note: 'All seven formats are implemented on Android and iOS. Format support and setup vary between mediation networks.',
   },
   {
     id: 'haptics', name: 'Haptics', Icon: Vibrate, path: 'Native/OpenMobileHaptics',
-    line: 'A button click. A hit. A whole pattern.',
-    text: 'Start with familiar feedback presets or author your own haptic assets. Keep the timing, intensity and playback controls close to your gameplay.',
-    coverageLabel: 'Ready for gameplay and UI',
+    line: 'Presets and custom haptic patterns.',
+    text: 'Use feedback presets or build custom pattern assets. Control timing, intensity and playback from your game.',
+    coverageLabel: 'Haptic effects and integrations',
     coverage: ['Selection feedback', 'Impact feedback', 'Success, warning and error', 'Custom pattern assets', 'Named pattern libraries', 'AHAP on iOS', 'UMG, Gameplay Abilities and Sequencer'],
     details: [
-      { title: 'Quick feedback nodes', text: 'Play selection, impact, notification and game presets from Blueprints. A simple vibration node covers short pulses without a custom asset.' },
-      { title: 'Reusable pattern assets', text: 'Build patterns from transient hits, continuous events and parameter curves. Use named libraries to prepare reusable feedback. On supported iOS devices, play packaged AHAP resources through Core Haptics.' },
-      { title: 'Control the playback', text: 'Stop or cancel a playing effect. Supported patterns also expose pause, resume, seeking and changes to intensity and sharpness.' },
-      { title: 'UMG that feels responsive', text: 'Bind feedback to button presses, selection changes, slider steps, hover and navigation focus through the optional widget integration.' },
-      { title: 'Abilities and cinematics', text: 'Trigger feedback from Gameplay Cues or put haptics on a Sequencer track. Each integration is a separate plugin.' },
-      { title: 'Player settings and device limits', text: 'Set master intensity, enable or disable feedback, and use channels and overlap policies. Capability checks and fallback results tell you what was used.' },
+      { title: 'Feedback presets', text: 'Play selection, impact, notification and game presets from Blueprints. Use the vibration node for short pulses without a custom asset.' },
+      { title: 'Pattern assets', text: 'Combine transient hits, continuous events and parameter curves. Prepare and reuse patterns through named libraries. Supported iOS devices can also play packaged AHAP resources through Core Haptics.' },
+      { title: 'Playback controls', text: 'Stop or cancel effects. Supported patterns also let you pause, resume, seek and adjust intensity or sharpness.' },
+      { title: 'UMG events', text: 'Add feedback to button presses, selection changes, slider steps, hover and navigation focus with the UMG plugin.' },
+      { title: 'Gameplay Cues and Sequencer', text: 'Trigger feedback from Gameplay Cues or a Sequencer track. Install each integration as a separate plugin.' },
+      { title: 'Player settings and fallbacks', text: 'Set master intensity, toggle feedback and configure channels and overlap policies. Check capabilities and see which fallback was used.' },
     ],
     note: 'Playback controls and effect quality depend on the device, platform and pattern. Core Haptics features on iOS and Android vibration features are reported separately.',
   },
   {
     id: 'sensors', name: 'Sensors', Icon: Radio, path: 'Native/OpenMobileSensors',
-    line: 'More than a raw accelerometer.',
-    text: 'Read motion, pose and available environmental sensors through typed listeners. Choose how often you sample, how you receive the data and how much filtering you need.',
-    coverageLabel: 'Discover what the device supports',
+    line: 'Motion and device sensors.',
+    text: 'Read motion, pose and available environmental sensors through typed listeners. Set the sample rate, delivery mode and filtering.',
+    coverageLabel: 'Sensor support',
     coverage: ['Accelerometer', 'Gyroscope', 'Magnetometer', 'Gravity and linear acceleration', 'Attitude and heading', 'Shake detection', 'Steps', 'Pressure and altitude', 'Proximity', 'Ambient light on Android', 'Motion activity on iOS'],
     details: [
-      { title: 'Find the right sensor', text: 'Discover available sensors and inspect their capabilities, permissions and accuracy. Unsupported hardware is reported before you build gameplay around it.' },
-      { title: 'Choose the delivery', text: 'Poll the latest value, receive batches of samples or read a bounded buffer. Rate presets and custom frequencies let you tune responsiveness and power use.' },
-      { title: 'Clean up the motion', text: 'Apply low-pass or high-pass filters, exponential smoothing and dead zones to vector streams. Heading supports smoothing and a dead zone. Detect shakes with configurable strength, impulse count and cooldown.' },
-      { title: 'Work in useful coordinates', text: 'Use device-fixed or current-screen axes. Attitude streams offer quaternions, optional Euler angles and rotation matrices, with a recenterable game reference.' },
-      { title: 'Record a real movement', text: 'Save supported vector motion streams, including accelerometer, gyroscope, magnetometer, gravity and linear acceleration. Uncalibrated vector variants are supported too.' },
-      { title: 'Replay while you iterate', text: 'Pause, resume, seek, change speed and loop a recording. Manual replay stepping gives you control over how recorded samples advance.' },
+      { title: 'Sensor discovery', text: 'Discover available sensors and check their capabilities, permissions and accuracy.' },
+      { title: 'Sampling and delivery', text: 'Poll the latest value, receive sample batches or read a bounded buffer. Use rate presets or custom frequencies to balance responsiveness and power use.' },
+      { title: 'Filters and shake detection', text: 'Filter vectors with low-pass, high-pass, exponential smoothing and dead-zone options. Heading supports smoothing and a dead zone. Set shake strength, impulse count and cooldown.' },
+      { title: 'Coordinates and attitude', text: 'Use device-fixed or current-screen axes. Attitude data includes quaternions, optional Euler angles and rotation matrices, plus a game reference you can recenter.' },
+      { title: 'Recording', text: 'Record accelerometer, gyroscope, magnetometer, gravity and linear acceleration streams, including supported uncalibrated vector variants.' },
+      { title: 'Replay', text: 'Pause, resume, seek, change speed and loop recordings. Use manual stepping to advance samples yourself.' },
     ],
-    note: 'Availability varies by phone and operating system. Recording and replay support vector motion streams, not every sensor family. Ambient light is Android only, and built-in motion activity uses iOS Core Motion.',
+    note: 'Support varies by phone and operating system. Recording and replay are limited to vector motion streams. Ambient light is Android only. Built-in motion activity uses iOS Core Motion.',
   },
   {
     id: 'device', name: 'Device info', Icon: BatteryMedium, path: 'Native/OpenMobileDevice',
-    line: 'Know the phone. Adapt the game.',
-    text: 'Read a snapshot when you need it or monitor changes while your game runs. Device status, display controls and player preferences are available in one place.',
-    coverageLabel: 'Useful information from the device',
+    line: 'Device status and controls.',
+    text: 'Read device snapshots or subscribe to changes. Monitor resources, adjust the app’s display settings and read player preferences.',
+    coverageLabel: 'Device features',
     coverage: ['Battery and charging', 'Thermal and power saving', 'Memory and storage', 'Network status', 'Display and safe areas', 'Locale and accessibility', 'Clipboard and flashlight'],
     details: [
-      { title: 'Battery, heat and resources', text: 'Watch battery and power-saving state, react to thermal changes, and read memory and app-volume storage information. Monitoring provides change events.' },
-      { title: 'Screen and window information', text: 'Read drawable size, density or scale, orientation and safe-area insets. Display and refresh-rate information follows what the platform can report.' },
-      { title: 'Controls for the current app', text: 'Request a brightness override, keep the screen awake, and set orientation or system UI preferences. The operating system still decides what it can apply.' },
-      { title: 'Network status and endpoint checks', text: 'Monitor the current network path. When you need to know whether your server answers, run an explicit HTTPS endpoint check.' },
-      { title: 'Respect player preferences', text: 'Read locale, appearance, preferred text scale, reduced-motion settings and available accessibility state. Subscribe to changes instead of polling everything.' },
-      { title: 'Everyday native tools', text: 'Read or write clipboard text and URLs, control an available flashlight, and open your app’s system settings. Capability checks report what the device supports.' },
+      { title: 'Battery, thermal state and resources', text: 'Monitor battery, power-saving and thermal state. Read memory and app-volume storage information, with events when monitored values change.' },
+      { title: 'Window and display information', text: 'Read drawable size, density or scale, orientation and safe-area insets. Available display and refresh-rate details depend on the platform.' },
+      { title: 'App display controls', text: 'Request brightness, orientation and system UI changes, or keep the screen awake. The operating system decides which requests it can apply.' },
+      { title: 'Network and server checks', text: 'Monitor the current network path. Run an explicit HTTPS endpoint check to find out whether your server responds.' },
+      { title: 'Locale and accessibility', text: 'Read locale, appearance, text scale, reduced-motion preferences and available accessibility state. Subscribe to changes as needed.' },
+      { title: 'Clipboard, flashlight and settings', text: 'Read and write clipboard text or URLs, control a supported flashlight, and open your app’s system settings. Check capabilities before using a feature.' },
     ],
     note: 'A network route is not proof of internet access. Display, thermal and accessibility details differ between Android and iOS, and some values require physical hardware.',
   },
   {
     id: 'permissions', name: 'Permissions', Icon: ShieldCheck, path: 'Foundation/OpenMobilePermissions',
-    line: 'One place to handle permission results.',
-    text: 'A shared C++ service for checking and requesting permissions owned by OpenMobile providers. It is the foundation used by the Sensors permission flow.',
-    coverageLabel: 'The shared permission service',
+    line: 'Shared permission handling in C++.',
+    text: 'Check and request permissions through a shared C++ service. OpenMobile Sensors uses it to talk to the platform permission providers.',
+    coverageLabel: 'Permission operations',
     coverage: ['Status checks', 'Asynchronous requests', 'Request cancellation', 'Provider registration'],
     details: [
-      { title: 'Know the current answer', text: 'Read a typed result that distinguishes granted, denied, restricted, not determined and permanently denied states, along with an error when a check cannot run.' },
-      { title: 'Own the request', text: 'Request a permission asynchronously and keep its handle. Cancel your pending request when the owning feature no longer needs the result.' },
-      { title: 'Connected to Sensors', text: 'The Sensors backends supply Android activity-recognition and iOS motion-activity permission providers. The sensor APIs use this shared service.' },
-      { title: 'Add a provider in C++', text: 'Register a provider for the permission your plugin owns. The service routes status checks and requests to the available provider.' },
+      { title: 'Permission status', text: 'Distinguish granted, denied, restricted, not determined and permanently denied states. Get an error if the check cannot run.' },
+      { title: 'Asynchronous requests', text: 'Request a permission asynchronously. Keep the handle so you can cancel your pending request if it is no longer needed.' },
+      { title: 'Sensors integration', text: 'Sensors supplies providers for Android activity-recognition and iOS motion-activity permissions, and uses this service to request them.' },
+      { title: 'Custom providers', text: 'Register a C++ provider for the permission your plugin owns. The service sends status checks and requests to the available provider.' },
     ],
-    note: 'This plugin exposes a C++ service. It does not provide standalone Blueprint permission-request nodes or a built-in provider for every system permission.',
+    note: 'This is a C++ service without standalone Blueprint request nodes. Permission support depends on the providers installed with your plugins.',
   },
   {
     id: 'media', name: 'Photo picker', Icon: ImageIcon, path: 'Native/OpenMobileMedia',
-    line: 'Pick a photo. Get an Unreal texture.',
-    text: 'Let a player choose an image through the native system picker, then use the returned texture in your UI or game. The image import and result handling are part of the plugin.',
-    coverageLabel: 'From the photo library to your game',
+    line: 'Native photo picking for Unreal.',
+    text: 'Open the system picker and get the selected image back as an Unreal texture for your UI or game.',
+    coverageLabel: 'Photo picker features',
     coverage: ['Native image selection', 'Texture2D result', 'Image metadata', 'Orientation correction', 'Cancel and failure events'],
     details: [
-      { title: 'A familiar system picker', text: 'Choose one image using Android’s photo picker flow or PHPicker on iOS. Check whether photo picking is supported before opening it.' },
-      { title: 'A display-ready texture', text: 'The import corrects image orientation and limits the longest texture dimension to 4096 pixels. The Blueprint async node returns an Unreal Texture2D.' },
-      { title: 'Useful image details', text: 'Read the original dimensions, file details and available EXIF metadata, such as camera information and capture time. Fields depend on what the picker provides.' },
-      { title: 'Clear outcomes and cleanup', text: 'Handle picked, cancelled and failed results separately. Cancel the picker or an image import in progress, and unfinished work is cancelled when its world closes.' },
+      { title: 'System picker', text: 'Choose one image through Android’s photo picker or PHPicker on iOS. Check support before opening it.' },
+      { title: 'Texture import', text: 'The plugin corrects image orientation and limits the longest texture dimension to 4096 pixels. The Blueprint async node returns an Unreal Texture2D.' },
+      { title: 'Image metadata', text: 'Read original dimensions, file details and available EXIF fields, including camera information and capture time. Metadata depends on what the picker provides.' },
+      { title: 'Results and cancellation', text: 'Handle picked, cancelled and failed results separately. You can cancel the picker or import in progress. Unfinished work is cancelled when its world closes.' },
     ],
-    note: 'Keep a reference to the returned transient texture while you use it. This plugin picks a single photo. It is not a camera capture or video picker.',
+    note: 'Keep a reference to the transient texture while using it. The picker handles one photo at a time, with no camera capture or video selection.',
   },
 ];
 
@@ -120,6 +121,37 @@ function PlatformMap() {
 }
 
 export default function Home() {
+  const [activeFeature, setActiveFeature] = useState(features[0].id);
+  const sectionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sections = Array.from(sectionsRef.current?.querySelectorAll<HTMLElement>('[data-feature]') ?? []);
+    if (!sections.length) return;
+
+    let frame = 0;
+    const updateActive = () => {
+      frame = 0;
+      const tops = sections.map(section => section.getBoundingClientRect().top);
+      const index = activeFeatureIndex(tops, Math.min(180, window.innerHeight / 2));
+      setActiveFeature(features[index].id);
+    };
+    const scheduleUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateActive);
+    };
+    const observer = new ResizeObserver(scheduleUpdate);
+    sections.forEach(section => observer.observe(section));
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+    scheduleUpdate();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return <>
     <a href="#main" className="skip-link">Skip to content</a>
     <header className="site-header wrap">
@@ -131,21 +163,22 @@ export default function Home() {
       <section className="hero wrap" aria-labelledby="hero-title">
         <div className="hero-grid">
           <div className="hero-copy"><h1 id="hero-title">UNREAL.<br />MORE<br /><span>MOBILE.</span><span className="title-spark" aria-hidden="true">✳</span></h1></div>
-          <div className="hero-side"><p className="hero-description">The native side of your game.<br />A little easier to get right.</p><PlatformMap /><p className="map-caption">Android and iOS features, ready for<br className="desktop-break" /> the way you work in Unreal.</p></div>
+          <div className="hero-side"><p className="hero-description">Mobile plugins for<br />your Unreal project.</p><PlatformMap /><p className="map-caption">Native Android and iOS features,<br className="desktop-break" /> with Blueprint and C++ APIs.</p></div>
         </div>
         <div className="hero-bottom"><a className="button button-dark" href={release}>Get the plugins <ArrowUpRight size={22} aria-hidden="true" /></a><span className="hero-release mono">v0.1.0 SOURCE RELEASE</span><a href="#plugins" className="explore-link">Explore the collection <ArrowDown size={18} aria-hidden="true" /></a></div>
       </section>
       <div className="spec-strip"><div className="wrap spec-inner"><span>16 separate plugins</span><span>Blueprint + C++</span><span>Android + iOS</span><span>Pick what you need <ArrowDownRight size={18} aria-hidden="true" /></span></div></div>
       <section className="plugins-section wrap" id="plugins" aria-labelledby="plugins-title">
-        <div className="section-heading"><span className="section-index mono">THE COLLECTION</span><div><h2 id="plugins-title">The phone can do a lot.<br /><span>So should your game.</span></h2><p>Explore the formats, controls and device features in each plugin. Start with what your game needs, then add the rest when you need it.</p></div></div>
-        <Tabs defaultValue="ads" className="feature-tabs">
-          <TabsList className="feature-list" aria-label="Explore native features">{features.map(({ id, name, Icon }) => <TabsTrigger value={id} key={id} className="feature-trigger"><Icon className="feature-tab-icon" size={21} strokeWidth={1.5} aria-hidden="true" /><span>{name}</span><ArrowUpRight className="feature-arrow" size={19} aria-hidden="true" /></TabsTrigger>)}</TabsList>
+        <div className="section-heading"><span className="section-index mono">THE COLLECTION</span><div><h2 id="plugins-title">The plugins<br /><span>and what they do.</span></h2><p>See which formats, controls and device features each plugin supports. Install the ones your project needs.</p></div></div>
+        <div className="feature-collection">
+          <nav className="feature-list" aria-label="Explore native features">{features.map(({ id, name }) => <a href={`#plugin-${id}`} key={id} className="feature-trigger" aria-current={activeFeature === id ? 'location' : undefined}><span className="feature-tab-dot" aria-hidden="true" /><span>{name}</span><ArrowUpRight className="feature-arrow" size={19} aria-hidden="true" /></a>)}</nav>
+          <div className="feature-sections" ref={sectionsRef}>
           {features.map(({ id, name, line, text, coverageLabel, coverage, details, note, Icon, path }) => (
-            <TabsContent value={id} key={id} className="feature-panel">
-              <div className="panel-top"><span className="mono">OPENMOBILE {name.toUpperCase()}</span></div>
+            <section id={`plugin-${id}`} key={id} className="feature-panel" data-feature={id} aria-labelledby={`plugin-${id}-title`}>
+              <div className="panel-top"><span className="mono">OPENMOBILE {name.toUpperCase()}</span><a href={`${github}/tree/main/${path}`} aria-label={`View ${name} source on GitHub`}>View source <ArrowUpRight size={17} aria-hidden="true" /></a></div>
               <div className="panel-body">
+                <div className="panel-copy"><h3 id={`plugin-${id}-title`}>{line}</h3><p>{text}</p></div>
                 <div className={`feature-symbol symbol-${id}`} aria-hidden="true"><Icon strokeWidth={0.75} /></div>
-                <div className="panel-copy"><h3>{line}</h3><p>{text}</p></div>
               </div>
               <div className="feature-coverage">
                 <h4>{coverageLabel}</h4>
@@ -154,16 +187,17 @@ export default function Home() {
               <div className="feature-details">
                 {details.map(detail => <article key={detail.title}><h4>{detail.title}</h4><p>{detail.text}</p></article>)}
               </div>
-              <div className="panel-bottom"><p>{note}</p><a href={`${github}/tree/main/${path}`} aria-label={`View ${name} source on GitHub`}>View source <ArrowUpRight size={17} aria-hidden="true" /></a></div>
-            </TabsContent>
+              <div className="panel-bottom"><p>{note}</p></div>
+            </section>
           ))}
-        </Tabs>
-        <p className="collection-note"><span className="note-star" aria-hidden="true">✳</span> Core connects the collection. Optional integrations cover haptics in Unreal and mediation for AdMob.</p>
+          </div>
+        </div>
+        <p className="collection-note"><span className="note-star" aria-hidden="true">✳</span> Every feature needs Core. Haptics integrations and AdMob mediation adapters are separate downloads.</p>
       </section>
-      <section className="why-section" id="why" aria-labelledby="why-title"><div className="wrap why-grid"><div className="why-label"><span className="section-index mono">A NOTE FROM ISHTMEET</span><div className="why-monogram" aria-hidden="true"><Mark /></div><span className="mono why-signoff">A DEVELOPER, LIKE YOU.</span></div><div className="why-copy"><h2 id="why-title">I want Unreal to be<br /><span>better on mobile.</span></h2><p>Mobile features are hard to get right in Unreal. I’ve spent years working through the same problems, building these plugins and using them in my own projects.</p><p>I’m open sourcing that work because I’d like it to be useful to you too. If it saves you a few late nights, or helps you get your game onto a phone, that’s a good start.</p><p className="signature">Ishtmeet Singh <span>Creator of OpenMobile</span></p></div></div></section>
-      <section className="next-section wrap" id="next" aria-labelledby="next-title"><div className="section-heading"><span className="section-index mono">THE ROAD AHEAD</span><div><h2 id="next-title">Out in the open.<br /><span>Still moving forward.</span></h2><p>The first release is a starting point. Here’s where I want to spend time next.</p></div></div><div className="roadmap"><article><span className="roadmap-status mono"><i className="status-dot" />AVAILABLE NOW</span><h3>The first release</h3><p>All 16 plugins are available as separate source downloads for Unreal Engine 5.8.</p><a href={release}>Download v0.1.0 <ArrowUpRight size={18} aria-hidden="true" /></a></article><article><span className="roadmap-status mono">COMING NEXT</span><h3>Docs and tutorials</h3><p>I’m writing the guides and examples for each plugin. They’ll take a little time to get right.</p><span className="roadmap-footnote">Getting started is in the README for now.</span></article><article><span className="roadmap-status mono">ONGOING</span><h3>More time on devices</h3><p>Testing on more phones, fixing the things we find, and learning from the games you build with it.</p><a href={`${github}/issues`}>Share what you find <ArrowUpRight size={18} aria-hidden="true" /></a></article></div></section>
-      <section className="download-section" aria-labelledby="download-title"><div className="wrap"><div className="download-top"><span className="mono">YOUR NEXT MOBILE PROJECT</span><span className="mono">START WITH v0.1.0</span></div><div className="download-grid"><h2 id="download-title">LET’S MAKE<br />MOBILE BETTER<span className="end-dot">.</span></h2><div className="download-copy"><p>Download Core, then the features your project needs. These are source plugins, so you’ll need Unreal Engine 5.8 and a C++ build toolchain.</p><a className="button button-dark" href={release}>Pick your plugins <ArrowUpRight size={22} aria-hidden="true" /></a><a href={`${github}#getting-started`} className="setup-link">Read the setup steps <MoveUpRight size={16} aria-hidden="true" /></a></div></div></div></section>
+      <section className="why-section" id="why" aria-labelledby="why-title"><div className="wrap why-grid"><div className="why-label"><span className="section-index mono">A NOTE FROM ISHTMEET</span><div className="why-monogram" aria-hidden="true"><Mark /></div><span className="mono why-signoff">BUILT FOR MY OWN PROJECTS.</span></div><div className="why-copy"><h2 id="why-title">I want Unreal to be<br /><span>better on mobile.</span></h2><p>Mobile features are hard to get right in Unreal. I’ve spent years building these plugins and using them in my own projects.</p><p>I’m open sourcing them so other developers can use this work and help improve it.</p><p className="signature">Ishtmeet Singh <span>Creator of OpenMobile</span></p></div></div></section>
+      <section className="next-section wrap" id="next" aria-labelledby="next-title"><div className="section-heading"><span className="section-index mono">THE ROAD AHEAD</span><div><h2 id="next-title">What I’m<br /><span>working on next.</span></h2><p>The plugins are available now. I’m working on the guides and more device testing.</p></div></div><div className="roadmap"><article><span className="roadmap-status mono"><i className="status-dot" />AVAILABLE NOW</span><h3>The first release</h3><p>All 16 plugins are available as separate source downloads for Unreal Engine 5.8.</p><a href={release}>Download v0.1.0 <ArrowUpRight size={18} aria-hidden="true" /></a></article><article><span className="roadmap-status mono">COMING NEXT</span><h3>Docs and tutorials</h3><p>I’m writing guides and examples for each plugin. They’ll take some time.</p><span className="roadmap-footnote">Getting started is in the README for now.</span></article><article><span className="roadmap-status mono">ONGOING</span><h3>More device testing</h3><p>I want to test on more phones and fix the issues people find in their projects.</p><a href={`${github}/issues`}>Share what you find <ArrowUpRight size={18} aria-hidden="true" /></a></article></div></section>
+      <section className="download-section" aria-labelledby="download-title"><div className="wrap"><div className="download-top"><span className="mono">YOUR NEXT MOBILE PROJECT</span><span className="mono">START WITH v0.1.0</span></div><div className="download-grid"><h2 id="download-title">TRY OPENMOBILE<br />IN YOUR PROJECT<span className="end-dot">.</span></h2><div className="download-copy"><p>Download Core, then the features your project needs. These are source plugins, so you’ll need Unreal Engine 5.8 and a C++ build toolchain.</p><a className="button button-dark" href={release}>Pick your plugins <ArrowUpRight size={22} aria-hidden="true" /></a><a href={`${github}#getting-started`} className="setup-link">Read the setup steps <MoveUpRight size={16} aria-hidden="true" /></a></div></div></div></section>
     </main>
-    <footer className="site-footer wrap"><a className="wordmark" href="#"><Mark />OpenMobile</a><p>Built by Ishtmeet. Open to everyone.</p><div><a href={`${github}/issues`}>Issues <ArrowUpRight size={15} aria-hidden="true" /></a><a href={github}>GitHub <ArrowUpRight size={15} aria-hidden="true" /></a><a href="#main" aria-label="Back to top">Back up <ArrowUpRight size={15} aria-hidden="true" /></a></div></footer>
+    <footer className="site-footer wrap"><a className="wordmark" href="#"><Mark />OpenMobile</a><p>An open source project by Ishtmeet.</p><div><a href={`${github}/issues`}>Issues <ArrowUpRight size={15} aria-hidden="true" /></a><a href={github}>GitHub <ArrowUpRight size={15} aria-hidden="true" /></a><a href="#main" aria-label="Back to top">Back up <ArrowUpRight size={15} aria-hidden="true" /></a></div></footer>
   </>;
 }

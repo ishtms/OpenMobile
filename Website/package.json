@@ -9,6 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
+    "test": "node --experimental-strip-types --test lib/*.test.mjs",
     "lint": "oxlint",
     "format": "oxfmt"
   },
