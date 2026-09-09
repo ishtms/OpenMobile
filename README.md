@@ -1,5 +1,8 @@
 ![OpenMobile - Unreal. More mobile.](Assets/openmobile-banner.png)
 
+> [!IMPORTANT]
+> You might also like my other Open Source UE5 plugins - [GlooPrint](https://github.com/ishtms/glooprint) and [PocketBase SDK for Unreal Engine 5](https://github.com/ishtms/OpenPocketBaseSDK)
+
 # OpenMobile
 
 **Android and iOS plugins for Unreal Engine**
