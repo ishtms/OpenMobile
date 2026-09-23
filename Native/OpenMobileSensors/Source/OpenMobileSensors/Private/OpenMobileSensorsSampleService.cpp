@@ -156,6 +156,22 @@ namespace OpenMobileSensorsSampleServicePrivate
 		}
 	};
 
+	template <typename SampleType>
+	struct TPendingEventBuffer : TFixedSampleRingBuffer<SampleType>
+	{
+		TArray<SampleType> DeliveryStorage;
+
+		int32 Num() const { return this->SampleCount; }
+		bool IsEmpty() const { return Num() == 0; }
+		void Reset()
+		{
+			this->StartIndex = 0;
+			this->SampleCount = 0;
+			this->HighWaterMark = 0;
+			this->DroppedSamples = 0;
+		}
+	};
+
 	struct FLatestSlot
 	{
 		FCriticalSection Mutex;
@@ -252,14 +268,14 @@ namespace OpenMobileSensorsSampleServicePrivate
 		FOpenMobileActivitySensorSample Activity;
 		FOpenMobileOrientationSensorSample Orientation;
 		FOpenMobileProximitySensorSample Proximity;
-		TArray<FOpenMobileVectorSensorSample> PendingVector;
-		TArray<FOpenMobileAttitudeSensorSample> PendingAttitude;
-		TArray<FOpenMobileScalarSensorSample> PendingScalar;
-		TArray<FOpenMobileHeadingSensorSample> PendingHeading;
-		TArray<FOpenMobileStepsSensorSample> PendingSteps;
-		TArray<FOpenMobileActivitySensorSample> PendingActivity;
-		TArray<FOpenMobileOrientationSensorSample> PendingOrientation;
-		TArray<FOpenMobileProximitySensorSample> PendingProximity;
+		TPendingEventBuffer<FOpenMobileVectorSensorSample> PendingVector;
+		TPendingEventBuffer<FOpenMobileAttitudeSensorSample> PendingAttitude;
+		TPendingEventBuffer<FOpenMobileScalarSensorSample> PendingScalar;
+		TPendingEventBuffer<FOpenMobileHeadingSensorSample> PendingHeading;
+		TPendingEventBuffer<FOpenMobileStepsSensorSample> PendingSteps;
+		TPendingEventBuffer<FOpenMobileActivitySensorSample> PendingActivity;
+		TPendingEventBuffer<FOpenMobileOrientationSensorSample> PendingOrientation;
+		TPendingEventBuffer<FOpenMobileProximitySensorSample> PendingProximity;
 		TArray<FOpenMobileSensorAccuracySnapshot> PendingAccuracyChanges;
 		TArray<FOpenMobileSensorCalibrationEvent> PendingCalibrationChanges;
 		TFixedSampleRingBuffer<FOpenMobileVectorSensorSample> BufferedVector;
@@ -659,24 +675,13 @@ namespace OpenMobileSensorsSampleServicePrivate
 
 	template <typename SampleType>
 	void ConfigurePendingEvents(
-		TArray<SampleType>& Pending,
+		TPendingEventBuffer<SampleType>& Pending,
 		int32 Capacity,
 		EOpenMobileSensorOverflowPolicy OverflowPolicy
 	)
 	{
-		if (Pending.Num() > Capacity)
-		{
-			const int32 RemovedSamples = Pending.Num() - Capacity;
-			if (OverflowPolicy == EOpenMobileSensorOverflowPolicy::DropOldest)
-			{
-				Pending.RemoveAt(0, RemovedSamples, EAllowShrinking::No);
-			}
-			else
-			{
-				Pending.RemoveAt(Capacity, RemovedSamples, EAllowShrinking::No);
-			}
-		}
-		Pending.Reserve(Capacity);
+		Pending.Resize(Capacity, OverflowPolicy);
+		Pending.DeliveryStorage.Reserve(Capacity);
 	}
 
 	void ConfigureEventStorage(FLatestSlot& Slot)
@@ -806,7 +811,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 	bool EnqueueEventSample(
 		FLatestSlot& Slot,
 		const SampleType& Sample,
-		TArray<SampleType> FLatestSlot::* PendingMember
+		TPendingEventBuffer<SampleType> FLatestSlot::* PendingMember
 	)
 	{
 		if (Slot.DeliveryMode != EOpenMobileSensorDeliveryMode::EventBatches)
@@ -824,7 +829,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		{
 			return false;
 		}
-		TArray<SampleType>& Pending = Slot.*PendingMember;
+		TPendingEventBuffer<SampleType>& Pending = Slot.*PendingMember;
 		if (Pending.Num() >= Slot.MaximumPendingSamples)
 		{
 			++Slot.EventDroppedSamples;
@@ -833,9 +838,8 @@ namespace OpenMobileSensorsSampleServicePrivate
 			{
 				return true;
 			}
-			Pending.RemoveAt(0, 1, EAllowShrinking::No);
 		}
-		Pending.Add(Sample);
+		Pending.Enqueue(Sample, Slot.OverflowPolicy);
 		RecordAcceptedEventSample(Slot, Sample);
 		Slot.EventHighWaterMark = FMath::Max(
 			Slot.EventHighWaterMark,
@@ -1669,7 +1673,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 		int32 SampleCount,
 		ELatestSampleFamily Family,
 		SampleType FLatestSlot::* Member,
-		TArray<SampleType> FLatestSlot::* PendingMember,
+		TPendingEventBuffer<SampleType> FLatestSlot::* PendingMember,
 		TFixedSampleRingBuffer<SampleType> FLatestSlot::* BufferedMember,
 		uint64 RequiredBackendGeneration,
 		const FOpenMobileSensorBackendStreamHandle* RequiredPhysicalStream,
@@ -2531,29 +2535,21 @@ namespace OpenMobileSensorsSampleServicePrivate
 			switch (Slot.ExpectedFamily)
 			{
 			case ELatestSampleFamily::Vector:
-				return Slot.PendingVector.IsEmpty()
-					? 0.0 : Slot.PendingVector[0].Header.TimestampSeconds;
+				return Slot.PendingVector.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Attitude:
-				return Slot.PendingAttitude.IsEmpty()
-					? 0.0 : Slot.PendingAttitude[0].Header.TimestampSeconds;
+				return Slot.PendingAttitude.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Scalar:
-				return Slot.PendingScalar.IsEmpty()
-					? 0.0 : Slot.PendingScalar[0].Header.TimestampSeconds;
+				return Slot.PendingScalar.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Heading:
-				return Slot.PendingHeading.IsEmpty()
-					? 0.0 : Slot.PendingHeading[0].Header.TimestampSeconds;
+				return Slot.PendingHeading.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Steps:
-				return Slot.PendingSteps.IsEmpty()
-					? 0.0 : Slot.PendingSteps[0].Header.TimestampSeconds;
+				return Slot.PendingSteps.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Activity:
-				return Slot.PendingActivity.IsEmpty()
-					? 0.0 : Slot.PendingActivity[0].Header.TimestampSeconds;
+				return Slot.PendingActivity.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Orientation:
-				return Slot.PendingOrientation.IsEmpty()
-					? 0.0 : Slot.PendingOrientation[0].Header.TimestampSeconds;
+				return Slot.PendingOrientation.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::Proximity:
-				return Slot.PendingProximity.IsEmpty()
-					? 0.0 : Slot.PendingProximity[0].Header.TimestampSeconds;
+				return Slot.PendingProximity.GetOldestTimestampSeconds();
 			case ELatestSampleFamily::None:
 			default:
 				return 0.0;
@@ -2590,12 +2586,12 @@ namespace OpenMobileSensorsSampleServicePrivate
 	template <typename SampleType, typename BatchType>
 	void GatherDelivery(
 		FLatestSlot& Slot,
-		TArray<SampleType> FLatestSlot::* PendingMember,
+		TPendingEventBuffer<SampleType> FLatestSlot::* PendingMember,
 		double ReceiptTimeSeconds,
 		TArray<TEventDelivery<BatchType>>& OutDeliveries
 	)
 	{
-		TArray<SampleType>& Pending = Slot.*PendingMember;
+		TPendingEventBuffer<SampleType>& Pending = Slot.*PendingMember;
 		if (Pending.IsEmpty())
 		{
 			return;
@@ -2603,13 +2599,35 @@ namespace OpenMobileSensorsSampleServicePrivate
 		TEventDelivery<BatchType>& Delivery = OutDeliveries.AddDefaulted_GetRef();
 		Delivery.OwnerIdentifier = Slot.OwnerIdentifier;
 		Delivery.Handle = Slot.Handle;
-		Delivery.Batch.Samples = MoveTemp(Pending);
+		Swap(Delivery.Batch.Samples, Pending.DeliveryStorage);
+		Pending.Drain(Pending.Num(), Delivery.Batch.Samples);
 		for (SampleType& Sample : Delivery.Batch.Samples)
 		{
 			Sample.Header.GameThreadReceiptSeconds = ReceiptTimeSeconds;
 			Sample.Header.bHasGameThreadReceiptTime = true;
 		}
-		Pending.Reset();
+	}
+
+	// Delegates may unsubscribe or recursively drain. Reacquire the slot only
+	// after broadcasting, and return just the scratch allocation, never samples.
+	template <typename SampleType, typename BatchType>
+	void RecycleDelivery(TEventDelivery<BatchType>& Delivery,
+		TPendingEventBuffer<SampleType> FLatestSlot::* PendingMember)
+	{
+		Delivery.Batch.Samples.Reset();
+		FReadScopeLock RegistryLock(SlotsLock);
+		const TUniquePtr<FLatestSlot>* Found = Slots.Find(Delivery.Handle);
+		if (!Found || (*Found)->OwnerIdentifier != Delivery.OwnerIdentifier)
+		{
+			return;
+		}
+		FLatestSlot& Slot = **Found;
+		FScopeLock SlotLock(&Slot.Mutex);
+		auto& Scratch = (Slot.*PendingMember).DeliveryStorage;
+		if (Scratch.Max() < Delivery.Batch.Samples.Max())
+		{
+			Swap(Scratch, Delivery.Batch.Samples);
+		}
 	}
 
 	bool HasPendingEvents()
@@ -2807,7 +2825,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Drop
 			);
 		}
-		for (const TEventDelivery<FOpenMobileVectorSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileVectorSensorBatch>& Delivery
 			: VectorDeliveries)
 		{
 			VectorBatchEvent.Broadcast(
@@ -2815,8 +2833,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingVector);
 		}
-		for (const TEventDelivery<FOpenMobileAttitudeSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileAttitudeSensorBatch>& Delivery
 			: AttitudeDeliveries)
 		{
 			AttitudeBatchEvent.Broadcast(
@@ -2824,8 +2843,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingAttitude);
 		}
-		for (const TEventDelivery<FOpenMobileScalarSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileScalarSensorBatch>& Delivery
 			: ScalarDeliveries)
 		{
 			ScalarBatchEvent.Broadcast(
@@ -2833,8 +2853,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingScalar);
 		}
-		for (const TEventDelivery<FOpenMobileHeadingSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileHeadingSensorBatch>& Delivery
 			: HeadingDeliveries)
 		{
 			HeadingBatchEvent.Broadcast(
@@ -2842,8 +2863,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingHeading);
 		}
-		for (const TEventDelivery<FOpenMobileStepsSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileStepsSensorBatch>& Delivery
 			: StepsDeliveries)
 		{
 			StepsBatchEvent.Broadcast(
@@ -2851,8 +2873,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingSteps);
 		}
-		for (const TEventDelivery<FOpenMobileActivitySensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileActivitySensorBatch>& Delivery
 			: ActivityDeliveries)
 		{
 			ActivityBatchEvent.Broadcast(
@@ -2860,8 +2883,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingActivity);
 		}
-		for (const TEventDelivery<FOpenMobileOrientationSensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileOrientationSensorBatch>& Delivery
 			: OrientationDeliveries)
 		{
 			OrientationBatchEvent.Broadcast(
@@ -2869,8 +2893,9 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingOrientation);
 		}
-		for (const TEventDelivery<FOpenMobileProximitySensorBatch>& Delivery
+		for (TEventDelivery<FOpenMobileProximitySensorBatch>& Delivery
 			: ProximityDeliveries)
 		{
 			ProximityBatchEvent.Broadcast(
@@ -2878,6 +2903,7 @@ namespace OpenMobileSensorsSampleServicePrivate
 				Delivery.Handle,
 				Delivery.Batch
 			);
+			RecycleDelivery(Delivery, &FLatestSlot::PendingProximity);
 		}
 #if !UE_BUILD_SHIPPING
 		const double ProcessingSeconds = FMath::Max(

@@ -244,21 +244,21 @@ FOpenMobileSensorOperationResult
 UOpenMobileSensorListener::UpdateListenerOptions(
 	const FOpenMobileSensorStreamOptions& Options)
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (IsFinished() || !SensorSubsystem || !Handle.IsValid())
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
 	const FOpenMobileSensorOperationResult Operation =
-		Subsystem->UpdateSubscriptionNative(Handle, Options);
+		SensorSubsystem->UpdateSubscriptionNative(Handle, Options);
 	if (!Operation.IsSuccess())
 	{
 		return Operation;
 	}
 	RequestedOptions = Options;
 	FOpenMobileSensorSubscriptionStateSnapshot Snapshot;
-	if (Subsystem->GetSubscriptionStateNative(Handle, Snapshot))
+	if (SensorSubsystem->GetSubscriptionStateNative(Handle, Snapshot))
 	{
 		AppliedOptions = Snapshot.AppliedOptions;
 		RateResolution = Snapshot.RateResolution;
@@ -271,49 +271,49 @@ FOpenMobileSensorOperationResult
 UOpenMobileSensorListener::RecenterListenerAttitude(
 	EOpenMobileSensorRecenterMode Mode)
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (IsFinished() || !SensorSubsystem || !Handle.IsValid())
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
-	return Subsystem->RecenterSubscription(Handle, Mode).Operation;
+	return SensorSubsystem->RecenterSubscription(Handle, Mode).Operation;
 }
 
 FOpenMobileSensorOperationResult
 UOpenMobileSensorListener::ResetListenerStepCount()
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (IsFinished() || !SensorSubsystem || !Handle.IsValid())
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
-	return Subsystem->ResetStepCountSessionNative(Handle);
+	return SensorSubsystem->ResetStepCountSessionNative(Handle);
 }
 
 FOpenMobileSensorOperationResult
 UOpenMobileSensorListener::RecenterListenerRelativeAltitude()
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (IsFinished() || !SensorSubsystem || !Handle.IsValid())
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
-	return Subsystem->RecenterRelativeAltitudeBaselineNative(Handle);
+	return SensorSubsystem->RecenterRelativeAltitudeBaselineNative(Handle);
 }
 
 FOpenMobileSensorOperationResult
 UOpenMobileSensorListener::RequestListenerCalibration()
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (IsFinished() || !Subsystem || !Handle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (IsFinished() || !SensorSubsystem || !Handle.IsValid())
 	{
 		return FOpenMobileSensorsErrorMapper::Map(
 			EOpenMobileSensorFailureReason::InvalidHandle);
 	}
-	return Subsystem->RequestNativeCalibrationPrompt(Handle);
+	return SensorSubsystem->RequestNativeCalibrationPrompt(Handle);
 }
 
 void UOpenMobileSensorListener::ResolveControlOutcome(
@@ -357,13 +357,13 @@ void UOpenMobileSensorListener::CancelNativeOperation()
 	{
 		return;
 	}
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
 	const FOpenMobileSensorSubscriptionHandle HandleToStop = Handle;
 	Handle.Reset();
-	if (Subsystem)
+	if (SensorSubsystem)
 	{
 		const FOpenMobileSensorOperationResult Result =
-			Subsystem->StopSubscriptionNative(HandleToStop);
+			SensorSubsystem->StopSubscriptionNative(HandleToStop);
 		if (!Result.IsSuccess() && !IsFinished())
 		{
 			LastOperation = Result;
@@ -404,53 +404,53 @@ void UOpenMobileSensorListener::OnActionCancelled(
 
 void UOpenMobileSensorListener::BindEvents()
 {
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (!Subsystem)
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (!SensorSubsystem)
 	{
 		return;
 	}
-	StateChangedHandle = Subsystem->OnSubscriptionStateChangedNative().AddUObject(
+	StateChangedHandle = SensorSubsystem->OnSubscriptionStateChangedNative().AddUObject(
 		this,
 		&UOpenMobileSensorListener::HandleStateChanged
 	);
-	SamplesDroppedHandle = Subsystem->OnSamplesDroppedNative().AddUObject(
+	SamplesDroppedHandle = SensorSubsystem->OnSamplesDroppedNative().AddUObject(
 		this,
 		&UOpenMobileSensorListener::HandleSamplesDropped
 	);
 	switch (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type))
 	{
 	case EOpenMobileSensorSampleFamily::Vector:
-		SampleHandle = Subsystem->OnVectorSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnVectorSamplesNative().AddUObject(
 			this,
 			&UOpenMobileSensorListener::HandleVectorBatch
 		);
 		break;
 	case EOpenMobileSensorSampleFamily::Attitude:
-		SampleHandle = Subsystem->OnAttitudeSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnAttitudeSamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleAttitudeBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Scalar:
-		SampleHandle = Subsystem->OnScalarSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnScalarSamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleScalarBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Heading:
-		SampleHandle = Subsystem->OnHeadingSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnHeadingSamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleHeadingBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Steps:
-		SampleHandle = Subsystem->OnStepsSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnStepsSamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleStepsBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Activity:
-		SampleHandle = Subsystem->OnActivitySamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnActivitySamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleActivityBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Orientation:
-		SampleHandle = Subsystem->OnOrientationSamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnOrientationSamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleOrientationBatch);
 		break;
 	case EOpenMobileSensorSampleFamily::Proximity:
-		SampleHandle = Subsystem->OnProximitySamplesNative().AddUObject(
+		SampleHandle = SensorSubsystem->OnProximitySamplesNative().AddUObject(
 			this, &UOpenMobileSensorListener::HandleProximityBatch);
 		break;
 	default:
@@ -465,48 +465,48 @@ void UOpenMobileSensorListener::UnbindEvents()
 		FTSTicker::RemoveTicker(OwnerTickerHandle);
 		OwnerTickerHandle.Reset();
 	}
-	UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (Subsystem && StateChangedHandle.IsValid())
+	UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (SensorSubsystem && StateChangedHandle.IsValid())
 	{
-		Subsystem->OnSubscriptionStateChangedNative().Remove(
+		SensorSubsystem->OnSubscriptionStateChangedNative().Remove(
 			StateChangedHandle
 		);
 	}
-	if (Subsystem && SampleHandle.IsValid())
+	if (SensorSubsystem && SampleHandle.IsValid())
 	{
 		switch (FOpenMobileSensorTypes::GetSampleFamily(RequestedSensor.Type))
 		{
 		case EOpenMobileSensorSampleFamily::Vector:
-			Subsystem->OnVectorSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnVectorSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Attitude:
-			Subsystem->OnAttitudeSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnAttitudeSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Scalar:
-			Subsystem->OnScalarSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnScalarSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Heading:
-			Subsystem->OnHeadingSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnHeadingSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Steps:
-			Subsystem->OnStepsSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnStepsSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Activity:
-			Subsystem->OnActivitySamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnActivitySamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Orientation:
-			Subsystem->OnOrientationSamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnOrientationSamplesNative().Remove(SampleHandle);
 			break;
 		case EOpenMobileSensorSampleFamily::Proximity:
-			Subsystem->OnProximitySamplesNative().Remove(SampleHandle);
+			SensorSubsystem->OnProximitySamplesNative().Remove(SampleHandle);
 			break;
 		default:
 			break;
 		}
 	}
-	if (Subsystem && SamplesDroppedHandle.IsValid())
+	if (SensorSubsystem && SamplesDroppedHandle.IsValid())
 	{
-		Subsystem->OnSamplesDroppedNative().Remove(SamplesDroppedHandle);
+		SensorSubsystem->OnSamplesDroppedNative().Remove(SamplesDroppedHandle);
 	}
 	StateChangedHandle.Reset();
 	SampleHandle.Reset();
@@ -805,13 +805,13 @@ void UOpenMobileSensorListener::PublishRuntimeError(
 EOpenMobileSensorAvailabilitySource
 UOpenMobileSensorListener::ResolveSource() const
 {
-	const UOpenMobileSensorsSubsystem* Subsystem = BoundSubsystem.Get();
-	if (!Subsystem)
+	const UOpenMobileSensorsSubsystem* SensorSubsystem = BoundSubsystem.Get();
+	if (!SensorSubsystem)
 	{
 		return EOpenMobileSensorAvailabilitySource::Unknown;
 	}
 	const FOpenMobileSensorCapabilitySnapshot Snapshot =
-		Subsystem->GetCapabilitySnapshotNative();
+		SensorSubsystem->GetCapabilitySnapshotNative();
 	const FOpenMobileSensorCapability* Capability =
 		Snapshot.Sensors.FindByPredicate(
 			[this](const FOpenMobileSensorCapability& Candidate)

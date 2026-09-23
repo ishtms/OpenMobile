@@ -65,6 +65,53 @@ namespace OpenMobileSensorsEventCallbackTestsPrivate
 	}
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOpenMobileSensorsEventBufferReuseTest,
+	"OpenMobile.Sensors.Events.OverflowAndStorageReuse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FOpenMobileSensorsEventBufferReuseTest::RunTest(const FString&)
+{
+	using namespace OpenMobileSensorsEventCallbackTestsPrivate;
+	for (auto Policy : {EOpenMobileSensorOverflowPolicy::DropOldest, EOpenMobileSensorOverflowPolicy::RejectNewest})
+	{
+		ResetServices();
+		FOpenMobileSensorsMockBackend Backend(TEXT("EventReuse"));
+		FOpenMobileSensorsBackendRegistry::RegisterBackend(Backend);
+		auto Request = MakeRequest();
+		Request.Options.BufferCapacitySamples = 3;
+		Request.Options.OverflowPolicy = Policy;
+		const FGuid Owner = FGuid::NewGuid();
+		FOpenMobileSensorsSubscriptionService::StartSubscription(Owner, Request);
+		FOpenMobileSensorsSubscriptionService::ProcessPendingBackendOperationsForTests();
+		const FOpenMobileVectorSensorSample* FirstStorage = nullptr;
+		int32 Callbacks = 0;
+		const auto Listener = FOpenMobileSensorsSampleService::OnVectorBatch().AddLambda(
+			[&](const FGuid&, const FOpenMobileSensorSubscriptionHandle&, const FOpenMobileVectorSensorBatch& Batch)
+		{
+			TestEqual(TEXT("Event overflow remains bounded"), Batch.Samples.Num(), 3);
+			if (FirstStorage) TestTrue(TEXT("Delivery storage is reused"), FirstStorage == Batch.Samples.GetData());
+			FirstStorage = Batch.Samples.GetData();
+			if (Batch.Samples.Num() == 3)
+			{
+				const double First = Callbacks * 10 + (Policy == EOpenMobileSensorOverflowPolicy::DropOldest ? 7 : 0);
+				for (int32 Index = 0; Index < 3; ++Index)
+					TestEqual(TEXT("Wraparound preserves the selected sample order"), Batch.Samples[Index].Value.X, First + Index);
+			}
+			++Callbacks;
+		});
+		for (int32 Round = 0; Round < 4; ++Round)
+		{
+			for (int32 Index = 0; Index < 10; ++Index)
+				FOpenMobileSensorsSampleService::PublishVector(MakeSample(1.0 + Round + Index * 0.01, Round * 10 + Index));
+			FOpenMobileSensorsSampleService::DrainPendingEventsForTests(1.2 + Round);
+		}
+		TestEqual(TEXT("Every drain delivers once"), Callbacks, 4);
+		FOpenMobileSensorsSampleService::OnVectorBatch().Remove(Listener);
+		FinishBackend(Backend);
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsEventOffThreadBatchingTest,
 	"OpenMobile.Sensors.Events.OffThreadBatching",
