@@ -7,6 +7,10 @@
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
 #include "ImageUtils.h"
+#include "ImageCore.h"
+#include "ImageCoreUtils.h"
+#include "IImageWrapperModule.h"
+#include "Modules/ModuleManager.h"
 #include "Misc/FileHelper.h"
 #include "OpenMobileMediaPlatform.h"
 #include "Serialization/JsonReader.h"
@@ -149,20 +153,31 @@ void UOpenMobilePickPhotoAsyncAction::HandleNativePicked(const FString& CachedIm
 	}
 
 	const TWeakObjectPtr<UOpenMobilePickPhotoAsyncAction> WeakThis(this);
-	Async(EAsyncExecution::ThreadPool, [WeakThis, CachedImagePath, Metadata = MoveTemp(Metadata)]() mutable
+	// First-time module loading belongs on the game thread; decoding does not.
+	IImageWrapperModule& ImageWrapper = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+	Async(EAsyncExecution::ThreadPool, [WeakThis, CachedImagePath, &ImageWrapper, Metadata = MoveTemp(Metadata)]() mutable
 	{
 		TArray<uint8> EncodedImage;
 		const bool bLoaded = FFileHelper::LoadFileToArray(EncodedImage, *CachedImagePath, FILEREAD_Silent);
 		IFileManager::Get().Delete(*CachedImagePath, false, true, true);
+		FImage DecodedImage;
+		const bool bDecoded = bLoaded && !EncodedImage.IsEmpty()
+			&& ImageWrapper.DecompressImage(EncodedImage.GetData(), EncodedImage.Num(), DecodedImage);
+		if (bDecoded)
+		{
+			ERawImageFormat::Type TextureFormat;
+			FImageCoreUtils::GetPixelFormatForRawImageFormat(DecodedImage.Format, &TextureFormat);
+			DecodedImage.ChangeFormat(TextureFormat, DecodedImage.GammaSpace);
+		}
 
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, bLoaded, EncodedImage = MoveTemp(EncodedImage), Metadata = MoveTemp(Metadata)]() mutable
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, bLoaded, bDecoded, DecodedImage = MoveTemp(DecodedImage), Metadata = MoveTemp(Metadata)]() mutable
 		{
 			if (!WeakThis.IsValid() || WeakThis->bFinished)
 			{
 				return;
 			}
 
-			if (!bLoaded || EncodedImage.IsEmpty())
+			if (!bLoaded)
 			{
 				WeakThis->FinishWithError(FOpenMobileError::Make(
 					EOpenMobileErrorCode::NativeFailure,
@@ -171,7 +186,7 @@ void UOpenMobilePickPhotoAsyncAction::HandleNativePicked(const FString& CachedIm
 				return;
 			}
 
-			UTexture2D* Texture = FImageUtils::ImportBufferAsTexture2D(EncodedImage);
+			UTexture2D* Texture = bDecoded ? FImageUtils::CreateTexture2DFromImage(DecodedImage) : nullptr;
 			if (!Texture)
 			{
 				WeakThis->FinishWithError(FOpenMobileError::Make(

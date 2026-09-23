@@ -14,6 +14,6 @@ public class OpenMobileMedia : ModuleRules
 			"OpenMobileCore"
 		});
 
-		PrivateDependencyModuleNames.Add("Json");
+		PrivateDependencyModuleNames.AddRange(new[] { "Json", "ImageCore", "ImageWrapper" });
 	}
 }
