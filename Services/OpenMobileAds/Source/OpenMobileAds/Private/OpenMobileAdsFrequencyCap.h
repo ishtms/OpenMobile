@@ -11,7 +11,7 @@ public:
 	virtual ~IOpenMobileAdsFrequencyCapStore() = default;
 	/** Reads the last opaque payload and leaves validation to the tracker. */
 	virtual bool Load(TArray<uint8>& OutData) = 0;
-	/** Replaces the opaque payload only after the tracker has serialized bounded history. */
+	/** Accepts a bounded snapshot. Persistent stores coalesce writes and drain on destruction. */
 	virtual bool Save(TConstArrayView<uint8> Data) = 0;
 };
 
@@ -77,3 +77,8 @@ private:
 /** Creates persistent config storage or an in-memory store according to project policy. */
 TSharedRef<IOpenMobileAdsFrequencyCapStore>
 OpenMobileAdsCreateFrequencyCapStore(bool bPersistent);
+
+#if WITH_DEV_AUTOMATION_TESTS
+TSharedRef<IOpenMobileAdsFrequencyCapStore>
+OpenMobileAdsCreateFrequencyCapFileStoreForTests(const FString& Path);
+#endif

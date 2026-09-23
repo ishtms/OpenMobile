@@ -1,8 +1,12 @@
 #include "OpenMobileAdsFrequencyCap.h"
 
+#include "Async/Async.h"
+#include "Misc/ScopeLock.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogOpenMobileAdsFrequencyCap, Log, All);
 
 namespace OpenMobileAdsFrequencyCapPrivate
 {
@@ -64,7 +68,8 @@ namespace OpenMobileAdsFrequencyCapPrivate
 			);
 			Offset += ByteCount;
 			const FString Placement(Converted.Length(), Converted.Get());
-			if (Placement.IsEmpty())
+			if (Placement.IsEmpty() || Placement.Len() >= NAME_SIZE
+				|| FCString::Strlen(*Placement) != Placement.Len())
 			{
 				return false;
 			}
@@ -128,40 +133,90 @@ namespace OpenMobileAdsFrequencyCapPrivate
 	{
 	public:
 		/** Uses one project-local file so different projects don't share impression history. */
-		FFileStore()
-			: Path(FPaths::Combine(
-				FPaths::ProjectSavedDir(),
-				TEXT("OpenMobileAds"),
-				TEXT("FrequencyCaps.dat")
-			))
+		explicit FFileStore(FString InPath)
+			: Path(MoveTemp(InPath))
 		{
+		}
+
+		virtual ~FFileStore() override
+		{
+			// The worker never waits on the game thread. Drain its latest snapshot
+			// before the store (or its module) can be destroyed.
+			if (Writer.IsValid())
+			{
+				Writer.Wait();
+			}
 		}
 
 		/** Treats a missing file as empty history while reporting genuine read failures. */
 		virtual bool Load(TArray<uint8>& OutData) override
 		{
+			if (Writer.IsValid())
+			{
+				Writer.Wait();
+			}
 			const int64 Size = IFileManager::Get().FileSize(*Path);
 			return Size > 0
 				&& Size <= MaxFileBytes
 				&& FFileHelper::LoadFileToArray(OutData, *Path);
 		}
 
-		/** Saves only a complete bounded payload after creating its project directory. */
+		/** Queues the latest complete payload without performing disk I/O on the caller. */
 		virtual bool Save(TConstArrayView<uint8> Data) override
 		{
 			if (Data.IsEmpty() || Data.Num() > MaxFileBytes)
 			{
 				return false;
 			}
+			{
+				FScopeLock Lock(&Mutex);
+				// Coalesce queued writes: each payload contains the complete history.
+				PendingData.Reset(Data.Num());
+				PendingData.Append(Data.GetData(), Data.Num());
+				if (bWriting)
+				{
+					return true;
+				}
+				bWriting = true;
+			}
+			if (Writer.IsValid())
+			{
+				Writer.Wait();
+			}
+			Writer = Async(EAsyncExecution::ThreadPool, [this]()
+			{
+				TArray<uint8> Snapshot;
+				for (;;)
+				{
+					{
+						FScopeLock Lock(&Mutex);
+						if (PendingData.IsEmpty())
+						{
+							bWriting = false;
+							return;
+						}
+						Swap(Snapshot, PendingData);
+					}
+					if (!WriteSnapshot(Snapshot))
+					{
+						UE_LOG(LogOpenMobileAdsFrequencyCap, Warning, TEXT("Could not persist frequency cap history."));
+					}
+					Snapshot.Reset();
+				}
+			});
+			return true;
+		}
+
+	private:
+		bool WriteSnapshot(TConstArrayView<uint8> Data) const
+		{
 			IFileManager& FileManager = IFileManager::Get();
 			if (!FileManager.MakeDirectory(*FPaths::GetPath(Path), true))
 			{
 				return false;
 			}
 			const FString TemporaryPath = Path + TEXT(".tmp");
-			TArray64<uint8> OwnedData;
-			OwnedData.Append(Data.GetData(), Data.Num());
-			if (!FFileHelper::SaveArrayToFile(OwnedData, *TemporaryPath))
+			if (!FFileHelper::SaveArrayToFile(Data, *TemporaryPath))
 			{
 				FileManager.Delete(*TemporaryPath, false, true, true);
 				return false;
@@ -176,6 +231,10 @@ namespace OpenMobileAdsFrequencyCapPrivate
 
 	private:
 		FString Path;
+		FCriticalSection Mutex;
+		TArray<uint8> PendingData;
+		TFuture<void> Writer;
+		bool bWriting = false;
 	};
 }
 
@@ -444,10 +503,28 @@ bool FOpenMobileAdsFrequencyCapTracker::Serialize(
 TSharedRef<IOpenMobileAdsFrequencyCapStore>
 OpenMobileAdsCreateFrequencyCapStore(bool bPersistent)
 {
+	check(IsInGameThread());
 	using namespace OpenMobileAdsFrequencyCapPrivate;
 	if (bPersistent)
 	{
-		return MakeShared<FFileStore>();
+		// Multiple Game Instances share one writer for the project file.
+		static TWeakPtr<IOpenMobileAdsFrequencyCapStore> PersistentStore;
+		if (TSharedPtr<IOpenMobileAdsFrequencyCapStore> Existing = PersistentStore.Pin())
+		{
+			return Existing.ToSharedRef();
+		}
+		TSharedRef<IOpenMobileAdsFrequencyCapStore> Created = MakeShared<FFileStore>(
+			FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("OpenMobileAds"), TEXT("FrequencyCaps.dat")));
+		PersistentStore = Created;
+		return Created;
 	}
 	return MakeShared<FMemoryStore>();
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+TSharedRef<IOpenMobileAdsFrequencyCapStore>
+OpenMobileAdsCreateFrequencyCapFileStoreForTests(const FString& Path)
+{
+	return MakeShared<OpenMobileAdsFrequencyCapPrivate::FFileStore>(Path);
+}
+#endif

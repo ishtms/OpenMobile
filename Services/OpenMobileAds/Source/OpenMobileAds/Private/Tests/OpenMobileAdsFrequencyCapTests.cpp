@@ -1,8 +1,41 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileAdsConfiguration.h"
 #include "OpenMobileAdsFrequencyCap.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOpenMobileAdsFrequencyCapPersistenceTest,
+	"OpenMobile.Ads.FrequencyCap.AsyncPersistence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FOpenMobileAdsFrequencyCapPersistenceTest::RunTest(const FString&)
+{
+	const FString Path = FPaths::CreateTempFilename(*FPaths::ProjectSavedDir(), TEXT("CapTest"), TEXT(".dat"));
+	TArray<uint8> Snapshot;
+	Snapshot.Init(0, 1024);
+	{
+		auto Store = OpenMobileAdsCreateFrequencyCapFileStoreForTests(Path);
+		for (int32 Index = 0; Index < 100; ++Index)
+		{
+			Snapshot[0] = static_cast<uint8>(Index);
+			TestTrue(TEXT("A bounded snapshot is accepted"), Store->Save(Snapshot));
+		}
+		TArray<uint8> Loaded;
+		TestTrue(TEXT("Loading waits for the latest queued write"), Store->Load(Loaded));
+		TestTrue(TEXT("Coalescing preserves the newest snapshot"), Loaded == Snapshot);
+		Snapshot[0] = 100;
+		Store->Save(Snapshot);
+	}
+	TArray<uint8> Persisted;
+	TestTrue(TEXT("Destruction drains the final write"), FFileHelper::LoadFileToArray(Persisted, *Path));
+	TestTrue(TEXT("The last accepted snapshot survives store destruction"), Persisted == Snapshot);
+	TestFalse(TEXT("Atomic replace leaves no temporary file"), IFileManager::Get().FileExists(*(Path + TEXT(".tmp"))));
+	IFileManager::Get().Delete(*Path);
+	return true;
+}
 
 namespace OpenMobileAdsFrequencyCapTests
 {

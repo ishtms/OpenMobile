@@ -5413,19 +5413,28 @@ bool FOpenMobileAdsDismissCallbackContractTest::RunTest(const FString& Parameter
 		TEXT("An accepted show can be cancelled when dismissal is missing"),
 		Subsystem->CancelRequest(FullScreenShow.RequestId).bAccepted
 	);
+	TestEqual(TEXT("Cancellation retains the lock while native presentation is visible"),
+		Subsystem->GetPlacementStatus(TEXT("DismissFullScreen")).State,
+		EOpenMobileAdPlacementState::Showing);
+	TestEqual(TEXT("Cancellation cannot release a cache that is still presenting"),
+		Provider.ReleasedCachedAds.Num(), 0);
+	FOpenMobileAdsEvent FullScreenDismissed;
+	FullScreenDismissed.Type = EOpenMobileAdsEventType::Dismissed;
+	Provider.ShowSink->Submit(MoveTemp(FullScreenDismissed));
+	DrainGameThreadTasks();
 	const FOpenMobileAdsPlacementStatus CancelledStatus =
 		Subsystem->GetPlacementStatus(TEXT("DismissFullScreen"));
 	TestEqual(
-		TEXT("Cancelling a show with no dismiss restores idle state"),
+		TEXT("Native dismissal after cancellation restores idle state"),
 		CancelledStatus.State,
 		EOpenMobileAdPlacementState::Idle
 	);
 	TestFalse(
-		TEXT("Cancelling a show with no dismiss consumes its cache"),
+		TEXT("Native dismissal after cancellation consumes its cache"),
 		CancelledStatus.CachedAdId.IsValid()
 	);
 	TestEqual(
-		TEXT("Cancelling a show with no dismiss releases its native cache"),
+		TEXT("Native dismissal after cancellation releases its native cache"),
 		Provider.ReleasedCachedAds.Num(),
 		1
 	);
