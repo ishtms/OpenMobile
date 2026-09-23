@@ -2,12 +2,15 @@
 
 #include "Features/IModularFeatures.h"
 #include "IOpenMobileDeviceBackend.h"
+#include "Misc/ScopeRWLock.h"
 
 namespace OpenMobileDeviceBackendRegistryPrivate
 {
 	TAtomic<uint64> Generation(1);
 	TAtomic<bool> bShuttingDown(false);
 	TSet<IOpenMobileDeviceBackend*> ShutdownBackends;
+	FRWLock StorageQueriesLock;
+	TSet<IOpenMobileDeviceBackend*> StorageBackends;
 
 	void AdvanceGeneration()
 	{
@@ -28,6 +31,11 @@ namespace OpenMobileDeviceBackendRegistryPrivate
 
 	void StopBackend(IOpenMobileDeviceBackend& Backend)
 	{
+		{
+			// Drain in-flight queries before native teardown or backend destruction.
+			FWriteScopeLock Lock(StorageQueriesLock);
+			StorageBackends.Remove(&Backend);
+		}
 		if (!ShutdownBackends.Contains(&Backend))
 		{
 			ShutdownBackends.Add(&Backend);
@@ -66,6 +74,10 @@ bool FOpenMobileDeviceBackendRegistry::RegisterBackend(IOpenMobileDeviceBackend&
 	}
 
 	ShutdownBackends.Remove(&Backend);
+	{
+		FWriteScopeLock Lock(StorageQueriesLock);
+		StorageBackends.Add(&Backend);
+	}
 	IModularFeatures::Get().RegisterModularFeature(
 		IOpenMobileDeviceBackend::GetModularFeatureName(),
 		&Backend
@@ -153,6 +165,22 @@ bool FOpenMobileDeviceBackendRegistry::IsCallbackCurrent(
 	return Token.Generation != 0
 		&& !bShuttingDown.Load()
 		&& Token.Generation == Generation.Load();
+}
+
+bool FOpenMobileDeviceBackendRegistry::QueryStorageSnapshot(
+	IOpenMobileDeviceBackend* Backend,
+	const FOpenMobileDeviceCallbackToken& Token,
+	FOpenMobileStorageSnapshot& OutSnapshot, FOpenMobileError& OutError)
+{
+	using namespace OpenMobileDeviceBackendRegistryPrivate;
+	FReadScopeLock Lock(StorageQueriesLock);
+	if (!IsCallbackCurrent(Token) || !StorageBackends.Contains(Backend))
+	{
+		OutError = FOpenMobileError::Make(EOpenMobileErrorCode::Unavailable,
+			TEXT("The Device backend changed before the storage query started."));
+		return false;
+	}
+	return Backend->QueryStorageSnapshot(OutSnapshot, OutError);
 }
 
 bool FOpenMobileDeviceBackendRegistry::IsShuttingDown()

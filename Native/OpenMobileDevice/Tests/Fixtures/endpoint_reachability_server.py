@@ -3,6 +3,7 @@
 import argparse
 import ssl
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -10,10 +11,27 @@ from urllib.parse import parse_qs, urlsplit
 
 class EndpointReachabilityHandler(BaseHTTPRequestHandler):
 	protocol_version = "HTTP/1.1"
+	target_lock = threading.Lock()
+	target_requests = 0
 
 	def do_GET(self) -> None:
 		request = urlsplit(self.path)
 		query = parse_qs(request.query)
+		if request.path == "/target-reset":
+			with self.target_lock:
+				type(self).target_requests = 0
+			self.send_response_with_body(204, b"")
+			return
+		if request.path == "/target-status":
+			with self.target_lock:
+				status = 204 if self.target_requests == 0 else 409
+			self.send_response_with_body(status, b"")
+			return
+		if request.path == "/target":
+			with self.target_lock:
+				type(self).target_requests += 1
+			self.send_response_with_body(204, b"")
+			return
 		if request.path == "/ok":
 			self.send_response_with_body(204, b"")
 			return
@@ -25,9 +43,16 @@ class EndpointReachabilityHandler(BaseHTTPRequestHandler):
 			status = max(200, min(status, 599))
 			self.send_response_with_body(status, f"status {status}\n".encode())
 			return
-		if request.path == "/redirect":
+		if request.path in {"/redirect", "/redirect-target", "/redirect-http", "/redirect-loop", "/redirect-credentials"}:
+			locations = {
+				"/redirect": "/ok",
+				"/redirect-target": "/target",
+				"/redirect-http": "http://127.0.0.1:1/target",
+				"/redirect-loop": "/redirect-loop",
+				"/redirect-credentials": "https://user:password@127.0.0.1:1/target",
+			}
 			self.send_response(302)
-			self.send_header("Location", "/ok")
+			self.send_header("Location", locations[request.path])
 			self.send_header("Content-Length", "0")
 			self.end_headers()
 			return

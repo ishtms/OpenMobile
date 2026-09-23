@@ -138,6 +138,7 @@ public:
 		return {};
 	}
 
+	// Called on a worker under a lifetime guard. Must not wait for game-thread work.
 	virtual bool QueryStorageSnapshot(
 		FOpenMobileStorageSnapshot& OutSnapshot,
 		FOpenMobileError& OutError

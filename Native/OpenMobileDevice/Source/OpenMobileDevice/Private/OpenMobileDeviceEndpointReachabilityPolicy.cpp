@@ -92,7 +92,7 @@ FOpenMobileDeviceEndpointReachabilityPolicy::Classify(
 	{
 		return EOpenMobileEndpointReachabilityOutcome::ResponseTooLarge;
 	}
-	if (Evidence.bRedirected && !Options.bAllowRedirects)
+	if (Evidence.bRedirectRejected || (Evidence.bRedirected && !Options.bAllowRedirects))
 	{
 		return EOpenMobileEndpointReachabilityOutcome::RedirectRejected;
 	}

@@ -56,7 +56,8 @@ void UOpenMobileDeviceStorageQueryAsyncAction::Activate()
 		}
 		FOpenMobileStorageSnapshot Result;
 		FOpenMobileError Error;
-		const bool bSucceeded = Backend->QueryStorageSnapshot(Result, Error);
+		const bool bSucceeded = FOpenMobileDeviceBackendRegistry::QueryStorageSnapshot(
+			Backend, FOpenMobileDeviceCallbackToken{BackendGeneration}, Result, Error);
 		OpenMobile::DispatchToGameThread([
 			WeakThis,
 			Result,

@@ -4,9 +4,11 @@
 
 #include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
+#include "HAL/Event.h"
 #include "IOpenMobileDeviceBackend.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CoreDelegates.h"
@@ -1535,6 +1537,12 @@ bool FOpenMobileDeviceEndpointReachabilityPolicyTest::RunTest(
 	TestEqual(TEXT("Rejected HTTP response stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::HttpResponseRejected);
 	Evidence.bRedirected = true;
 	TestEqual(TEXT("Disallowed redirect stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::RedirectRejected);
+	Options.bAllowRedirects = true;
+	Evidence.bRedirectRejected = true;
+	TestEqual(TEXT("Invalid redirect remains rejected when HTTPS redirects are allowed"),
+		FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options),
+		EOpenMobileEndpointReachabilityOutcome::RedirectRejected);
+	Evidence.bRedirectRejected = false;
 	Evidence.bRedirected = false;
 	Evidence.bResponseTooLarge = true;
 	TestEqual(TEXT("Oversized response stays typed"), FOpenMobileDeviceEndpointReachabilityPolicy::Classify(Evidence, Options), EOpenMobileEndpointReachabilityOutcome::ResponseTooLarge);
@@ -5042,6 +5050,13 @@ bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
 		EOpenMobileDeviceAsyncTerminalState::Pending;
 	UOpenMobileDeviceAsyncActionBase* Action =
 		NewObject<UOpenMobileDeviceAsyncActionBase>();
+	UGameInstance* ActivationInstance = NewObject<UGameInstance>(GEngine);
+	ActivationInstance->InitializeStandalone(TEXT("DeviceActivationTest"));
+	UWorld* ActivationWorld = ActivationInstance->GetWorld();
+	TestTrue(TEXT("The first activation registers the action"), Action->InitializeAction(ActivationWorld));
+	TestFalse(TEXT("Repeated activation cannot register another operation"), Action->InitializeAction(ActivationWorld));
+	TestFalse(TEXT("Duplicate activation is ignored"), Action->InitializeAction(nullptr));
+	TestFalse(TEXT("Duplicate activation cannot finish the original action"), Action->IsFinished());
 	Action->OnNativeTerminal().AddLambda(
 		[&TerminalCount, &LastState](
 			EOpenMobileDeviceAsyncTerminalState State,
@@ -5059,6 +5074,9 @@ bool FOpenMobileDeviceAsyncContractTest::RunTest(const FString& Parameters)
 	Action->Cancel();
 	TestEqual(TEXT("Only first terminal path broadcasts"), TerminalCount, 1);
 	TestEqual(TEXT("First terminal state wins"), LastState, EOpenMobileDeviceAsyncTerminalState::Succeeded);
+	ActivationInstance->Shutdown();
+	ActivationWorld->DestroyWorld(true);
+	GEngine->DestroyWorldContext(ActivationWorld);
 
 	int32 WorldCancellationCount = 0;
 	UWorld* TargetWorld = NewObject<UWorld>();

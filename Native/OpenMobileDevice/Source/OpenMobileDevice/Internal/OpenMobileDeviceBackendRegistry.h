@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 
 class IOpenMobileDeviceBackend;
+struct FOpenMobileStorageSnapshot;
+struct FOpenMobileError;
 
 struct FOpenMobileDeviceCallbackToken
 {
@@ -19,6 +21,10 @@ public:
 	static IOpenMobileDeviceBackend* FindBackend();
 	static FOpenMobileDeviceCallbackToken CaptureCallbackToken();
 	static bool IsCallbackCurrent(const FOpenMobileDeviceCallbackToken& Token);
+	// Worker-safe. Unregistration waits for an active synchronous query to return.
+	static bool QueryStorageSnapshot(IOpenMobileDeviceBackend* Backend,
+		const FOpenMobileDeviceCallbackToken& Token,
+		FOpenMobileStorageSnapshot& OutSnapshot, FOpenMobileError& OutError);
 	static bool IsShuttingDown();
 	static void BeginShutdown();
 

@@ -4,9 +4,6 @@
 #include "OpenMobileDeviceEndpointReachabilityTypes.h"
 #include "OpenMobileDeviceEndpointReachabilityAsyncAction.generated.h"
 
-class IHttpRequest;
-class IHttpResponse;
-
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOpenMobileEndpointReachabilityCompleted,
 	const FOpenMobileEndpointReachabilityResult&,
@@ -51,20 +48,7 @@ protected:
 	virtual void OnActionCancelled(const FOpenMobileError& Error) override;
 
 private:
-	struct FResponseBodyState;
-
-	void StartDnsResolution();
-	void HandleConnectionPreflight(bool bDnsSucceeded, bool bTcpSucceeded);
 	void StartHttpRequest();
-	void HandleStatusCodeReceived(
-		TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request,
-		int32 StatusCode
-	);
-	void HandleHttpComplete(
-		TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request,
-		TSharedPtr<IHttpResponse, ESPMode::ThreadSafe> Response,
-		bool bProcessedSuccessfully
-	);
 	void CompleteResult(EOpenMobileEndpointReachabilityOutcome Outcome);
 	void ReleaseRequestSlot();
 	bool HandleTimeoutTick(float DeltaTime);
@@ -74,14 +58,9 @@ private:
 	TObjectPtr<UObject> WorldContextObject;
 
 	FString Endpoint;
-	FString EndpointHost;
 	FOpenMobileEndpointReachabilityOptions RequestOptions;
-	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> HttpRequest;
-	TSharedPtr<FResponseBodyState, ESPMode::ThreadSafe> ResponseBodyState;
 	TSharedPtr<TAtomic<bool>, ESPMode::ThreadSafe> CancellationFlag;
 	FTSTicker::FDelegateHandle TimeoutTickerHandle;
 	double StartedAtSeconds = 0.0;
 	bool bRequestSlotAcquired = false;
-	bool bRedirectRejected = false;
-	bool bTcpConnectionSucceeded = false;
 };

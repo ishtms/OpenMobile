@@ -20,11 +20,12 @@ struct FOpenMobileDeviceEndpointCompletionEvidence
 	bool bResponseReceived = false;
 	int32 StatusCode = 0;
 	bool bRedirected = false;
+	bool bRedirectRejected = false;
 	bool bResponseTooLarge = false;
 	bool bTcpConnectionSucceeded = false;
 };
 
-class FOpenMobileDeviceEndpointReachabilityPolicy final
+class OPENMOBILEDEVICE_API FOpenMobileDeviceEndpointReachabilityPolicy final
 {
 public:
 	static double GetConnectAttemptDeadline(double NowSeconds, double DeadlineSeconds, int32 RemainingAddresses);

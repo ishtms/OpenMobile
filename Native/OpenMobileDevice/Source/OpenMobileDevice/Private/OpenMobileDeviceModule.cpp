@@ -1,5 +1,6 @@
 #include "OpenMobileDeviceApplicationSettingsService.h"
 #include "OpenMobileDeviceBackendRegistry.h"
+#include "OpenMobileDeviceEndpointTransport.h"
 #include "OpenMobileDeviceBrightnessControlService.h"
 #include "OpenMobileDeviceClipboardService.h"
 #include "OpenMobileDeviceFlashlightControlService.h"
@@ -32,6 +33,7 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		FOpenMobileDeviceEndpointTransport::Shutdown();
 		FOpenMobileDeviceUserInitiatedPasteService::Shutdown();
 		FOpenMobileDeviceApplicationSettingsService::Shutdown();
 		FOpenMobileDeviceSystemUiControlService::Shutdown();

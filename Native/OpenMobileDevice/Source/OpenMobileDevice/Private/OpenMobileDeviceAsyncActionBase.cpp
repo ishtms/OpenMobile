@@ -11,10 +11,11 @@ bool UOpenMobileDeviceAsyncActionBase::InitializeAction(
 )
 {
 	check(IsInGameThread());
-	if (IsFinished())
+	if (bActivated || IsFinished())
 	{
 		return false;
 	}
+	bActivated = true;
 	if (!WorldContextObject || !GEngine)
 	{
 		FinishFailed(FOpenMobileError::Make(

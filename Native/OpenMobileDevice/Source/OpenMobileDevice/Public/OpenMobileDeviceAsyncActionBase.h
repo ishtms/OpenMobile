@@ -99,6 +99,7 @@ private:
 	TWeakObjectPtr<UWorld> TargetWorld;
 	FDelegateHandle WorldCleanupHandle;
 	FOpenMobileDeviceNativeAsyncTerminal NativeTerminal;
+	bool bActivated = false;
 	EOpenMobileDeviceAsyncTerminalState TerminalState =
 		EOpenMobileDeviceAsyncTerminalState::Pending;
 };
