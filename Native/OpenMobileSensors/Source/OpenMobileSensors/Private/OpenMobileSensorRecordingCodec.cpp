@@ -223,6 +223,25 @@ namespace OpenMobileSensorRecordingCodecPrivate
 			return true;
 		}
 
+		bool ReadName(FName& OutValue)
+		{
+			FString Value;
+			if (!ReadString(Value) || Value.Len() >= NAME_SIZE)
+			{
+				return false;
+			}
+			// Embedded NULs would silently truncate a serialized identifier.
+			for (TCHAR Character : Value)
+			{
+				if (Character == 0)
+				{
+					return false;
+				}
+			}
+			OutValue = FName(*Value);
+			return true;
+		}
+
 		bool ReadBytes(int32 Count, TConstArrayView<uint8>& OutValue)
 		{
 			if (!CanRead(Count))
@@ -369,15 +388,13 @@ namespace OpenMobileSensorRecordingCodecPrivate
 	)
 	{
 		uint8 Type = 0;
-		FString InstanceId;
 		if (!Reader.ReadUInt8(Type)
 			|| !IsValidSensorType(Type)
-			|| !Reader.ReadString(InstanceId))
+			|| !Reader.ReadName(OutSensor.InstanceId))
 		{
 			return false;
 		}
 		OutSensor.Type = static_cast<EOpenMobileSensorType>(Type);
-		OutSensor.InstanceId = FName(*InstanceId);
 		return true;
 	}
 
@@ -419,14 +436,12 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		FOpenMobileSensorCapability& OutCapability
 	)
 	{
-		FString Name;
-		FString Permission;
 		uint8 State = 0;
 		uint8 Source = 0;
 		uint8 Restriction = 0;
 		uint8 Background = 0;
 		if (!ReadSensor(Reader, OutCapability.Sensor)
-			|| !Reader.ReadString(Name)
+			|| !Reader.ReadName(OutCapability.Availability.Name)
 			|| !Reader.ReadUInt8(State)
 			|| State > static_cast<uint8>(
 				EOpenMobileCapabilityState::TemporarilyUnavailable)
@@ -434,7 +449,7 @@ namespace OpenMobileSensorRecordingCodecPrivate
 			|| !Reader.ReadUInt8(Source)
 			|| Source > static_cast<uint8>(
 				EOpenMobileSensorAvailabilitySource::Replay)
-			|| !Reader.ReadString(Permission)
+			|| !Reader.ReadName(OutCapability.RequiredPermission)
 			|| !Reader.ReadUInt8(Restriction)
 			|| Restriction > static_cast<uint8>(
 				EOpenMobileSensorRestriction::TemporarilyUnavailable)
@@ -449,12 +464,10 @@ namespace OpenMobileSensorRecordingCodecPrivate
 		{
 			return false;
 		}
-		OutCapability.Availability.Name = FName(*Name);
 		OutCapability.Availability.State =
 			static_cast<EOpenMobileCapabilityState>(State);
 		OutCapability.Source =
 			static_cast<EOpenMobileSensorAvailabilitySource>(Source);
-		OutCapability.RequiredPermission = FName(*Permission);
 		OutCapability.ActiveRestriction =
 			static_cast<EOpenMobileSensorRestriction>(Restriction);
 		OutCapability.BackgroundSupport =

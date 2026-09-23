@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/GameInstance.h"
 #include "HAL/FileManager.h"
+#include "Misc/Crc.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/CoreDelegates.h"
@@ -96,6 +97,71 @@ namespace OpenMobileSensorsRecordingTestsPrivate
 		FOpenMobileSensorsSampleService::ResetForTests();
 		FOpenMobileSensorsBackendRegistry::ResetForTests();
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOpenMobileSensorsRecordingNameBoundsTest,
+	"OpenMobile.Sensors.Recording.NameBounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FOpenMobileSensorsRecordingNameBoundsTest::RunTest(const FString&)
+{
+	using namespace OpenMobileSensorsRecordingTestsPrivate;
+	for (int32 Field = 0; Field < 4; ++Field)
+	{
+		auto Document = MakeDocument();
+		const FString LongName = FString::ChrN(NAME_SIZE - 1, TEXT('N'));
+		const FName ValidName(*LongName);
+		auto& Stream = Document.Header.Streams[0];
+		if (Field <= 1)
+		{
+			Stream.Sensor.InstanceId = ValidName;
+			Stream.Capability.Sensor = Stream.Sensor;
+			for (auto& Sample : Document.VectorBatches[0].Samples) Sample.Header.Sensor = Stream.Sensor;
+		}
+		else if (Field == 2) Stream.Capability.Availability.Name = ValidName;
+		else Stream.Capability.RequiredPermission = ValidName;
+		TArray<uint8> Bytes;
+		FString Error;
+		TestTrue(TEXT("A maximum-length legal name encodes"),
+			FOpenMobileSensorRecordingCodec::EncodeComplete(Document, Bytes, Error));
+		FOpenMobileSensorRecordingDocument Decoded;
+		EOpenMobileSensorRecordingDecodeStatus Status;
+		TestTrue(TEXT("A maximum-length legal name decodes"),
+			FOpenMobileSensorRecordingCodec::DecodeComplete(Bytes, Decoded, Status, Error));
+		// Change a valid checksummed header, so rejection exercises name parsing.
+		const auto Read32 = [&Bytes](int32 Offset)
+		{
+			uint32 Value = 0;
+			for (int32 Index = 0; Index < 4; ++Index) Value |= uint32(Bytes[Offset + Index]) << (8 * Index);
+			return Value;
+		};
+		const auto Write32 = [&Bytes](int32 Offset, uint32 Value)
+		{
+			for (int32 Index = 0; Index < 4; ++Index) Bytes[Offset + Index] = uint8(Value >> (8 * Index));
+		};
+		uint32 PayloadSize = Read32(20);
+		int32 NameStart = INDEX_NONE;
+		int32 Occurrence = 0;
+		for (int32 Offset = 28; Offset + NAME_SIZE - 1 <= 28 + int32(PayloadSize); ++Offset)
+		{
+			if (Bytes[Offset] == 'N' && Read32(Offset - 4) == NAME_SIZE - 1
+				&& (Field != 1 || Occurrence++ == 1))
+			{
+				NameStart = Offset;
+				break;
+			}
+		}
+		if (!TestTrue(TEXT("The target name is present in the header"), NameStart != INDEX_NONE)) continue;
+		Bytes.Insert(uint8('N'), NameStart);
+		Write32(NameStart - 4, NAME_SIZE);
+		Write32(20, ++PayloadSize);
+		Write32(24, FCrc::MemCrc32(Bytes.GetData() + 28, PayloadSize));
+		TestFalse(TEXT("An oversized name is rejected before FName construction"),
+			FOpenMobileSensorRecordingCodec::DecodeComplete(Bytes, Decoded, Status, Error));
+		TestEqual(TEXT("The malformed identifier reports invalid data"), Status,
+			EOpenMobileSensorRecordingDecodeStatus::InvalidData);
+	}
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
