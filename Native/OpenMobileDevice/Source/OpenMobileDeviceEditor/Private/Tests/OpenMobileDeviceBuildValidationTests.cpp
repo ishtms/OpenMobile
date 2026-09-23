@@ -114,10 +114,25 @@ bool FOpenMobileDeviceBuildValidationContractTest::RunTest(
 	);
 	const FOpenMobileDeviceBuildValidationReport Report =
 		Contributor.Validate(Input, EOpenMobileDeviceBuildValidationTarget::Shipping);
-	TestFalse(
-		TEXT("Repository Device configuration passes Shipping validation"),
-		Report.HasBlockingIssues()
-	);
+	const bool bIOSResourcesInstalled = FPaths::FileExists(FPaths::Combine(
+		FPaths::EngineDir(), TEXT("Build/IOS/Resources/UEMetadata/PrivacyInfo.xcprivacy")));
+	if (bIOSResourcesInstalled)
+	{
+		TestFalse(TEXT("Repository Device configuration passes Shipping validation"), Report.HasBlockingIssues());
+	}
+	else
+	{
+		// Windows engine installs may omit iOS support. Missing evidence must
+		// remain a shipping blocker, not be mistaken for a valid manifest.
+		TestNotNull(TEXT("Missing iOS resources report a privacy blocker"),
+			FindIssue(Report, TEXT("Device.BuildValidation.PrivacyReasonMissing")));
+		for (const auto& Issue : Report.Issues)
+		{
+			if (Issue.bBlocksBuild)
+				TestEqual(TEXT("No unrelated configuration failures are hidden"),
+					Issue.Code, FName(TEXT("Device.BuildValidation.PrivacyReasonMissing")));
+		}
+	}
 
 	return true;
 }

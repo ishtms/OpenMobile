@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from Scripts.run_haptics_device_validation import (
 	DeviceValidationError,
@@ -22,7 +23,18 @@ class HapticsDeviceValidationTests(unittest.TestCase):
 				"platform": "iOS",
 			}
 			secrets = {"PRIVATE-DEVICE-NAME", "TEAM123456"}
-			save_report(root, report, secrets)
+			# Validate the human-readable report in memory; persist only test JSON.
+			original_write = Path.write_text
+			reports = []
+			def write_report(path, data, *args, **kwargs):
+				if path.suffix == ".md":
+					reports.append(data)
+					return len(data)
+				return original_write(path, data, *args, **kwargs)
+			with patch.object(Path, "write_text", write_report):
+				save_report(root, report, secrets)
+			self.assertEqual(1, len(reports))
+			self.assertTrue(all(secret not in reports[0] for secret in secrets))
 			written = json.loads((root / "report.json").read_text(encoding="utf-8"))
 			self.assertEqual(18, len(written["scenarios"]))
 			self.assertTrue(any(item["status"] == "pending" for item in written["scenarios"]))

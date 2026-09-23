@@ -45,8 +45,11 @@ if grep -R -n '"UMG"' \
 	fail "foundation and Sensors runtime modules must not depend on UI"
 fi
 
-grep -q '"../../Foundation"' Tests/OpenMobileTestHost/OpenMobileTestHost.uproject \
-	|| fail "test host is not wired to the repository plugin directories"
+for host in OpenMobileDeviceSampleHost OpenMobileSensorsSampleHost OpenMobileHapticsSampleHost
+do
+	grep -q '"../../Foundation"' "Tests/$host/$host.uproject" \
+		|| fail "$host is not wired to the repository plugin directories"
+done
 
 grep -q '"Name": "OpenMobileAds"' Providers/Ads/OpenMobileAdsAdMob/OpenMobileAdsAdMob.uplugin \
 	|| fail "AdMob does not declare its OpenMobileAds plugin dependency"
