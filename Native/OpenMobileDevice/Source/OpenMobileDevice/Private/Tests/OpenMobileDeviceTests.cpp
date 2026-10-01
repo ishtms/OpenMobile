@@ -5400,6 +5400,52 @@ bool FOpenMobileDeviceDemandDrivenMonitoringTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileDeviceNetworkFastFallbackTest,
+	"OpenMobile.Device.Network.FastFallbackDebounce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileDeviceNetworkFastFallbackTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileDeviceTests;
+	using Group = EOpenMobileDeviceMonitoringGroup;
+	for (float Interval : {0.1f, 0.2f})
+	{
+		FOpenMobileDeviceBackendRegistry::ResetForTests();
+		FOpenMobileDeviceMonitoringService::ResetForTests();
+		FMockBackend Backend(TEXT("NetworkFallback"));
+		Backend.Network.PathState = EOpenMobileNetworkPathState::InternetCapable;
+		Backend.Network.bDefaultTransportAvailable = true;
+		Backend.Network.DefaultTransport = EOpenMobileNetworkTransport::Wifi;
+		FOpenMobileDeviceBackendRegistry::RegisterBackend(Backend);
+		int32 Notifications = 0;
+		const FDelegateHandle Delegate = FOpenMobileDeviceMonitoringService::
+			OnNetworkPathChanged().AddLambda(
+				[&](const FOpenMobileNetworkPathSnapshot& Snapshot)
+				{
+					++Notifications;
+					TestEqual(TEXT("The settled path is cellular"),
+						Snapshot.DefaultTransport, EOpenMobileNetworkTransport::Cellular);
+				});
+		const FGuid Subscription = FOpenMobileDeviceMonitoringService::
+			AddSubscription({Group::Network}, Interval);
+		Backend.Network.DefaultTransport = EOpenMobileNetworkTransport::Cellular;
+		for (int32 Tick = 0; Tick < 20; ++Tick)
+		{
+			FOpenMobileDeviceMonitoringService::TickForTests(0.1f);
+		}
+		TestEqual(TEXT("Repeated fast polls publish one stable handoff"), Notifications, 1);
+		FOpenMobileDeviceMonitoringService::RemoveSubscription(Subscription);
+		FOpenMobileDeviceMonitoringService::OnNetworkPathChanged().Remove(Delegate);
+		FOpenMobileDeviceBackendRegistry::UnregisterBackend(Backend);
+		FOpenMobileDeviceMonitoringService::ResetForTests();
+		FOpenMobileDeviceBackendRegistry::ResetForTests();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileDeviceNetworkChangeEventsTest,
 	"OpenMobile.Device.Network.ChangeEvents",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

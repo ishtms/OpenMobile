@@ -128,8 +128,14 @@ namespace OpenMobileDeviceMonitoringServicePrivate
 			PublishNetworkSnapshot(Snapshot);
 			return;
 		}
+		// Repeated polls of the same candidate must not postpone delivery forever.
+		if (!PendingNetworkSnapshot.IsSet()
+			|| !EquivalentNetworkWithoutMetadata(
+				PendingNetworkSnapshot.GetValue(), Snapshot))
+		{
+			NetworkDebounceElapsedSeconds = 0.0f;
+		}
 		PendingNetworkSnapshot = Snapshot;
-		NetworkDebounceElapsedSeconds = 0.0f;
 	}
 
 	void RefreshGroup(
