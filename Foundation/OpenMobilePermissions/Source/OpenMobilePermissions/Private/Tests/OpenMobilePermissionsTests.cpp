@@ -331,16 +331,29 @@ bool FOpenMobilePermissionsContractTest::RunTest(const FString& Parameters)
 	);
 
 	int32 UnregisteredCompletionCount = 0;
+	int32 RetryCompletionCount = 0;
+	FOpenMobilePermissionResult RetryResult;
+	FOpenMobilePermissionRequestHandle RetryHandle;
 	FOpenMobilePermissionResult UnregisteredResult;
 	FOpenMobilePermissions::RequestPermission(
 		Permission,
 		FOnOpenMobilePermissionRequestComplete::CreateLambda(
-			[&UnregisteredCompletionCount, &UnregisteredResult](
+			[&](
 				const FOpenMobilePermissionResult& Result
 			)
 			{
 				++UnregisteredCompletionCount;
 				UnregisteredResult = Result;
+				RetryHandle = FOpenMobilePermissions::RequestPermission(
+					Permission,
+					FOnOpenMobilePermissionRequestComplete::CreateLambda(
+						[&](const FOpenMobilePermissionResult& Retried)
+						{
+							++RetryCompletionCount;
+							RetryResult = Retried;
+						}
+					)
+				);
 			}
 		)
 	);
@@ -349,6 +362,9 @@ bool FOpenMobilePermissionsContractTest::RunTest(const FString& Parameters)
 		FOpenMobilePermissionProviderRegistry::UnregisterProvider(Provider)
 	);
 	TestTrue(TEXT("Provider shuts down"), Provider.bShutdown);
+	TestFalse(TEXT("A retry cannot attach to the departing provider"), RetryHandle.IsValid());
+	TestEqual(TEXT("A reentrant retry completes instead of hanging"), RetryCompletionCount, 1);
+	TestEqual(TEXT("A retry sees the provider as unavailable"), RetryResult.Error.Code, EOpenMobileErrorCode::NotSupported);
 	TestEqual(
 		TEXT("Provider loss completes pending requests once"),
 		UnregisteredCompletionCount,

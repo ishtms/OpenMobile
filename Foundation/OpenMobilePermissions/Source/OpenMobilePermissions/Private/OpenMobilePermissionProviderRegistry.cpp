@@ -66,6 +66,12 @@ bool FOpenMobilePermissionProviderRegistry::UnregisterProvider(
 		return false;
 	}
 
+	// Failure callbacks may immediately request permission again. Remove this
+	// provider from discovery before invoking any provider or user callbacks.
+	IModularFeatures::Get().UnregisterModularFeature(
+		IOpenMobilePermissionProvider::GetModularFeatureName(),
+		&Provider
+	);
 	FOpenMobilePermissions::FailRequestsForProvider(
 		Provider,
 		FOpenMobileError::Make(
@@ -76,10 +82,6 @@ bool FOpenMobilePermissionProviderRegistry::UnregisterProvider(
 		)
 	);
 	StopProvider(Provider);
-	IModularFeatures::Get().UnregisterModularFeature(
-		IOpenMobilePermissionProvider::GetModularFeatureName(),
-		&Provider
-	);
 	ShutdownProviders.Remove(&Provider);
 	return true;
 }
