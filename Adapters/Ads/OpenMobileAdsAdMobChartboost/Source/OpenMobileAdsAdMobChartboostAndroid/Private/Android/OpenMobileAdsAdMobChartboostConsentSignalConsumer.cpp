@@ -14,14 +14,7 @@ namespace
 	/** Protects Chartboost from receiving a guessed GDPR value when state is still unknown. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.GdprApplicability
-				== EOpenMobileAdsGdprApplicability::Applicable
-			|| Signals.ConsentRequirement
-				== EOpenMobileAdsConsentRequirement::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Denied
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		return Signals.HasExplicitGdprDecision();
 	}
 
 	/** Applies Chartboost's US privacy flag only when the snapshot contains a decision. */
@@ -46,8 +39,7 @@ FOpenMobileAdsAdMobChartboostConsentSignalConsumer::ApplyConsentSignals(
 	const bool bApplyGdpr = (SignalMask & GdprSignal) != 0
 		&& RequiresGdprValue(Signals);
 	const bool bHasUserConsent =
-		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-		|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted;
 	const bool bApplyUsPrivacy = (SignalMask & UsPrivacySignal) != 0
 		&& RequiresUsPrivacyValue(Signals);
 	const bool bDoNotSell =
@@ -95,6 +87,6 @@ FOpenMobileAdsAdMobChartboostConsentSignalConsumer::ApplyConsentSignals(
 
 	return FOpenMobileAdsConsentSignalApplyResult::Applied(
 		SignalMask,
-		SignalMask
+		SignalMask & ~(bApplyGdpr ? 0 : GdprSignal)
 	);
 }

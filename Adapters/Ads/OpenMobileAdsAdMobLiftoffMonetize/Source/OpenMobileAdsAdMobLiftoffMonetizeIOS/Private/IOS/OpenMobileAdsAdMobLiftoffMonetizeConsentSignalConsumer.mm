@@ -15,14 +15,7 @@ namespace
 	/** Applies Liftoff GDPR state only when the normalized snapshot provides a value. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.GdprApplicability
-				== EOpenMobileAdsGdprApplicability::Applicable
-			|| Signals.ConsentRequirement
-				== EOpenMobileAdsConsentRequirement::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Denied
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		return Signals.HasExplicitGdprDecision();
 	}
 
 	/** Leaves Liftoff US privacy untouched when neither choice nor processing mode is known. */
@@ -59,8 +52,7 @@ FOpenMobileAdsAdMobLiftoffMonetizeConsentSignalConsumer::ApplyConsentSignals(
 	const bool bApplyGdpr = (SignalMask & GdprSignal) != 0
 		&& RequiresGdprValue(Signals);
 	const BOOL bHasUserConsent =
-		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-		|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted;
 	const bool bApplyUsPrivacy = (SignalMask & UsPrivacySignal) != 0
 		&& RequiresUsPrivacyValue(Signals);
 	const BOOL bOptedIn = !(

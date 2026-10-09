@@ -18,14 +18,7 @@ namespace
 	/** Writes Unity GDPR metadata only after the service has an applicable consent answer. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.GdprApplicability
-				== EOpenMobileAdsGdprApplicability::Applicable
-			|| Signals.ConsentRequirement
-				== EOpenMobileAdsConsentRequirement::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Denied
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		return Signals.HasExplicitGdprDecision();
 	}
 
 	/** Writes Unity US privacy metadata only from an explicit choice or processing mode. */
@@ -65,8 +58,7 @@ FOpenMobileAdsAdMobUnityConsentSignalConsumer::ApplyConsentSignals(
 	const bool bApplyGdpr = (SignalMask & GdprSignal) != 0
 		&& RequiresGdprValue(Signals);
 	const bool bHasUserConsent =
-		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-		|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted;
 	const bool bApplyUsPrivacy = (SignalMask & UsPrivacySignal) != 0
 		&& RequiresUsPrivacyValue(Signals);
 	const bool bDoNotSell =
@@ -125,6 +117,6 @@ FOpenMobileAdsAdMobUnityConsentSignalConsumer::ApplyConsentSignals(
 
 	return FOpenMobileAdsConsentSignalApplyResult::Applied(
 		SignalMask,
-		SignalMask
+		SignalMask & ~(bApplyGdpr ? 0 : GdprSignal)
 	);
 }

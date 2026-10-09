@@ -74,6 +74,35 @@ namespace OpenMobileAdsPrivacyTests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsExplicitGdprDecisionTest,
+	"OpenMobile.Ads.Privacy.ExplicitGdprDecision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsExplicitGdprDecisionTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileAdsConsentSignals Signals;
+	Signals.GdprApplicability = EOpenMobileAdsGdprApplicability::Applicable;
+	Signals.ConsentRequirement = EOpenMobileAdsConsentRequirement::Required;
+	for (EOpenMobileAdsConsentStatus Status : {
+		EOpenMobileAdsConsentStatus::Unknown,
+		EOpenMobileAdsConsentStatus::Required,
+		EOpenMobileAdsConsentStatus::NotRequired,
+		EOpenMobileAdsConsentStatus::Obtained})
+	{
+		Signals.ConsentStatus = Status;
+		TestFalse(TEXT("Collection or applicability cannot supply a binary decision"),
+			Signals.HasExplicitGdprDecision());
+	}
+	Signals.ConsentStatus = EOpenMobileAdsConsentStatus::Granted;
+	TestTrue(TEXT("An explicit grant can be forwarded"), Signals.HasExplicitGdprDecision());
+	Signals.ConsentStatus = EOpenMobileAdsConsentStatus::Denied;
+	TestTrue(TEXT("An explicit denial can be forwarded"), Signals.HasExplicitGdprDecision());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsConsentStatusTransitionTest,
 	"OpenMobile.Ads.Privacy.ConsentStatus.Transitions",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

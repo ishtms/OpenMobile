@@ -15,14 +15,7 @@ namespace
 	/** Leaves AppLovin's existing GDPR value alone when the service has no usable answer. */
 	bool RequiresGdprValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.GdprApplicability
-				== EOpenMobileAdsGdprApplicability::Applicable
-			|| Signals.ConsentRequirement
-				== EOpenMobileAdsConsentRequirement::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Required
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Denied
-			|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		return Signals.HasExplicitGdprDecision();
 	}
 
 	/** Applies AppLovin do-not-sell only from an explicit US privacy value. */
@@ -47,8 +40,7 @@ FOpenMobileAdsAdMobAppLovinConsentSignalConsumer::ApplyConsentSignals(
 	const bool bApplyGdpr = (SignalMask & GdprSignal) != 0
 		&& RequiresGdprValue(Signals);
 	const BOOL bHasUserConsent =
-		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted
-		|| Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Obtained;
+		Signals.ConsentStatus == EOpenMobileAdsConsentStatus::Granted;
 	const bool bApplyUsPrivacy = (SignalMask & UsPrivacySignal) != 0
 		&& RequiresUsPrivacyValue(Signals);
 	const BOOL bDoNotSell =
@@ -94,6 +86,6 @@ FOpenMobileAdsAdMobAppLovinConsentSignalConsumer::ApplyConsentSignals(
 
 	return FOpenMobileAdsConsentSignalApplyResult::Applied(
 		SignalMask,
-		SignalMask
+		SignalMask & ~(bApplyGdpr ? 0 : GdprSignal)
 	);
 }

@@ -196,6 +196,13 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentSignals
 	UPROPERTY(BlueprintReadOnly, Category = "Open Mobile|Ads")
 	FName Source;
 
+	/** Completed provider-managed collection does not imply a binary consent grant. */
+	bool HasExplicitGdprDecision() const
+	{
+		return ConsentStatus == EOpenMobileAdsConsentStatus::Granted
+			|| ConsentStatus == EOpenMobileAdsConsentStatus::Denied;
+	}
+
 	/** Marks every signal carrying an explicit value without claiming that value is currently usable. */
 	int32 GetConfiguredSignalMask() const;
 	/** Marks configured signals whose value blocks requests until a consumer accepts them. */
