@@ -103,6 +103,32 @@ bool FOpenMobileAdsExplicitGdprDecisionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsExplicitUsPrivacyDecisionTest,
+	"OpenMobile.Ads.Privacy.ExplicitUsPrivacyDecision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsExplicitUsPrivacyDecisionTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	FOpenMobileAdsConsentSignals Signals;
+	Signals.UsPrivacy.Applicability = EOpenMobileAdsUsPrivacyApplicability::Applicable;
+	TestFalse(TEXT("Applicability does not imply opt-in"), Signals.HasExplicitUsPrivacyDecision());
+	Signals.UsPrivacy.DataProcessingMode = EOpenMobileAdsDataProcessingMode::ProviderManaged;
+	TestFalse(TEXT("Provider-managed choice stays with the CMP"), Signals.HasExplicitUsPrivacyDecision());
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedOut;
+	TestTrue(TEXT("Explicit opt-out is forwarded"), Signals.HasExplicitUsPrivacyDecision());
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::OptedIn;
+	TestTrue(TEXT("Explicit opt-in is forwarded"), Signals.HasExplicitUsPrivacyDecision());
+	Signals.UsPrivacy.Choice = EOpenMobileAdsUsPrivacyChoice::Unknown;
+	Signals.UsPrivacy.DataProcessingMode = EOpenMobileAdsDataProcessingMode::Restricted;
+	TestTrue(TEXT("Restricted processing is an explicit value"), Signals.HasExplicitUsPrivacyDecision());
+	Signals.UsPrivacy.DataProcessingMode = EOpenMobileAdsDataProcessingMode::Standard;
+	TestTrue(TEXT("Standard processing is an explicit value"), Signals.HasExplicitUsPrivacyDecision());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsConsentStatusTransitionTest,
 	"OpenMobile.Ads.Privacy.ConsentStatus.Transitions",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

@@ -21,12 +21,7 @@ namespace
 	/** Leaves Liftoff US privacy untouched when neither choice nor processing mode is known. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.UsPrivacy.Applicability
-				== EOpenMobileAdsUsPrivacyApplicability::Applicable
-			|| Signals.UsPrivacy.Choice
-				!= EOpenMobileAdsUsPrivacyChoice::Unknown
-			|| Signals.UsPrivacy.DataProcessingMode
-				!= EOpenMobileAdsDataProcessingMode::Unspecified;
+		return Signals.HasExplicitUsPrivacyDecision();
 	}
 }
 

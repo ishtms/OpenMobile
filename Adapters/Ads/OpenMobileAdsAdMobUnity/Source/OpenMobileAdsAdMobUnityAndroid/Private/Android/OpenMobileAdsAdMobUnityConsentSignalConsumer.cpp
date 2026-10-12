@@ -24,12 +24,7 @@ namespace
 	/** Writes Unity US privacy metadata only from an explicit choice or processing mode. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.UsPrivacy.Applicability
-				== EOpenMobileAdsUsPrivacyApplicability::Applicable
-			|| Signals.UsPrivacy.Choice
-				!= EOpenMobileAdsUsPrivacyChoice::Unknown
-			|| Signals.UsPrivacy.DataProcessingMode
-				!= EOpenMobileAdsDataProcessingMode::Unspecified;
+		return Signals.HasExplicitUsPrivacyDecision();
 	}
 
 	/** Derives Unity's non-behavioral flag from explicit child or under-age treatment. */
@@ -117,6 +112,7 @@ FOpenMobileAdsAdMobUnityConsentSignalConsumer::ApplyConsentSignals(
 
 	return FOpenMobileAdsConsentSignalApplyResult::Applied(
 		SignalMask,
-		SignalMask & ~(bApplyGdpr ? 0 : GdprSignal)
+		SignalMask & ~((bApplyGdpr ? 0 : GdprSignal)
+			| (bApplyUsPrivacy ? 0 : UsPrivacySignal))
 	);
 }

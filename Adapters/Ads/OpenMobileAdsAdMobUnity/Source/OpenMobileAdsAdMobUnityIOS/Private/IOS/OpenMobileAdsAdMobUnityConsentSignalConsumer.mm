@@ -30,12 +30,7 @@ namespace
 	/** Keeps Unity do-not-sell metadata absent till US privacy has a real value. */
 	bool RequiresUsPrivacyValue(const FOpenMobileAdsConsentSignals& Signals)
 	{
-		return Signals.UsPrivacy.Applicability
-				== EOpenMobileAdsUsPrivacyApplicability::Applicable
-			|| Signals.UsPrivacy.Choice
-				!= EOpenMobileAdsUsPrivacyChoice::Unknown
-			|| Signals.UsPrivacy.DataProcessingMode
-				!= EOpenMobileAdsDataProcessingMode::Unspecified;
+		return Signals.HasExplicitUsPrivacyDecision();
 	}
 
 	/** Resolves Unity non-behavioral metadata only from explicit age treatment. */

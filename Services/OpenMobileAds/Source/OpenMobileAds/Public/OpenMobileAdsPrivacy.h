@@ -203,6 +203,14 @@ struct OPENMOBILEADS_API FOpenMobileAdsConsentSignals
 			|| ConsentStatus == EOpenMobileAdsConsentStatus::Denied;
 	}
 
+	/** Applicability and provider-managed storage do not supply an opt-in or opt-out. */
+	bool HasExplicitUsPrivacyDecision() const
+	{
+		return UsPrivacy.Choice != EOpenMobileAdsUsPrivacyChoice::Unknown
+			|| UsPrivacy.DataProcessingMode == EOpenMobileAdsDataProcessingMode::Standard
+			|| UsPrivacy.DataProcessingMode == EOpenMobileAdsDataProcessingMode::Restricted;
+	}
+
 	/** Marks every signal carrying an explicit value without claiming that value is currently usable. */
 	int32 GetConfiguredSignalMask() const;
 	/** Marks configured signals whose value blocks requests until a consumer accepts them. */
