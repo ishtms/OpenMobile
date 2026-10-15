@@ -545,15 +545,25 @@ public final class OpenMobileHapticsBridgeV1 {
                     @Override
                     public void run() {
                         synchronized (CONTROLLED_WAVEFORM_LOCK) {
-                            if (controlledWaveform != state) {
+                            if (controlledWaveform != state
+                                || state.startRunnable != this) {
+                                return;
+                            }
+                        }
+                        // Native commands hold their bridge mutex while entering
+                        // Java. Never call back into that mutex under our lock.
+                        boolean canStart = false;
+                        try {
+                            canStart = nativeCanStart(requestId);
+                        } catch (UnsatisfiedLinkError ignored) {
+                        }
+                        synchronized (CONTROLLED_WAVEFORM_LOCK) {
+                            // Stop or replacement may have won during the call.
+                            if (controlledWaveform != state
+                                || state.startRunnable != this) {
                                 return;
                             }
                             state.startRunnable = null;
-                            boolean canStart = false;
-                            try {
-                                canStart = nativeCanStart(requestId);
-                            } catch (UnsatisfiedLinkError ignored) {
-                            }
                             if (!canStart) {
                                 finishControlledWaveformLocked(
                                     state,

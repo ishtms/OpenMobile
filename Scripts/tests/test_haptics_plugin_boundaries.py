@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -1138,6 +1139,19 @@ class HapticsPluginBoundaryTests(unittest.TestCase):
 			"static int playControlledWaveform(", 1
 		)[1].split("static int pauseControlledWaveform(", 1)[0]
 		self.assertIn("preparedResourceId", controlled_play)
+		# Lock order is an invariant across JNI: native commands can hold the
+		# C++ mutex while waiting for Java, so Java must release its control lock
+		# before entering nativeCanStart.
+		callback = controlled_play.split("public void run()", 1)[1]
+		before_native, after_native = callback.split("canStart = nativeCanStart(requestId)", 1)
+		active_scopes = []
+		for scope in re.finditer(r"(synchronized\s*\(CONTROLLED_WAVEFORM_LOCK\)\s*)?\{|\}", before_native):
+			if scope.group() == "}":
+				active_scopes.pop()
+			else:
+				active_scopes.append(bool(scope.group(1)))
+		self.assertFalse(any(active_scopes), "Native start guard runs outside the Java control lock")
+		self.assertIn("state.startRunnable != this", after_native)
 		controlled_start = bridge.split(
 			"private static int startControlledOutputLocked(", 1
 		)[1].split("static int playControlledWaveform(", 1)[0]
