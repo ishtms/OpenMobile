@@ -1919,7 +1919,9 @@ FGuid FOpenMobileSensorsRecordingService::StartRecording(
 	Entry->Worker = Worker;
 	Entry->StartCompletion = MoveTemp(Completion);
 	Entry->WorkerFuture = Async(
-		EAsyncExecution::ThreadPool,
+		// A recording waits for samples for its entire lifetime. The existing
+		// recording limit bounds these threads without occupying the shared pool.
+		EAsyncExecution::Thread,
 		[Worker]()
 		{
 			RunWriter(Worker);
