@@ -94,14 +94,17 @@ bool FOpenMobileSensorUnitConverter::NormalizeVectorSample(
 		|| SensorType == EOpenMobileSensorType::AccelerometerUncalibrated
 		|| SensorType == EOpenMobileSensorType::Gravity
 		|| SensorType == EOpenMobileSensorType::LinearAcceleration;
-	if (bValid
-		&& Platform == EOpenMobileSensorNativePlatform::IOS
-		&& bAcceleration)
+	if (bValid && bAcceleration)
 	{
-		Sample.Value *= StandardGravityMetersPerSecondSquared;
+		// Core Motion reports gravity toward the ground; Android reports the
+		// opposite specific-force convention. Keep one convention for all
+		// acceleration channels so total = gravity + linear remains true.
+		const double Scale = Platform == EOpenMobileSensorNativePlatform::IOS
+			? StandardGravityMetersPerSecondSquared : -1.0;
+		Sample.Value *= Scale;
 		if (Sample.bHasBias)
 		{
-			Sample.Bias *= StandardGravityMetersPerSecondSquared;
+			Sample.Bias *= Scale;
 		}
 	}
 	MarkNormalized(Sample.Header, bValid);

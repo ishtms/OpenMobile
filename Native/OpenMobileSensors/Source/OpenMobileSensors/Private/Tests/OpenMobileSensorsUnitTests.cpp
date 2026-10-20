@@ -3,6 +3,8 @@
 #include "Misc/AutomationTest.h"
 #include "OpenMobileNativeStepCounter.h"
 #include "OpenMobileSensorUnits.h"
+#include "OpenMobileSensorCoordinates.h"
+#include "OpenMobileSensorOrientationClassifier.h"
 
 #include <limits>
 
@@ -37,8 +39,8 @@ bool FOpenMobileSensorsAndroidVectorUnitTest::RunTest(
 	TestTrue(TEXT("Android acceleration normalizes"),
 		FOpenMobileSensorUnitConverter::NormalizeVectorSample(
 			EOpenMobileSensorNativePlatform::Android, Acceleration));
-	TestEqual(TEXT("Android acceleration is already metres per second squared"),
-		Acceleration.Value, FVector(1.0, -2.0, 9.80665));
+	TestEqual(TEXT("Android specific force becomes the canonical gravity convention"),
+		Acceleration.Value, FVector(-1.0, 2.0, -9.80665));
 	TestTrue(TEXT("The public sample is marked normalized"),
 		Acceleration.Header.bUnitsNormalized);
 	const FVector Once = Acceleration.Value;
@@ -46,6 +48,46 @@ bool FOpenMobileSensorsAndroidVectorUnitTest::RunTest(
 		EOpenMobileSensorNativePlatform::Android, Acceleration);
 	TestEqual(TEXT("A normalized sample is not converted twice"),
 		Acceleration.Value, Once);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsNativeGravityPoseTest,
+	"OpenMobile.Sensors.Units.NativeGravityPoses",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsNativeGravityPoseTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsUnitTestsPrivate;
+	const FVector AndroidGravity[] = {
+		FVector(0, 0, 9.80665), FVector(0, 0, -9.80665),
+		FVector(0, 9.80665, 0), FVector(0, -9.80665, 0),
+		FVector(9.80665, 0, 0), FVector(-9.80665, 0, 0)};
+	const EOpenMobilePhysicalOrientation Expected[] = {
+		EOpenMobilePhysicalOrientation::FaceUp, EOpenMobilePhysicalOrientation::FaceDown,
+		EOpenMobilePhysicalOrientation::Portrait, EOpenMobilePhysicalOrientation::PortraitUpsideDown,
+		EOpenMobilePhysicalOrientation::LandscapeLeft, EOpenMobilePhysicalOrientation::LandscapeRight};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(AndroidGravity); ++Index)
+	{
+		for (EOpenMobileSensorNativePlatform Platform : {
+			EOpenMobileSensorNativePlatform::Android, EOpenMobileSensorNativePlatform::IOS})
+		{
+			FOpenMobileVectorSensorSample Sample;
+			Sample.Header = MakeHeader(EOpenMobileSensorType::Gravity);
+			Sample.Value = Platform == EOpenMobileSensorNativePlatform::Android
+				? AndroidGravity[Index] : -AndroidGravity[Index] / 9.80665;
+			FOpenMobileSensorUnitConverter::NormalizeVectorSample(Platform, Sample);
+			FOpenMobileSensorCoordinateConverter::ConvertVectorSample(Platform, Sample);
+			FOpenMobileSensorOrientationClassifier Classifier;
+			FOpenMobileSensorOrientationClassifierConfig Config;
+			Config.TransitionDebounceSeconds = 0.0;
+			FOpenMobileOrientationSensorSample Orientation;
+			TestTrue(TEXT("A native pose is classifiable"), Classifier.Process(Sample.Value, 1.0, Config, Orientation));
+			TestEqual(TEXT("Both platforms classify the same physical pose"), Orientation.Orientation, Expected[Index]);
+		}
+	}
 	return true;
 }
 
