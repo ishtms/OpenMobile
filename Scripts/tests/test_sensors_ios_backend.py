@@ -57,7 +57,10 @@ class SensorsIOSBackendTests(unittest.TestCase):
 
 		self.assertFalse(manifest["NSPrivacyTracking"])
 		self.assertEqual(manifest["NSPrivacyCollectedDataTypes"], [])
-		self.assertEqual(manifest["NSPrivacyAccessedAPITypes"], [])
+		self.assertEqual(manifest["NSPrivacyAccessedAPITypes"], [{
+			"NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+			"NSPrivacyAccessedAPITypeReasons": ["35F9.1"],
+		}])
 
 	def test_backend_implements_discovery_metadata_and_stream_operations(self):
 		header = (PRIVATE / "OpenMobileSensorsIOSBackend.h").read_text(

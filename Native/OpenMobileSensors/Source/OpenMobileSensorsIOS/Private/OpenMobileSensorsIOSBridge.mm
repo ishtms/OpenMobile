@@ -2139,7 +2139,7 @@ private:
 			FOpenMobileVectorSensorSample Sample;
 			Sample.Header = MakeHeader(
 				Active.Request.Sensor,
-				Data.timestamp,
+				FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Data.timestamp),
 				Active.bResetNextSample
 			);
 			Sample.Value = FVector(
@@ -2177,7 +2177,7 @@ private:
 			FOpenMobileVectorSensorSample Sample;
 			Sample.Header = MakeHeader(
 				Active.Request.Sensor,
-				Data.timestamp,
+				FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Data.timestamp),
 				Active.bResetNextSample
 			);
 			Sample.Value = FVector(
@@ -2219,7 +2219,7 @@ private:
 			FOpenMobileVectorSensorSample Sample;
 			Sample.Header = MakeHeader(
 				Active.Request.Sensor,
-				Data.timestamp,
+				FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Data.timestamp),
 				Active.bResetNextSample
 			);
 			Sample.Value = FVector(
@@ -2294,7 +2294,7 @@ private:
 				}
 				Sample.Header = MakeHeader(
 					Active.Request.Sensor,
-					Motion.timestamp,
+					FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Motion.timestamp),
 					Active.bResetNextSample,
 					SourceFlags
 				);
@@ -2308,7 +2308,7 @@ private:
 						Active.Handle,
 						Active.Request.Sensor,
 						static_cast<int32>(Motion.magneticField.accuracy),
-						Motion.timestamp
+						FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Motion.timestamp)
 					);
 				}
 				Backend.PublishVectorBatchFromMotionQueue(
@@ -2324,7 +2324,7 @@ private:
 				FOpenMobileAttitudeSensorSample Sample;
 				Sample.Header = MakeHeader(
 					Active.Request.Sensor,
-					Motion.timestamp,
+					FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Motion.timestamp),
 					Active.bResetNextSample
 				);
 				Sample.Quaternion = FQuat(
@@ -2350,7 +2350,7 @@ private:
 				FOpenMobileHeadingSensorSample Sample;
 				Sample.Header = MakeHeader(
 					Active.Request.Sensor,
-					Motion.timestamp,
+					FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Motion.timestamp),
 					Active.bResetNextSample
 				);
 				if (@available(iOS 11.0, *))
@@ -2370,7 +2370,7 @@ private:
 					Active.Handle,
 					Active.Request.Sensor,
 					static_cast<int32>(Motion.magneticField.accuracy),
-					Motion.timestamp
+					FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Motion.timestamp)
 				);
 				FOpenMobileHeadingSensorBatch Batch;
 				Batch.Samples.Reserve(MaximumCallbackBatchSamples);
@@ -2407,7 +2407,7 @@ private:
 			FOpenMobileScalarSensorSample Sample;
 			Sample.Header = MakeHeader(
 				Active.Request.Sensor,
-				Data.timestamp,
+				FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Data.timestamp),
 				Active.bResetNextSample
 			);
 			Sample.Value = Active.Request.Sensor.Type ==
@@ -2448,7 +2448,7 @@ private:
 			FOpenMobileScalarSensorSample Sample;
 			Sample.Header = MakeHeader(
 				Active.Request.Sensor,
-				Data.timestamp,
+				FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(Data.timestamp),
 				Active.bResetNextSample
 			);
 			Sample.Value = Data.altitude;

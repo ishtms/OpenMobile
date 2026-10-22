@@ -12,3 +12,12 @@ double FOpenMobileSensorTimestampConverter::FromIOSCoreMotionSeconds(
 {
 	return TimestampSeconds;
 }
+
+double FOpenMobileSensorTimestampConverter::ToPlatformSeconds(
+	double NativeTimestampSeconds,
+	double NativeNowSeconds,
+	double PlatformNowSeconds
+)
+{
+	return PlatformNowSeconds + (NativeTimestampSeconds - NativeNowSeconds);
+}

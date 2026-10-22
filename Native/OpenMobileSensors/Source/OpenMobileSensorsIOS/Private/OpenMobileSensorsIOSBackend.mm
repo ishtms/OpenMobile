@@ -14,6 +14,9 @@
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
+#include "HAL/PlatformTime.h"
+#import <Foundation/Foundation.h>
+
 namespace OpenMobileSensorsIOSBackendPrivate
 {
 	struct FSupportedSensor
@@ -547,8 +550,11 @@ void FOpenMobileSensorsIOSBackend::CancelRequest(
 double FOpenMobileSensorsIOSBackend::ConvertCoreMotionTimestampSeconds(
 	double TimestampSeconds)
 {
-	return FOpenMobileSensorTimestampConverter::FromIOSCoreMotionSeconds(
-		TimestampSeconds);
+	const double NativeNow = [NSProcessInfo processInfo].systemUptime;
+	const double PlatformNow = FPlatformTime::Seconds();
+	return FOpenMobileSensorTimestampConverter::ToPlatformSeconds(
+		FOpenMobileSensorTimestampConverter::FromIOSCoreMotionSeconds(TimestampSeconds),
+		NativeNow, PlatformNow);
 }
 
 bool FOpenMobileSensorsIOSBackend::

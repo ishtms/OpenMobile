@@ -94,6 +94,33 @@ bool FOpenMobileSensorsTimestampConversionPrecisionTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsTimestampClockDomainTest,
+	"OpenMobile.Sensors.Timestamp.ClockDomainsAndResume",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsTimestampClockDomainTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using Converter = FOpenMobileSensorTimestampConverter;
+	constexpr double NativeNow = 1000.0;
+	constexpr double PlatformNow = 16778216.0;
+	TestEqual(TEXT("Fresh input shares the platform epoch"),
+		Converter::ToPlatformSeconds(NativeNow, NativeNow, PlatformNow), PlatformNow);
+	TestEqual(TEXT("A delayed batch retains its acquisition age"),
+		Converter::ToPlatformSeconds(999.75, NativeNow, PlatformNow), PlatformNow - 0.25);
+	TestTrue(TEXT("Batch sample spacing survives a large epoch offset"),
+		FMath::IsNearlyEqual(
+			Converter::ToPlatformSeconds(999.76, NativeNow, PlatformNow)
+				- Converter::ToPlatformSeconds(999.75, NativeNow, PlatformNow),
+			0.01, 1.e-8));
+	TestEqual(TEXT("An hour of native suspend does not become negative sample age"),
+		Converter::ToPlatformSeconds(4599.75, 4600.0, PlatformNow + 1.0),
+		PlatformNow + 0.75);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsTimestampLargeUptimeTest,
 	"OpenMobile.Sensors.Timestamp.LargeUptime",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

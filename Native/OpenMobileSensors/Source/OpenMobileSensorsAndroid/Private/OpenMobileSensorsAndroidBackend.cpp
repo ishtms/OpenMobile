@@ -21,6 +21,10 @@
 #include "OpenMobileSensorsSampleService.h"
 #include "OpenMobileSensorsSubscriptionService.h"
 
+#include "HAL/PlatformTime.h"
+#include <limits>
+#include <time.h>
+
 namespace OpenMobileSensorsAndroidBackendPrivate
 {
 	constexpr double MicrosecondsPerSecond = 1000000.0;
@@ -340,8 +344,8 @@ namespace OpenMobileSensorsAndroidBackendPrivate
 		FOpenMobileSensorSampleHeader Header;
 		Header.Sensor = Descriptor.Sensor;
 		Header.TimestampSeconds =
-			FOpenMobileSensorTimestampConverter::
-				FromAndroidSensorEventNanoseconds(TimestampNanoseconds);
+			FOpenMobileSensorsAndroidBackend::
+				ConvertSensorEventTimestampNanoseconds(TimestampNanoseconds);
 		Header.bStatefulProcessingReset = bReset;
 		Header.bValid = true;
 		Header.SourceFlags =
@@ -496,8 +500,20 @@ void FOpenMobileSensorsAndroidBackend::CancelRequest(
 double FOpenMobileSensorsAndroidBackend::
 ConvertSensorEventTimestampNanoseconds(int64 TimestampNanoseconds)
 {
-	return FOpenMobileSensorTimestampConverter::
-		FromAndroidSensorEventNanoseconds(TimestampNanoseconds);
+	timespec BootTime = {};
+	if (clock_gettime(CLOCK_BOOTTIME, &BootTime) != 0)
+	{
+		return std::numeric_limits<double>::quiet_NaN();
+	}
+	// Sample both clocks on every ingress: elapsedRealtime includes suspend,
+	// whereas Unreal's selected monotonic clock need not include it.
+	const double PlatformNow = FPlatformTime::Seconds();
+	const double NativeNow = static_cast<double>(BootTime.tv_sec)
+		+ static_cast<double>(BootTime.tv_nsec) * 1.e-9;
+	return FOpenMobileSensorTimestampConverter::ToPlatformSeconds(
+		FOpenMobileSensorTimestampConverter::
+			FromAndroidSensorEventNanoseconds(TimestampNanoseconds),
+		NativeNow, PlatformNow);
 }
 
 bool FOpenMobileSensorsAndroidBackend::

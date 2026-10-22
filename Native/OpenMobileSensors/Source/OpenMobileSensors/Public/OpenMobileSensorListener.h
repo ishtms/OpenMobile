@@ -22,7 +22,7 @@ struct OPENMOBILESENSORS_API FOpenMobileSensorSampleInfo
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor capture time in boot-relative monotonic seconds."))
+	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (ToolTip = "Sensor capture time mapped to engine monotonic seconds."))
 	double TimestampMonotonicSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "OpenMobile|Sensors", meta = (Units = "s", ToolTip = "Time from sensor capture to game-thread delivery in seconds."))
