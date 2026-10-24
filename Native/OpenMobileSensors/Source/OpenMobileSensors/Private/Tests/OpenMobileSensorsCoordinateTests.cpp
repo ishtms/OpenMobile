@@ -161,6 +161,42 @@ bool FOpenMobileSensorsCoordinateIdentityTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsCoordinateNorthReferenceTest,
+	"OpenMobile.Sensors.Coordinates.NorthReference",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsCoordinateNorthReferenceTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileSensorsCoordinateTestsPrivate;
+	// Flat, display up, top pointing north: Android is identity; in Core
+	// Motion the device-to-reference rotation is -90 degrees from north;
+	// CMAttitude reports its inverse, reference-to-device.
+	const FQuat IOSNorthPose(FVector::UpVector, -UE_DOUBLE_PI * 0.5);
+	for (const FQuat DeviceRotation : {
+		FQuat::Identity,
+		FQuat(FVector::ForwardVector, UE_DOUBLE_PI * 0.5),
+		FQuat(FVector::RightVector, -UE_DOUBLE_PI * 0.5),
+		FQuat(FVector::UpVector, UE_DOUBLE_PI * 0.5)})
+	{
+		FOpenMobileAttitudeSensorSample Android;
+		Android.Header.bValid = true;
+		Android.ReferenceFrame = EOpenMobileAttitudeReferenceFrame::MagneticNorth;
+		Android.Quaternion = DeviceRotation;
+		FOpenMobileAttitudeSensorSample IOS = Android;
+		IOS.Quaternion = (IOSNorthPose * DeviceRotation).Inverse();
+		FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(
+			EOpenMobileSensorNativePlatform::Android, Android);
+		FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(
+			EOpenMobileSensorNativePlatform::IOS, IOS);
+		TestTrue(TEXT("North-referenced poses agree across platforms"),
+			QuaternionsRepresentSameRotation(Android.Quaternion, IOS.Quaternion));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileSensorsCoordinateQuarterTurnsTest,
 	"OpenMobile.Sensors.Coordinates.QuarterTurns",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
@@ -194,7 +230,8 @@ bool FOpenMobileSensorsCoordinateQuarterTurnsTest::RunTest(
 			Attitude.Header.bValid = true;
 			Attitude.Header.bUnitsNormalized = true;
 			Attitude.Quaternion = FQuat(
-				NativeAxes[Index], QuarterTurnRadians);
+				NativeAxes[Index], Platform == EOpenMobileSensorNativePlatform::IOS
+					? -QuarterTurnRadians : QuarterTurnRadians);
 			Attitude.bHasEulerDegrees = true;
 			Attitude.bHasRotationMatrix = true;
 			FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(
@@ -218,6 +255,33 @@ bool FOpenMobileSensorsCoordinateQuarterTurnsTest::RunTest(
 				Attitude.Quaternion.RotateVector(FVector::UpVector));
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileSensorsIOSAttitudeGravityConsistencyTest,
+	"OpenMobile.Sensors.Coordinates.IOSAttitudeGravityConsistency",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileSensorsIOSAttitudeGravityConsistencyTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	// Core Motion's matrix maps reference gravity into the device frame.
+	const FQuat ReferenceToDevice = FQuat(FVector::ForwardVector, 0.7)
+		* FQuat(FVector::RightVector, -0.4);
+	FOpenMobileVectorSensorSample Gravity;
+	Gravity.Header.Sensor.Type = EOpenMobileSensorType::Gravity;
+	Gravity.Header.bValid = true;
+	Gravity.Value = ReferenceToDevice.RotateVector(-FVector::UpVector);
+	FOpenMobileSensorUnitConverter::NormalizeVectorSample(EOpenMobileSensorNativePlatform::IOS, Gravity);
+	FOpenMobileSensorCoordinateConverter::ConvertVectorSample(EOpenMobileSensorNativePlatform::IOS, Gravity);
+	FOpenMobileAttitudeSensorSample Attitude;
+	Attitude.Header.bValid = true;
+	Attitude.Quaternion = ReferenceToDevice;
+	FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(EOpenMobileSensorNativePlatform::IOS, Attitude);
+	TestTrue(TEXT("Canonical attitude rotates device gravity back into world down"),
+		Attitude.Quaternion.RotateVector(Gravity.Value).Equals(FVector(0, 0, -9.80665), 1.e-8));
 	return true;
 }
 

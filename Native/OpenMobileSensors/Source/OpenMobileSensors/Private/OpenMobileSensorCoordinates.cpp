@@ -69,12 +69,15 @@ FQuat FOpenMobileSensorCoordinateConverter::ConvertQuaternion(
 	const FQuat& NativeQuaternion
 )
 {
-	static_cast<void>(Platform);
+	// Core Motion maps reference vectors into device space; Android's
+	// rotation vector maps device vectors into its reference space.
+	const FQuat DeviceToReference = Platform == EOpenMobileSensorNativePlatform::IOS
+		? NativeQuaternion.Inverse() : NativeQuaternion;
 	FQuat Converted(
-		-NativeQuaternion.Y,
-		-NativeQuaternion.X,
-		-NativeQuaternion.Z,
-		NativeQuaternion.W
+		-DeviceToReference.Y,
+		-DeviceToReference.X,
+		-DeviceToReference.Z,
+		DeviceToReference.W
 	);
 	Converted.Normalize();
 	return Converted;
@@ -123,6 +126,17 @@ bool FOpenMobileSensorCoordinateConverter::ConvertAttitudeSample(
 	if (bValid)
 	{
 		Sample.Quaternion = ConvertQuaternion(Platform, Sample.Quaternion);
+		if (Platform == EOpenMobileSensorNativePlatform::IOS
+			&& (Sample.ReferenceFrame == EOpenMobileAttitudeReferenceFrame::MagneticNorth
+				|| Sample.ReferenceFrame == EOpenMobileAttitudeReferenceFrame::TrueNorth))
+		{
+			// Core Motion's world basis is north/west/up; Android's is
+			// east/north/up. In the reflected Unreal basis this is a -90
+			// degree world rotation, applied before the device orientation.
+			Sample.Quaternion = FQuat(FVector::UpVector, -UE_DOUBLE_PI * 0.5)
+				* Sample.Quaternion;
+			Sample.Quaternion.Normalize();
+		}
 		UpdateEulerAndRotationMatrix(Sample);
 	}
 	MarkConverted(Sample.Header, bValid);
