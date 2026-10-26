@@ -14,6 +14,7 @@
 namespace OpenMobileIOS
 {
 	constexpr CGFloat MaxTextureDimension = 4096.0;
+	constexpr unsigned long long MaxSourceBytes = 256ull * 1024 * 1024;
 
 	UIViewController* TopViewController(UIViewController* Controller)
 	{
@@ -120,18 +121,32 @@ static OpenMobilePhotoPickerDelegate* GOpenMobilePhotoPickerDelegate = nil;
 	}
 
 	NSString* typeIdentifier = [selectedTypeIdentifier copy];
-	[provider loadDataRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSData* data, NSError* loadError)
+	[provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL* sourceURL, NSError* loadError)
 	{
 		@autoreleasepool
 		{
-			if (!data || loadError)
+			if (!sourceURL || loadError)
 			{
 				NSString* detail = loadError.localizedDescription ?: @"No image data was returned.";
 				OpenMobileIOS::Fail(RequestId, [@"The selected iOS photo could not be loaded: " stringByAppendingString:detail]);
 				return;
 			}
 
-			CGImageSourceRef imageSource = CGImageSourceCreateWithData((__bridge CFDataRef)data, nullptr);
+			// The provider owns this temporary file until the callback returns.
+			// Inspect it before decoding rather than materializing the full input.
+			NSNumber* sourceSize = nil;
+			NSError* sizeError = nil;
+			if (!sourceURL.isFileURL
+				|| ![sourceURL getResourceValue:&sourceSize forKey:NSURLFileSizeKey error:&sizeError]
+				|| !sourceSize || sourceSize.unsignedLongLongValue == 0
+				|| sourceSize.unsignedLongLongValue > OpenMobileIOS::MaxSourceBytes)
+			{
+				OpenMobileIOS::Fail(RequestId, @"The selected photo must be a readable image no larger than 256 MiB.");
+				return;
+			}
+			CGImageSourceRef imageSource = CGImageSourceCreateWithURL(
+				(__bridge CFURLRef)sourceURL,
+				(__bridge CFDictionaryRef)@{(__bridge NSString*)kCGImageSourceShouldCache: @NO});
 			if (!imageSource)
 			{
 				OpenMobileIOS::Fail(RequestId, @"iOS could not inspect the selected image format.");
@@ -254,7 +269,7 @@ static OpenMobilePhotoPickerDelegate* GOpenMobilePhotoPickerDelegate = nil;
 			NSMutableDictionary* metadata = [@{
 				@"fileName": fileName,
 				@"mimeType": mimeType,
-				@"fileSizeBytes": @(data.length),
+				@"fileSizeBytes": sourceSize,
 				@"width": width,
 				@"height": height,
 				@"dateTaken": dateTaken,
