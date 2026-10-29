@@ -81,6 +81,7 @@ namespace OpenMobileIOS
 @interface OpenMobilePhotoPickerDelegate : NSObject <PHPickerViewControllerDelegate>
 @property(nonatomic, assign) int64 requestId;
 @property(nonatomic, weak) PHPickerViewController* picker;
+- (void)processResults:(NSArray<PHPickerResult*>*)results requestId:(int64)RequestId;
 @end
 
 static OpenMobilePhotoPickerDelegate* GOpenMobilePhotoPickerDelegate = nil;
@@ -94,8 +95,15 @@ static OpenMobilePhotoPickerDelegate* GOpenMobilePhotoPickerDelegate = nil;
 	{
 		GOpenMobilePhotoPickerDelegate = nil;
 	}
-	[picker dismissViewControllerAnimated:YES completion:nil];
+	// Keep the native request active until UIKit has finished dismissing.
+	// Cancellation and decode failures may synchronously trigger another pick.
+	[picker dismissViewControllerAnimated:YES completion:^{
+		[self processResults:results requestId:RequestId];
+	}];
+}
 
+- (void)processResults:(NSArray<PHPickerResult*>*)results requestId:(int64)RequestId
+{
 	if (results.count == 0)
 	{
 		FOpenMobileMediaPlatform::NativeCancelled(RequestId);
@@ -323,6 +331,12 @@ bool FOpenMobileMediaIOSBackend::LaunchPhotoPicker(int64 RequestId, FString& Out
 			if (!presenter)
 			{
 				OpenMobileIOS::Fail(RequestId, @"Unreal's iOS view controller is unavailable.");
+				return;
+			}
+			if (!presenter.view.window || presenter.isBeingPresented
+				|| presenter.isBeingDismissed || presenter.presentedViewController)
+			{
+				OpenMobileIOS::Fail(RequestId, @"The iOS view controller is not ready to present a photo picker.");
 				return;
 			}
 
