@@ -328,6 +328,7 @@ static NSMutableSet<NSNumber*>* GOpenMobileAppOpenAdLoadRequests = nil;
 @property(nonatomic, assign) CGFloat bottomMargin;
 @property(nonatomic, assign) GADAdSize currentAdSize;
 @property(nonatomic, assign) BOOL initialLoadComplete;
+@property(nonatomic, assign) BOOL explicitLoadInProgress;
 @property(nonatomic, assign) BOOL bannerReady;
 @property(nonatomic, assign) BOOL notifyShownAfterLoad;
 @property(nonatomic, assign) BOOL layoutRefreshScheduled;
@@ -492,6 +493,7 @@ static void LoadOpenMobileBannerView(
 {
 	DestroyOpenMobileBannerView(Handler);
 	Handler.bannerReady = NO;
+	Handler.explicitLoadInProgress = YES;
 	GADBannerView* BannerView = [[GADBannerView alloc] initWithAdSize:AdSize];
 	Handler.bannerView = BannerView;
 	Handler.currentAdSize = AdSize;
@@ -994,6 +996,7 @@ static BOOL AttachOpenMobileBanner(
 	{
 		return;
 	}
+	self.explicitLoadInProgress = NO;
 	if (!self.initialLoadComplete)
 	{
 		self.bannerReady = YES;
@@ -1035,6 +1038,13 @@ static BOOL AttachOpenMobileBanner(
 	}
 	NSString* Detail = error.localizedDescription ?: @"Unknown banner load error.";
 	NSString* Message = [@"Banner failed to load: " stringByAppendingString:Detail];
+	const BOOL ExplicitLoadFailed = self.explicitLoadInProgress;
+	self.explicitLoadInProgress = NO;
+	if (self.initialLoadComplete && !ExplicitLoadFailed)
+	{
+		// Leave automatic refresh recovery and the current view with the SDK.
+		return;
+	}
 	if (self.initialLoadComplete)
 	{
 		if (self.showRequestId > 0)

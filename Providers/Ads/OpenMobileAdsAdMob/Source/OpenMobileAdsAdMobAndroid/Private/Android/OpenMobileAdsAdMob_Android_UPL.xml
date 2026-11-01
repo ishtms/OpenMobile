@@ -182,6 +182,7 @@ import java.util.Set;
         int loadedWidth = 0;
         int loadedHeight = 0;
         boolean initialLoadComplete = false;
+        boolean explicitLoadInProgress = false;
         boolean bannerReady = false;
         boolean notifyShownAfterLoad = false;
 
@@ -504,6 +505,7 @@ import java.util.Set;
     {
         destroyOpenMobileBannerView(entry);
         entry.bannerReady = false;
+        entry.explicitLoadInProgress = true;
         final AdView adView = new AdView(GameActivity.this);
         entry.adView = adView;
         entry.loadedWidth = adSize.getWidth();
@@ -524,6 +526,7 @@ import java.util.Set;
                     return;
                 }
                 entry.bannerReady = true;
+                entry.explicitLoadInProgress = false;
                 if (!entry.initialLoadComplete)
                 {
                     entry.initialLoadComplete = true;
@@ -568,6 +571,14 @@ import java.util.Set;
                     return;
                 }
                 final boolean initialLoadFailed = !entry.initialLoadComplete;
+                final boolean explicitLoadFailed = entry.explicitLoadInProgress;
+                entry.explicitLoadInProgress = false;
+                if (!initialLoadFailed &amp;&amp; !explicitLoadFailed)
+                {
+                    // The SDK owns automatic refresh and its next retry.
+                    // Keep the displayed ad and the active show alive.
+                    return;
+                }
                 if (initialLoadFailed)
                 {
                     openMobileBannerAds.remove(entry.loadRequestId);
