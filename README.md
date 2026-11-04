@@ -31,22 +31,22 @@ The gameplay plugins have Blueprint nodes and C++ APIs. Core and Permissions pro
 
 ### What to download
 
-Download the plugins from [v0.1.1](/ishtms/OpenMobile/releases/tag/v0.1.1). Each has its own ZIP. These are **source plugins for Unreal Engine 5.8**, so you'll need to compile them for your project.
+Download the plugins from [v0.2.1](/ishtms/OpenMobile/releases/tag/v0.2.1). Each has its own ZIP. These are **source plugins for Unreal Engine 5.8**, so you'll need to compile them for your project.
 
-Start with [OpenMobileCore](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileCore-v0.1.1-UE5.8-Source.zip), which is required by every feature. Then pick what you want to use.
+Start with [OpenMobileCore](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileCore-v0.2.1-UE5.8-Source.zip), which is required by every feature. Then pick what you want to use.
 
 | You want | Download alongside Core |
 | --- | --- |
-| Device information | [Device](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileDevice-v0.1.1-UE5.8-Source.zip) |
-| Haptics | [Haptics](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileHaptics-v0.1.1-UE5.8-Source.zip) |
-| Sensors | [Sensors](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileSensors-v0.1.1-UE5.8-Source.zip) and [Permissions](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobilePermissions-v0.1.1-UE5.8-Source.zip) |
-| Photo picking | [Media](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileMedia-v0.1.1-UE5.8-Source.zip) |
-| Shared permission services in C++ | [Permissions](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobilePermissions-v0.1.1-UE5.8-Source.zip) |
-| AdMob ads | [Ads](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAds-v0.1.1-UE5.8-Source.zip) and [AdMob](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMob-v0.1.1-UE5.8-Source.zip) |
+| Device information | [Device](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileDevice-v0.2.1-UE5.8-Source.zip) |
+| Haptics | [Haptics](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileHaptics-v0.2.1-UE5.8-Source.zip) |
+| Sensors | [Sensors](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileSensors-v0.2.1-UE5.8-Source.zip) and [Permissions](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobilePermissions-v0.2.1-UE5.8-Source.zip) |
+| Photo picking | [Media](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileMedia-v0.2.1-UE5.8-Source.zip) |
+| Shared permission services in C++ | [Permissions](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobilePermissions-v0.2.1-UE5.8-Source.zip) |
+| AdMob ads | [Ads](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAds-v0.2.1-UE5.8-Source.zip) and [AdMob](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMob-v0.2.1-UE5.8-Source.zip) |
 
-For haptics integrations, add [UMG](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileHapticsUMG-v0.1.1-UE5.8-Source.zip), [Gameplay Abilities](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileHapticsGameplayAbilities-v0.1.1-UE5.8-Source.zip), or [Sequencer](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileHapticsSequencer-v0.1.1-UE5.8-Source.zip). Each also needs Haptics and Core. The Gameplay Abilities integration uses Unreal's built-in **Gameplay Abilities** plugin too.
+For haptics integrations, add [UMG](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileHapticsUMG-v0.2.1-UE5.8-Source.zip), [Gameplay Abilities](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileHapticsGameplayAbilities-v0.2.1-UE5.8-Source.zip), or [Sequencer](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileHapticsSequencer-v0.2.1-UE5.8-Source.zip). Each also needs Haptics and Core. The Gameplay Abilities integration uses Unreal's built-in **Gameplay Abilities** plugin too.
 
-For AdMob mediation, add only the networks you use - [AppLovin](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMobAppLovin-v0.1.1-UE5.8-Source.zip), [Chartboost](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMobChartboost-v0.1.1-UE5.8-Source.zip), [Liftoff Monetize](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMobLiftoffMonetize-v0.1.1-UE5.8-Source.zip), [Meta](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMobMeta-v0.1.1-UE5.8-Source.zip), or [Unity Ads](/ishtms/OpenMobile/releases/download/v0.1.1/OpenMobileAdsAdMobUnity-v0.1.1-UE5.8-Source.zip). Every adapter needs Core, Ads, and AdMob installed alongside it.
+For AdMob mediation, add only the networks you use - [AppLovin](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMobAppLovin-v0.2.1-UE5.8-Source.zip), [Chartboost](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMobChartboost-v0.2.1-UE5.8-Source.zip), [Liftoff Monetize](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMobLiftoffMonetize-v0.2.1-UE5.8-Source.zip), [Meta](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMobMeta-v0.2.1-UE5.8-Source.zip), or [Unity Ads](/ishtms/OpenMobile/releases/download/v0.2.1/OpenMobileAdsAdMobUnity-v0.2.1-UE5.8-Source.zip). Every adapter needs Core, Ads, and AdMob installed alongside it.
 
 ### What you need
 
