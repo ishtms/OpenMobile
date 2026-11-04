@@ -1657,6 +1657,27 @@ void FOpenMobileAdsAdMobPlatform::NativeBannerOperationFailed(
 	});
 }
 
+void FOpenMobileAdsAdMobPlatform::NativeBannerRefreshed(int64 RequestId)
+{
+	OpenMobile::DispatchToGameThread([RequestId]
+	{
+		using namespace OpenMobileAdsAdMobPlatformPrivate;
+		if (FShowOperation* Operation = ShowOperations.Find(RequestId))
+		{
+			if (Operation->Format == EOpenMobileAdFormat::Banner
+				|| Operation->Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+				|| Operation->Format == EOpenMobileAdFormat::MediumRectangle)
+			{
+				FOpenMobileAdsEvent Event;
+				Event.Type = EOpenMobileAdsEventType::Refreshed;
+				Event.RequestId = Operation->RequestId;
+				Event.CachedAdId = Operation->CachedAdId;
+				Operation->EventSink->Submit(MoveTemp(Event));
+			}
+		}
+	});
+}
+
 void FOpenMobileAdsAdMobPlatform::NativeImpression(int64 RequestId)
 {
 	OpenMobile::DispatchToGameThread([RequestId]

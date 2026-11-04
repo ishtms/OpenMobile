@@ -196,6 +196,8 @@ public:
 	);
 	/** Marks the matching banner show visible after native view attachment succeeds. */
 	static void NativeBannerShown(int64 RequestId);
+	/** Starts a new impression/revenue cycle for a visible banner's refreshed creative. */
+	static void NativeBannerRefreshed(int64 RequestId);
 	/** Marks the matching banner hidden while leaving its loaded object reusable. */
 	static void NativeBannerHidden(int64 RequestId);
 	/** Routes banner show or hide failure through the currently active operation identity. */

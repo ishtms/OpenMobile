@@ -3051,6 +3051,19 @@ bool FOpenMobileAdsAdMobFixedBannerContractTest::RunTest(
 		);
 	}
 
+	FOpenMobileAdsAdMobPlatform::NativeBannerRefreshed(Backend.BannerShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeImpression(Backend.BannerShowRequestId);
+	FOpenMobileAdsAdMobPlatform::NativeRevenuePaid(
+		Backend.BannerShowRequestId, 2500, TEXT("USD"),
+		static_cast<int32>(EOpenMobileAdsRevenuePrecision::Estimated), RevenueSource);
+	TestEqual(TEXT("A refreshed banner forwards its new accounting cycle"), ShowSink->Events.Num(), 7);
+	if (ShowSink->Events.Num() == 7)
+	{
+		TestEqual(TEXT("Refresh arrives before the new impression"), ShowSink->Events[4].Type, EOpenMobileAdsEventType::Refreshed);
+		TestEqual(TEXT("Refresh retains the active show request"), ShowSink->Events[4].RequestId, Show.RequestId);
+		TestEqual(TEXT("Refresh retains the native cache"), ShowSink->Events[4].CachedAdId, CachedAdId);
+	}
+
 	FOpenMobileAdsHideRequest Hide;
 	Hide.RequestId = FGuid::NewGuid();
 	Hide.CachedAdId = CachedAdId;

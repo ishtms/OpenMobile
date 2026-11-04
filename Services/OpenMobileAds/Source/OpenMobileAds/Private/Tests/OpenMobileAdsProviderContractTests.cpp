@@ -4009,6 +4009,98 @@ bool FOpenMobileAdsShowCallbackContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FOpenMobileAdsBannerRefreshAccountingTest,
+	"OpenMobile.Ads.ProviderContract.Banner.RefreshAccounting",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter
+)
+
+bool FOpenMobileAdsBannerRefreshAccountingTest::RunTest(const FString& Parameters)
+{
+	static_cast<void>(Parameters);
+	using namespace OpenMobileAdsProviderContractTests;
+	FScopedSettings ScopedSettings;
+	ScopedSettings.Settings->PreferredProvider = TEXT("MockAds");
+	ScopedSettings.Settings->Placements.Reset();
+	FOpenMobileAdsPlacementSettings& Placement = ScopedSettings.Settings->Placements.Emplace_GetRef();
+	Placement.Placement = TEXT("RefreshBanner");
+	Placement.Format = EOpenMobileAdFormat::Banner;
+	Placement.Android.AdUnitId = TEXT("android-refresh-banner");
+	Placement.IOS.AdUnitId = TEXT("ios-refresh-banner");
+	FMockProvider Provider(TEXT("MockAds"));
+	FOpenMobileAdFormatCapabilities Banner;
+	Banner.Format = EOpenMobileAdFormat::Banner;
+	Banner.bCanLoad = true;
+	Banner.bCanShow = true;
+	Banner.bReportsImpression = true;
+	Provider.Capabilities.Formats.Add(Banner);
+	FScopedProviderRegistration Registration(Provider);
+	UOpenMobileAdsSubsystem* Subsystem = NewObject<UOpenMobileAdsSubsystem>(NewObject<UGameInstance>());
+	if (!InitializeSuccessfully(*Subsystem, Provider)
+		|| !Subsystem->LoadAd(Placement.Placement).bAccepted)
+	{
+		Subsystem->Deinitialize();
+		return false;
+	}
+	FOpenMobileAdsEvent Loaded;
+	Loaded.Type = EOpenMobileAdsEventType::Loaded;
+	Loaded.CachedAdId = FGuid::NewGuid();
+	Provider.LoadSink->Submit(Loaded);
+	DrainGameThreadTasks();
+	if (!Subsystem->ShowAd(Placement.Placement).bAccepted)
+	{
+		Subsystem->Deinitialize();
+		return false;
+	}
+	TArray<FOpenMobileAdsEvent> Impressions;
+	TArray<FOpenMobileAdsEvent> Payments;
+	const FDelegateHandle Delegate = Subsystem->OnNativeAdsEvent().AddLambda(
+		[&](const FOpenMobileAdsEvent& Event)
+		{
+			if (Event.Type == EOpenMobileAdsEventType::Impression) Impressions.Add(Event);
+			if (Event.Type == EOpenMobileAdsEventType::RevenuePaid) Payments.Add(Event);
+		});
+	FOpenMobileAdsEvent Shown;
+	Shown.Type = EOpenMobileAdsEventType::Shown;
+	Provider.ShowSink->Submit(Shown);
+	for (int32 Cycle = 0; Cycle < 3; ++Cycle)
+	{
+		if (Cycle > 0)
+		{
+			FOpenMobileAdsEvent Refreshed;
+			Refreshed.Type = EOpenMobileAdsEventType::Refreshed;
+			Provider.ShowSink->Submit(Refreshed);
+		}
+		FOpenMobileAdsEvent Impression;
+		Impression.Type = EOpenMobileAdsEventType::Impression;
+		Provider.ShowSink->Submit(Impression);
+		Provider.ShowSink->Submit(Impression);
+		FOpenMobileAdsEvent Paid;
+		Paid.Type = EOpenMobileAdsEventType::RevenuePaid;
+		Paid.bHasRevenue = true;
+		Paid.Revenue.ValueMicros = 2500;
+		Paid.Revenue.CurrencyCode = TEXT("USD");
+		Provider.ShowSink->Submit(Paid);
+		Provider.ShowSink->Submit(Paid);
+	}
+	DrainGameThreadTasks();
+	TestEqual(TEXT("Each creative contributes one impression"), Impressions.Num(), 3);
+	TestEqual(TEXT("Equal payments from different creatives are retained"), Payments.Num(), 3);
+	for (int32 Index = 0; Index < FMath::Min(Impressions.Num(), Payments.Num()); ++Index)
+	{
+		TestEqual(TEXT("Payment identifies its impression"), Payments[Index].ImpressionId, Impressions[Index].ImpressionId);
+		TestEqual(TEXT("Every creative starts a new revenue revision"), Payments[Index].Revenue.Revision, 1);
+		TestFalse(TEXT("A refreshed creative's payment is not an update"), Payments[Index].Revenue.bIsUpdate);
+		if (Index > 0)
+		{
+			TestTrue(TEXT("Refreshed impressions have distinct identities"), Impressions[Index].ImpressionId != Impressions[Index - 1].ImpressionId);
+		}
+	}
+	Subsystem->OnNativeAdsEvent().Remove(Delegate);
+	Subsystem->Deinitialize();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FOpenMobileAdsImpressionCallbackContractTest,
 	"OpenMobile.Ads.ProviderContract.Impression.Callback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter

@@ -1253,6 +1253,16 @@ JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdS
 	FOpenMobileAdsAdMobPlatform::NativeBannerShown(static_cast<int64>(RequestId));
 }
 
+/** Starts a fresh accounting cycle when the SDK loads another banner creative. */
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdRefreshed(
+	JNIEnv* Env,
+	jobject Activity,
+	jlong RequestId
+)
+{
+	FOpenMobileAdsAdMobPlatform::NativeBannerRefreshed(static_cast<int64>(RequestId));
+}
+
 /** Marks the matching banner hidden while preserving its loaded Java object. */
 JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeOpenMobileBannerAdHidden(
 	JNIEnv* Env,

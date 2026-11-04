@@ -283,6 +283,7 @@ import java.util.Set;
         String errorMessage
     );
     public native void nativeOpenMobileBannerAdShown(long requestId);
+    public native void nativeOpenMobileBannerAdRefreshed(long requestId);
     public native void nativeOpenMobileBannerAdHidden(long requestId);
     public native void nativeOpenMobileBannerAdOperationFailed(
         long requestId,
@@ -535,6 +536,7 @@ import java.util.Set;
                 }
                 if (entry.showRequestId != 0)
                 {
+                    nativeOpenMobileBannerAdRefreshed(entry.showRequestId);
                     try
                     {
                         attachOpenMobileBanner(entry);
@@ -2926,6 +2928,7 @@ import java.util.Set;
         java.lang.String
     );
     public native void nativeOpenMobileBannerAdShown(long);
+    public native void nativeOpenMobileBannerAdRefreshed(long);
     public native void nativeOpenMobileBannerAdHidden(long);
     public native void nativeOpenMobileBannerAdOperationFailed(long, java.lang.String);
     public native void nativeOpenMobileBannerAdImpression(long);

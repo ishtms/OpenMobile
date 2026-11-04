@@ -1011,6 +1011,7 @@ static BOOL AttachOpenMobileBanner(
 	}
 	self.bannerReady = YES;
 
+	FOpenMobileAdsAdMobPlatform::NativeBannerRefreshed(self.showRequestId);
 	NSString* Error = nil;
 	if (!AttachOpenMobileBanner(self, &Error))
 	{

@@ -762,7 +762,17 @@ namespace OpenMobileAdsPrivate
 
 			case EOpenMobileAdsEventType::Impression:
 			case EOpenMobileAdsEventType::Clicked:
+				return true;
+
 			case EOpenMobileAdsEventType::Refreshed:
+				if (Format == EOpenMobileAdFormat::Banner
+					|| Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+					|| Format == EOpenMobileAdFormat::MediumRectangle)
+				{
+					ImpressionId = FGuid::NewGuid();
+					Event.ImpressionId = ImpressionId;
+					RevenueReports.Reset();
+				}
 				return true;
 
 			case EOpenMobileAdsEventType::RevenuePaid:
@@ -6567,8 +6577,20 @@ void UOpenMobileAdsSubsystem::HandleProviderEvent(FOpenMobileAdsEvent Event)
 		}
 		break;
 
-	case EOpenMobileAdsEventType::PlacementStateChanged:
 	case EOpenMobileAdsEventType::Refreshed:
+		if (Status->ActiveRequestId == Event.RequestId)
+		{
+			if (Status->Format == EOpenMobileAdFormat::Banner
+				|| Status->Format == EOpenMobileAdFormat::AnchoredAdaptiveBanner
+				|| Status->Format == EOpenMobileAdFormat::MediumRectangle)
+			{
+				ImpressedCachedAds.Remove(Status->CachedAdId);
+			}
+			bBroadcast = true;
+		}
+		break;
+
+	case EOpenMobileAdsEventType::PlacementStateChanged:
 		bBroadcast = Status->ActiveRequestId == Event.RequestId;
 		break;
 
